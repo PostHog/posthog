@@ -7,7 +7,7 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
+import { ReactNode, useCallback, useMemo, useRef } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -16,7 +16,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { posthog } from 'posthog-js'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
@@ -49,10 +48,11 @@ export function NodeWrapper({
     getPos,
     updateAttributes,
 }: NodeWrapperProps & NodeViewProps): JSX.Element {
-    const { shortId } = useValues(notebookLogic)
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
     const nodeLogicProps = {
+        nodeType,
+        nodeAttributes: node.attrs,
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
@@ -67,19 +67,6 @@ export function NodeWrapper({
 
     // If resizeable is true then the node attr "height" is required
     const height = node.attrs.height
-
-    useEffect(() => {
-        if (selected) {
-            setExpanded(true)
-        }
-
-        if (selected && shortId) {
-            posthog.capture('notebook node selected', {
-                node_type: nodeType,
-                short_id: shortId,
-            })
-        }
-    }, [selected])
 
     const onResizeStart = useCallback((): void => {
         if (!resizeable) {
@@ -149,6 +136,7 @@ export function NodeWrapper({
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={expanded && resizeable ? { height, minHeight } : {}}
+                                    onClick={!expanded ? () => setExpanded(true) : undefined}
                                     onMouseDown={onResizeStart}
                                 >
                                     {children}

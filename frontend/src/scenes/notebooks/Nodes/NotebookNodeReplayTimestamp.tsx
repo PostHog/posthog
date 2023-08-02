@@ -8,7 +8,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
 import clsx from 'clsx'
-import { findPositionOfClosestNodeMatchingAttrs, hasMatchingNode } from '../Notebook/Editor'
+import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
 import { Link } from '@posthog/lemon-ui'
 import { openNotebook } from '../Notebook/notebooksListLogic'
@@ -18,16 +18,13 @@ import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import { useMemo } from 'react'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const { shortId, content } = useValues(notebookLogic)
+    const { shortId, findNodeLogic } = useValues(notebookLogic)
     const sessionRecordingId: string = props.node.attrs.sessionRecordingId
     const playbackTime: number = props.node.attrs.playbackTime
 
     const recordingNodeInNotebook = useMemo(() => {
-        return hasMatchingNode(content.content, {
-            type: NotebookNodeType.Recording,
-            attrs: { id: sessionRecordingId },
-        })
-    }, [content])
+        return findNodeLogic(NotebookNodeType.Recording, { id: sessionRecordingId })
+    }, [findNodeLogic])
 
     const handlePlayInNotebook = (): void => {
         const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)

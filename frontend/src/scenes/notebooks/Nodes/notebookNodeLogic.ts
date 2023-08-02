@@ -1,11 +1,28 @@
-import { kea, props, key, path, BuiltLogic, selectors, actions, listeners, reducers, defaults } from 'kea'
+import {
+    kea,
+    props,
+    key,
+    path,
+    BuiltLogic,
+    selectors,
+    actions,
+    listeners,
+    reducers,
+    defaults,
+    afterMount,
+    beforeUnmount,
+} from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { JSONContent } from '../Notebook/utils'
+import { NotebookNodeType } from '~/types'
+import posthog from 'posthog-js'
 
 export type NotebookNodeLogicProps = {
     nodeId: string
+    nodeType: NotebookNodeType
+    nodeAttributes: Record<string, any>
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     title: string
@@ -66,7 +83,24 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
             logic.values.editor?.insertContentAfterNode(insertionPosition, content)
         },
+
+        setExpanded: ({ expanded }) => {
+            if (expanded) {
+                posthog.capture('notebook node selected', {
+                    node_type: props.nodeType,
+                    short_id: props.notebookLogic.props.shortId,
+                })
+            }
+        },
     })),
+
+    afterMount((logic) => {
+        logic.props.notebookLogic.actions.registerNodeLogic(logic)
+    }),
+
+    beforeUnmount((logic) => {
+        logic.props.notebookLogic.actions.unregisterNodeLogic(logic)
+    }),
 ])
 
 export const NotebookNodeContext = createContext<BuiltLogic<notebookNodeLogicType> | undefined>(undefined)
