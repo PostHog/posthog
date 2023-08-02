@@ -34,7 +34,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
 
     return (
         <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between min-h-10 px-2">
                 <Link to={url} className="flex gap-2 items-center">
                     <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
                 </Link>
