@@ -6,7 +6,9 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
 .funnel-bar-graph {
     min-height: 100%;
-    padding: 1rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+    padding-bottom: 1rem;
 
     .ant-popover {
         .ant-popover-content {
