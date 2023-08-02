@@ -6,11 +6,12 @@ import { defaultConfig } from './config/config'
 import { initApp } from './init'
 import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { startPluginsServer } from './main/pluginsServer'
-import { Hub, RawClickHouseEvent } from './types'
+import { Hub, RawClickHouseEvent, TimestampFormat } from './types'
 import { DB } from './utils/db/db'
 import { createHub } from './utils/db/hub'
 import { formPluginEvent } from './utils/event'
 import { Status } from './utils/status'
+import { castTimestampToClickhouseFormat } from './utils/utils'
 import { PersonState } from './worker/ingestion/person-state'
 import { makePiscina } from './worker/piscina'
 
@@ -87,8 +88,7 @@ async function startBackfill() {
     await closeHub()
 }
 
-// eslint-disable-next-line @typescript-eslint/require-await
-async function runBackfill(_hub: Hub) {
+async function runBackfill(hub: Hub) {
     const lower_bound = DateTime.fromISO(process.env.BACKFILL_START!)
     assert.ok(lower_bound.isValid, 'BACKFILL_START is an invalid time: ' + lower_bound.invalidReason)
     const upper_bound = DateTime.fromISO(process.env.BACKFILL_END!)
@@ -103,21 +103,49 @@ async function runBackfill(_hub: Hub) {
     })
 
     const windows = Interval.fromDateTimes(lower_bound, upper_bound).splitBy(step)
-    windows.forEach(function (window: Interval) {
+    for (const window of windows) {
         status.info('🕰', 'Processing events in window', {
             window,
         })
 
-        // TODO: process the window
+        const events = await retrieveEvents(hub.db, window)
+        await handleBatch(hub.db, events)
 
         status.info('✅', 'Successfully processed events in window', {
             window,
         })
-    })
+    }
+}
+
+async function retrieveEvents(db: DB, window: Interval): Promise<RawClickHouseEvent[]> {
+    const chTimestampLower = castTimestampToClickhouseFormat(window.start, TimestampFormat.ClickHouseSecondPrecision)
+    const chTimestampHigher = castTimestampToClickhouseFormat(window.end, TimestampFormat.ClickHouseSecondPrecision)
+
+    // :TODO: Adding tag messes up the return value?
+    const fetchEventsQuery = `
+        SELECT event,
+               uuid,
+               team_id,
+               distinct_id,
+               properties,
+               timestamp,
+               created_at,
+               elements_chain
+        FROM events
+        WHERE _timestamp >= '${chTimestampLower}'
+          AND _timestamp < '${chTimestampHigher}'
+          AND event IN ('$merge_dangerously', '$create_alias', '$identify')
+          AND ((event = '$identify' and JSONExtractString(properties, '$anon_distinct_id') != '') OR
+               (event != '$identify' and JSONExtractString(properties, 'alias') != ''))
+        ORDER BY _timestamp`
+
+    let clickhouseFetchEventsResult: { data: RawClickHouseEvent[] }
+    // eslint-disable-next-line prefer-const
+    clickhouseFetchEventsResult = await db.clickhouseQuery<RawClickHouseEvent>(fetchEventsQuery)
+    return clickhouseFetchEventsResult.data
 }
 
 // run merges parallel across teams, non-parallel within teams
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function handleBatch(db: DB, events: RawClickHouseEvent[]): Promise<void> {
     const batches = new Map<number, RawClickHouseEvent[]>()
     for (const event of events) {
