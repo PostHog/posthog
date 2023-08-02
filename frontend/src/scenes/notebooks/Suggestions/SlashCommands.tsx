@@ -15,7 +15,7 @@ const Component = (): JSX.Element => {
                 actionable: true,
                 closeParentPopoverOnClickInside: true,
             }}
-            className="ml-1"
+            className="NotebookFloatingButton__plus ml-1"
         />
     )
 }

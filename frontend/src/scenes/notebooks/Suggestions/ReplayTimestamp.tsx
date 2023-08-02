@@ -6,6 +6,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { useValues } from 'kea'
 import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
 import { Node, NotebookEditor } from '../Notebook/utils'
+import { LemonButton } from '@posthog/lemon-ui'
 
 const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element => {
     const { currentPlayerTime } = useValues(
@@ -13,8 +14,10 @@ const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element 
     )
 
     return (
-        <div className="NotebookRecordingTimestamp NotebookRecordingTimestamp--preview">
-            {formatTimestamp(currentPlayerTime)}
+        <div className="NotebookRecordingTimestamp opacity-50">
+            <LemonButton size="small" noPadding type="secondary" status="primary-alt">
+                <span className="p-1">{formatTimestamp(currentPlayerTime)}</span>
+            </LemonButton>
         </div>
     )
 }

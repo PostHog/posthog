@@ -34,7 +34,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeViewWrapper
             as="span"
-            class={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
+            className={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
         >
             <Link
                 to={href}

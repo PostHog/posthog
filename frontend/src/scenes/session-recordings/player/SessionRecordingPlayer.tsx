@@ -26,7 +26,7 @@ import { urls } from 'scenes/urls'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
-    includeMeta?: boolean
+    noMeta?: boolean
     noBorder?: boolean
     noInspector?: boolean
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -44,7 +44,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingId,
         sessionRecordingData,
         playerKey,
-        includeMeta = true,
+        noMeta = false,
         recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matching,
         matchingEventsMatchType,
@@ -156,24 +156,26 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                         'SessionRecordingPlayer--fullscreen': isFullScreen,
                         'SessionRecordingPlayer--no-border': noBorder,
                         'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
-                        'SessionRecordingPlayer--explorer-mode': !!explorerMode,
                         'SessionRecordingPlayer--inspector-focus': inspectorFocus,
                         'SessionRecordingPlayer--inspector-hidden': noInspector,
                     })}
                     onClick={incrementClickCount}
                 >
-                    <div className="SessionRecordingPlayer__main">
-                        {includeMeta || isFullScreen ? <PlayerMeta /> : null}
-                        <div className="SessionRecordingPlayer__body">
-                            <PlayerFrame />
-                            <PlayerFrameOverlay />
-                        </div>
-                        <LemonDivider className="my-0" />
-                        <PlayerController />
-                    </div>
-                    {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
-                    {explorerMode && (
+                    {explorerMode ? (
                         <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
+                    ) : (
+                        <>
+                            <div className="SessionRecordingPlayer__main">
+                                {!noMeta || isFullScreen ? <PlayerMeta /> : null}
+                                <div className="SessionRecordingPlayer__body">
+                                    <PlayerFrame />
+                                    <PlayerFrameOverlay />
+                                </div>
+                                <LemonDivider className="my-0" />
+                                <PlayerController />
+                            </div>
+                            {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
+                        </>
                     )}
                 </div>
             </DraggableToNotebook>

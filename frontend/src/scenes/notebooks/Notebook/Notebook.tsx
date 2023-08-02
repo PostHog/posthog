@@ -69,7 +69,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
                 {notebook.is_template && (
                     <LemonBanner
                         type="info"
