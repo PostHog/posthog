@@ -102,6 +102,11 @@ async function runBackfill(hub: Hub) {
         step,
     })
 
+    let interrupted = false
+    process.on('SIGINT', function () {
+        interrupted = true
+    })
+
     const windows = Interval.fromDateTimes(lower_bound, upper_bound).splitBy(step)
     for (const window of windows) {
         status.info('🕰', 'Processing events in window', {
@@ -114,6 +119,10 @@ async function runBackfill(hub: Hub) {
         status.info('✅', 'Successfully processed events in window', {
             window,
         })
+        if (interrupted) {
+            status.info('🛑', 'Stopping processing due to SIGINT')
+            break
+        }
     }
 }
 
