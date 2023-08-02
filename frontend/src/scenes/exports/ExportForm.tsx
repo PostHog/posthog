@@ -122,6 +122,7 @@ export function ExportForm({ exportId }: ExportFormProps): JSX.Element {
                     </PureField>
                 </Col>
             </Row>
+
             <LemonDivider />
 
             <Row gutter={16} style={{ marginBottom: 32 }}>
@@ -204,7 +205,9 @@ export function ExportForm({ exportId }: ExportFormProps): JSX.Element {
                     </PureField>
                 </Col>
             </Row>
+
             <LemonDivider />
+
             {exportType === 'S3' && (
                 <ExportS3Form
                     nameRef={nameRef}
