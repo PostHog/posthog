@@ -12,6 +12,7 @@ import {
     Color,
     InteractionItem,
     TickOptions,
+    GridLineOptions,
     TooltipModel,
     TooltipOptions,
     ScriptableLineSegmentContext,
@@ -357,6 +358,10 @@ export function LineGraph_({
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
         }
+        const gridOptions: Partial<GridLineOptions> = {
+            borderColor: colors.axisLine as string,
+            borderDash: [4, 2],
+        }
 
         const tooltipOptions: Partial<TooltipOptions> = {
             enabled: false, // disable builtin tooltip (use custom markup)
@@ -539,6 +544,7 @@ export function LineGraph_({
                         precision,
                         color: colors.axisLabel as string,
                     },
+                    grid: gridOptions,
                 },
                 y: {
                     beginAtZero: true,
@@ -550,6 +556,7 @@ export function LineGraph_({
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
+                    grid: gridOptions,
                 },
             }
         } else if (type === GraphType.Line) {
@@ -559,9 +566,8 @@ export function LineGraph_({
                     display: true,
                     ticks: tickOptions,
                     grid: {
-                        display: true,
+                        ...gridOptions,
                         drawOnChartArea: false,
-                        borderColor: colors.axisLine as string,
                         tickLength: 12,
                     },
                 },
@@ -576,9 +582,7 @@ export function LineGraph_({
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
-                    grid: {
-                        borderColor: colors.axisLine as string,
-                    },
+                    grid: gridOptions,
                 },
             }
         } else if (isHorizontal) {
@@ -593,6 +597,7 @@ export function LineGraph_({
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
+                    grid: gridOptions,
                 },
                 y: {
                     beforeFit: (scale) => {
@@ -623,6 +628,7 @@ export function LineGraph_({
                             return labelDescriptors.join(' - ')
                         },
                     },
+                    grid: gridOptions,
                 },
             }
             options.indexAxis = 'y'
