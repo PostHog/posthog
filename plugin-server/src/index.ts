@@ -116,32 +116,37 @@ async function runBackfill(_hub: Hub) {
     })
 }
 
-// TODO: query CH by 10 min chunks from start to end based on envs
 // run merges parallel across teams, non-parallel within teams
-// status log message when done
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function handleBatch(db: DB, events: RawClickHouseEvent[]): Promise<void> {
-    const eventMap = new Map<number, RawClickHouseEvent[]>()
+    const batches = new Map<number, RawClickHouseEvent[]>()
     for (const event of events) {
-        if (eventMap.has(event.team_id)) {
-            eventMap.get(event.team_id)?.push(event)
+        const siblings = batches.get(event.team_id)
+        if (siblings) {
+            siblings.push(event)
         } else {
-            eventMap.set(event.team_id, [event])
+            batches.set(event.team_id, [event])
         }
     }
+    const batchQueue = Array.from(batches.values())
+    status.info('Processing events', {
+        eventCount: events.length,
+        batchCount: batchQueue.length,
+    })
 
-    const promises: Promise<void>[] = []
-    for (const teamEvents of eventMap.values()) {
-        promises.push(handleTeam(db, teamEvents))
+    async function processMicroBatches(batches: RawClickHouseEvent[][]): Promise<void> {
+        let currentBatch
+        while ((currentBatch = batches.pop()) !== undefined) {
+            // Process every message sequentially, stash promises to await on later
+            for (const event of currentBatch) {
+                await handleEvent(db, event)
+            }
+        }
+        return Promise.resolve()
     }
 
-    await Promise.all(promises)
-}
-
-async function handleTeam(db: DB, events: RawClickHouseEvent[]): Promise<void> {
-    for (const event of events) {
-        await handleEvent(db, event)
-    }
+    const tasks = [...Array(20)].map(() => processMicroBatches(batchQueue))
+    await Promise.all(tasks)
 }
 
 async function handleEvent(db: DB, event: RawClickHouseEvent): Promise<void> {
