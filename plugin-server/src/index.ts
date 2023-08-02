@@ -145,7 +145,7 @@ async function handleBatch(db: DB, events: RawClickHouseEvent[]): Promise<void> 
         return Promise.resolve()
     }
 
-    const tasks = [...Array(20)].map(() => processMicroBatches(batchQueue))
+    const tasks = [...Array(defaultConfig.INGESTION_CONCURRENCY)].map(() => processMicroBatches(batchQueue))
     await Promise.all(tasks)
 }
 
