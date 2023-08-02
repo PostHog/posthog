@@ -267,8 +267,8 @@ dependencies:
     specifier: ^4.4.5
     version: 4.4.5(react-dom@16.14.0)(react@16.14.0)
   react-virtualized:
-    specifier: ^9.22.3
-    version: 9.22.3(react-dom@16.14.0)(react@16.14.0)
+    specifier: ^9.22.5
+    version: 9.22.5(react-dom@16.14.0)(react@16.14.0)
   require-from-string:
     specifier: ^2.0.2
     version: 2.0.2
@@ -17187,11 +17187,11 @@ packages:
       tslib: 2.4.1
     dev: false
 
-  /react-virtualized@9.22.3(react-dom@16.14.0)(react@16.14.0):
-    resolution: {integrity: sha512-MKovKMxWTcwPSxE1kK1HcheQTWfuCxAuBoSTf2gwyMM21NdX/PXUhnoP8Uc5dRKd+nKm8v41R36OellhdCpkrw==}
+  /react-virtualized@9.22.5(react-dom@16.14.0)(react@16.14.0):
+    resolution: {integrity: sha512-YqQMRzlVANBv1L/7r63OHa2b0ZsAaDp1UhVNEdUaXI8A5u6hTpA5NYtUueLH2rFuY/27mTGIBl7ZhqFKzw18YQ==}
     peerDependencies:
-      react: ^15.3.0 || ^16.0.0-alpha
-      react-dom: ^15.3.0 || ^16.0.0-alpha
+      react: ^15.3.0 || ^16.0.0-alpha || ^17.0.0 || ^18.0.0
+      react-dom: ^15.3.0 || ^16.0.0-alpha || ^17.0.0 || ^18.0.0
     dependencies:
       '@babel/runtime': 7.20.1
       clsx: 1.2.1

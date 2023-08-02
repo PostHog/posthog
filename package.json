@@ -149,7 +149,7 @@
         "react-textfit": "^1.1.1",
         "react-toastify": "^8.2.0",
         "react-transition-group": "^4.4.5",
-        "react-virtualized": "^9.22.3",
+        "react-virtualized": "^9.22.5",
         "require-from-string": "^2.0.2",
         "resize-observer-polyfill": "^1.5.1",
         "rrweb": "^2.0.0-alpha.9",
