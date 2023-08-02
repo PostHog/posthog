@@ -12,21 +12,9 @@
         margin-left: 1rem;
         margin-right: 1rem;
 
-        g#bars {
-            fill: var(--funnel-default);
-        }
-
-        g#y-gridlines {
-            g.tick:not(:first-child) {
-                color: var(--funnel-axis);
-            }
-
-            .domain,
-            g.tick:nth-of-type(1) {
-                display: none; // hide axis line
-            }
-        }
-
+        /*
+         * Axis
+         */
         g#y-axis {
             .domain {
                 stroke: var(--funnel-axis);
@@ -35,7 +23,7 @@
 
         g#x-axis {
             .domain {
-                stroke: var(--funnel-axis-zero);
+                stroke: var(--funnel-axis);
             }
         }
 
@@ -43,12 +31,35 @@
         g#y-axis {
             text {
                 font-size: 11px;
-                fill: var(--funnel-axis-zero);
+                fill: var(--funnel-axis-label);
 
                 @include screen($md) {
                     font-size: 13px;
                 }
             }
+        }
+
+        /*
+         * Grid
+         */
+        g#y-gridlines {
+            stroke-dasharray: 4, 2;
+
+            g.tick:not(:first-child) {
+                color: var(--funnel-grid);
+            }
+
+            .domain,
+            g.tick:nth-of-type(1) {
+                display: none; // hide axis line
+            }
+        }
+
+        /*
+         * Bars
+         */
+        g#bars {
+            fill: var(--funnel-default);
         }
 
         g#labels {
@@ -57,7 +68,7 @@
                 font-weight: 500;
                 fill: var(--white);
                 &.outside {
-                    fill: var(--funnel-default);
+                    fill: var(--funnel-axis-label);
                 }
             }
         }
