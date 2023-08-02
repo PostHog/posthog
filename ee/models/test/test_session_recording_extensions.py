@@ -94,7 +94,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
         assert (
             recording.object_storage_path
-            == f"session_recordings_lts/team-{self.team.pk}/session-{recording.session_id}"
+            == f"session_recordings_lts/team_id/{self.team.pk}/session_id/{recording.session_id}/data"
         )
         assert recording.start_time == recording.created_at - timedelta(hours=48)
         assert recording.end_time == recording.created_at - timedelta(hours=46)
@@ -158,7 +158,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
             assert (
                 recording.object_storage_path
-                == f"session_recordings_lts/team-{self.team.pk}/session-{recording.session_id}"
+                == f"session_recordings_lts/team_id/{self.team.pk}/session_id/{recording.session_id}/data"
             )
             assert recording.start_time == recording.created_at - timedelta(hours=48)
             assert recording.end_time == recording.created_at - timedelta(hours=46)
