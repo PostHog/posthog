@@ -132,7 +132,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
                     team_id=self.context["team_id"], active=True, deleted=False
                 )
-                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.cohort_ids]) > 0
+                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
 
                 for prop in parsed_filter.property_groups.flat:
                     if prop.type == "behavioral":
