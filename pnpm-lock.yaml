@@ -227,9 +227,6 @@ dependencies:
   react-grid-layout:
     specifier: ^1.3.0
     version: 1.3.4(react-dom@16.14.0)(react@16.14.0)
-  react-input-autosize:
-    specifier: ^3.0.0
-    version: 3.0.0(react@16.14.0)
   react-intersection-observer:
     specifier: ^9.4.3
     version: 9.4.3(react@16.14.0)
@@ -16951,15 +16948,6 @@ packages:
       react-dom: 16.14.0(react@16.14.0)
       react-draggable: 4.4.5(react-dom@16.14.0)(react@16.14.0)
       react-resizable: 3.0.5(react-dom@16.14.0)(react@16.14.0)
-    dev: false
-
-  /react-input-autosize@3.0.0(react@16.14.0):
-    resolution: {integrity: sha512-nL9uS7jEs/zu8sqwFE5MAPx6pPkNAriACQ2rGLlqmKr2sPGtN7TXTyDdQt4lbNXVx7Uzadb40x8qotIuru6Rhg==}
-    peerDependencies:
-      react: ^16.3.0 || ^17.0.0
-    dependencies:
-      prop-types: 15.8.1
-      react: 16.14.0
     dev: false
 
   /react-inspector@5.1.1(react@16.14.0):
