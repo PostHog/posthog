@@ -42,16 +42,11 @@ dependencies:
     specifier: ^2.1.0-rc.12
     version: 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)
   '@tiptap/extension-floating-menu':
-<<<<<<< HEAD
-    specifier: 2.0.3
-    version: 2.0.3(@tiptap/core@2.0.3)(@tiptap/pm@2.0.3)
-  '@tiptap/extension-link':
-    specifier: ^2.0.4
-    version: 2.0.4(@tiptap/core@2.0.3)(@tiptap/pm@2.0.3)
-=======
     specifier: ^2.1.0-rc.12
     version: 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
->>>>>>> master
+  '@tiptap/extension-link':
+    specifier: ^2.1.0-rc.12
+    version: 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
   '@tiptap/extension-placeholder':
     specifier: ^2.1.0-rc.12
     version: 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
@@ -5000,24 +4995,19 @@ packages:
       '@tiptap/core': 2.1.0-rc.12(@tiptap/pm@2.1.0-rc.12)
     dev: false
 
-<<<<<<< HEAD
-  /@tiptap/extension-link@2.0.4(@tiptap/core@2.0.3)(@tiptap/pm@2.0.3):
-    resolution: {integrity: sha512-CliImI1hmC+J6wHxqgz9P4wMjoNSSgm3fnNHsx5z0Bn6JRA4Evh2E3KZAdMaE8xCTx89rKxMYNbamZf4VLSoqQ==}
+  /@tiptap/extension-link@2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12):
+    resolution: {integrity: sha512-V44dX99CM/VN/IYxrK0egXnx/VElatKCW1JOxCFCzVdDXryot9GfFMFxIi3eS0kPsaZqzmUAEvVxtnaz5Uj3DA==}
     peerDependencies:
       '@tiptap/core': ^2.0.0
       '@tiptap/pm': ^2.0.0
     dependencies:
-      '@tiptap/core': 2.0.3(@tiptap/pm@2.0.3)
-      '@tiptap/pm': 2.0.3(@tiptap/core@2.0.3)
+      '@tiptap/core': 2.1.0-rc.12(@tiptap/pm@2.1.0-rc.12)
+      '@tiptap/pm': 2.1.0-rc.12
       linkifyjs: 4.1.1
     dev: false
 
-  /@tiptap/extension-list-item@2.0.3(@tiptap/core@2.0.3):
-    resolution: {integrity: sha512-p7cUsk0LpM1PfdAuFE8wYBNJ3gvA0UhNGR08Lo++rt9UaCeFLSN1SXRxg97c0oa5+Ski7SrCjIJ5Ynhz0viTjQ==}
-=======
   /@tiptap/extension-list-item@2.1.0-rc.12(@tiptap/core@2.1.0-rc.12):
     resolution: {integrity: sha512-g+x6VQUiHTmT0JCNXjebAchAtcs0HIDbq1nXF0/YtdWBgz5Q3S2nwnbi0OuaQJUSjG9Gg59+ucUPitb23t96KQ==}
->>>>>>> master
     peerDependencies:
       '@tiptap/core': ^2.0.0
     dependencies:

@@ -1,6 +1,7 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
 import { externalLinkPasteRule, posthogLinkPasteRule } from '../Nodes/utils'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { router } from 'kea-router'
 
 export const NotebookMarkLink = Mark.create({
     name: 'link',
@@ -31,53 +32,28 @@ export const NotebookMarkLink = Mark.create({
     addProseMirrorPlugins() {
         return [
             new Plugin({
-                key: new PluginKey('handleClickLink'),
+                key: new PluginKey('handleLinkClick'),
                 props: {
-                    // handleDOMEvents: {
-                    //     click(_, event) {
-                    //         if (event.button !== 0) {
-                    //             return false
-                    //         }
+                    handleDOMEvents: {
+                        click(view, event) {
+                            if (event.button !== 0) {
+                                return false
+                            }
 
-                    //         const link = (event.target as HTMLElement)?.closest('a')
+                            const link = event.target as HTMLAnchorElement
 
-                    //         window.open(link?.href)
+                            const href = link.href
 
-                    //         // handleClickLink({
-                    //         //     to: link?.href,
-                    //         //     event: event,
-                    //         //     target: link?.target,
-                    //         // })
+                            if (link && href && !view.editable) {
+                                event.preventDefault()
 
-                    //         // openNotebook(id, NotebookTarget.Sidebar)
-
-                    //         return true
-                    //     },
-                    // },
-
-                    handleClick: (view, _, event) => {
-                        if (event.button !== 0) {
-                            return false
-                        }
-
-                        // const attrs = getAttributes(view.state, this.name)
-                        // const link = (event.target as HTMLElement)?.closest('a')
-
-                        // const href = link?.href ?? attrs.href
-                        // const target = link?.target ?? attrs.target
-
-                        // event.preventDefault()
-                        // event.stopPropagation()
-                        // return true
-                        // const attrs = getAttributes(view.state, options.type.name)
-                        // const link = (event.target as HTMLElement)?.closest('a')
-                        // const href = link?.href ?? attrs.href
-                        // const target = link?.target ?? attrs.target
-                        // if (link && href) {
-                        //     window.open(href, target)
-                        //     return true
-                        // }
-                        // return false
+                                if (isPostHogLink(href)) {
+                                    router.actions.push(link.pathname)
+                                } else {
+                                    window.open(href, link.target)
+                                }
+                            }
+                        },
                     },
                 },
             }),
