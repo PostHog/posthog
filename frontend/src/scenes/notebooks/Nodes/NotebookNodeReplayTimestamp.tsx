@@ -55,7 +55,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
                 type="secondary"
                 status="primary-alt"
                 onClick={
-                    recordingNodeInNotebook ? handlePlayInNotebook : () => openNotebook(shortId, NotebookTarget.Sidebar)
+                    recordingNodeInNotebook ? handlePlayInNotebook : () => openNotebook(shortId, NotebookTarget.Popover)
                 }
                 to={
                     !recordingNodeInNotebook
