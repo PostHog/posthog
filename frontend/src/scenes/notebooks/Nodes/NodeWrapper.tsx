@@ -9,7 +9,7 @@ import {
 } from '@tiptap/react'
 import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
 import clsx from 'clsx'
-import { IconDelete, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -142,7 +142,7 @@ export function NodeWrapper({
                                             onClick={() => deleteNode()}
                                             size="small"
                                             status="danger"
-                                            icon={<IconDelete />}
+                                            icon={<IconClose />}
                                         />
                                     )}
                                 </div>
