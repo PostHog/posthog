@@ -12,7 +12,7 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
-import { notebookSidebarLogic } from './notebookSidebarLogic'
+import { notebookPopoverLogic } from './notebookPopoverLogic'
 import { EditorFocusPosition, JSONContent, defaultNotebookContent } from './utils'
 
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -31,7 +31,7 @@ export const openNotebook = (
     target: NotebookTarget = NotebookTarget.Auto,
     focus: EditorFocusPosition = null
 ): void => {
-    const sidebarLogic = notebookSidebarLogic.findMounted()
+    const sidebarLogic = notebookPopoverLogic.findMounted()
 
     if (NotebookTarget.Sidebar === target) {
         sidebarLogic?.actions.setNotebookSideBarShown(true)
@@ -106,7 +106,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                         callback: actions.loadNotebooks,
                     })
 
-                    notebookSidebarLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
+                    notebookPopoverLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
 
                     return values.notebooks.filter((n) => n.short_id !== shortId)
                 },

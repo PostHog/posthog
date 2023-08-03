@@ -1,7 +1,6 @@
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { useMountedLogic, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
-import { NotebookSideBar } from 'scenes/notebooks/Notebook/NotebookSideBar'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
@@ -10,6 +9,7 @@ import { themeLogic } from './themeLogic'
 import { navigation3000Logic } from './navigationLogic'
 import clsx from 'clsx'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
 
 export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     useMountedLogic(themeLogic)
@@ -29,20 +29,18 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
         <div className="Navigation3000">
             <Navbar />
             {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
-            <NotebookSideBar>
-                <main>
-                    <Breadcrumbs />
-                    <div
-                        className={clsx(
-                            'Navigation3000__scene',
-                            sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
-                        )}
-                    >
-                        {children}
-                    </div>
-                </main>
-            </NotebookSideBar>
-
+            <NotebookPopover />
+            <main>
+                <Breadcrumbs />
+                <div
+                    className={clsx(
+                        'Navigation3000__scene',
+                        sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
+                    )}
+                >
+                    {children}
+                </div>
+            </main>
             <CommandPalette />
         </div>
     )
