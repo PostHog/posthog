@@ -66,7 +66,7 @@ type SelectOptionProps = {
 }
 
 const SelectOption = ({ title, description, value, selectedValue }: SelectOptionProps): JSX.Element => (
-    <div className="flex p-2 items-center">
+    <div className="flex p-1 items-center">
         <div
             className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
                 value === selectedValue ? 'bg-primary text-white' : 'bg-mid text-primary-alt'
@@ -74,7 +74,7 @@ const SelectOption = ({ title, description, value, selectedValue }: SelectOption
         >
             {value}
         </div>
-        <div className="w-32">
+        <div>
             <div className="font-bold">{title}</div>
             <div className="font-normal">{description}</div>
         </div>
