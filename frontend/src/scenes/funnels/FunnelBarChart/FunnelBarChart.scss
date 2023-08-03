@@ -4,11 +4,12 @@
     position: relative;
     width: 100%;
     height: 26rem;
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-left: 1rem;
+    padding-right: 1rem;
     overflow: hidden;
     .InsightCard & {
         height: 100%;
+        padding: 0;
     }
     table {
         --bar-width: 0.5rem; // This should be overriden from React
@@ -20,7 +21,6 @@
                     border-bottom: 1px solid var(--border);
                     > td {
                         padding: 1.5rem 0;
-                        padding-top: 1rem;
                     }
                 }
                 > td {
