@@ -150,7 +150,7 @@ export function NodeWrapper({
                                     ref={contentRef}
                                     className={clsx(
                                         'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
-                                        expanded && resizeable && 'resize-y'
+                                        isEditable && expanded && resizeable && 'resize-y'
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={expanded && resizeable ? { height, minHeight } : {}}
