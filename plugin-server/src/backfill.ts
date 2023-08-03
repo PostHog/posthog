@@ -37,12 +37,18 @@ async function runBackfill(hub: Hub) {
     assert.ok(lower_bound.isValid, 'BACKFILL_START is an invalid time: ' + lower_bound.invalidReason)
     const upper_bound = DateTime.fromISO(process.env.BACKFILL_END!)
     assert.ok(upper_bound.isValid, 'BACKFILL_END is an invalid time: ' + upper_bound.invalidReason)
+    const lower_bound_ts = DateTime.fromISO(process.env.BACKFILL_START_TS!)
+    assert.ok(lower_bound_ts.isValid, 'BACKFILL_START_TS is an invalid time: ' + lower_bound_ts.invalidReason)
+    const upper_bound_ts = DateTime.fromISO(process.env.BACKFILL_END_TS!)
+    assert.ok(upper_bound_ts.isValid, 'BACKFILL_END_TS is an invalid time: ' + upper_bound_ts.invalidReason)
     const step = Duration.fromISO(process.env.BACKFILL_STEP_INTERVAL!)
     assert.ok(step.isValid, 'BACKFILL_STEP_INTERVAL is an invalid duration: ' + step.invalidReason)
 
     status.info('🕰', 'Running backfill with the following bounds', {
         lower_bound,
         upper_bound,
+        lower_bound_ts,
+        upper_bound_ts,
         step,
     })
 
@@ -57,7 +63,7 @@ async function runBackfill(hub: Hub) {
             window,
         })
 
-        const events = await retrieveEvents(hub.db, window)
+        const events = await retrieveEvents(hub.db, window, lower_bound_ts, upper_bound_ts)
         await handleBatch(hub.db, events)
 
         status.info('✅', 'Successfully processed events in window', {
@@ -70,9 +76,16 @@ async function runBackfill(hub: Hub) {
     }
 }
 
-async function retrieveEvents(db: DB, window: Interval): Promise<RawClickHouseEvent[]> {
+async function retrieveEvents(
+    db: DB,
+    window: Interval,
+    start_ts: DateTime,
+    end_ts: DateTime
+): Promise<RawClickHouseEvent[]> {
     const chTimestampLower = castTimestampToClickhouseFormat(window.start, TimestampFormat.ClickHouseSecondPrecision)
     const chTimestampHigher = castTimestampToClickhouseFormat(window.end, TimestampFormat.ClickHouseSecondPrecision)
+    const chTimestampLowerTS = castTimestampToClickhouseFormat(start_ts, TimestampFormat.ClickHouseSecondPrecision)
+    const chTimestampHigherTS = castTimestampToClickhouseFormat(end_ts, TimestampFormat.ClickHouseSecondPrecision)
 
     // :TODO: Adding tag messes up the return value?
     const fetchEventsQuery = `
@@ -87,6 +100,8 @@ async function retrieveEvents(db: DB, window: Interval): Promise<RawClickHouseEv
         FROM events
         WHERE _timestamp >= '${chTimestampLower}'
           AND _timestamp < '${chTimestampHigher}'
+          AND timestamp >= '${chTimestampLowerTS}'
+          AND timestamp < '${chTimestampHigherTS}' 
           AND event IN ('$merge_dangerously', '$create_alias', '$identify')
           AND ((event = '$identify' and JSONExtractString(properties, '$anon_distinct_id') != '') OR
                (event != '$identify' and JSONExtractString(properties, 'alias') != ''))
