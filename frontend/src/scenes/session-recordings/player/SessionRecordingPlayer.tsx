@@ -21,8 +21,6 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { urls } from 'scenes/urls'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
