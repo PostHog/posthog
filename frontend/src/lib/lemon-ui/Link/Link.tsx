@@ -119,3 +119,35 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
     }
 )
 Link.displayName = 'Link'
+
+export const handleClickLink = ({
+    to,
+    event,
+    target,
+    disableClientSideRouting,
+    onClick: onClickRaw,
+    preventClick,
+}: LinkProps & { event: React.MouseEvent<HTMLElement> }): void => {
+    if (event.metaKey || event.ctrlKey) {
+        event.stopPropagation()
+        return
+    }
+
+    onClickRaw?.(event)
+
+    if (event.isDefaultPrevented()) {
+        event.preventDefault()
+        return
+    }
+
+    if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
+        event.preventDefault()
+        if (to && to !== '#' && !preventClick) {
+            if (Array.isArray(to)) {
+                router.actions.push(...to)
+            } else {
+                router.actions.push(to)
+            }
+        }
+    }
+}
