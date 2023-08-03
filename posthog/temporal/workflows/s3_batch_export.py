@@ -49,12 +49,11 @@ def get_s3_key(inputs) -> str:
     """Return an S3 key given S3InsertInputs."""
     template_variables = get_allowed_template_variables(inputs)
     key_prefix = inputs.prefix.format(**template_variables)
-
-    if posixpath.isabs(key_prefix):
-        # Keys are relative to root dir, so this would add an extra "/"
-        key_prefix = posixpath.relpath(key_prefix, "/").replace(".", "")
-
     key = posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl")
+
+    if posixpath.isabs(key):
+        # Keys are relative to root dir, so this would add an extra "/"
+        key = posixpath.relpath(key, "/")
 
     return key
 
