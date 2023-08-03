@@ -6,7 +6,7 @@ interface AndOrFilterSelectProps {
     value: FilterLogicalOperator
     topLevelFilter?: boolean
     prefix?: React.ReactNode
-    suffix?: React.ReactNode
+    suffix?: [singular: string, plural: string]
 }
 
 export function AndOrFilterSelect({
@@ -14,7 +14,7 @@ export function AndOrFilterSelect({
     value,
     topLevelFilter,
     prefix = 'Match',
-    suffix = 'filters in this group',
+    suffix = ['filter in this group', 'filters in this group'],
 }: AndOrFilterSelectProps): JSX.Element {
     return (
         <div className="flex items-center font-medium">
@@ -51,8 +51,9 @@ export function AndOrFilterSelect({
                     },
                 ]}
                 optionTooltipPlacement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}
+                dropdownMatchSelectWidth={false}
             />
-            {suffix}
+            {value === FilterLogicalOperator.Or ? suffix[0] : suffix[1]}
         </div>
     )
 }

@@ -57,7 +57,7 @@ export function PropertyGroupFilters({
                                         value={propertyGroupFilter.type}
                                         onChange={(value) => setOuterPropertyGroupsType(value)}
                                         topLevelFilter={true}
-                                        suffix="groups"
+                                        suffix={['group', 'groups']}
                                     />
                                 )}
                             </div>
