@@ -148,7 +148,6 @@ export function EditableField({
                                     minLength={minLength}
                                     maxLength={maxLength}
                                     autoFocus={autoFocus}
-                                    className="EditableField__autosize"
                                 />
                             )}
                             {!mode && (
@@ -222,7 +221,6 @@ const AutosizeInput = ({
     minLength,
     maxLength,
     autoFocus,
-    className,
 }: {
     name: string
     value: string
@@ -233,7 +231,6 @@ const AutosizeInput = ({
     minLength?: number
     maxLength?: number
     autoFocus?: boolean
-    className?: string
 }): JSX.Element => {
     const [inputWidth, setInputWidth] = useState<number | string>(1)
     const inputRef = useRef<HTMLInputElement>(null)
@@ -281,7 +278,7 @@ const AutosizeInput = ({
     }, [sizerRef.current, placeHolderSizerRef.current, placeholder, value])
 
     return (
-        <div className={className}>
+        <div className="EditableField__autosize">
             <input
                 name={name}
                 value={value}
@@ -296,32 +293,10 @@ const AutosizeInput = ({
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{ boxSizing: 'content-box', width: `${inputWidth}px` }}
             />
-            <div
-                ref={sizerRef}
-                style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    visibility: 'hidden',
-                    height: 0,
-                    overflow: 'scroll',
-                    whiteSpace: 'pre',
-                }}
-            >
+            <div ref={sizerRef} className="EditableField__autosize__sizer">
                 {value}
             </div>
-            <div
-                ref={placeHolderSizerRef}
-                style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    visibility: 'hidden',
-                    height: 0,
-                    overflow: 'scroll',
-                    whiteSpace: 'pre',
-                }}
-            >
+            <div ref={placeHolderSizerRef} className="EditableField__autosize__sizer">
                 {placeholder}
             </div>
         </div>
