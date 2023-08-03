@@ -31,7 +31,6 @@
         min-width: 30rem;
         max-width: calc(100vw - 2rem);
         width: 50rem; // This will be controlable
-        box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
         pointer-events: all;
 
         display: flex;
@@ -39,17 +38,13 @@
         border-radius: var(--radius);
         background-color: var(--bg-light);
         border: 1px solid var(--border-3000);
-        transition: transform 150ms cubic-bezier(0, 0.5, 0.5, 1);
-        transform: translateX(calc(100% + 1rem));
-    }
+        transition: transform 150ms cubic-bezier(0, 0.5, 0.5, 1), box-shadow 150ms linear,
+            width 150ms cubic-bezier(0, 0.5, 0.5, 1);
 
-    // &:not(.NotebookPopover--visible) {
-    //     .NotebookPopover__content {
-    //         &:hover {
-    //             transform: translateX(calc(100% - 5rem));
-    //         }
-    //     }
-    // }
+        // Transition properties that are overwritten
+        transform: translateX(calc(100% + 1rem));
+        box-shadow: 0px 16px 16px rgba(0, 0, 0, 0);
+    }
 
     &--visible {
         .NotebookPopover__backdrop {
@@ -59,12 +54,14 @@
 
         .NotebookPopover__content {
             transform: translateX(0);
+            box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
         }
     }
 
     &--peek {
         .NotebookPopover__content {
             transform: translateX(calc(100% - 5rem));
+            box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
         }
     }
 
