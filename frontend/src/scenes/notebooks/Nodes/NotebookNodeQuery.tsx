@@ -22,7 +22,7 @@ const DEFAULT_QUERY: QuerySchema = {
     expandable: false,
 }
 
-const Component = (props: NodeViewProps): JSX.Element => {
+const Component = (props: NodeViewProps): JSX.Element | null => {
     const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
@@ -50,10 +50,14 @@ const Component = (props: NodeViewProps): JSX.Element => {
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
-            modifiedQuery.full = expanded
+            modifiedQuery.full = false
         }
         return modifiedQuery
     }, [query, expanded])
+
+    if (!expanded) {
+        return null
+    }
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -68,6 +72,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode({
     Component,
     heightEstimate: 500,
     resizeable: true,
+    startExpanded: true,
     attributes: {
         query: {
             default: DEFAULT_QUERY,

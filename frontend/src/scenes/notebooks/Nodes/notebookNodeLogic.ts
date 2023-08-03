@@ -37,6 +37,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setTitle: (title: string) => ({ title }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
+        deleteNode: true,
         // TODO: Implement this
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
     }),
@@ -68,6 +69,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         insertAfter: ({ content }) => {
             const logic = values.notebookLogic
             logic.values.editor?.insertContentAfterNode(props.getPos(), content)
+        },
+
+        deleteNode: () => {
+            const logic = values.notebookLogic
+            logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + 1 }).run()
         },
 
         insertAfterLastNodeOfType: ({ content, nodeType }) => {

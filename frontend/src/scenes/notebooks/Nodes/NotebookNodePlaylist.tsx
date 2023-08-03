@@ -72,6 +72,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode({
         return urls.replay(undefined, attrs.filters)
     },
     resizeable: true,
+    startExpanded: true,
     attributes: {
         filters: {
             default: undefined,
