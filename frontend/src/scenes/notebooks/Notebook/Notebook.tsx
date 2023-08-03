@@ -13,6 +13,7 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
+import { NotebookWidget } from './NotebookWidget'
 
 export type NotebookProps = {
     shortId: string
@@ -96,22 +97,25 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     </LemonBanner>
                 ) : null}
 
-                <Editor
-                    initialContent={content}
-                    onCreate={setEditor}
-                    onUpdate={onEditorUpdate}
-                    placeholder={({ node }: { node: any }) => {
-                        if (node.type.name === 'heading' && node.attrs.level === 1) {
-                            return `Untitled - maybe.. "${headingPlaceholder}"`
-                        }
+                <div className="flex flex-1 space-x-4">
+                    <NotebookWidget />
+                    <Editor
+                        initialContent={content}
+                        onCreate={setEditor}
+                        onUpdate={onEditorUpdate}
+                        placeholder={({ node }: { node: any }) => {
+                            if (node.type.name === 'heading' && node.attrs.level === 1) {
+                                return `Untitled - maybe.. "${headingPlaceholder}"`
+                            }
 
-                        if (node.type.name === 'heading') {
-                            return `Heading ${node.attrs.level}`
-                        }
+                            if (node.type.name === 'heading') {
+                                return `Heading ${node.attrs.level}`
+                            }
 
-                        return ''
-                    }}
-                />
+                            return ''
+                        }}
+                    />
+                </div>
             </div>
         </BindLogic>
     )

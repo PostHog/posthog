@@ -106,6 +106,13 @@
         }
     }
 
+    .NotebookWidget {
+        position: sticky;
+        align-self: flex-start;
+        top: 65px;
+        min-width: 16rem;
+    }
+
     .LemonTable__content > table > thead {
         position: sticky;
         top: 0;
