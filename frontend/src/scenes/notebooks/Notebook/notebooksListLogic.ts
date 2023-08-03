@@ -31,19 +31,19 @@ export const openNotebook = (
     target: NotebookTarget = NotebookTarget.Auto,
     focus: EditorFocusPosition = null
 ): void => {
-    const sidebarLogic = notebookPopoverLogic.findMounted()
+    const popoverLogic = notebookPopoverLogic.findMounted()
 
-    if (NotebookTarget.Sidebar === target) {
-        sidebarLogic?.actions.setNotebookSideBarShown(true)
+    if (NotebookTarget.Popover === target) {
+        popoverLogic?.actions.setVisibility('visible')
     }
 
-    if (sidebarLogic?.values.notebookSideBarShown) {
-        sidebarLogic?.actions.selectNotebook(notebookId)
+    if (popoverLogic?.values.visibility === 'visible') {
+        popoverLogic?.actions.selectNotebook(notebookId)
     } else {
         router.actions.push(urls.notebookEdit(notebookId))
     }
 
-    sidebarLogic?.actions.setInitialAutofocus(focus)
+    popoverLogic?.actions.setInitialAutofocus(focus)
 }
 
 export const notebooksListLogic = kea<notebooksListLogicType>([

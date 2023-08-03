@@ -7,10 +7,9 @@ import { subscriptions } from 'kea-subscriptions'
 import { EditorFocusPosition } from './utils'
 
 import type { notebookPopoverLogicType } from './notebookPopoverLogicType'
+import { NotebookPopoverVisibility } from '~/types'
 
 export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
-
-export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPopoverLogic']),
@@ -72,10 +71,12 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         },
     }),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/*': () => {
             // Any navigation should trigger exiting full screen
-            actions.setVisibility('hidden')
+            if (values.visibility === 'visible') {
+                actions.setVisibility('peek')
+            }
         },
     })),
 ])
