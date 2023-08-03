@@ -12,16 +12,18 @@ import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
+import { EditorFocusPosition } from './utils'
 
 export type NotebookProps = {
     shortId: string
     editable?: boolean
+    initialAutofocus?: EditorFocusPosition
 }
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
-    const logic = notebookLogic({ shortId, editable })
+export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
+    const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -37,8 +39,15 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
     useEffect(() => {
         if (editor) {
             editor.setEditable(editable)
+            editor.focus(initialAutofocus)
         }
     }, [editor, editable])
+
+    useEffect(() => {
+        if (editor) {
+            editor.focus(initialAutofocus)
+        }
+    }, [editor])
 
     // TODO - Render a special state if the notebook is empty
 
@@ -60,7 +69,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
                 {notebook.is_template && (
                     <LemonBanner
                         type="info"

@@ -293,10 +293,12 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(
-                    maximum_attempts=6,
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=120),
+                    maximum_attempts=10,
                     non_retryable_error_types=[
-                        # Validation failed, and will keep failing.
-                        "ValueError",
+                        # S3 parameter validation failed.
+                        "ParamValidationError",
                     ],
                 ),
             )

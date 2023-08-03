@@ -1,0 +1,108 @@
+import { useMocks } from '~/mocks/jest'
+import { SDKVersion, versionCheckerLogic } from './versionCheckerLogic'
+import { initKeaTests } from '~/test/init'
+import { expectLogic } from 'kea-test-utils'
+
+const useMockedVersions = (githubVersions: SDKVersion[], usedVersions: SDKVersion[]): void => {
+    useMocks({
+        get: {
+            'https://api.github.com/repos/posthog/posthog-js/tags': () => [
+                200,
+                githubVersions.map((x) => ({ name: x.version })),
+            ],
+        },
+        post: {
+            '/api/projects/:team/query': () => [
+                200,
+                {
+                    results: usedVersions.map((x) => [x.version, x.timestamp]),
+                },
+            ],
+        },
+    })
+}
+
+describe('versionCheckerLogic', () => {
+    // jest.setTimeout(1000)
+    let logic: ReturnType<typeof versionCheckerLogic.build>
+
+    beforeEach(() => {
+        useMockedVersions([{ version: '1.0.0' }], [{ version: '1.0.0', timestamp: '2023-01-01T12:00:00Z' }])
+        initKeaTests()
+        localStorage.clear()
+        logic = versionCheckerLogic()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('should load and check versions', async () => {
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                availableVersions: [
+                    {
+                        version: '1.0.0',
+                    },
+                ],
+                usedVersions: [
+                    {
+                        version: '1.0.0',
+                        timestamp: '2023-01-01T12:00:00Z',
+                    },
+                ],
+                lastCheckTimestamp: expect.any(Number),
+                versionWarning: null,
+            })
+    })
+
+    it.each([
+        { versionCount: 1, expectation: null },
+        {
+            versionCount: 10,
+            expectation: {
+                currentVersion: '1.0.0',
+                latestVersion: '1.0.9',
+                diff: 9,
+                level: 'info',
+            },
+        },
+        {
+            versionCount: 15,
+            expectation: {
+                currentVersion: '1.0.0',
+                latestVersion: '1.0.14',
+                diff: 14,
+                level: 'warning',
+            },
+        },
+        {
+            versionCount: 25,
+            expectation: {
+                currentVersion: '1.0.0',
+                latestVersion: '1.0.24',
+                diff: 24,
+                level: 'error',
+            },
+        },
+    ])('return a version warning if diff is great enough', async (options) => {
+        // TODO: How do we clear the persisted value?
+        const versionsList = Array.from({ length: options.versionCount }, (_, i) => ({
+            version: `1.0.${i}`,
+        })).reverse()
+
+        useMockedVersions(versionsList, [
+            {
+                version: '1.0.0',
+                timestamp: '2023-01-01T12:00:00Z',
+            },
+        ])
+
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expectLogic(logic).toMatchValues({ versionWarning: options.expectation })
+    })
+})

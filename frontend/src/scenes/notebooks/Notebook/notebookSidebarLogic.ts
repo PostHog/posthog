@@ -5,6 +5,7 @@ import { urlToAction } from 'kea-router'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
 import { subscriptions } from 'kea-subscriptions'
+import { EditorFocusPosition } from './utils'
 
 export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
 
@@ -14,10 +15,10 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         setNotebookSideBarShown: (shown: boolean) => ({ shown }),
         setFullScreen: (full: boolean) => ({ full }),
         selectNotebook: (id: string) => ({ id }),
+        setInitialAutofocus: (position: EditorFocusPosition) => ({ position }),
         onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
         setDesiredWidth: (width: number) => ({ width }),
         setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
-        notebookLinkClicked: (shortId: string, internal: boolean = true) => ({ shortId, internal }),
     }),
 
     reducers(() => ({
@@ -49,7 +50,13 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
                 setDesiredWidth: (_, { width }) => width,
             },
         ],
-
+        initialAutofocus: [
+            null as EditorFocusPosition,
+            {
+                selectNotebook: () => null,
+                setInitialAutofocus: (_, { position }) => position,
+            },
+        ],
         elementRef: [
             null as RefObject<HTMLElement> | null,
             {
@@ -94,12 +101,6 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
                 actions.setDesiredWidth(
                     Math.max(MIN_NOTEBOOK_SIDEBAR_WIDTH, cache.originalWidth - (desiredX - originX))
                 )
-            }
-        },
-        notebookLinkClicked: ({ shortId, internal }) => {
-            if (!values.notebookSideBarShown && internal) {
-                actions.selectNotebook(shortId)
-                actions.setNotebookSideBarShown(true)
             }
         },
     })),

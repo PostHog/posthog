@@ -83,6 +83,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     display?: 'stealth' | 'default'
     /** Footer to be shown below the table. */
     footer?: React.ReactNode
+    firstColumnSticky?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -116,6 +117,7 @@ export function LemonTable<T extends Record<string, any>>({
     'data-attr': dataAttr,
     display = 'default',
     footer,
+    firstColumnSticky,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -158,7 +160,7 @@ export function LemonTable<T extends Record<string, any>>({
     ) as LemonTableColumnGroup<T>[]
     const columns = columnGroups.flatMap((group) => group.children)
 
-    const [scrollRef, scrollableClassNames] = useScrollable()
+    const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
 
     /** Sorting. */
     const currentSorting =
@@ -202,18 +204,24 @@ export function LemonTable<T extends Record<string, any>>({
         }
     }, [paginationState.currentPage, scrollRef.current])
 
+    if (firstColumnSticky && (rowRibbonColor || expandable)) {
+        // Due to CSS, for firstColumnSticky to work the first column needs to be a content column
+        throw new Error('firstColumnSticky cannot be used with rowRibbonColor or expandable')
+    }
+
     return (
         <div
             id={id}
             className={clsx(
-                'LemonTable',
+                'LemonTable scrollable',
                 size && size !== 'middle' && `LemonTable--${size}`,
                 inset && 'LemonTable--inset',
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
                 !borderedRows && 'LemonTable--borderlessRows',
                 display === 'stealth' && 'LemonTable--stealth',
-                ...scrollableClassNames,
+                isScrollableLeft && 'scrollable--left',
+                isScrollableRight && 'scrollable--right',
                 className
             )}
             style={style}
@@ -237,8 +245,8 @@ export function LemonTable<T extends Record<string, any>>({
                             >
                                 {columnGroups.some((group) => group.title) && (
                                     <tr className="LemonTable__row--grouping">
-                                        {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
-                                        {!!expandable && <th /> /* Expand/collapse column */}
+                                        {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon */}
+                                        {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
                                         {columnGroups.map((columnGroup, columnGroupIndex) => (
                                             <th
                                                 key={`LemonTable-th-group-${columnGroupIndex}`}
@@ -251,8 +259,8 @@ export function LemonTable<T extends Record<string, any>>({
                                     </tr>
                                 )}
                                 <tr>
-                                    {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
-                                    {!!expandable && <th /> /* Expand/collapse column */}
+                                    {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon */}
+                                    {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
                                     {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                         columnGroup.children.map((column, columnIndex) => (
                                             <th
@@ -262,8 +270,11 @@ export function LemonTable<T extends Record<string, any>>({
                                                 className={clsx(
                                                     'LemonTable__header',
                                                     column.sorter && 'LemonTable__header--actionable',
-                                                    columnIndex === columnGroup.children.length - 1 &&
-                                                        'LemonTable__boundary',
+                                                    columnIndex === 0 && 'LemonTable__boundary',
+                                                    firstColumnSticky &&
+                                                        columnGroupIndex === 0 &&
+                                                        columnIndex === 0 &&
+                                                        'LemonTable__header--sticky',
                                                     column.className
                                                 )}
                                                 /* eslint-disable-next-line react/forbid-dom-props */
@@ -338,7 +349,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             </th>
                                         ))
                                     )}
-                                    <LemonTableLoader loading={loading} />
+                                    <LemonTableLoader loading={loading} tag="th" />
                                 </tr>
                             </thead>
                         )}
@@ -372,6 +383,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             columnGroups={columnGroups}
                                             onRow={onRow}
                                             expandable={expandable}
+                                            firstColumnSticky={firstColumnSticky}
                                         />
                                     )
                                 })
@@ -387,6 +399,9 @@ export function LemonTable<T extends Record<string, any>>({
                                                         className={clsx(
                                                             columnIndex === columnGroup.children.length - 1 &&
                                                                 'LemonTable__boundary',
+                                                            firstColumnSticky &&
+                                                                columnIndex === 0 &&
+                                                                'LemonTable__cell--sticky',
                                                             column.className
                                                         )}
                                                     >

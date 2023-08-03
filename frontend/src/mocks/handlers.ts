@@ -80,6 +80,8 @@ export const defaultMocks: Mocks = {
             error: 'Error fetching stats from sentry',
             exception: "[ErrorDetail(string='Sentry integration not configured', code='invalid')]",
         },
+        // We don't want to show the "new version available" banner in tests
+        'https://api.github.com/repos/posthog/posthog-js/tags': () => [200, []],
     },
     post: {
         'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],

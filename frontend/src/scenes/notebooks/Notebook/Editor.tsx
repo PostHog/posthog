@@ -21,7 +21,7 @@ import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 
-import { JSONContent, NotebookEditor, EditorRange, Node } from './utils'
+import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 
@@ -140,13 +140,14 @@ export function Editor({
                 return false
             },
         },
-        autofocus: 'end',
         onCreate: ({ editor }) => {
             editorRef.current = editor
             onCreate({
                 getJSON: () => editor.getJSON(),
-                setEditable: (editable: boolean) => editor.setEditable(editable, false),
-                setContent: (content: JSONContent) => editor.commands.setContent(content, false),
+                setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
+                setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
+                focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                destroy: () => editor.destroy(),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
@@ -199,6 +200,27 @@ export function hasChildOfType(node: Node, type: string, direct: boolean = true)
     return types.includes(type)
 }
 
+export function findPositionOfClosestNodeMatchingAttrs(
+    editor: TTEditor,
+    pos: number,
+    attrs: { [attr: string]: any }
+): number {
+    const matchingPositions: number[] = []
+    const attrEntries = Object.entries(attrs)
+
+    editor.state.doc.descendants((node, pos) => {
+        if (attrEntries.every(([attr, value]) => node.attrs[attr] === value)) {
+            matchingPositions.push(pos)
+        }
+    })
+
+    return closest(matchingPositions, pos)
+}
+
+function closest(array: number[], num: number): number {
+    return array.sort((a, b) => Math.abs(num - a) - Math.abs(num - b))[0]
+}
+
 export function firstChildOfType(node: Node, type: string, direct: boolean = true): Node | null {
     const children = getChildren(node, direct)
     return children.find((child) => child.type.name === type) || null
@@ -216,5 +238,20 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
 function getPreviousNode(editor: TTEditor): Node | null {
     const { $anchor } = editor.state.selection
     const node = $anchor.node(1)
-    return !!node ? editor.state.doc.childBefore($anchor.pos - node.nodeSize).node : null
+    return !!node ? editor.state.doc.childBefore($anchor.pos - 1).node : null
+}
+
+export function hasMatchingNode(
+    content: JSONContent[] | undefined,
+    options: { type?: string; attrs?: { [attr: string]: any } }
+): boolean {
+    const attrEntries = Object.entries(options.attrs || {})
+    return (
+        !!content &&
+        content
+            .filter((node) => !options.type || node.type === options.type)
+            .some((node) =>
+                attrEntries.every(([attr, value]: [string, any]) => node.attrs && node.attrs[attr] === value)
+            )
+    )
 }

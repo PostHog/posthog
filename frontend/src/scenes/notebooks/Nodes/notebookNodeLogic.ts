@@ -1,28 +1,67 @@
-import { kea, props, key, path, BuiltLogic, selectors, actions, listeners } from 'kea'
+import {
+    kea,
+    props,
+    key,
+    path,
+    BuiltLogic,
+    selectors,
+    actions,
+    listeners,
+    reducers,
+    defaults,
+    afterMount,
+    beforeUnmount,
+} from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { JSONContent } from '../Notebook/utils'
+import { NotebookNodeType } from '~/types'
+import posthog from 'posthog-js'
 
 export type NotebookNodeLogicProps = {
     nodeId: string
+    nodeType: NotebookNodeType
+    nodeAttributes: Record<string, any>
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
+    title: string
 }
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
     props({} as NotebookNodeLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodeLogic', key]),
     key(({ nodeId }) => nodeId),
-    selectors({
-        notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
-    }),
-
     actions({
+        setExpanded: (expanded: boolean) => ({ expanded }),
+        setTitle: (title: string) => ({ title }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         // TODO: Implement this
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
+    }),
+
+    defaults(() => (_, props) => ({
+        title: props.title,
+    })),
+
+    reducers({
+        expanded: [
+            false,
+            {
+                setExpanded: (_, { expanded }) => expanded,
+            },
+        ],
+        title: [
+            '',
+            {
+                setTitle: (_, { title }) => title,
+            },
+        ],
+    }),
+
+    selectors({
+        notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
     }),
 
     listeners(({ values, props }) => ({
@@ -44,7 +83,24 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
             logic.values.editor?.insertContentAfterNode(insertionPosition, content)
         },
+
+        setExpanded: ({ expanded }) => {
+            if (expanded) {
+                posthog.capture('notebook node selected', {
+                    node_type: props.nodeType,
+                    short_id: props.notebookLogic.props.shortId,
+                })
+            }
+        },
     })),
+
+    afterMount((logic) => {
+        logic.props.notebookLogic.actions.registerNodeLogic(logic)
+    }),
+
+    beforeUnmount((logic) => {
+        logic.props.notebookLogic.actions.unregisterNodeLogic(logic)
+    }),
 ])
 
 export const NotebookNodeContext = createContext<BuiltLogic<notebookNodeLogicType> | undefined>(undefined)

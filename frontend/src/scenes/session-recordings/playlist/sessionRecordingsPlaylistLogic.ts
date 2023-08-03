@@ -85,7 +85,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
     beforeUnload(({ values, actions }) => ({
         enabled: (newLocation) => values.hasChanges && newLocation?.pathname !== router.values.location.pathname,
-        message: 'Leave playlist? Changes you made will be discarded.',
+        message: 'Leave playlist?\nChanges you made will be discarded.',
         onConfirm: () => {
             actions.setFilters(values.playlist?.filters || null)
         },

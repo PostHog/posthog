@@ -4,7 +4,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
+import { IconComment, IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -25,13 +25,14 @@ export function PlayerMetaLinks(): JSX.Element {
 
     const getCurrentPlayerTime = (): number => {
         // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
-        return sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+        return Math.floor(playerTime / 1000)
     }
 
     const onShare = (): void => {
         setPause()
         openPlayerShareDialog({
-            seconds: Math.floor(getCurrentPlayerTime() / 1000),
+            seconds: getCurrentPlayerTime(),
             id: sessionRecordingId,
         })
     }
@@ -52,13 +53,11 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const onComment = (): void => {
+        const currentPlayerTime = getCurrentPlayerTime() * 1000
         if (nodeLogic) {
-            const currentPlayerTime = getCurrentPlayerTime()
-
-            nodeLogic.actions.insertAfterLastNodeOfType(
-                NotebookNodeType.ReplayTimestamp,
-                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
-            )
+            nodeLogic.actions.insertAfterLastNodeOfType(NotebookNodeType.ReplayTimestamp, [
+                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
+            ])
         } else {
             const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
             createNotebook(title, NotebookTarget.Sidebar, [
@@ -66,16 +65,7 @@ export function PlayerMetaLinks(): JSX.Element {
                     type: NotebookNodeType.Recording,
                     attrs: { id: sessionRecordingId },
                 },
-                {
-                    type: 'paragraph',
-                    content: [
-                        {
-                            type: NotebookNodeType.ReplayTimestamp,
-                            attrs: { sessionRecordingId: sessionRecordingId, playbackTime: getCurrentPlayerTime() },
-                        },
-                        { type: 'text', text: ' ' },
-                    ],
-                },
+                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
             ])
         }
     }
@@ -88,10 +78,10 @@ export function PlayerMetaLinks(): JSX.Element {
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
-            {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
+            {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
                     {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                        <LemonButton icon={<IconLink />} onClick={onComment} {...commonProps}>
+                        <LemonButton icon={<IconComment />} onClick={onComment} {...commonProps}>
                             <span>Comment</span>
                         </LemonButton>
                     )}

@@ -17,7 +17,13 @@ import {
 } from '~/types'
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { BIN_COUNT_AUTO, NON_VALUES_ON_SERIES_DISPLAY_TYPES, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
+import {
+    BIN_COUNT_AUTO,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PERCENT_STACK_VIEW_DISPLAY_TYPE,
+    RETENTION_FIRST_TIME,
+    ShownAsValue,
+} from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
@@ -311,6 +317,9 @@ export function cleanFilters(
                 ? { hidden_legend_keys: filters.hidden_legend_keys }
                 : {}),
             ...(filters.show_values_on_series ? { show_values_on_series: filters.show_values_on_series } : {}),
+            ...(isTrendsFilter(filters) && filters?.show_percent_stack_view
+                ? { show_percent_stack_view: filters.show_percent_stack_view }
+                : {}),
             ...commonFilters,
         }
 
@@ -328,6 +337,22 @@ export function cleanFilters(
             trendLikeFilter.show_values_on_series === undefined
         ) {
             trendLikeFilter.show_values_on_series = true
+        }
+
+        if (
+            'show_percent_stack_view' in trendLikeFilter &&
+            !!trendLikeFilter.display &&
+            !PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(trendLikeFilter.display)
+        ) {
+            delete trendLikeFilter.show_percent_stack_view
+        }
+
+        if (
+            !!trendLikeFilter.display &&
+            trendLikeFilter.display === ChartDisplayType.ActionsPie &&
+            trendLikeFilter.show_percent_stack_view === undefined
+        ) {
+            trendLikeFilter.show_percent_stack_view = true
         }
 
         cleanBreakdownParams(trendLikeFilter, filters)

@@ -65,6 +65,13 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
+            onClickRaw?.(event)
+
+            if (event.isDefaultPrevented()) {
+                event.preventDefault()
+                return
+            }
+
             if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
                 if (to && to !== '#' && !preventClick) {
@@ -75,7 +82,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     }
                 }
             }
-            onClickRaw?.(event)
         }
 
         return to ? (

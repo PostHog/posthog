@@ -13,7 +13,8 @@ import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
 import { notebookSidebarLogic } from './notebookSidebarLogic'
-import { JSONContent, defaultNotebookContent } from './utils'
+import { EditorFocusPosition, JSONContent, defaultNotebookContent } from './utils'
+
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<NotebookListItemType> {}
@@ -25,7 +26,11 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
-export const openNotebook = (notebook: NotebookListItemType, target: NotebookTarget): void => {
+export const openNotebook = (
+    notebookId: string,
+    target: NotebookTarget = NotebookTarget.Auto,
+    focus: EditorFocusPosition = null
+): void => {
     const sidebarLogic = notebookSidebarLogic.findMounted()
 
     if (NotebookTarget.Sidebar === target) {
@@ -33,10 +38,12 @@ export const openNotebook = (notebook: NotebookListItemType, target: NotebookTar
     }
 
     if (sidebarLogic?.values.notebookSideBarShown) {
-        sidebarLogic?.actions.selectNotebook(notebook.short_id)
+        sidebarLogic?.actions.selectNotebook(notebookId)
     } else {
-        router.actions.push(urls.notebookEdit(notebook.short_id))
+        router.actions.push(urls.notebookEdit(notebookId))
     }
+
+    sidebarLogic?.actions.setInitialAutofocus(focus)
 }
 
 export const notebooksListLogic = kea<notebooksListLogicType>([
@@ -83,7 +90,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                         content: defaultNotebookContent(title, content),
                     })
 
-                    openNotebook(notebook, location)
+                    openNotebook(notebook.short_id, location, 'end')
 
                     posthog.capture(`notebook created`, {
                         short_id: notebook.short_id,

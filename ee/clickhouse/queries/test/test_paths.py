@@ -3181,8 +3181,24 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 event_uuid="41111111-1111-1111-1111-111111111111",
             ),
         ]
-        create_session_recording_events(self.team.pk, timezone.now(), "p1", "s1", window_id="w1")
-        create_session_recording_events(self.team.pk, timezone.now(), "p1", "s3", window_id="w3")
+        create_session_recording_events(
+            self.team.pk,
+            timezone.now(),
+            "p1",
+            "s1",
+            window_id="w1",
+            use_recording_table=False,
+            use_replay_table=True,
+        )
+        create_session_recording_events(
+            self.team.pk,
+            timezone.now(),
+            "p1",
+            "s3",
+            window_id="w3",
+            use_recording_table=False,
+            use_replay_table=True,
+        )
 
         # User with path matches, but no recordings
         p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"])
@@ -3312,7 +3328,15 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             event_uuid="31111111-1111-1111-1111-111111111111",
         ),
 
-        create_session_recording_events(self.team.pk, timezone.now(), "p1", "s1", window_id="w1")
+        create_session_recording_events(
+            self.team.pk,
+            timezone.now(),
+            "p1",
+            "s1",
+            window_id="w1",
+            use_recording_table=False,
+            use_replay_table=True,
+        )
 
         filter = PathFilter(
             team=self.team,
@@ -3376,7 +3400,15 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             event_uuid="31111111-1111-1111-1111-111111111111",
         ),
 
-        create_session_recording_events(self.team.pk, timezone.now(), "p1", "s1", window_id="w1")
+        create_session_recording_events(
+            self.team.pk,
+            timezone.now(),
+            "p1",
+            "s1",
+            window_id="w1",
+            use_recording_table=False,
+            use_replay_table=True,
+        )
 
         # No matching events for dropoff
         filter = PathFilter(
