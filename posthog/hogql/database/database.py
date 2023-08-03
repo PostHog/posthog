@@ -90,7 +90,7 @@ class Database(BaseModel):
 
 def create_hogql_database(team_id: int) -> Database:
     from posthog.models import Team
-    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery
+    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery, DataWarehouseViewLink
 
     team = Team.objects.get(pk=team_id)
     database = Database(timezone=team.timezone)
@@ -98,6 +98,36 @@ def create_hogql_database(team_id: int) -> Database:
         # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+
+    def determine_join_function(view):
+        def join_function(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+            from posthog.hogql import ast
+            from posthog.hogql.parser import parse_select
+
+            if not requested_fields:
+                raise HogQLException(f"No fields requested from {to_table}")
+
+            join_expr = ast.JoinExpr(table=parse_select(view.saved_query.query["query"]))
+            join_expr.join_type = "INNER JOIN"
+            join_expr.alias = to_table
+            join_expr.constraint = ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[from_table, "distinct_id"]),
+                    right=ast.Field(chain=[to_table, view.join_key]),
+                )
+            )
+            return join_expr
+
+        return join_function
+
+    for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
+        # TODO: handle repeated names
+        getattr(database, view.table).fields[view.saved_query.name] = LazyJoin(
+            from_field="distinct_id",
+            join_table=view.saved_query.hogql_definition(),
+            join_function=determine_join_function(view),
+        )
 
     tables = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):

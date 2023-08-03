@@ -3,7 +3,6 @@ from pydantic import BaseModel, Extra
 
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
-
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
@@ -147,3 +146,9 @@ class SavedQuery(Table):
 
     query: str
     name: str
+
+    def to_printed_clickhouse(self, context):
+        return self.name
+
+    def to_printed_hogql(self):
+        return self.name

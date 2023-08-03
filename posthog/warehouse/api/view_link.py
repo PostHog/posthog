@@ -32,6 +32,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
 
         columns = view_link.saved_query.get_columns()
 
+        # TODO: table to number
         for name, _ in columns.items():
             PropertyDefinition.objects.create(
                 team_id=validated_data["team_id"], type=table, name=name, view_link=view_link
