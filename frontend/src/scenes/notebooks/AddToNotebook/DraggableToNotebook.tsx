@@ -1,14 +1,13 @@
 import React, { useState } from 'react'
 import { NotebookNodeType } from '~/types'
-import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import './DraggableToNotebook.scss'
 import { useActions, useValues } from 'kea'
 import { notebookPopoverLogic } from '../Notebook/notebookPopoverLogic'
 import clsx from 'clsx'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconJournalPlus } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useNotebookNode } from '../Nodes/notebookNodeLogic'
 
 export type DraggableToNotebookBaseProps = {
     href?: string
@@ -18,7 +17,6 @@ export type DraggableToNotebookBaseProps = {
 
 export type DraggableToNotebookProps = DraggableToNotebookBaseProps & {
     children: React.ReactNode
-    alwaysDraggable?: boolean
     noOverflow?: boolean
     className?: string
 }
@@ -33,15 +31,10 @@ export function useNotebookDrag({ href, node, properties }: DraggableToNotebookB
     const { featureFlags } = useValues(featureFlagLogic)
 
     const notebooksEnabled = featureFlags[FEATURE_FLAGS.NOTEBOOKS]
+    const isInNotebook = useNotebookNode()
+    const hasDragOptions = !!(href || node)
 
-    if (!href && !node && !properties) {
-        return {
-            isDragging: false,
-            elementProps: {},
-        }
-    }
-
-    if (!notebooksEnabled) {
+    if (!hasDragOptions || isInNotebook || !notebooksEnabled) {
         return {
             isDragging: false,
             elementProps: {},
@@ -81,18 +74,14 @@ export function DraggableToNotebook({
     node,
     properties,
     href,
-    alwaysDraggable,
     noOverflow,
     className,
 }: DraggableToNotebookProps): JSX.Element {
-    const keyHeld = useKeyHeld('Alt')
     const { isDragging, elementProps } = useNotebookDrag({ href, node, properties })
 
     if (!node && !properties && !href) {
         return <>{children}</>
     }
-
-    const draggable = alwaysDraggable || keyHeld
 
     return (
         <>
@@ -102,20 +91,10 @@ export function DraggableToNotebook({
                         'DraggableToNotebook',
                         className,
                         noOverflow && 'DraggableToNotebook--no-overflow',
-                        keyHeld && 'DraggableToNotebook--highlighted',
                         isDragging && 'DraggableToNotebook--dragging'
                     )}
                     {...elementProps}
-                    draggable={draggable}
                 >
-                    {keyHeld ? (
-                        <div className="DraggableToNotebook__highlighter">
-                            <div className="DraggableToNotebook__highlighter__info">
-                                <span className="DraggableToNotebook__highlighter__info__text">Drag to notebook</span>
-                                <IconJournalPlus className="text-lg" />
-                            </div>
-                        </div>
-                    ) : null}
                     {children}
                 </span>
             </FlaggedFeature>

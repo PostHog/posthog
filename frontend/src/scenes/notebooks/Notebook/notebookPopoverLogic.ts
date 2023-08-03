@@ -75,7 +75,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     urlToAction(({ actions }) => ({
         '/*': () => {
             // Any navigation should trigger exiting full screen
-            actions.setFullScreen(false)
+            actions.setVisibility('hidden')
         },
     })),
 ])
