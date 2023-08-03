@@ -24,8 +24,7 @@ export function useNotebookDrag({ href, node, properties }: DraggableToNotebookB
     isDragging: boolean
     elementProps: Pick<React.HTMLAttributes<HTMLElement>, 'draggable' | 'onDragStart' | 'onDragEnd'>
 } {
-    const { setVisibility } = useActions(notebookPopoverLogic)
-    const { visibility } = useValues(notebookPopoverLogic)
+    const { startDropMode, endDropMode } = useActions(notebookPopoverLogic)
     const [isDragging, setIsDragging] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -46,9 +45,7 @@ export function useNotebookDrag({ href, node, properties }: DraggableToNotebookB
             draggable: true,
             onDragStart: (e: any) => {
                 setIsDragging(true)
-                if (visibility !== 'visible') {
-                    setVisibility('peek')
-                }
+                startDropMode()
                 if (href) {
                     const url = window.location.origin + href
                     e.dataTransfer.setData('text/uri-list', url)
@@ -56,13 +53,10 @@ export function useNotebookDrag({ href, node, properties }: DraggableToNotebookB
                 }
                 node && e.dataTransfer.setData('node', node)
                 properties && e.dataTransfer.setData('properties', JSON.stringify(properties))
-                setVisibility('peek')
             },
             onDragEnd: () => {
                 setIsDragging(false)
-                if (visibility !== 'visible') {
-                    setVisibility('hidden')
-                }
+                endDropMode()
             },
         },
     }

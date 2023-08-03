@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path } from 'kea'
+import { actions, kea, reducers, path, listeners, selectors } from 'kea'
 
 import { urlToAction } from 'kea-router'
 import { RefObject } from 'react'
@@ -19,6 +19,8 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         setInitialAutofocus: (position: EditorFocusPosition) => ({ position }),
         setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
         setVisibility: (visibility: NotebookPopoverVisibility) => ({ visibility }),
+        startDropMode: true,
+        endDropMode: true,
     }),
 
     reducers(() => ({
@@ -61,6 +63,40 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
                 setVisibility: (state, { visibility }) => visibility !== 'hidden' || state,
             },
         ],
+        dropMode: [
+            false,
+            {
+                startDropMode: () => true,
+                endDropMode: () => false,
+            },
+        ],
+    })),
+
+    selectors(({ cache, actions }) => ({
+        dropListeners: [
+            (s) => [s.dropMode],
+            (dropMode): Pick<React.HTMLAttributes<HTMLElement>, 'onDragEnter' | 'onDragLeave'> => {
+                return dropMode
+                    ? {
+                          onDragEnter: () => {
+                              cache.dragEntercount = (cache.dragEntercount || 0) + 1
+                              if (cache.dragEntercount === 1) {
+                                  actions.setVisibility('visible')
+                              }
+                          },
+
+                          onDragLeave: () => {
+                              cache.dragEntercount = (cache.dragEntercount || 0) - 1
+
+                              if (cache.dragEntercount <= 0) {
+                                  cache.dragEntercount = 0
+                                  actions.setVisibility('peek')
+                              }
+                          },
+                      }
+                    : {}
+            },
+        ],
     })),
 
     subscriptions({
@@ -71,11 +107,23 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         },
     }),
 
+    listeners(({ cache, actions, values }) => ({
+        startDropMode: () => {
+            cache.dragEntercount = 0
+            actions.setVisibility('peek')
+        },
+        endDropMode: () => {
+            if (values.visibility === 'peek') {
+                actions.setVisibility('hidden')
+            }
+        },
+    })),
+
     urlToAction(({ actions, values }) => ({
         '/*': () => {
             // Any navigation should trigger exiting full screen
             if (values.visibility === 'visible') {
-                actions.setVisibility('peek')
+                actions.setVisibility('hidden')
             }
         },
     })),
