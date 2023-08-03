@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import json
 import tempfile
+import posixpath
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
 
@@ -42,6 +43,20 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
         "data_interval_end": inputs.data_interval_end,
         "table": "events",
     }
+
+
+def get_s3_key(inputs) -> str:
+    """Return an S3 key given S3InsertInputs."""
+    template_variables = get_allowed_template_variables(inputs)
+    key_prefix = inputs.prefix.format(**template_variables)
+
+    if posixpath.isabs(key_prefix):
+        # Keys are relative to root dir, so this would add an extra "/"
+        key_prefix = posixpath.relpath(key_prefix, "/").replace(".", "")
+
+    key = posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl")
+
+    return key
 
 
 @dataclass
@@ -98,15 +113,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         # Create a multipart upload to S3
-        template_variables = get_allowed_template_variables(inputs)
-        key_prefix = inputs.prefix.format(**template_variables)
-        key = f"{key_prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
+        key = get_s3_key(inputs)
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
         )
+
         details = activity.info().heartbeat_details
 
         parts: List[CompletedPartTypeDef] = []
