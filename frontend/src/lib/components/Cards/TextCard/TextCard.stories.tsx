@@ -53,7 +53,6 @@ export const Template: Story = () => {
                 <h5>Long text</h5>
                 <TextCard
                     className={'react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-60'}
-                    style={{ height: '250px', width: '300px' }}
                     dashboardId={1}
                     textTile={makeTextTile(
                         '# long text which has a very long title so is too big both X and Y, what shall we do?! Oh what shall we do?\n\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n'
@@ -70,7 +69,7 @@ export const Template: Story = () => {
                     textTile={makeTextTile('showing handles')}
                 />
             </div>
-            <div className={'w-full'} style={{ height: '200px' }}>
+            <div className={'w-full min-h-60'}>
                 <h5>Large Card</h5>
                 <TextCard
                     className={'h-full w-full react-grid-item react-draggable cssTransforms react-resizable'}
