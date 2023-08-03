@@ -114,8 +114,18 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
                                             { label: 'Link', value: SurveyQuestionType.Link },
-                                            ...(featureFlags[FEATURE_FLAGS.SURVEYS_RATING_TYPE]
-                                                ? [{ label: 'Rating', value: SurveyQuestionType.Rating }]
+                                            { label: 'Rating', value: SurveyQuestionType.Rating },
+                                            ...(featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_CHOICE]
+                                                ? [
+                                                      {
+                                                          label: 'Multiple choice',
+                                                          value: SurveyQuestionType.MultipleChoice,
+                                                      },
+                                                      {
+                                                          label: 'Single choice',
+                                                          value: SurveyQuestionType.SingleChoice,
+                                                      },
+                                                  ]
                                                 : []),
                                         ]}
                                     />

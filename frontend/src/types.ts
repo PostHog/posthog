@@ -2100,7 +2100,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 }
 
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
-    type: SurveyQuestionType.MultipleChoiceSingle | SurveyQuestionType.MultipleChoiceMulti
+    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
 }
 
@@ -2108,8 +2108,8 @@ export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSu
 
 export enum SurveyQuestionType {
     Open = 'open',
-    MultipleChoiceSingle = 'multiple_single',
-    MultipleChoiceMulti = 'multiple_multi',
+    MultipleChoice = 'multiple_choice',
+    SingleChoice = 'single_choice',
     NPS = 'nps',
     Rating = 'rating',
     Link = 'link',
