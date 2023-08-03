@@ -4,6 +4,7 @@
     border-radius: var(--radius);
     margin: 0px 0px 1rem 0px;
     background-color: var(--bg-light);
+    transition: border 150ms linear;
 
     .NotebookNode__meta {
         display: flex;
@@ -19,5 +20,9 @@
     .NotebookNode__content {
         transition: box-shadow 150ms ease-out;
         border-radius: var(--radius);
+    }
+
+    &--selected {
+        border: 1px solid var(--primary-3000);
     }
 }
