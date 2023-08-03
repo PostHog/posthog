@@ -22,13 +22,16 @@ export function NotebookPopover(): JSX.Element {
 
     const ref = useRef<HTMLDivElement>(null)
 
-    // NOTE: This doesn't work for some reason, possibly due to the way the editor is rendered
     useKeyboardHotkeys(
         visibility === 'visible'
             ? {
                   escape: {
                       action: () => {
-                          setFullScreen(false)
+                          if (fullScreen) {
+                              setFullScreen(false)
+                          } else {
+                              setVisibility('hidden')
+                          }
                       },
                   },
               }
