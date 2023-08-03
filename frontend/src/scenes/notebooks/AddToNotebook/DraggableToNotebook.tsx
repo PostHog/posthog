@@ -17,7 +17,6 @@ export type DraggableToNotebookBaseProps = {
 
 export type DraggableToNotebookProps = DraggableToNotebookBaseProps & {
     children: React.ReactNode
-    noOverflow?: boolean
     className?: string
 }
 
@@ -74,7 +73,6 @@ export function DraggableToNotebook({
     node,
     properties,
     href,
-    noOverflow,
     className,
 }: DraggableToNotebookProps): JSX.Element {
     const { isDragging, elementProps } = useNotebookDrag({ href, node, properties })
@@ -87,12 +85,7 @@ export function DraggableToNotebook({
         <>
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} fallback={children}>
                 <span
-                    className={clsx(
-                        'DraggableToNotebook',
-                        className,
-                        noOverflow && 'DraggableToNotebook--no-overflow',
-                        isDragging && 'DraggableToNotebook--dragging'
-                    )}
+                    className={clsx('DraggableToNotebook', className, isDragging && 'DraggableToNotebook--dragging')}
                     {...elementProps}
                 >
                     {children}

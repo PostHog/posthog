@@ -145,40 +145,34 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
-            <DraggableToNotebook
-                href={urls.replaySingle(logicProps.sessionRecordingId)}
-                className="h-full w-full"
-                noOverflow
+            <div
+                ref={playerRef}
+                className={clsx('SessionRecordingPlayer', {
+                    'SessionRecordingPlayer--fullscreen': isFullScreen,
+                    'SessionRecordingPlayer--no-border': noBorder,
+                    'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
+                    'SessionRecordingPlayer--inspector-focus': inspectorFocus,
+                    'SessionRecordingPlayer--inspector-hidden': noInspector,
+                })}
+                onClick={incrementClickCount}
             >
-                <div
-                    ref={playerRef}
-                    className={clsx('SessionRecordingPlayer', {
-                        'SessionRecordingPlayer--fullscreen': isFullScreen,
-                        'SessionRecordingPlayer--no-border': noBorder,
-                        'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
-                        'SessionRecordingPlayer--inspector-focus': inspectorFocus,
-                        'SessionRecordingPlayer--inspector-hidden': noInspector,
-                    })}
-                    onClick={incrementClickCount}
-                >
-                    {explorerMode ? (
-                        <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
-                    ) : (
-                        <>
-                            <div className="SessionRecordingPlayer__main">
-                                {!noMeta || isFullScreen ? <PlayerMeta /> : null}
-                                <div className="SessionRecordingPlayer__body">
-                                    <PlayerFrame />
-                                    <PlayerFrameOverlay />
-                                </div>
-                                <LemonDivider className="my-0" />
-                                <PlayerController />
+                {explorerMode ? (
+                    <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
+                ) : (
+                    <>
+                        <div className="SessionRecordingPlayer__main">
+                            {!noMeta || isFullScreen ? <PlayerMeta /> : null}
+                            <div className="SessionRecordingPlayer__body">
+                                <PlayerFrame />
+                                <PlayerFrameOverlay />
                             </div>
-                            {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
-                        </>
-                    )}
-                </div>
-            </DraggableToNotebook>
+                            <LemonDivider className="my-0" />
+                            <PlayerController />
+                        </div>
+                        {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
+                    </>
+                )}
+            </div>
         </BindLogic>
     )
 }
