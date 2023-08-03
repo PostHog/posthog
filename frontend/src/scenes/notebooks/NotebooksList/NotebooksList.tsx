@@ -17,7 +17,7 @@ export function NotebooksTable(): JSX.Element {
     const { loadNotebooks } = useActions(notebooksListLogic)
     const [searchTerm, setSearchTerm] = useState('')
 
-    const { setNotebookSideBarShown, selectNotebook } = useActions(notebookPopoverLogic)
+    const { setVisibility, selectNotebook } = useActions(notebookPopoverLogic)
 
     const filteredNotebooks = useMemo(
         () => (searchTerm ? fuse.search(searchTerm).map(({ item }) => item) : [...notebooks, ...notebookTemplates]),
@@ -93,7 +93,7 @@ export function NotebooksTable(): JSX.Element {
                 action={{
                     onClick: () => {
                         selectNotebook(notebookTemplates[0].short_id)
-                        setNotebookSideBarShown(true)
+                        setVisibility('visible')
                     },
                     children: 'Get started',
                 }}
