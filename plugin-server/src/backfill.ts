@@ -90,6 +90,7 @@ async function retrieveEvents(db: DB, window: Interval): Promise<RawClickHouseEv
           AND event IN ('$merge_dangerously', '$create_alias', '$identify')
           AND ((event = '$identify' and JSONExtractString(properties, '$anon_distinct_id') != '') OR
                (event != '$identify' and JSONExtractString(properties, 'alias') != ''))
+          AND team_id NOT IN (26188)
         ORDER BY _timestamp`
 
     let clickhouseFetchEventsResult: { data: RawClickHouseEvent[] }
