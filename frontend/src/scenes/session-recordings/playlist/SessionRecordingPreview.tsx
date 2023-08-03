@@ -186,7 +186,7 @@ export function SessionRecordingPreview({
     )
 
     return (
-        <DraggableToNotebook href={urls.replaySingle(recording.id)} alwaysDraggable noOverflow>
+        <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <div
                 key={recording.id}
                 className={clsx(
