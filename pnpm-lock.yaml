@@ -243,8 +243,8 @@ dependencies:
     specifier: ^3.15.1
     version: 3.16.1(react-dom@16.14.0)(react@16.14.0)
   react-resizable:
-    specifier: ^1.11.1
-    version: 1.11.1(react-dom@16.14.0)(react@16.14.0)
+    specifier: ^3.0.5
+    version: 3.0.5(react-dom@16.14.0)(react@16.14.0)
   react-shadow:
     specifier: ^18.4.2
     version: 18.6.2(prop-types@15.8.1)(react-dom@16.14.0)(react@16.14.0)
@@ -439,8 +439,8 @@ devDependencies:
     specifier: ^3.13.1
     version: 3.13.1
   '@types/react-resizable':
-    specifier: ^1.7.2
-    version: 1.7.4
+    specifier: ^3.0.4
+    version: 3.0.4
   '@types/react-syntax-highlighter':
     specifier: ^15.5.7
     version: 15.5.7
@@ -5649,8 +5649,8 @@ packages:
       '@types/react': 16.14.34
     dev: true
 
-  /@types/react-resizable@1.7.4:
-    resolution: {integrity: sha512-+xsGkd+Gvb9+8mLR1EyhNN8kBRJcsT1uJF4WpkFpFPIoApX2S89BmJA2RVtMdkhwe6YxV4RbHfaJ3bIdcgHc7g==}
+  /@types/react-resizable@3.0.4:
+    resolution: {integrity: sha512-+QguN9CDfC1lthq+4noG1fkxh8cqkV2Fv/Mu3mdknCCBiwwNLecnBdk1MmNNN7uJpT23Nx/aVkYsbt5NuWouFw==}
     dependencies:
       '@types/react': 16.14.34
     dev: true
@@ -13557,7 +13557,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.11
+      graceful-fs: 4.2.10
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
@@ -16925,7 +16925,7 @@ packages:
       react: 16.14.0
       react-dom: 16.14.0(react@16.14.0)
       react-draggable: 4.4.5(react-dom@16.14.0)(react@16.14.0)
-      react-resizable: 3.0.4(react-dom@16.14.0)(react@16.14.0)
+      react-resizable: 3.0.5(react-dom@16.14.0)(react@16.14.0)
     dev: false
 
   /react-input-autosize@3.0.0(react@16.14.0):
@@ -17029,20 +17029,8 @@ packages:
     engines: {node: '>=0.10.0'}
     dev: true
 
-  /react-resizable@1.11.1(react-dom@16.14.0)(react@16.14.0):
-    resolution: {integrity: sha512-S70gbLaAYqjuAd49utRHibtHLrHXInh7GuOR+6OO6RO6uleQfuBnWmZjRABfqNEx3C3Z6VPLg0/0uOYFrkfu9Q==}
-    peerDependencies:
-      react: 0.14.x || 15.x || 16.x || 17.x
-      react-dom: 0.14.x || 15.x || 16.x || 17.x
-    dependencies:
-      prop-types: 15.8.1
-      react: 16.14.0
-      react-dom: 16.14.0(react@16.14.0)
-      react-draggable: 4.4.5(react-dom@16.14.0)(react@16.14.0)
-    dev: false
-
-  /react-resizable@3.0.4(react-dom@16.14.0)(react@16.14.0):
-    resolution: {integrity: sha512-StnwmiESiamNzdRHbSSvA65b0ZQJ7eVQpPusrSmcpyGKzC0gojhtO62xxH6YOBmepk9dQTBi9yxidL3W4s3EBA==}
+  /react-resizable@3.0.5(react-dom@16.14.0)(react@16.14.0):
+    resolution: {integrity: sha512-vKpeHhI5OZvYn82kXOs1bC8aOXktGU5AmKAgaZS4F5JPburCtbmDPqE7Pzp+1kN4+Wb81LlF33VpGwWwtXem+w==}
     peerDependencies:
       react: '>= 16.3'
     dependencies:
