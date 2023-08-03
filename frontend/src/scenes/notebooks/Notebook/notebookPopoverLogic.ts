@@ -75,7 +75,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     selectors(({ cache, actions }) => ({
         dropListeners: [
             (s) => [s.dropMode],
-            (dropMode): Pick<React.HTMLAttributes<HTMLElement>, 'onDragEnter' | 'onDragLeave'> => {
+            (dropMode): { onDragEnter?: () => void; onDragLeave?: () => void } => {
                 return dropMode
                     ? {
                           onDragEnter: () => {
