@@ -816,7 +816,14 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-09T12:00:00Z",
             properties={"$session_id": "s1", "$window_id": "w1"},
         )
-        create_session_recording_events(self.team.pk, datetime(2020, 1, 9, 12), "u1", "s1")
+        create_session_recording_events(
+            self.team.pk,
+            datetime(2020, 1, 9, 12),
+            "u1",
+            "s1",
+            use_recording_table=False,
+            use_replay_table=True,
+        )
 
         people = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
