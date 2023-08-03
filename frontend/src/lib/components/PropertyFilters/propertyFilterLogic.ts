@@ -1,8 +1,12 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { propertyFilterLogicType } from './propertyFilterLogicType'
-import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'
-import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
+import { AnyPropertyFilter, EmptyPropertyFilter, FilterOperatorCache, PropertyOperator } from '~/types'
+import {
+    isValidPropertyFilter,
+    parseProperties,
+    parsePropertiesForFiltersCache,
+} from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>([
@@ -15,6 +19,11 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
         setFilter: (index: number, property: AnyPropertyFilter) => ({ index, property }),
         setFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
         remove: (index: number) => ({ index }),
+        setFilterCaches: (index: number, operator: PropertyOperator, property: AnyPropertyFilter) => ({
+            index,
+            operator,
+            property,
+        }),
     }),
 
     reducers(({ props }) => ({
@@ -26,7 +35,9 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                     newFilters[index] = property
                     return newFilters
                 },
-                setFilters: (_, { filters }) => filters,
+                setFilters: (_, { filters }) => {
+                    return filters
+                },
                 remove: (state, { index }) => {
                     const newState = state.filter((_, i) => i !== index)
                     if (newState.length === 0) {
@@ -36,6 +47,38 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                         return [...newState, {} as EmptyPropertyFilter]
                     }
                     return newState
+                },
+            },
+        ],
+        filtersOperatorsCache: [
+            props.propertyFilters
+                ? parsePropertiesForFiltersCache(props.propertyFilters)
+                : ([] as FilterOperatorCache[]),
+            {
+                setFilter: (state, { index, property }) => {
+                    const newFilters: FilterOperatorCache[] = [...state]
+                    if (
+                        property?.operator &&
+                        newFilters?.[index]?.[property.operator] &&
+                        newFilters[index][property.operator].key === property.key
+                    ) {
+                        newFilters[index] = { ...newFilters[index], [property.operator]: property }
+                        return newFilters
+                    }
+                    newFilters[index] = { [property.operator]: property }
+                    return newFilters
+                },
+                remove: (state, { index }) => {
+                    const newState = state.filter((_: AnyPropertyFilter, i: number) => i !== index)
+                    if (newState.length === 0) {
+                        return []
+                    }
+                    return parsePropertiesForFiltersCache(newState)
+                },
+                setFilterCaches: (state, { index, operator, property }) => {
+                    const newFilters: FilterOperatorCache[] = [...state]
+                    newFilters[index] = { ...newFilters[index], [operator]: property }
+                    return newFilters
                 },
             },
         ],

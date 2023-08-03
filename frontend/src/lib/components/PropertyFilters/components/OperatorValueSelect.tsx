@@ -21,6 +21,7 @@ export interface OperatorValueSelectProps {
     placeholder?: string
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
+    onOperatorChange?: (operator: PropertyOperator) => void
     operatorSelectProps?: Omit<LemonSelectProps<any>, 'onChange'>
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
@@ -61,6 +62,7 @@ export function OperatorValueSelect({
     placeholder,
     endpoint,
     onChange,
+    onOperatorChange,
     operatorSelectProps,
     propertyDefinitions = [],
     eventNames = [],
@@ -98,6 +100,7 @@ export function OperatorValueSelect({
                     operator={currentOperator || PropertyOperator.Exact}
                     operators={operators}
                     onChange={(newOperator: PropertyOperator) => {
+                        onOperatorChange && onOperatorChange(currentOperator)
                         const tentativeValidationError =
                             newOperator && value ? getValidationError(newOperator, value, propkey) : null
                         if (tentativeValidationError) {

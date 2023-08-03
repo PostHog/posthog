@@ -60,7 +60,7 @@ export function TaxonomicPropertyFilter({
         }
     }
     const builtPropertyFilterLogic = useMountedLogic(propertyFilterLogic)
-    const { setFilter } = useActions(propertyFilterLogic)
+    const { setFilter, setFilterCaches } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({
         pageKey,
@@ -184,6 +184,7 @@ export function TaxonomicPropertyFilter({
                                 placeholder="Enter value..."
                                 endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
                                 eventNames={eventNames}
+                                onOperatorChange={(oldOperator) => setFilterCaches(index, oldOperator, filter)}
                                 onChange={(newOperator, newValue) => {
                                     if (filter?.key && filter?.type) {
                                         setFilter(index, {

@@ -582,6 +582,8 @@ export type AnyPropertyFilter =
     | HogQLPropertyFilter
     | EmptyPropertyFilter
 
+export type FilterOperatorCache = Record<string, AnyPropertyFilter>
+
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']

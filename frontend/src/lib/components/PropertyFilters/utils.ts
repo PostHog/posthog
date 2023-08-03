@@ -7,6 +7,7 @@ import {
     EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
+    FilterOperatorCache,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PersonPropertyFilter,
@@ -51,6 +52,24 @@ export function parseProperties(
             type: PropertyFilterType.Event,
         }
     })
+}
+
+export function parsePropertiesForFiltersCache(
+    input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, any> | null | undefined
+): FilterOperatorCache[] {
+    const properties = parseProperties(input)
+    // Old style dict properties
+    const filtersOperators: FilterOperatorCache[] = []
+    properties.forEach((property) => {
+        const operator = property.operator as PropertyOperator
+        if (operator) {
+            filtersOperators.push({
+                [operator]: property,
+            })
+        }
+    })
+
+    return filtersOperators
 }
 
 /** Checks if the AnyPropertyFilter is a filled PropertyFilter */
