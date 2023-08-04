@@ -34,7 +34,6 @@ from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
     determine_aggregator,
-    ensure_value_is_json_serializable,
     enumerate_time_range,
     parse_response,
     process_math,
@@ -221,7 +220,7 @@ class TrendsTotalVolume:
 
     def _parse_aggregate_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
         def _parse(result: List) -> List:
-            aggregated_value = ensure_value_is_json_serializable(result[0][0]) if result and len(result) else 0
+            aggregated_value = result[0][0] if result else 0
             seconds_in_interval = TIME_IN_SECONDS[filter.interval]
             time_range = enumerate_time_range(filter, seconds_in_interval)
             filter_params = filter.to_params()

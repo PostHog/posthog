@@ -62,7 +62,7 @@ export function RecentRecordings(): JSX.Element {
                     currentTeam?.session_recording_opt_in
                         ? {
                               title: 'There are no recordings for this project',
-                              description: 'Make sure you have the javascript snippet setup in your website.',
+                              description: 'Make sure you have the HTML snippet setup in your website.',
                               buttonText: 'Learn more',
                               buttonTo: 'https://posthog.com/docs/user-guides/recordings',
                           }
