@@ -3013,6 +3013,11 @@ export enum NotebookNodeType {
     ReplayTimestamp = 'ph-replay-timestamp',
 }
 
+export type NotebookNodeWidgetSettings = {
+    attributes: Record<string, any>
+    updateAttributes: (attributes: Record<string, any>) => void
+}
+
 export enum NotebookTarget {
     Popover = 'popover',
     Auto = 'auto',

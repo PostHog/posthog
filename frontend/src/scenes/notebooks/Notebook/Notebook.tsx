@@ -105,6 +105,7 @@ export function Notebook({
 
                 <div className="flex flex-1 space-x-4">
                     {editable && showNodeSettings ? <NotebookSettings /> : null}
+
                     <Editor
                         initialContent={content}
                         onCreate={setEditor}

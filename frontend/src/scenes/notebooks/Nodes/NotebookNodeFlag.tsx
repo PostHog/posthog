@@ -55,10 +55,6 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const Settings = (): JSX.Element => {
-    return <div>Settings for Flag node</div>
-}
-
 export const NotebookNodeFlag = createPostHogWidgetNode({
     nodeType: NotebookNodeType.FeatureFlag,
     title: 'Feature Flag',

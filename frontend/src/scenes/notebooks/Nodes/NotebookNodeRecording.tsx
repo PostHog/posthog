@@ -4,7 +4,7 @@ import {
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, SessionRecordingId } from '~/types'
+import { NotebookNodeType, NotebookNodeWidgetSettings, SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
@@ -71,6 +71,10 @@ export const NotebookNodeRecording = createPostHogWidgetNode({
         },
     },
 })
+
+export const Settings = ({ attributes }: NotebookNodeWidgetSettings): JSX.Element => {
+    return <div>{attributes.length}</div>
+}
 
 export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {
     return {
