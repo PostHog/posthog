@@ -230,7 +230,7 @@ export function InsightsTable({
             data-attr="insights-table-graph"
             className="insights-table"
             useURLForSorting={insightMode !== ItemMode.Edit}
-            rowRibbonColor={(item) => getSeriesColor(item.seriesIndex, compare || false)}
+            rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, compare || false) : undefined}
             firstColumnSticky
         />
     )

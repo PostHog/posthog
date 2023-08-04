@@ -47,17 +47,20 @@ function TableRowRaw<T extends Record<string, any>>({
             ? expandable.expandedRowClassName(record, recordIndex)
             : expandable.expandedRowClassName)
 
+    const { className, style, ...extraProps } = onRow?.(record) || {}
+
     return (
         <>
             <tr
                 data-row-key={rowKeyDetermined}
-                {...onRow?.(record)}
                 className={clsx(
                     rowClassNameDetermined,
-                    rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`
+                    rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`,
+                    className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ '--row-ribbon-color': rowRibbonColorDetermined || 'none' } as React.CSSProperties}
+                style={{ '--row-ribbon-color': rowRibbonColorDetermined || undefined, ...style } as React.CSSProperties}
+                {...extraProps}
             >
                 {isRowExpansionToggleShown && (
                     <td className="LemonTable__toggle">
