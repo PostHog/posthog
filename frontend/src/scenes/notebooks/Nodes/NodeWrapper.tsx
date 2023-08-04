@@ -53,8 +53,8 @@ export function NodeWrapper({
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
     const nodeLogicProps = {
+        node,
         nodeType,
-        nodeAttributes: node.attrs,
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,

@@ -242,7 +242,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             return (
                                 nodeLogic.props.nodeType === type &&
                                 attrEntries.every(
-                                    ([attr, value]: [string, any]) => nodeLogic.props.nodeAttributes?.[attr] === value
+                                    ([attr, value]: [string, any]) => nodeLogic.props.node.attrs?.[attr] === value
                                 )
                             )
                         }) ?? null

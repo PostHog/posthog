@@ -15,14 +15,14 @@ import {
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
-import { JSONContent } from '../Notebook/utils'
+import { JSONContent, Node } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 
 export type NotebookNodeLogicProps = {
+    node: Node
     nodeId: string
     nodeType: NotebookNodeType
-    nodeAttributes: Record<string, any>
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     title: string
@@ -73,7 +73,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         deleteNode: () => {
             const logic = values.notebookLogic
-            logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + 1 }).run()
+            logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
         },
 
         insertAfterLastNodeOfType: ({ content, nodeType }) => {
