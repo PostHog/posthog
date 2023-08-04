@@ -148,10 +148,6 @@ export function Editor({
             onCreate({
                 getJSON: () => editor.getJSON(),
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
-                isNodeSelected: (node: Node, position: number) => {
-                    const { from, to } = editor.state.selection
-                    return from <= position && to >= position + node.nodeSize
-                },
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),

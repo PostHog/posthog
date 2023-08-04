@@ -16,7 +16,7 @@ export const NotebookSettings = (): JSX.Element | null => {
 
     return (
         <div className="NotebookSettings space-y-2">
-            <NotebookSettingsWidget id={'notebook'} title="Notebook">
+            <NotebookSettingsWidget id={'notebook'} title="Notebook Settings">
                 <div>Notebook settings</div>
             </NotebookSettingsWidget>
             {selectedNodeLogic && (
@@ -47,7 +47,14 @@ const NotebookSettingsWidget = ({
     return (
         <div className="NotebookSettings__widget border rounded">
             <div className="NotebookSettings__widget__header">
-                <span className="flex-1 pl-2">{title}</span>
+                <LemonButton
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    size="small"
+                    status="primary-alt"
+                    className="flex-1"
+                >
+                    <span className="flex-1 cursor-pointer">{title}</span>
+                </LemonButton>
                 <LemonButton
                     onClick={() => setIsExpanded(!isExpanded)}
                     size="small"
