@@ -3,6 +3,7 @@ import logging
 import structlog
 from django.core.management.base import BaseCommand
 
+from posthog.kafka_client.client import KafkaProducer
 from posthog.models import Person
 
 logger = structlog.get_logger(__name__)
@@ -51,5 +52,8 @@ def run(options):
     logger.info(f"Person has {distinct_id_count} distinct_ids to split")
     if live_run:
         person.split_person(None)
+        logger.info("Waiting on Kafka producer flush, for up to 2 minutes")
+        KafkaProducer().flush(120)
+        logger.info("Kafka producer queue flushed.")
     else:
         logger.info("Skipping the split, pass --live-run to run it")
