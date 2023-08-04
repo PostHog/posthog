@@ -26,6 +26,8 @@ class QueryDateRange(Generic[F]):
     _should_round: Optional[bool]
 
     def __init__(self, filter: F, team: Team, should_round: Optional[bool] = None, table="") -> None:
+        filter.team = team  # type: ignore
+        filter.hogql_context.team_id = team.id  # type: ignore
         self._filter = filter
         self._team = team
         self._table = f"{table}." if table else ""
