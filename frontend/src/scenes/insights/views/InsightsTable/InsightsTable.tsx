@@ -21,6 +21,7 @@ import { AggregationColumnItem, AggregationColumnTitle } from './columns/Aggrega
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { getSeriesColor } from 'lib/colors'
 
 export interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -109,7 +110,6 @@ export function InsightsTable({
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     hiddenLegendKeys={hiddenLegendKeys}
-                    compare={compare}
                     toggleVisibility={toggleVisibility}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
@@ -230,6 +230,7 @@ export function InsightsTable({
             data-attr="insights-table-graph"
             className="insights-table"
             useURLForSorting={insightMode !== ItemMode.Edit}
+            rowRibbonColor={(item) => getSeriesColor(item.seriesIndex, compare || false)}
             firstColumnSticky
         />
     )
