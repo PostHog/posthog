@@ -4,6 +4,7 @@ import { Settings as FlagSettings } from '../Nodes/NotebookNodeFlag'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { notebookSettingsWidgetLogic } from './notebookSettingsWidgetLogic'
+import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 
 const settingsComponents = {
     'ph-feature-flag': FlagSettings,
@@ -12,22 +13,27 @@ const settingsComponents = {
 export const NotebookSettings = (): JSX.Element | null => {
     const { selectedNodeLogic } = useValues(notebookLogic)
 
-    const Settings = selectedNodeLogic ? settingsComponents[selectedNodeLogic.props.nodeType] : null
-
     return (
         <div className="NotebookSettings space-y-2">
             <NotebookSettingsWidget id={'notebook'} title="Notebook Settings">
                 <div>Notebook settings</div>
             </NotebookSettingsWidget>
-            {selectedNodeLogic && (
-                <NotebookSettingsWidget id={selectedNodeLogic.props.nodeId} title={selectedNodeLogic.values.title}>
-                    <Settings
-                        attributes={selectedNodeLogic.props.nodeAttributes}
-                        updateAttributes={selectedNodeLogic.actions.updateAttributes}
-                    />
-                </NotebookSettingsWidget>
-            )}
+            {selectedNodeLogic && <SelectedNodeSettingsWidget logic={selectedNodeLogic} />}
         </div>
+    )
+}
+
+const SelectedNodeSettingsWidget = ({ logic }: { logic: notebookNodeLogicType }): JSX.Element | null => {
+    if (!Object.keys(settingsComponents).includes(logic.props.nodeType)) {
+        return null
+    }
+
+    const Settings = settingsComponents[logic.props.nodeType]
+
+    return (
+        <NotebookSettingsWidget id={logic.props.nodeId} title={logic.values.title}>
+            <Settings attributes={logic.props.nodeAttributes} updateAttributes={logic.actions.updateAttributes} />
+        </NotebookSettingsWidget>
     )
 }
 
