@@ -27,6 +27,18 @@ def _raw_delete(queryset: Any):
     queryset._raw_delete(queryset.db)
 
 
+def delete_batch_exports(team_ids: List[int]):
+    """Delete BatchExports for deleted teams.
+
+    Using normal CASCADE doesn't trigger a delete from Temporal.
+    """
+    from posthog.batch_exports.models import BatchExport
+
+    for batch_export in BatchExport.objects.filter(team_id__in=team_ids):
+        batch_export.delete()
+        batch_export.destination.delete()
+
+
 can_enable_actor_on_events = False
 
 # :TRICKY: Avoid overly eagerly checking whether the migration is complete.
