@@ -1,0 +1,55 @@
+import logging
+
+import structlog
+from django.core.management.base import BaseCommand
+
+from posthog.models import Person
+
+logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
+
+
+class Command(BaseCommand):
+    help = (
+        "Split a person into one new person per distinct_id, to recover from bad merges. "
+        "Useful when the API endpoint timeouts."
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument("--team-id", default=None, type=int, help="Specify a team to fix data for.")
+        parser.add_argument("--person-id", default=None, type=int, help="Specify the person ID to split.")
+        parser.add_argument("--live-run", action="store_true", help="Run changes, default is dry-run")
+
+    def handle(self, *args, **options):
+        run(options)
+
+
+def run(options):
+    live_run = options["live_run"]
+
+    if not options["team_id"]:
+        logger.error("You must specify --team-id to run this script")
+        exit(1)
+
+    if not options["person_id"]:
+        logger.error("You must specify --person-id to run this script")
+        exit(1)
+
+    team_id = options["team_id"]
+    person_id = options["person_id"]
+
+    person = Person.objects.get(pk=person_id)
+    if person.team_id != team_id:
+        logger.error(f"Specified person belongs to different team {person.team_id}")
+        exit(1)
+
+    distinct_id_count = len(person.distinct_ids)
+    if distinct_id_count < 2:
+        logger.error(f"Specified person only has {distinct_id_count} IDs, cannot split")
+        exit(1)
+
+    logger.info(f"Person has {distinct_id_count} distinct_ids to split")
+    if live_run:
+        person.split_person(None)
+    else:
+        logger.info("Skipping the split, pass --live-run to run it")
