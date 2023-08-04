@@ -79,41 +79,44 @@ export function InsightsTable({
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
-    if (isLegend) {
-        columns.push({
-            title: (
-                <SeriesCheckColumnTitle
+    columns.push({
+        title: (
+            <div className="flex items-center gap-4">
+                {isLegend && (
+                    <SeriesCheckColumnTitle
+                        indexedResults={indexedResults}
+                        canCheckUncheckSeries={canCheckUncheckSeries}
+                        hiddenLegendKeys={hiddenLegendKeys}
+                        toggleVisibility={toggleVisibility}
+                    />
+                )}
+                <span>Series</span>
+            </div>
+        ),
+        render: (_, item) => {
+            const label = (
+                <SeriesColumnItem
+                    item={item}
                     indexedResults={indexedResults}
-                    canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendKeys={hiddenLegendKeys}
-                    toggleVisibility={toggleVisibility}
+                    canEditSeriesNameInline={canEditSeriesNameInline}
+                    compare={compare}
+                    handleEditClick={handleSeriesEditClick}
+                    hasMultipleSeries={!isSingleSeries}
                 />
-            ),
-            render: (_, item) => (
+            )
+            return isLegend ? (
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     hiddenLegendKeys={hiddenLegendKeys}
                     compare={compare}
                     toggleVisibility={toggleVisibility}
+                    label={<div className="ml-2 font-normal">{label}</div>}
                 />
-            ),
-            width: 0,
-        })
-    }
-
-    columns.push({
-        title: 'Series',
-        render: (_, item) => (
-            <SeriesColumnItem
-                item={item}
-                indexedResults={indexedResults}
-                canEditSeriesNameInline={canEditSeriesNameInline}
-                compare={compare}
-                handleEditClick={handleSeriesEditClick}
-                hasMultipleSeries={!isSingleSeries}
-            />
-        ),
+            ) : (
+                label
+            )
+        },
         key: 'label',
         sorter: (a, b) => {
             const labelA = a.action?.name || a.label || ''
@@ -227,6 +230,7 @@ export function InsightsTable({
             data-attr="insights-table-graph"
             className="insights-table"
             useURLForSorting={insightMode !== ItemMode.Edit}
+            firstColumnSticky
         />
     )
 }

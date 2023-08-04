@@ -4,9 +4,9 @@ import { ActorType } from '~/types'
 import { groupsModel } from '~/models/groupsModel'
 import UserOutlined from '@ant-design/icons/lib/icons/UserOutlined'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
-import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
+import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 
 interface Props {
     groupTypeIndex: number | null
@@ -38,9 +38,9 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             key: 'id',
             render: function RenderActor(_, actor: ActorType) {
                 if (actor.type == 'group') {
-                    return <GroupActorHeader actor={actor} />
+                    return <GroupActorDisplay actor={actor} />
                 } else {
-                    return <PersonHeader person={actor} withIcon={false} />
+                    return <PersonDisplay person={actor} withIcon={false} />
                 }
             },
         },

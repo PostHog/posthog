@@ -5,7 +5,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
 import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery, trimQuotes } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
@@ -196,17 +196,15 @@ export function renderColumn(
     } else if (key === 'person' && isEventsQuery(query.source)) {
         const personRecord = value as EventsQueryPersonColumn
         return !!personRecord.distinct_id ? (
-            <Link to={urls.person(personRecord.distinct_id)}>
-                <PersonHeader noLink withIcon person={personRecord} />
-            </Link>
+            <PersonDisplay withIcon person={personRecord} />
         ) : (
-            <PersonHeader noLink withIcon person={value} />
+            <PersonDisplay noLink withIcon person={value} />
         )
     } else if (key === 'person' && isPersonsNode(query.source)) {
         const personRecord = record as PersonType
         return (
             <Link to={urls.person(personRecord.distinct_ids[0])}>
-                <PersonHeader noLink withIcon person={personRecord} />
+                <PersonDisplay noLink withIcon person={personRecord} noPopover />
             </Link>
         )
     } else if (key === 'person.$delete' && isPersonsNode(query.source)) {

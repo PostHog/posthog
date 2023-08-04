@@ -117,10 +117,9 @@ class ActorBaseQuery:
         """Filters a list of session_ids to those that actually have recordings"""
         query = """
         SELECT DISTINCT session_id
-        FROM session_recording_events
+        FROM session_replay_events
         WHERE
             team_id = %(team_id)s
-            and has_full_snapshot = 1
             and session_id in %(session_ids)s
         """
         params = {"team_id": self._team.pk, "session_ids": sorted(list(session_ids))}  # Sort for stable queries

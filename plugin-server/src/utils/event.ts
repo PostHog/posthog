@@ -1,4 +1,5 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka-acosom'
 
 import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
@@ -111,4 +112,19 @@ export function formPipelineEvent(message: Message): PipelineEvent {
         ip: combinedEvent.ip || null,
     })
     return event
+}
+
+export function formPluginEvent(event: RawClickHouseEvent): PluginEvent {
+    const postIngestionEvent = convertToIngestionEvent(event)
+    return {
+        distinct_id: postIngestionEvent.distinctId,
+        ip: postIngestionEvent.properties['$ip'],
+        site_url: '',
+        team_id: postIngestionEvent.teamId,
+        now: DateTime.now().toISO(),
+        event: postIngestionEvent.event,
+        properties: postIngestionEvent.properties,
+        timestamp: postIngestionEvent.timestamp,
+        uuid: postIngestionEvent.eventUuid,
+    }
 }

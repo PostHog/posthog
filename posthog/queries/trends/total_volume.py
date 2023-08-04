@@ -247,6 +247,7 @@ class TrendsTotalVolume:
                 "entity_order": entity.order,
             }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+            cache_invalidation_key = generate_short_id()
 
             return [
                 {
@@ -255,7 +256,7 @@ class TrendsTotalVolume:
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
-                        "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
+                        "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                     },
                 }
             ]

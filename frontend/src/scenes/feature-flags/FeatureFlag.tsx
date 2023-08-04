@@ -79,6 +79,7 @@ import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { PostHogFeature } from 'posthog-js/react'
+import { concatWithPunctuation } from 'scenes/insights/utils'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
@@ -653,6 +654,14 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     )
 }
 
+function variantConcatWithPunctuation(phrases: string[]): string {
+    if (phrases === null || phrases.length < 3) {
+        return concatWithPunctuation(phrases)
+    } else {
+        return `${phrases[0]} and ${phrases.length - 1} more sets`
+    }
+}
+
 interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
     isSuper?: boolean
@@ -675,6 +684,8 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature } = useValues(userLogic)
     const { upgradeLink } = useValues(billingLogic)
+
+    const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
     return (
         <>
@@ -887,10 +898,10 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 </LemonButton>
                             </Col>
                         </Row>
-                        {variants.map((_, index) => (
+                        {variants.map((variant, index) => (
                             <Group key={index} name="filters">
-                                <Row gutter={8} align="middle">
-                                    <Col span={1}>
+                                <Row gutter={8} align="top">
+                                    <Col span={1} style={{ paddingTop: 8 }}>
                                         <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                                     </Col>
                                     <Col span={4}>
@@ -938,24 +949,50 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     <Col span={3}>
                                         <Field name={['multivariate', 'variants', index, 'rollout_percentage']}>
                                             {({ value, onChange }) => (
-                                                <LemonInput
-                                                    type="number"
-                                                    min={0}
-                                                    max={100}
-                                                    value={value}
-                                                    onChange={(changedValue) => {
-                                                        if (changedValue !== null && changedValue !== undefined) {
-                                                            const valueInt = parseInt(changedValue.toString())
-                                                            if (!isNaN(valueInt)) {
-                                                                onChange(valueInt)
+                                                <div>
+                                                    <LemonInput
+                                                        type="number"
+                                                        min={0}
+                                                        max={100}
+                                                        value={value}
+                                                        onChange={(changedValue) => {
+                                                            if (changedValue !== null && changedValue !== undefined) {
+                                                                const valueInt = parseInt(changedValue.toString())
+                                                                if (!isNaN(valueInt)) {
+                                                                    onChange(valueInt)
+                                                                }
                                                             }
-                                                        }
-                                                    }}
-                                                />
+                                                        }}
+                                                    />
+                                                    {filterGroups.filter((group) => group.variant === variant.key)
+                                                        .length > 0 && (
+                                                        <span style={{ fontSize: 11 }} className="text-muted">
+                                                            Overridden by{' '}
+                                                            <strong>
+                                                                {variantConcatWithPunctuation(
+                                                                    filterGroups
+                                                                        .filter(
+                                                                            (group) =>
+                                                                                group.variant != null &&
+                                                                                group.variant === variant.key
+                                                                        )
+                                                                        .map(
+                                                                            (variant) =>
+                                                                                'Set ' +
+                                                                                (filterGroups.findIndex(
+                                                                                    (group) => group === variant
+                                                                                ) +
+                                                                                    1)
+                                                                        )
+                                                                )}
+                                                            </strong>
+                                                        </span>
+                                                    )}
+                                                </div>
                                             )}
                                         </Field>
                                     </Col>
-                                    <Col span={2}>
+                                    <Col span={2} style={{ paddingTop: 8 }}>
                                         <Row>
                                             {variants.length > 1 && (
                                                 <LemonButton
@@ -1036,7 +1073,7 @@ export function FeatureFlagReleaseConditions({
     const { cohortsById } = useValues(cohortsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
-    const _filter_groups: FeatureFlagGroupType[] = isSuper
+    const filterGroups: FeatureFlagGroupType[] = isSuper
         ? featureFlag.filters.super_groups || []
         : featureFlag.filters.groups
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
@@ -1057,7 +1094,7 @@ export function FeatureFlagReleaseConditions({
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
-            <Col span={24} md={24} key={`${index}-${_filter_groups.length}`}>
+            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
                     <Row align="middle" justify="space-between">
@@ -1091,7 +1128,7 @@ export function FeatureFlagReleaseConditions({
                                     noPadding
                                     onClick={() => duplicateConditionSet(index)}
                                 />
-                                {!isEarlyAccessFeatureCondition(group) && _filter_groups.length > 1 && (
+                                {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
                                     <LemonButton
                                         icon={<IconDelete />}
                                         status="muted"
@@ -1170,7 +1207,7 @@ export function FeatureFlagReleaseConditions({
                         <div>
                             <PropertyFilters
                                 orFiltering={true}
-                                pageKey={`feature-flag-${featureFlag.id}-${index}-${_filter_groups.length}-${
+                                pageKey={`feature-flag-${featureFlag.id}-${index}-${filterGroups.length}-${
                                     featureFlag.filters.aggregation_group_type_index ?? ''
                                 }`}
                                 propertyFilters={group?.properties}
@@ -1207,7 +1244,7 @@ export function FeatureFlagReleaseConditions({
                     {readOnly ? (
                         <LemonTag
                             type={
-                                _filter_groups.length == 1
+                                filterGroups.length == 1
                                     ? group.rollout_percentage == null || group.rollout_percentage == 100
                                         ? 'highlight'
                                         : group.rollout_percentage == 0
@@ -1314,7 +1351,7 @@ export function FeatureFlagReleaseConditions({
         }
 
         return (
-            <Col span={24} md={24} key={`${index}-${_filter_groups.length}`}>
+            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
                     <Row align="middle" justify="space-between">
@@ -1394,6 +1431,16 @@ export function FeatureFlagReleaseConditions({
                             )}
                         </>
                     )}
+                    {!readOnly &&
+                        !filterGroups.every(
+                            (group) =>
+                                filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2
+                        ) && (
+                            <LemonBanner type="info" className="mt-3 mb-3">
+                                Multiple variant overrides detected. We use the variant override for the first condition
+                                set that matches.
+                            </LemonBanner>
+                        )}
                 </div>
                 {!readOnly && showGroupsOptions && (
                     <div className="centered">
@@ -1430,7 +1477,7 @@ export function FeatureFlagReleaseConditions({
                 )}
             </div>
             <Row className="FeatureConditionCard" gutter={16}>
-                {_filter_groups.map((group, index) =>
+                {filterGroups.map((group, index) =>
                     isSuper ? renderSuperReleaseConditionGroup(group, index) : renderReleaseConditionGroup(group, index)
                 )}
             </Row>

@@ -204,7 +204,7 @@ LemonButton.displayName = 'LemonButton'
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status'
+    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status' | 'targetBlank'
 > & {
     dropdown?: LemonButtonDropdown
     /**

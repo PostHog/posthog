@@ -30,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -78,7 +79,6 @@ export function RecordingsLists({
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
-        listingVersion,
         sessionRecordingsAPIErrored,
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
@@ -100,7 +100,7 @@ export function RecordingsLists({
         <>
             <div className="SessionRecordingsPlaylist__lists">
                 {/* Pinned recordings */}
-                {!!playlistShortId && !showFilters ? (
+                {!!playlistShortId ? (
                     <SessionRecordingsList
                         className={clsx({
                             'max-h-1/2 h-fit': !collapsed.other,
@@ -216,7 +216,6 @@ export function RecordingsLists({
                                 setFilters={setFilters}
                                 showPropertyFilters={!personUUID}
                                 onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                usesListingV3={listingVersion === '3'}
                             />
                         ) : null
                     }
@@ -236,9 +235,9 @@ export function RecordingsLists({
                             <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                         ) : (
                             <div className={'flex flex-col items-center space-y-2'}>
-                                <span>No matching recordings found</span>
-                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
+                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
                                     <>
+                                        <span>No matching recordings found</span>
                                         <LemonButton
                                             type={'secondary'}
                                             data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
@@ -251,6 +250,8 @@ export function RecordingsLists({
                                             Search over the last 21 days
                                         </LemonButton>
                                     </>
+                                ) : (
+                                    <SessionRecordingsPlaylistTroubleshooting />
                                 )}
                             </div>
                         )
@@ -312,8 +313,13 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState, sessionRecordingsResponseLoading } =
-        useValues(logic)
+    const {
+        activeSessionRecording,
+        nextSessionRecording,
+        shouldShowEmptyState,
+        sessionRecordingsResponseLoading,
+        matchingEventsMatchType,
+    } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { user } = useValues(userLogic)
@@ -389,6 +395,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                             playlistShortId={playlistShortId}
                             sessionRecordingId={activeSessionRecording?.id}
                             matching={activeSessionRecording?.matching_events}
+                            matchingEventsMatchType={matchingEventsMatchType}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                             nextSessionRecording={nextSessionRecording}
                         />

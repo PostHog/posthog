@@ -1,9 +1,10 @@
-import { Hub } from '../src/types'
+import { startBackfill } from './backfill'
 import { getPluginServerCapabilities } from './capabilities'
 import { defaultConfig } from './config/config'
 import { initApp } from './init'
 import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { startPluginsServer } from './main/pluginsServer'
+import { Hub } from './types'
 import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
 
@@ -14,6 +15,7 @@ enum AlternativeMode {
     Version = 'VRSN',
     Healthcheck = 'HLTH',
     Migrate = 'MGRT',
+    Backfill = 'BKFL',
 }
 
 let alternativeMode: AlternativeMode | undefined
@@ -21,6 +23,8 @@ if (argv.includes('--version') || argv.includes('-v')) {
     alternativeMode = AlternativeMode.Version
 } else if (argv.includes('--migrate')) {
     alternativeMode = AlternativeMode.Migrate
+} else if (argv.includes('--backfill')) {
+    alternativeMode = AlternativeMode.Backfill
 }
 
 const status = new Status(alternativeMode)
@@ -47,7 +51,9 @@ switch (alternativeMode) {
             }
         })()
         break
-
+    case AlternativeMode.Backfill:
+        void startBackfill()
+        break
     default:
         // void the returned promise
         initApp(defaultConfig)

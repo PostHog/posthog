@@ -23,9 +23,11 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
                     Ruby, Go, and more.
                 </p>
                 <p>
-                    Demo projects like this one can't ingest any more events, but you can{' '}
-                    <Link to="https://posthog.com/docs/integrations">read about ingestion in our Docs</Link> and use a
-                    non-demo project to ingest your own events.
+                    Demo projects like this one can't ingest events, but you can{' '}
+                    <Link to="https://posthog.com/docs/integrations" target="_blank">
+                        read about ingestion in our Docs
+                    </Link>{' '}
+                    and use a non-demo project to ingest your own events.
                 </p>
             </>
         )

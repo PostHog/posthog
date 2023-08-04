@@ -1657,6 +1657,7 @@ export interface TrendsFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    show_percent_stack_view?: boolean
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
@@ -3015,11 +3016,13 @@ export enum NotebookNodeType {
 }
 
 export enum NotebookTarget {
-    Sidebar = 'sidebar',
+    Popover = 'popover',
     Auto = 'auto',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export interface DataWarehouseCredential {
     access_key: string

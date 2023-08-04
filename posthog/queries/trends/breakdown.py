@@ -525,6 +525,7 @@ class TrendsBreakdown:
     ) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
+            cache_invalidation_key = generate_short_id()
             for stats in result:
                 aggregated_value = ensure_value_is_json_serializable(stats[0])
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
@@ -546,7 +547,7 @@ class TrendsBreakdown:
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
-                        "url": f"api/projects/{self.team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
+                        "url": f"api/projects/{self.team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                     },
                     **result_descriptors,
                     **additional_values,
