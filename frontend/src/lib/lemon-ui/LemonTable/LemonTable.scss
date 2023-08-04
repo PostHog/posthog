@@ -219,10 +219,10 @@
     }
 }
 
-.LemonTable__cell--sticky::before {
+.scrollable--left .LemonTable__cell--sticky::before {
     background: var(--bg-light);
 }
 
-.LemonTable__header--sticky::before {
+.scrollable--left .LemonTable__header--sticky::before {
     background: var(--mid);
 }
