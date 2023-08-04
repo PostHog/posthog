@@ -231,6 +231,9 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response.status_code, 204)
 
     def test_delete_batch_exports(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
         team: Team = Team.objects.create_with_data(organization=self.organization)
 
         destination_data = {
@@ -256,7 +259,7 @@ class TestTeamAPI(APIBaseTest):
         with start_test_worker(temporal):
             response = self.client.post(
                 f"/api/projects/{team.id}/batch_exports",
-                batch_export_data,
+                json.dumps(batch_export_data),
                 content_type="application/json",
             )
             self.assertEqual(response.status_code, 201)
@@ -271,7 +274,7 @@ class TestTeamAPI(APIBaseTest):
             self.assertEqual(response.status_code, 404)
 
             with self.assertRaises(RPCError):
-                describe_schedule(batch_export_id)
+                describe_schedule(temporal, batch_export_id)
 
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

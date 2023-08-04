@@ -1,6 +1,8 @@
 from datetime import timedelta
 from typing import Any, List
 
+from posthog.temporal.client import sync_connect
+from posthog.batch_exports.service import delete_schedule
 from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 
@@ -34,9 +36,15 @@ def delete_batch_exports(team_ids: List[int]):
     """
     from posthog.batch_exports.models import BatchExport
 
+    temporal = sync_connect()
+
     for batch_export in BatchExport.objects.filter(team_id__in=team_ids):
+        schedule_id = batch_export.id
+
         batch_export.delete()
         batch_export.destination.delete()
+
+        delete_schedule(temporal, str(schedule_id))
 
 
 can_enable_actor_on_events = False
