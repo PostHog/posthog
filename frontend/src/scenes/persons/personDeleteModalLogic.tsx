@@ -2,10 +2,10 @@ import { actions, kea, props, reducers, path } from 'kea'
 import api from 'lib/api'
 import { PersonType } from '~/types'
 import { toParams } from 'lib/utils'
-import { asDisplay } from 'scenes/persons/PersonHeader'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import type { personDeleteModalLogicType } from './personDeleteModalLogicType'
 import { loaders } from 'kea-loaders'
+import { asDisplay } from './person-utils'
 
 export interface PersonDeleteModalLogicProps {
     person: PersonType
