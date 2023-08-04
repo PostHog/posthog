@@ -220,16 +220,18 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             {!props.setQuery ? 'No permission to update' : 'Update and run'}
                         </LemonButton>
                     </div>
-                    <LemonButton
-                        className="ml-2"
-                        onClick={saveAsView}
-                        type="primary"
-                        center
-                        disabledReason={!isValidView && 'All fields must have an alias'}
-                        data-attr="hogql-query-editor-save-as-view"
-                    >
-                        {'Save as View'}
-                    </LemonButton>
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] ? (
+                        <LemonButton
+                            className="ml-2"
+                            onClick={saveAsView}
+                            type="primary"
+                            center
+                            disabledReason={!isValidView && 'All fields must have an alias'}
+                            data-attr="hogql-query-editor-save-as-view"
+                        >
+                            {'Save as View'}
+                        </LemonButton>
+                    ) : null}
                 </div>
             </div>
         </div>

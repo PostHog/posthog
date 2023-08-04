@@ -153,7 +153,8 @@ export const FEATURE_FLAGS = {
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
-    DATA_WAREHOUSE: 'data-warehouse', // owner: @timgl
+    DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
+    DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
