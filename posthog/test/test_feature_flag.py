@@ -621,7 +621,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatcher([feature_flag], "307", property_value_overrides={"Organizer Id": 307}).get_match(
                 feature_flag
             ),
-            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # test with a flag where the property is a number
@@ -643,7 +643,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"Distinct Id": 307}).get_match(
                 feature_flag2
             ),
-            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
     def test_coercion_of_booleans(self):
@@ -809,12 +809,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
-        # require explicit type correctness for overrides
+        # don't require explicit type correctness for overrides when you're already at /decide
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "307", property_value_overrides={"Distinct Id": 307}).get_match(
                 feature_flag
             ),
-            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # test with a flag where the property is a number
