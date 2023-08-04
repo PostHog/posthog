@@ -38,6 +38,7 @@ export const notebookLogic = kea<notebookLogicType>([
         showConflictWarning: true,
         registerNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
+        setEditable: (editable: boolean) => ({ editable }),
     }),
     reducers({
         localContent: [
@@ -80,6 +81,13 @@ export const notebookLogic = kea<notebookLogicType>([
                     delete newState[nodeLogic.props.nodeId]
                     return newState
                 },
+            },
+        ],
+
+        isEditable: [
+            false,
+            {
+                setEditable: (_, { editable }) => editable,
             },
         ],
     }),
@@ -234,7 +242,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             return (
                                 nodeLogic.props.nodeType === type &&
                                 attrEntries.every(
-                                    ([attr, value]: [string, any]) => nodeLogic.props.nodeAttributes?.[attr] === value
+                                    ([attr, value]: [string, any]) => nodeLogic.props.node.attrs?.[attr] === value
                                 )
                             )
                         }) ?? null
@@ -273,6 +281,13 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             const jsonContent = values.editor.getJSON()
             actions.setLocalContent(jsonContent)
+        },
+
+        setEditable: ({ editable }) => {
+            values.editor?.setEditable(editable)
+        },
+        setEditor: ({ editor }) => {
+            editor?.setEditable(values.isEditable)
         },
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,

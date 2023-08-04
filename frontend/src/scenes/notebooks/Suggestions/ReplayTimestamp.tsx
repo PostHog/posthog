@@ -8,14 +8,38 @@ import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSu
 import { Node, NotebookEditor } from '../Notebook/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 
-const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element => {
+const insertTimestamp = ({
+    editor,
+    previousNode,
+}: {
+    editor: NotebookEditor | null
+    previousNode: Node | null
+}): void => {
+    if (!!previousNode && !!editor) {
+        const sessionRecordingId = getSessionRecordingId(previousNode)
+
+        const currentPlayerTime =
+            sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
+                .currentPlayerTime || 0
+
+        editor.insertContent([buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)])
+    }
+}
+
+const Component = ({ previousNode, editor }: InsertionSuggestionViewProps): JSX.Element => {
     const { currentPlayerTime } = useValues(
         sessionRecordingPlayerLogic(sessionRecordingPlayerProps(getSessionRecordingId(previousNode)))
     )
 
     return (
         <div className="NotebookRecordingTimestamp opacity-50">
-            <LemonButton size="small" noPadding type="secondary" status="primary-alt">
+            <LemonButton
+                size="small"
+                noPadding
+                type="secondary"
+                status="primary-alt"
+                onClick={() => insertTimestamp({ previousNode, editor })}
+            >
                 <span className="p-1">{formatTimestamp(currentPlayerTime)}</span>
             </LemonButton>
         </div>
@@ -30,17 +54,7 @@ export default InsertionSuggestion.create({
             : false
     },
 
-    onTab: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => {
-        if (!!previousNode && !!editor) {
-            const sessionRecordingId = getSessionRecordingId(previousNode)
-
-            const currentPlayerTime =
-                sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
-                    .currentPlayerTime || 0
-
-            editor.insertContent([buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)])
-        }
-    },
+    onTab: insertTimestamp,
 
     Component,
 })
