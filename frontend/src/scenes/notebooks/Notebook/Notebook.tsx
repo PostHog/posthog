@@ -13,17 +13,23 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
-import { NotebookWidget } from './NotebookWidget'
+import { NotebookSettings } from './NotebookSettings'
 
 export type NotebookProps = {
     shortId: string
+    showNodeSettings: boolean
     editable?: boolean
     initialAutofocus?: EditorFocusPosition
 }
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
+export function Notebook({
+    shortId,
+    showNodeSettings,
+    editable = false,
+    initialAutofocus = null,
+}: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, onEditorSelectionUpdate } = useActions(logic)
@@ -98,7 +104,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                 ) : null}
 
                 <div className="flex flex-1 space-x-4">
-                    <NotebookWidget />
+                    {editable && showNodeSettings ? <NotebookSettings /> : null}
                     <Editor
                         initialContent={content}
                         onCreate={setEditor}

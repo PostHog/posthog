@@ -123,6 +123,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                     shortId={selectedNotebook}
                                     editable={!notebook?.is_template}
                                     initialAutofocus={initialAutofocus}
+                                    showNodeSettings={false}
                                 />
                             </div>
                         </div>

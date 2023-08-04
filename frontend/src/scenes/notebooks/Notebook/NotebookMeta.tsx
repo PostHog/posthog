@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { NotebookSyncStatus } from '~/types'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
-import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { notebookSettingsLogic } from './notebookSettingsWidgetLogic'
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {
     synced: {

@@ -106,11 +106,21 @@
         }
     }
 
-    .NotebookWidget {
+    .NotebookSettings {
         position: sticky;
         align-self: flex-start;
         top: 65px;
-        min-width: 16rem;
+        min-width: 20rem;
+
+        .NotebookSettings__widget__header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--primary-alt);
+            padding: 0.25rem;
+        }
     }
 
     .LemonTable__content > table > thead {
