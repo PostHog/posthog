@@ -33,6 +33,7 @@ function TableRowRaw<T extends Record<string, any>>({
     const rowExpandable: number = Number(
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record, recordIndex))
     )
+    const isRowExpansionToggleShown = !!expandable && rowExpandable >= 0
     const isRowExpanded =
         !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record, recordIndex) === -1
             ? isRowExpandedLocal
@@ -53,17 +54,12 @@ function TableRowRaw<T extends Record<string, any>>({
                 {...onRow?.(record)}
                 className={clsx(
                     rowClassNameDetermined,
-                    rowStatusDetermined && `LemonTable__tr--status-${rowStatusDetermined}`
+                    rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`
                 )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ '--row-ribbon-color': rowRibbonColorDetermined || 'none' } as React.CSSProperties}
             >
-                {rowRibbonColorDetermined !== undefined && (
-                    <td
-                        className="LemonTable__ribbon"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ backgroundColor: rowRibbonColorDetermined || 'transparent' }}
-                    />
-                )}
-                {!!expandable && rowExpandable >= 0 && (
+                {isRowExpansionToggleShown && (
                     <td className="LemonTable__toggle">
                         {!!rowExpandable && (
                             <LemonButton
@@ -91,9 +87,9 @@ function TableRowRaw<T extends Record<string, any>>({
                         // != is intentional to catch undefined too
                         const value = column.dataIndex != null ? record[column.dataIndex] : undefined
                         const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
-                        const areContentsCellRepresentations: boolean =
-                            !!contents && typeof contents === 'object' && !React.isValidElement(contents)
                         const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
+                        const extraCellProps =
+                            isTableCellRepresentation(contents) && contents.props ? contents.props : {}
                         return (
                             <td
                                 key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
@@ -103,11 +99,9 @@ function TableRowRaw<T extends Record<string, any>>({
                                     column.align && `text-${column.align}`,
                                     column.className
                                 )}
-                                {...(areContentsCellRepresentations ? (contents as TableCellRepresentation).props : {})}
+                                {...extraCellProps}
                             >
-                                {areContentsCellRepresentations
-                                    ? (contents as TableCellRepresentation).children
-                                    : contents}
+                                {isTableCellRepresentation(contents) ? contents.children : contents}
                             </td>
                         )
                     })
@@ -134,3 +128,7 @@ function TableRowRaw<T extends Record<string, any>>({
 // This was most jarring when scrolling thet table from the very left or the very right – the simple addition
 // of a class indicating that scrollability to `table` caused the component to lag due to unneded rerendering of rows.
 export const TableRow = React.memo(TableRowRaw) as typeof TableRowRaw
+
+function isTableCellRepresentation(contents: React.ReactNode): contents is TableCellRepresentation {
+    return !!contents && typeof contents === 'object' && !React.isValidElement(contents)
+}
