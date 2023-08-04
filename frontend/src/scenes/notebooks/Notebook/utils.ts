@@ -24,6 +24,8 @@ export {
 
 export interface NotebookEditor {
     getJSON: () => JSONContent
+    getSelectedNode: () => Node | null
+    isNodeSelected: (node: Node, position: number) => boolean
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     focus: (position: EditorFocusPosition) => void

@@ -23,6 +23,7 @@ export type NotebookNodeLogicProps = {
     nodeId: string
     nodeType: NotebookNodeType
     nodeAttributes: Record<string, any>
+    updateAttributes: (attributes: Record<string, any>) => void
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     title: string
@@ -37,6 +38,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setTitle: (title: string) => ({ title }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
+        updateAttributes: (attributes: Record<string, any>) => ({ attributes }),
         // TODO: Implement this
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
     }),
@@ -91,6 +93,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     short_id: props.notebookLogic.props.shortId,
                 })
             }
+        },
+
+        updateAttributes: ({ attributes }) => {
+            props.updateAttributes(attributes)
         },
     })),
 

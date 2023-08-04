@@ -26,7 +26,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
-    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
+    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, onEditorSelectionUpdate } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
@@ -103,6 +103,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                         initialContent={content}
                         onCreate={setEditor}
                         onUpdate={onEditorUpdate}
+                        onSelectionUpdate={onEditorSelectionUpdate}
                         placeholder={({ node }: { node: any }) => {
                             if (node.type.name === 'heading' && node.attrs.level === 1) {
                                 return `Untitled - maybe.. "${headingPlaceholder}"`

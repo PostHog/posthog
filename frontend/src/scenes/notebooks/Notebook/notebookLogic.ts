@@ -29,11 +29,13 @@ export const notebookLogic = kea<notebookLogicType>([
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
         onEditorUpdate: true,
+        onEditorSelectionUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearLocalContent: true,
         setReady: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         exportJSON: true,
         showConflictWarning: true,
         registerNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
@@ -67,7 +69,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 loadNotebookSuccess: () => false,
             },
         ],
-
+        selectedNodeId: [
+            null as string | null,
+            {
+                setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
+            },
+        ],
         nodeLogics: [
             {} as Record<string, notebookNodeLogicType>,
             {
@@ -223,7 +230,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 return 'unsaved'
             },
         ],
-
+        selectedNodeLogic: [
+            (s) => [s.selectedNodeId, s.nodeLogics],
+            (selectedNodeId, nodeLogics) =>
+                Object.values(nodeLogics).find((nodeLogic) => nodeLogic.props.nodeId === selectedNodeId),
+        ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
             (nodeLogics) => {
@@ -286,6 +297,11 @@ export const notebookLogic = kea<notebookLogicType>([
             )
 
             downloadFile(file)
+        },
+
+        onEditorSelectionUpdate: () => {
+            const node = values.editor?.getSelectedNode()
+            actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
         },
     })),
 ])

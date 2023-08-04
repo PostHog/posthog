@@ -7,7 +7,7 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useMemo, useRef } from 'react'
+import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -49,10 +49,12 @@ export function NodeWrapper({
     updateAttributes,
 }: NodeWrapperProps & NodeViewProps): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
+    const nodeId: string = node.attrs.nodeId
+
     const nodeLogicProps = {
         nodeType,
         nodeAttributes: node.attrs,
+        updateAttributes,
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
@@ -185,6 +187,9 @@ export const createPostHogWidgetNode = ({
             return {
                 height: {
                     default: wrapperProps.heightEstimate,
+                },
+                nodeId: {
+                    default: uuid,
                 },
                 ...attributes,
             }

@@ -33,11 +33,13 @@ export function Editor({
     initialContent,
     onCreate,
     onUpdate,
+    onSelectionUpdate,
     placeholder,
 }: {
     initialContent: JSONContent
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
+    onSelectionUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
@@ -142,8 +144,14 @@ export function Editor({
         },
         onCreate: ({ editor }) => {
             editorRef.current = editor
+
             onCreate({
                 getJSON: () => editor.getJSON(),
+                getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
+                isNodeSelected: (node: Node, position: number) => {
+                    const { from, to } = editor.state.selection
+                    return from <= position && to >= position + node.nodeSize
+                },
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
@@ -163,6 +171,7 @@ export function Editor({
             })
         },
         onUpdate: onUpdate,
+        onSelectionUpdate: onSelectionUpdate,
     })
 
     return (
