@@ -3,8 +3,8 @@
     border: 1px solid var(--border-3000);
     border-radius: var(--radius);
     margin: 0px 0px 1rem 0px;
-    transition: outline 150ms ease-out, outline-offset 150ms ease-out;
     background-color: var(--bg-light);
+    transition: border 150ms linear;
 
     .NotebookNode__meta {
         display: flex;
@@ -20,5 +20,9 @@
     .NotebookNode__content {
         transition: box-shadow 150ms ease-out;
         border-radius: var(--radius);
+    }
+
+    &--selected {
+        border: 1px solid var(--primary-3000);
     }
 }
