@@ -28,11 +28,11 @@ class Command(BaseCommand):
 def run(options):
     live_run = options["live_run"]
 
-    if not options["team_id"]:
+    if options["team_id"] is None:
         logger.error("You must specify --team-id to run this script")
         exit(1)
 
-    if not options["person_id"]:
+    if options["person_id"] is None:
         logger.error("You must specify --person-id to run this script")
         exit(1)
 
@@ -52,8 +52,8 @@ def run(options):
     logger.info(f"Person has {distinct_id_count} distinct_ids to split")
     if live_run:
         person.split_person(None)
-        logger.info("Waiting on Kafka producer flush, for up to 2 minutes")
-        KafkaProducer().flush(120)
+        logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
+        KafkaProducer().flush(5 * 60)
         logger.info("Kafka producer queue flushed.")
     else:
         logger.info("Skipping the split, pass --live-run to run it")
