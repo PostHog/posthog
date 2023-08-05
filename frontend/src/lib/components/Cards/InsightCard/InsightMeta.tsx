@@ -24,6 +24,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { InsightCardProps } from './InsightCard'
+import { router } from 'kea-router'
 
 interface InsightMetaProps
     extends Pick<
@@ -76,6 +77,7 @@ export function InsightMeta({
     const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { location } = useValues(router)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
@@ -201,7 +203,7 @@ export function InsightMeta({
                     )}
                     <LemonDivider />
                     {editable && allInteractionsAllowed && (
-                        <LemonButton status="stealth" to={urls.insightEdit(short_id)} fullWidth>
+                        <LemonButton status="stealth" to={urls.insightEdit(short_id, location.pathname)} fullWidth>
                             Edit
                         </LemonButton>
                     )}

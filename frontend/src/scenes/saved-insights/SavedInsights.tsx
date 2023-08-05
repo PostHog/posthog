@@ -58,6 +58,7 @@ import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { router } from 'kea-router'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -348,6 +349,7 @@ export function SavedInsights(): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { location } = useValues(router)
 
     const { tab, layoutView, page } = filters
 
@@ -442,7 +444,7 @@ export function SavedInsights(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     status="stealth"
-                                    to={urls.insightEdit(insight.short_id, urls.savedInsights())}
+                                    to={urls.insightEdit(insight.short_id, location.pathname)}
                                     fullWidth
                                 >
                                     Edit
