@@ -109,6 +109,10 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
+    def update_billing_distinct_ids(self, organization: Organization) -> None:
+        distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+        self.update_billing(organization, {"distinct_ids": distinct_ids})
+
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate?products={products}",

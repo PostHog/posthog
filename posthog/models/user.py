@@ -17,6 +17,8 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
+from ee.models.license import License
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
@@ -210,6 +212,8 @@ class User(AbstractUser, UUIDClassicModel):
     def join(
         self, *, organization: Organization, level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER
     ) -> OrganizationMembership:
+        from ee.billing.billing_manager import BillingManager  # avoid circular import
+
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
@@ -224,6 +228,9 @@ class User(AbstractUser, UUIDClassicModel):
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
+            if is_cloud():
+                license = License.objects.first_valid()
+                BillingManager(license).update_billing_distinct_ids(organization)
             return membership
 
     @property
@@ -234,6 +241,8 @@ class User(AbstractUser, UUIDClassicModel):
         }
 
     def leave(self, *, organization: Organization) -> None:
+        from ee.billing.billing_manager import BillingManager  # avoid circular import
+
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if membership.level == OrganizationMembership.Level.OWNER:
             raise ValidationError("Cannot leave the organization as its owner!")
@@ -245,6 +254,9 @@ class User(AbstractUser, UUIDClassicModel):
                     None if self.current_organization is None else self.current_organization.teams.first()
                 )
                 self.save()
+            if is_cloud():
+                license = License.objects.first_valid()
+                BillingManager(license).update_billing_distinct_ids(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (
