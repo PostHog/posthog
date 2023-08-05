@@ -273,6 +273,8 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
 
         response_data: BillingStatus = response.json()
         BillingManager(license).update_org_details(organization, response_data)
+        # TODO: remove the following after a few days
+        BillingManager(license).update_billing_distinct_ids(organization)
 
     except Exception as err:
         logger.error(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
