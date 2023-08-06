@@ -17,7 +17,7 @@ import {
     RatingSurveyQuestion,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
-import { IconCancel } from 'lib/lemon-ui/icons'
+import { IconCancel, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
 import { SurveyAppearance } from './SurveyAppearance'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
@@ -109,7 +109,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     {survey.questions.map(
                         (question: LinkSurveyQuestion | SurveyQuestion | RatingSurveyQuestion, index: number) => (
                             <Group name={`questions.${index}`} key={index}>
-                                <Field name="type" label="Question type" className="min-w-150">
+                                <Field name="type" label="Question type" className="max-w-60">
                                     <LemonSelect
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
@@ -118,12 +118,12 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                             ...(featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_CHOICE]
                                                 ? [
                                                       {
-                                                          label: 'Multiple choice',
-                                                          value: SurveyQuestionType.MultipleChoice,
+                                                          label: 'Single choice select',
+                                                          value: SurveyQuestionType.SingleChoice,
                                                       },
                                                       {
-                                                          label: 'Single choice',
-                                                          value: SurveyQuestionType.SingleChoice,
+                                                          label: 'Multiple choice select',
+                                                          value: SurveyQuestionType.MultipleChoice,
                                                       },
                                                   ]
                                                 : []),
@@ -182,6 +182,59 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                 <LemonInput value={question.upperBoundLabel || ''} />
                                             </Field>
                                         </div>
+                                    </div>
+                                )}
+                                {(question.type === SurveyQuestionType.SingleChoice ||
+                                    question.type === SurveyQuestionType.MultipleChoice) && (
+                                    <div className="flex flex-col gap-2">
+                                        <Field name="choices" label="Choices">
+                                            {({ value, onChange }) => (
+                                                <div className="flex flex-col gap-2">
+                                                    {(value || []).map((choice: string, index: number) => (
+                                                        <div className="flex flex-row gap-2" key={index}>
+                                                            <LemonInput
+                                                                value={choice}
+                                                                fullWidth
+                                                                onChange={(val) => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices[index] = val
+                                                                    onChange(newChoices)
+                                                                }}
+                                                            />
+                                                            <LemonButton
+                                                                icon={<IconDelete />}
+                                                                size="small"
+                                                                status="muted"
+                                                                noPadding
+                                                                onClick={() => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices.splice(index, 1)
+                                                                    onChange(newChoices)
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                    <div className="w-fit">
+                                                        {(value || []).length < 6 && (
+                                                            <LemonButton
+                                                                icon={<IconPlusMini />}
+                                                                type="secondary"
+                                                                fullWidth={false}
+                                                                onClick={() => {
+                                                                    if (!value) {
+                                                                        onChange([''])
+                                                                    } else {
+                                                                        onChange([...value, ''])
+                                                                    }
+                                                                }}
+                                                            >
+                                                                Add choice
+                                                            </LemonButton>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </Field>
                                     </div>
                                 )}
                             </Group>
