@@ -57,7 +57,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { router } from 'kea-router'
 
 interface NewInsightButtonProps {
