@@ -47,6 +47,7 @@ import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
+    const { currentLocation } = useValues(router)
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
@@ -267,14 +268,24 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 </LemonButton>
                             )
                         ) : (
-                            <InsightSaveButton
-                                saveAs={saveAs}
-                                saveInsight={saveQueryBasedInsight}
-                                isSaved={hasDashboardItemId}
-                                addingToDashboard={!!insight.dashboards?.length && !insight.id}
-                                insightSaving={insightSaving}
-                                insightChanged={insightChanged || queryChanged}
-                            />
+                            <Tooltip
+                                title={
+                                    currentLocation.searchParams?.from
+                                        ? 'You will be redirected to your previous page'
+                                        : undefined
+                                }
+                            >
+                                <div>
+                                    <InsightSaveButton
+                                        saveAs={saveAs}
+                                        saveInsight={saveQueryBasedInsight}
+                                        isSaved={hasDashboardItemId}
+                                        addingToDashboard={!!insight.dashboards?.length && !insight.id}
+                                        insightSaving={insightSaving}
+                                        insightChanged={insightChanged || queryChanged}
+                                    />
+                                </div>
+                            </Tooltip>
                         )}
                         {isInsightVizNode(query) ? (
                             <LemonButton
