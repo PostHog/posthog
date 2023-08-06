@@ -475,20 +475,25 @@ class TestSignupAPI(APIBaseTest):
         self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
 
     @patch("posthoganalytics.capture")
+    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
     @pytest.mark.ee
     def test_social_signup_with_whitelisted_domain_on_cloud(
-        self, mock_identify, mock_sso_providers, mock_request, mock_capture
+        self, mock_identify, mock_sso_providers, mock_request, mock_update_distinct_ids, mock_capture
     ):
         with self.is_cloud(True):
             self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
+        assert mock_update_distinct_ids.called_once()
 
+    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_social_signup_with_whitelisted_domain_on_cloud_reverse(self, mock_sso_providers, mock_request):
+    def test_social_signup_with_whitelisted_domain_on_cloud_reverse(
+        self, mock_sso_providers, mock_request, mock_update_distinct_ids
+    ):
         with self.is_cloud(True):
             # user already exists
             User.objects.create(email="jane@hogflix.posthog.com", distinct_id=str(uuid.uuid4()))
@@ -527,6 +532,7 @@ class TestSignupAPI(APIBaseTest):
                 cast(OrganizationMembership, user.organization_memberships.first()).level,
                 OrganizationMembership.Level.MEMBER,
             )
+            mock_update_distinct_ids.assert_called_once_with(new_org)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -909,7 +915,8 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 0)
 
     @patch("posthoganalytics.capture")
-    def test_existing_user_can_sign_up_to_a_new_organization(self, mock_capture):
+    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
+    def test_existing_user_can_sign_up_to_a_new_organization(self, mock_update_distinct_ids, mock_capture):
         user = self._create_user("test+159@posthog.com", "test_password")
         new_org = Organization.objects.create(name="TestCo")
         new_team = Team.objects.create(organization=new_org)
@@ -972,6 +979,7 @@ class TestInviteSignupAPI(APIBaseTest):
         # Assert that the user remains logged in
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_update_distinct_ids.assert_called_once_with(new_org)
 
     @patch("posthoganalytics.capture")
     def test_cannot_use_claim_invite_endpoint_to_update_user(self, mock_capture):
