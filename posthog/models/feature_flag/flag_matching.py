@@ -2,11 +2,11 @@ import hashlib
 from dataclasses import dataclass
 from enum import Enum
 import time
-from django.conf import settings
 import structlog
 from typing import Dict, List, Optional, Tuple, Union
 
 from prometheus_client import Counter
+from django.conf import settings
 from django.db import DatabaseError, IntegrityError, OperationalError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
@@ -23,7 +23,7 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
 from posthog.models.cohort import Cohort
-from posthog.models.utils import TimeoutException, execute_with_timeout, python_signal_timeout
+from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q
 from posthog.database_healthcheck import postgres_healthcheck, DATABASE_FOR_FLAG_MATCHING
 from posthog.utils import label_for_team_id_to_track
@@ -620,7 +620,7 @@ def get_all_feature_flags(
     writing_hash_key_override = False
     # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
     # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
-    if hash_key_override is not None:
+    if hash_key_override is not None and not settings.DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES:
         # First, check if the hash_key_override is already in the database.
         # We don't have to check this in an ideal world, but read replica operations are much more resilient than write operations.
         # So, if an extra query check helps us avoid the write path, it's worth it.
@@ -658,13 +658,14 @@ def get_all_feature_flags(
                 # and the hash_key_override, and add overrides for all these personIDs.
                 # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
                 # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
-                with python_signal_timeout(2, enable=settings.DECIDE_SIGNAL_TIMEOUT):
-                    writing_hash_key_override = set_feature_flag_hash_key_overrides(
-                        team_id, [distinct_id, hash_key_override], hash_key_override
-                    )
-                    FLAG_HASH_KEY_WRITES_COUNTER.labels(
-                        team_id=label_for_team_id_to_track(team_id), successful_write=writing_hash_key_override
-                    ).inc()
+
+                writing_hash_key_override = set_feature_flag_hash_key_overrides(
+                    team_id, [distinct_id, hash_key_override], hash_key_override
+                )
+                team_id_label = label_for_team_id_to_track(team_id)
+                FLAG_HASH_KEY_WRITES_COUNTER.labels(
+                    team_id=team_id_label, successful_write=writing_hash_key_override
+                ).inc()
             except Exception as e:
                 # If the database is in read-only mode, we can't handle experience continuity flags,
                 # since the set_feature_flag_hash_key_overrides call will fail.
@@ -795,7 +796,5 @@ def parse_exception_for_error_message(err: Exception):
             reason = "healthcheck_failed"
         elif "query_wait_timeout" in str(err):
             reason = "query_wait_timeout"
-    elif isinstance(err, TimeoutException):
-        reason = "python_timeout"
 
     return reason

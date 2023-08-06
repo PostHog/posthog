@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext, HogQLQuery } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -101,6 +101,7 @@ export enum ProductKey {
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
     DATA_WAREHOUSE = 'data_warehouse',
+    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
@@ -728,6 +729,7 @@ export interface RecordingFilters {
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
     console_logs?: FilterableLogLevel[]
+    filter_test_accounts?: boolean
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -1654,6 +1656,7 @@ export interface TrendsFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    show_percent_stack_view?: boolean
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
@@ -3012,11 +3015,13 @@ export enum NotebookNodeType {
 }
 
 export enum NotebookTarget {
-    Sidebar = 'sidebar',
+    Popover = 'popover',
     Auto = 'auto',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export interface DataWarehouseCredential {
     access_key: string
@@ -3033,3 +3038,11 @@ export interface DataWarehouseTable {
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
+
+export interface DataWarehouseSavedQuery {
+    /** UUID */
+    id: string
+    name: string
+    query: HogQLQuery
+    columns: DatabaseSchemaQueryResponseField[]
+}

@@ -3,24 +3,34 @@ import {
     JSONContent as TTJSONContent,
     Editor as TTEditor,
     ChainedCommands as EditorCommands,
+    FocusPosition as EditorFocusPosition,
     Range as EditorRange,
     getText,
 } from '@tiptap/core'
-import { Node } from '@tiptap/pm/model'
+import { Node as PMNode } from '@tiptap/pm/model'
 import { NotebookNodeType } from '~/types'
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+/* eslint-disable @typescript-eslint/no-empty-interface */
+export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+/* eslint-enable @typescript-eslint/no-empty-interface */
+// export type FocusPosition = number | boolean | 'start' | 'end' | 'all' | null
 
-export { ChainedCommands as EditorCommands, Range as EditorRange } from '@tiptap/core'
+export {
+    ChainedCommands as EditorCommands,
+    Range as EditorRange,
+    FocusPosition as EditorFocusPosition,
+} from '@tiptap/core'
 
 export interface NotebookEditor {
     getJSON: () => JSONContent
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
+    focus: (position: EditorFocusPosition) => void
+    destroy: () => void
     isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
+    insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
     findNode: (position: number) => Node | null
     nextNode: (position: number) => { node: Node; position: number } | null

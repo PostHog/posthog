@@ -21,6 +21,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -116,8 +117,10 @@ export function SessionsRecordings(): JSX.Element {
                     key: replayTab,
                 }))}
             />
-            {recordingsDisabled ? (
-                <div className="mb-4">
+            <div className="space-y-2">
+                <VersionCheckerBanner />
+
+                {recordingsDisabled ? (
                     <LemonBanner
                         type="info"
                         action={{
@@ -129,17 +132,17 @@ export function SessionsRecordings(): JSX.Element {
                     >
                         Session recordings are currently disabled for this project.
                     </LemonBanner>
-                </div>
-            ) : null}
-            {!tab ? (
-                <Spinner />
-            ) : tab === ReplayTabs.Recent ? (
-                <SessionRecordingsPlaylist updateSearchParams />
-            ) : tab === ReplayTabs.Playlists ? (
-                <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
-            ) : tab === ReplayTabs.FilePlayback ? (
-                <SessionRecordingFilePlayback />
-            ) : null}
+                ) : null}
+                {!tab ? (
+                    <Spinner />
+                ) : tab === ReplayTabs.Recent ? (
+                    <SessionRecordingsPlaylist updateSearchParams />
+                ) : tab === ReplayTabs.Playlists ? (
+                    <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
+                ) : tab === ReplayTabs.FilePlayback ? (
+                    <SessionRecordingFilePlayback />
+                ) : null}
+            </div>
         </div>
     )
 }

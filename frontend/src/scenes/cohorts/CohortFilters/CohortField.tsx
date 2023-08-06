@@ -125,6 +125,9 @@ export function CohortTaxonomicField({
             onChange={(v, g) => {
                 onChange({ [fieldKey]: v, [groupTypeFieldKey]: g })
             }}
+            excludedProperties={{
+                [TaxonomicFilterGroupType.Events]: [null], // "All events" isn't supported by Cohorts currently
+            }}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
             data-attr={`cohort-taxonomic-field-${fieldKey}`}

@@ -38,7 +38,6 @@ const createSegments = (snapshots: RRWebEvent[]): RecordingSegment[] => {
 
     snapshots.forEach((snapshot) => {
         const eventIsActive = isActiveEvent(snapshot)
-        lastActiveEventTimestamp = eventIsActive ? snapshot.timestamp : lastActiveEventTimestamp
 
         // When do we create a new segment?
         // 1. If we don't have one yet
@@ -53,6 +52,9 @@ const createSegments = (snapshots: RRWebEvent[]): RecordingSegment[] => {
         if (activeSegment?.isActive && lastActiveEventTimestamp + ACTIVITY_THRESHOLD_MS < snapshot.timestamp) {
             isNewSegment = true
         }
+
+        // NOTE: We have to make sure that we set this _after_ we use it
+        lastActiveEventTimestamp = eventIsActive ? snapshot.timestamp : lastActiveEventTimestamp
 
         if (isNewSegment) {
             if (activeSegment) {

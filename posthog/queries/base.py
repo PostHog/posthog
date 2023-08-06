@@ -106,8 +106,8 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
             return str(override_value).lower() == str(truthy).lower()
 
         if isinstance(value, list):
-            return override_value in value
-        return value == override_value
+            return str(override_value).lower() in [str(val).lower() for val in value]
+        return str(value).lower() == str(override_value).lower()
 
     if operator == "is_not":
         if isinstance(value, list):

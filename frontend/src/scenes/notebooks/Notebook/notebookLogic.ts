@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { openNotebook, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
-import { NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
+import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
 import { JSONContent, NotebookEditor } from './utils'
@@ -10,6 +10,7 @@ import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
+import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 
 const SYNC_DELAY = 1000
 
@@ -35,6 +36,9 @@ export const notebookLogic = kea<notebookLogicType>([
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         exportJSON: true,
         showConflictWarning: true,
+        registerNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
+        unregisterNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
+        setEditable: (editable: boolean) => ({ editable }),
     }),
     reducers({
         localContent: [
@@ -62,6 +66,28 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 showConflictWarning: () => true,
                 loadNotebookSuccess: () => false,
+            },
+        ],
+
+        nodeLogics: [
+            {} as Record<string, notebookNodeLogicType>,
+            {
+                registerNodeLogic: (state, { nodeLogic }) => ({
+                    ...state,
+                    [nodeLogic.props.nodeId]: nodeLogic,
+                }),
+                unregisterNodeLogic: (state, { nodeLogic }) => {
+                    const newState = { ...state }
+                    delete newState[nodeLogic.props.nodeId]
+                    return newState
+                },
+            },
+        ],
+
+        isEditable: [
+            false,
+            {
+                setEditable: (_, { editable }) => editable,
             },
         ],
     }),
@@ -154,7 +180,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.clearLocalContent()
                     }
 
-                    openNotebook(response, NotebookTarget.Auto)
+                    openNotebook(response.short_id, NotebookTarget.Auto)
 
                     return response
                 },
@@ -178,14 +204,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 return contentTitle || notebook?.title || 'Untitled'
             },
         ],
-
         isEmpty: [
             (s) => [s.editor, s.content],
             (editor: NotebookEditor): boolean => {
                 return editor?.isEmpty() || false
             },
         ],
-
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
             (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus => {
@@ -205,6 +229,25 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
 
                 return 'unsaved'
+            },
+        ],
+
+        findNodeLogic: [
+            (s) => [s.nodeLogics],
+            (nodeLogics) => {
+                return (type: NotebookNodeType, attributes: Record<string, any>): notebookNodeLogicType | null => {
+                    const attrEntries = Object.entries(attributes || {})
+                    return (
+                        Object.values(nodeLogics).find((nodeLogic) => {
+                            return (
+                                nodeLogic.props.nodeType === type &&
+                                attrEntries.every(
+                                    ([attr, value]: [string, any]) => nodeLogic.props.node.attrs?.[attr] === value
+                                )
+                            )
+                        }) ?? null
+                    )
+                }
             },
         ],
     }),
@@ -238,6 +281,13 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             const jsonContent = values.editor.getJSON()
             actions.setLocalContent(jsonContent)
+        },
+
+        setEditable: ({ editable }) => {
+            values.editor?.setEditable(editable)
+        },
+        setEditor: ({ editor }) => {
+            editor?.setEditable(values.isEditable)
         },
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,

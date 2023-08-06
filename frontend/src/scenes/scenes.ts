@@ -162,6 +162,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Warehouse',
     },
+    [Scene.DataWarehousePosthog]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseExternal]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseSavedQueries]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
     [Scene.DataWarehouseTable]: {
         projectBased: true,
         name: 'Data Warehouse Table',
@@ -292,6 +304,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Notebook]: {
         projectBased: true,
         name: 'Notebook',
+        layout: 'app-raw',
     },
 }
 
@@ -402,6 +415,9 @@ export const routes: Record<string, Scene> = {
     [urls.survey(':id')]: Scene.Survey,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
+    [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
+    [urls.dataWarehouseExternal()]: Scene.DataWarehouseExternal,
+    [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,

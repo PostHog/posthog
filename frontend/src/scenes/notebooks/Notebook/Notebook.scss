@@ -99,6 +99,13 @@
         margin-right: auto;
     }
 
+    &--editable {
+        .NotebookEditor {
+            // Add some padding to help clicking below the last element
+            padding-bottom: 10rem;
+        }
+    }
+
     .LemonTable__content > table > thead {
         position: sticky;
         top: 0;
@@ -106,28 +113,12 @@
     }
 
     .NotebookRecordingTimestamp {
-        padding: 0.125rem 0.25rem;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background-color: var(--white);
-
-        &.NotebookRecordingTimestamp--selected {
-            outline-style: solid;
-            outline-color: var(--primary-bg-active);
-        }
+        display: inline-flex;
     }
 
     // overriding ::selection is necessary here because
     // antd makes it invisible otherwise
     span::selection {
         color: var(--primary);
-    }
-}
-
-.NotebookFloatingButton {
-    .LemonButton {
-        border-radius: 1rem;
-        min-height: 0.25rem;
-        padding: 0.25rem !important; // NOTE - yuck
     }
 }

@@ -39,23 +39,6 @@ export function timeoutGuard(
     }, timeout)
 }
 
-export async function asyncTimeoutGuard(
-    options: {
-        message: string
-        context?: Record<string, any>
-        timeout?: number
-    },
-    fn: () => Promise<any>
-): Promise<any> {
-    const timeout = timeoutGuard(options.message, options.context, options.timeout)
-
-    try {
-        await fn()
-    } finally {
-        clearTimeout(timeout)
-    }
-}
-
 const campaignParams = new Set([
     'utm_source',
     'utm_medium',
