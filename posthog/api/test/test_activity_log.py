@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
 
 from rest_framework import status
 
@@ -29,6 +29,16 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             email="other_user@posthog.com",
             password="",
         )
+        self.third_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="third_user@posthog.com",
+            password="",
+        )
+
+        # user one has created 10 insights and 2 flags
+        # user two has edited them all
+        # user three has edited most of them after that
+        self._create_and_edit_things()
 
     def _create_and_edit_things(self):
         created_insights = []
@@ -44,25 +54,64 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/feature_flags/", _feature_flag_json_payload("two")
         ).json()["id"]
 
-        # other user now edits them
-        self.client.force_login(self.other_user)
-        for created_insight_id in created_insights:
-            update_response = self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{created_insight_id}",
-                {"name": f"{created_insight_id}-insight"},
-            )
-            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        notebook_json = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/",
+            {"content": "print('hello world')", "name": "notebook"},
+        ).json()
 
-        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_one}", {"name": "one"})
-        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_two}", {"name": "two"})
+        # other user now edits them
+        self._edit_them_all(
+            created_insights, flag_one, flag_two, notebook_json["short_id"], notebook_json["version"], self.other_user
+        )
+        # third user edits them
+        self._edit_them_all(
+            created_insights,
+            flag_one,
+            flag_two,
+            notebook_json["short_id"],
+            notebook_json["version"] + 1,
+            self.third_user,
+        )
 
         self.client.force_login(self.user)
 
-    def test_can_get_top_ten_important_changes(self) -> None:
-        # user one has created 10 insights and 2 flags
-        # user two has edited them all
-        self._create_and_edit_things()
+    def _edit_them_all(
+        self,
+        created_insights: List[int],
+        flag_one: str,
+        flag_two: str,
+        notebook_short_id: str,
+        notebook_version: int,
+        the_user: User,
+    ) -> None:
+        self.client.force_login(the_user)
+        for created_insight_id in created_insights[:7]:
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{created_insight_id}",
+                {"name": f"{created_insight_id}-insight-changed-by-{the_user.id}"},
+            )
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_one}", {"name": f"one-edited-by-{the_user.id}"}
+            ).status_code
+            == status.HTTP_200_OK
+        )
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_two}", {"name": f"two-edited-by-{the_user.id}"}
+            ).status_code
+            == status.HTTP_200_OK
+        )
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.id}/notebooks/{notebook_short_id}",
+                {"content": f"print('hello world again from {the_user.id}')", "version": notebook_version},
+            ).status_code
+            == status.HTTP_200_OK
+        )
 
+    def test_can_get_top_ten_important_changes(self) -> None:
         # user one is shown the most recent 10 of those changes
         self.client.force_login(self.user)
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
@@ -70,9 +119,9 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         results = changes.json()["results"]
         assert len(results) == 10
         assert [c["scope"] for c in results] == [
+            "Notebook",
             "FeatureFlag",
             "FeatureFlag",
-            "Insight",
             "Insight",
             "Insight",
             "Insight",
@@ -83,10 +132,59 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         ]
         assert [c["unread"] for c in results] == [True] * 10
 
+    def test_can_get_top_ten_important_changes_including_my_edits(self) -> None:
+        # user two is _also_ shown the most recent 10 of those changes
+        # because they edited those things
+        # and they were then changed
+        self.client.force_login(self.other_user)
+        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
+        assert changes.status_code == status.HTTP_200_OK
+        results = changes.json()["results"]
+        assert [(c["user"]["id"], c["scope"]) for c in results] == [
+            (
+                self.third_user.pk,
+                "Notebook",
+            ),
+            (
+                self.third_user.pk,
+                "FeatureFlag",
+            ),
+            (
+                self.third_user.pk,
+                "FeatureFlag",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+        ]
+        assert [c["unread"] for c in results] == [True] * 10
+
     def test_reading_notifications_marks_them_unread(self):
-        # user one has created 10 insights and 2 flags
-        # user two has edited them all
-        self._create_and_edit_things()
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
 
@@ -100,7 +198,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
 
-        assert [c["unread"] for c in changes.json()["results"]] == [True, True] + ([False] * 8)
+        assert [c["unread"] for c in changes.json()["results"]] == [True, True]
         assert changes.json()["last_read"] == most_recent_date
 
     def _create_insight(

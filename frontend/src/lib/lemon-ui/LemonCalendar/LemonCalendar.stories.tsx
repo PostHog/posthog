@@ -8,6 +8,7 @@ export default {
     argTypes: {
         onClick: {
             defaultValue: (date: dayjs.Dayjs) => {
+                // eslint-disable-next-line no-console
                 console.log(`Clicked: ${date}`)
             },
         },

@@ -30,7 +30,50 @@ const MOCK_FUNNEL_EXPERIMENT: Experiment = {
     start_date: '2022-12-10T08:06:27.027740Z',
     end_date: '2023-02-07T16:12:54.055481Z',
     feature_flag_key: 'signup-page-4.0',
-    feature_flag: 2,
+    feature_flag: {
+        id: 1,
+        team_id: 1,
+        name: 'New sign-up page',
+        key: 'signup-page-4.0',
+        active: false,
+        deleted: false,
+        ensure_experience_continuity: false,
+        filters: {
+            groups: [
+                {
+                    properties: [
+                        {
+                            key: 'company_name',
+                            type: PropertyFilterType.Group,
+                            value: 'awe',
+                            operator: PropertyOperator.IContains,
+                            group_type_index: 1,
+                        },
+                    ],
+                    variant: null,
+                    rollout_percentage: null,
+                },
+            ],
+            payloads: {},
+            multivariate: {
+                variants: [
+                    {
+                        key: 'control',
+                        rollout_percentage: 33,
+                    },
+                    {
+                        key: 'test',
+                        rollout_percentage: 33,
+                    },
+                    {
+                        key: 'test_group_2',
+                        rollout_percentage: 34,
+                    },
+                ],
+            },
+            aggregation_group_type_index: 1,
+        },
+    },
     parameters: {
         feature_flag_variants: [
             {
@@ -92,7 +135,44 @@ const MOCK_TREND_EXPERIMENT: Experiment = {
     start_date: '2023-02-11T10:37:17.634000Z',
     end_date: null,
     feature_flag_key: 'aloha',
-    feature_flag: 30,
+    feature_flag: {
+        id: 1,
+        team_id: 1,
+        name: 'Hellp everyone',
+        key: 'aloha',
+        active: false,
+        deleted: false,
+        ensure_experience_continuity: false,
+        filters: {
+            groups: [
+                {
+                    properties: [
+                        {
+                            key: 'company_name',
+                            type: PropertyFilterType.Person,
+                            value: 'awesome',
+                            operator: PropertyOperator.IContains,
+                        },
+                    ],
+                    variant: null,
+                    rollout_percentage: null,
+                },
+            ],
+            payloads: {},
+            multivariate: {
+                variants: [
+                    {
+                        key: 'control',
+                        rollout_percentage: 50,
+                    },
+                    {
+                        key: 'test',
+                        rollout_percentage: 50,
+                    },
+                ],
+            },
+        },
+    },
     parameters: {
         feature_flag_variants: [
             {

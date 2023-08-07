@@ -1,7 +1,6 @@
 import { AnyCohortCriteriaType, CohortType, FilterLogicalOperator } from '~/types'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import {
-    eventToHumanName,
     genericOperatorToHumanName,
     operatorToHumanName,
     propertyValueToHumanName,
@@ -17,6 +16,7 @@ import { BEHAVIORAL_TYPE_TO_LABEL } from 'scenes/cohorts/CohortFilters/constants
 import { useValues } from 'kea'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
+import { PropertyKeyInfo } from '../PropertyKeyInfo'
 
 const MAX_CRITERIA_GROUPS = 2
 const MAX_CRITERIA = 2
@@ -106,7 +106,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                                     <ul>
                                         <li>
                                             <span>
-                                                <pre>{eventToHumanName(group.event_id)}</pre>
+                                                <PropertyKeyInfo value={group.event_id} />
                                                 {operatorToHumanName(group.count_operator)} in the last{' '}
                                                 {COHORT_MATCHING_DAYS[group.days as '1' | '7' | '14' | '30']}
                                             </span>
@@ -123,9 +123,9 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                                             group.properties.map((property, propIndex) => (
                                                 <li key={propIndex}>
                                                     <span>
-                                                        <pre>{eventToHumanName(property.key)}</pre>
+                                                        <PropertyKeyInfo value={property.key} />
                                                         {genericOperatorToHumanName(property)}
-                                                        <pre>{propertyValueToHumanName(property.value)}</pre>
+                                                        <code>{propertyValueToHumanName(property.value)}</code>
                                                     </span>
                                                 </li>
                                             ))}

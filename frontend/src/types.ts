@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext, HogQLQuery } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -99,6 +99,10 @@ export enum ProductKey {
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',
+    SESSION_REPLAY = 'session_replay',
+    DATA_WAREHOUSE = 'data_warehouse',
+    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
+    EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
 export enum LicensePlan {
@@ -322,7 +326,7 @@ export interface TeamType extends TeamBasicType {
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
     autocapture_exceptions_opt_in: boolean
-    session_recording_version: string
+    autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: PathCleaningFilter[]
@@ -625,12 +629,39 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
+export type EncodedRecordingSnapshot = {
+    windowId: string
+    data: eventWithTime[]
+}
+
+export interface SessionRecordingSnapshotSource {
+    source: 'blob' | 'realtime'
+    start_timestamp?: string
+    end_timestamp?: string
+    blob_key?: string
+    loaded: boolean
+}
+
+export interface SessionRecordingSnapshotResponse {
+    // Future interface
+    sources?: SessionRecordingSnapshotSource[]
+    snapshots?: EncodedRecordingSnapshot[]
+
+    // legacy interface
+    next?: string
+    // When loaded from S3
+    blob_keys?: string[]
+    // When loaded from Clickhouse (legacy)
+    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+}
+
 export type RecordingSnapshot = eventWithTime & {
     windowId: string
 }
 
 export interface SessionPlayerSnapshotData {
-    snapshots: RecordingSnapshot[]
+    snapshots?: RecordingSnapshot[]
+    sources?: SessionRecordingSnapshotSource[]
     next?: string
     blob_keys?: string[]
 }
@@ -644,6 +675,7 @@ export interface SessionPlayerData {
     durationMs: number
     start?: Dayjs
     end?: Dayjs
+    fullyLoaded: boolean
 }
 
 export enum SessionRecordingUsageType {
@@ -685,7 +717,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
+export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'log' | 'warn' | 'error'
 export interface RecordingFilters {
@@ -694,10 +726,10 @@ export interface RecordingFilters {
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    offset?: number
     session_recording_duration?: RecordingDurationFilter
-    duration_type_filter?: DurationTypeFilter
+    duration_type_filter?: DurationType
     console_logs?: FilterableLogLevel[]
+    filter_test_accounts?: boolean
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -960,6 +992,8 @@ export interface SessionRecordingType {
     viewed: boolean
     /** Length of recording in seconds. */
     recording_duration: number
+    active_seconds?: number
+    inactive_seconds?: number
     /** When the recording starts in ISO format. */
     start_time: string
     /** When the recording ends in ISO format. */
@@ -971,9 +1005,14 @@ export interface SessionRecordingType {
     person?: PersonType
     click_count?: number
     keypress_count?: number
+    /** count of all mouse activity in the recording, not just clicks */
+    mouse_activity_count?: number
     start_url?: string
     /** Count of number of playlists this recording is pinned to. **/
     pinned_count?: number
+    console_log_count?: number
+    console_warn_count?: number
+    console_error_count?: number
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
 }
@@ -1166,6 +1205,7 @@ export interface BillingV2Type {
     available_plans?: BillingV2PlanType[]
     discount_percent?: number
     discount_amount_usd?: string
+    amount_off_expires_at?: Dayjs
 }
 
 export interface BillingV2PlanType {
@@ -1480,8 +1520,9 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
 }
 
-export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
     date_marker: dayjs.Dayjs | null
+    created_at: dayjs.Dayjs
 }
 
 export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
@@ -1519,6 +1560,7 @@ export enum PathType {
     PageView = '$pageview',
     Screen = '$screen',
     CustomEvent = 'custom_event',
+    HogQL = 'hogql',
 }
 
 export enum FunnelPathType {
@@ -1614,6 +1656,7 @@ export interface TrendsFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    show_percent_stack_view?: boolean
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
@@ -1651,6 +1694,7 @@ export interface FunnelsFilterType extends FilterType {
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
+    paths_hogql_expression?: string
     include_event_types?: PathType[]
     start_point?: string
     end_point?: string
@@ -1986,8 +2030,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** Temporary hack to disable data exploration to enable result fetching. */
-    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {
@@ -2001,14 +2043,15 @@ export interface Survey {
     /** UUID */
     id: string
     name: string
-    description: string
     type: SurveyType
+    description: string
+    linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
-    questions: SurveyQuestion[]
+    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
     start_date: string | null
@@ -2021,21 +2064,48 @@ export enum SurveyType {
     Button = 'button',
     FullScreen = 'full_screen',
     Email = 'email',
+    API = 'api',
 }
 
 export interface SurveyAppearance {
-    background_color?: string
-    button_color?: string
-    text_color?: string
+    backgroundColor?: string
+    submitButtonColor?: string
+    textColor?: string
+    submitButtonText?: string
+    descriptionTextColor?: string
+    ratingButtonColor?: string
+    ratingButtonHoverColor?: string
 }
 
-export interface SurveyQuestion {
-    type: SurveyQuestionType
+interface SurveyQuestionBase {
     question: string
+    description?: string | null
     required?: boolean
-    link?: string | null
-    choices?: string[] | null
 }
+
+export interface BasicSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Open | SurveyQuestionType.NPS
+}
+
+export interface LinkSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Link
+    link: string | null
+}
+
+export interface RatingSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Rating
+    display: 'number' | 'emoji'
+    scale: number
+    lowerBoundLabel: string
+    upperBoundLabel: string
+}
+
+export interface MultipleSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.MultipleChoiceSingle | SurveyQuestionType.MultipleChoiceMulti
+    choices: string[]
+}
+
+export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
 
 export enum SurveyQuestionType {
     Open = 'open',
@@ -2191,8 +2261,8 @@ export interface PreflightStatus {
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
-    is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
+    openai_available?: boolean
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
@@ -2255,6 +2325,7 @@ export type HotKey =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+    | 'forwardslash'
 
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
@@ -2263,8 +2334,6 @@ export interface EventDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null
-    query_usage_30_day?: number | null
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
@@ -2298,8 +2367,6 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null // TODO: Deprecated, replace or remove
-    query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
@@ -2351,14 +2418,15 @@ export interface Experiment {
     name: string
     description?: string
     feature_flag_key: string
-    // ID of feature flag
-    feature_flag?: number
+    feature_flag?: FeatureFlagBasicType
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
         recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
+        custom_exposure_filter?: FilterType
+        aggregation_group_type_index?: number
     }
     start_date?: string | null
     end_date?: string | null
@@ -2396,12 +2464,14 @@ export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
     variants: TrendExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface TrendsExperimentResults {
@@ -2457,8 +2527,9 @@ export interface SelectOptionWithChildren extends SelectOption {
 export interface KeyMapping {
     label: string
     description?: string | JSX.Element
-    examples?: string[]
-    hide?: boolean
+    examples?: (string | number)[]
+    /** System properties are hidden in properties table by default. */
+    system?: boolean
 }
 
 export interface TileParams {
@@ -2806,6 +2877,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    expires_after?: Dayjs
 }
 
 export enum FeatureFlagReleaseType {
@@ -2882,7 +2954,6 @@ export interface RecordingReportLoadTimes {
     metadata: RecordingReportLoadTimeRow
     snapshots: RecordingReportLoadTimeRow
     events: RecordingReportLoadTimeRow
-    performanceEvents: RecordingReportLoadTimeRow
     firstPaint: RecordingReportLoadTimeRow
 }
 
@@ -2939,6 +3010,39 @@ export enum NotebookNodeType {
     FeatureFlag = 'ph-feature-flag',
     Person = 'ph-person',
     Link = 'ph-link',
+    Backlink = 'ph-backlink',
+    ReplayTimestamp = 'ph-replay-timestamp',
+}
+
+export enum NotebookTarget {
+    Popover = 'popover',
+    Auto = 'auto',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
+
+export interface DataWarehouseCredential {
+    access_key: string
+    access_secret: string
+}
+export interface DataWarehouseTable {
+    /** UUID */
+    id: string
+    name: string
+    format: string
+    url_pattern: string
+    credential: DataWarehouseCredential
+    columns: DatabaseSchemaQueryResponseField[]
+}
+
+export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
+
+export interface DataWarehouseSavedQuery {
+    /** UUID */
+    id: string
+    name: string
+    query: HogQLQuery
+    columns: DatabaseSchemaQueryResponseField[]
+}

@@ -12,7 +12,7 @@
     width: 100%;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background-color: var(--white);
+    background-color: var(--bg-light);
 
     &--no-border {
         border: none;
@@ -25,9 +25,7 @@
         background-color: var(--bg-light);
         min-width: 1px;
         height: 100%;
-        // margin: 0.5rem;
         overflow: hidden;
-        // border-radius: var(--radius);
     }
 
     .SessionRecordingPlayer__main {
@@ -41,7 +39,7 @@
         right: 0px;
         bottom: 0px;
         overflow-y: auto;
-        background-color: var(--white);
+        background-color: var(--bg-light);
         z-index: var(--z-modal);
         border: none;
         border-radius: 0px;
@@ -63,13 +61,6 @@
     .LemonModal & {
         .SessionRecordingPlayer__body {
             height: calc(90vh - 15rem);
-        }
-    }
-
-    &--explorer-mode {
-        .SessionRecordingPlayer__main,
-        .SessionRecordingPlayer__inspector {
-            display: none;
         }
     }
 

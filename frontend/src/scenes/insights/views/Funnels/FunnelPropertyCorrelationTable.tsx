@@ -4,9 +4,7 @@ import { Col, ConfigProvider, Row, Table, Empty } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -23,7 +21,8 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { useState } from 'react'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -46,7 +45,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         }
     }, [querySource])
 
-    const { openCorrelationPersonsModal } = useActions(funnelLogic(insightProps))
+    const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
     const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
     const [isPropertiesOpen, setIsPropertiesOpen] = useState(false as boolean)
@@ -185,47 +184,22 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                             </>
                         </Row>
                         <Row style={{ display: 'contents' }}>
-                            <p className="title" style={{ marginLeft: 8 }}>
-                                CORRELATION
-                            </p>
-                            <div
-                                className="tab-btn ant-btn"
-                                style={{
-                                    paddingTop: '1px',
-                                    paddingBottom: '1px',
-                                    borderTopRightRadius: 0,
-                                    borderBottomRightRadius: 0,
-                                }}
-                                onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
-                            >
-                                <Checkbox
+                            <p className="title ml-2">CORRELATION</p>
+                            <div className="flex">
+                                <LemonCheckbox
                                     checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Success)}
-                                    style={{
-                                        pointerEvents: 'none',
-                                    }}
-                                >
-                                    Success
-                                </Checkbox>
-                            </div>
-                            <div
-                                className="tab-btn ant-btn"
-                                style={{
-                                    marginRight: '8px',
-                                    paddingTop: '1px',
-                                    paddingBottom: '1px',
-                                    borderTopLeftRadius: 0,
-                                    borderBottomLeftRadius: 0,
-                                }}
-                                onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
-                            >
-                                <Checkbox
+                                    onChange={() => onClickCorrelationType(FunnelCorrelationType.Success)}
+                                    label="Success"
+                                    size="small"
+                                    bordered
+                                />
+                                <LemonCheckbox
                                     checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Failure)}
-                                    style={{
-                                        pointerEvents: 'none',
-                                    }}
-                                >
-                                    Drop-off
-                                </Checkbox>
+                                    onChange={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
+                                    label="Drop-off"
+                                    size="small"
+                                    bordered
+                                />
                             </div>
                         </Row>
                     </Col>
@@ -235,21 +209,23 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         loadedPropertyCorrelationsTableOnce ? (
                             <Empty />
                         ) : (
-                            <p style={{ margin: 'auto', maxWidth: 500 }}>
-                                Highlight properties which are likely to have affected the conversion rate within the
-                                funnel.{' '}
-                                <Link to="https://posthog.com/manual/correlation">
-                                    Learn more about correlation analysis.
-                                </Link>
-                                <br />
+                            <>
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <p className="m-auto" style={{ maxWidth: 500 }}>
+                                    Highlight properties which are likely to have affected the conversion rate within
+                                    the funnel.{' '}
+                                    <Link to="https://posthog.com/manual/correlation">
+                                        Learn more about correlation analysis.
+                                    </Link>
+                                </p>
                                 <LemonButton
                                     type="secondary"
                                     onClick={() => setIsPropertiesOpen(true)}
-                                    className="m-auto"
+                                    className="mx-auto mt-2"
                                 >
                                     Select properties
                                 </LemonButton>
-                            </p>
+                            </>
                         )
                     }
                 >

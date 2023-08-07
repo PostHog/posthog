@@ -212,6 +212,7 @@ function convertToMenuSingle<T>(
             ...node,
             active: doOptionsContainActiveValue(childOptions, activeValue),
             items,
+            custom: doOptionsContainCustomControl(childOptions),
         } as LemonMenuItemNode
     } else {
         acc.push(option)
@@ -259,6 +260,19 @@ function doOptionsContainActiveValue<T>(options: LemonSelectOptions<T>, activeVa
                 return true
             }
         } else if (option.value === activeValue) {
+            return true
+        }
+    }
+    return false
+}
+
+function doOptionsContainCustomControl<T>(options: LemonSelectOptions<T>): boolean {
+    for (const option of options) {
+        if ('options' in option) {
+            if (doOptionsContainCustomControl(option.options)) {
+                return true
+            }
+        } else if (typeof option.labelInMenu === 'function') {
             return true
         }
     }

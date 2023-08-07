@@ -9,35 +9,45 @@ from posthog.hogql.database.models import (
     FieldTraverser,
     DatabaseField,
     LazyTable,
+    FieldOrTable,
 )
-from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, join_with_person_distinct_ids_table
+from posthog.hogql.database.schema.person_distinct_ids import (
+    PersonDistinctIdsTable,
+    join_with_person_distinct_ids_table,
+)
+
+SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
+    "session_id": StringDatabaseField(name="session_id"),
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "distinct_id": StringDatabaseField(name="distinct_id"),
+    "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp"),
+    "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp"),
+    "first_url": DatabaseField(name="first_url"),
+    "click_count": IntegerDatabaseField(name="click_count"),
+    "keypress_count": IntegerDatabaseField(name="keypress_count"),
+    "mouse_activity_count": IntegerDatabaseField(name="mouse_activity_count"),
+    "active_milliseconds": IntegerDatabaseField(name="active_milliseconds"),
+    "console_log_count": IntegerDatabaseField(name="console_log_count"),
+    "console_warn_count": IntegerDatabaseField(name="console_warn_count"),
+    "console_error_count": IntegerDatabaseField(name="console_error_count"),
+    "size": IntegerDatabaseField(name="size"),
+    "pdi": LazyJoin(
+        from_field="distinct_id",
+        join_table=PersonDistinctIdsTable(),
+        join_function=join_with_person_distinct_ids_table,
+    ),
+    "person": FieldTraverser(chain=["pdi", "person"]),
+    "person_id": FieldTraverser(chain=["pdi", "person_id"]),
+}
 
 
 class RawSessionReplayEventsTable(Table):
-    session_id: StringDatabaseField = StringDatabaseField(name="session_id")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
-
-    min_first_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="min_first_timestamp")
-    max_last_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="max_last_timestamp")
-    first_url: DatabaseField = DatabaseField(name="first_url")
-
-    click_count: IntegerDatabaseField = IntegerDatabaseField(name="click_count")
-    keypress_count: IntegerDatabaseField = IntegerDatabaseField(name="keypress_count")
-    mouse_activity_count: IntegerDatabaseField = IntegerDatabaseField(name="mouse_activity_count")
-    active_milliseconds: IntegerDatabaseField = IntegerDatabaseField(name="active_milliseconds")
-    console_log_count: IntegerDatabaseField = IntegerDatabaseField(name="console_log_count")
-    console_warn_count: IntegerDatabaseField = IntegerDatabaseField(name="console_warn_count")
-    console_error_count: IntegerDatabaseField = IntegerDatabaseField(name="console_error_count")
-
-    pdi: LazyJoin = LazyJoin(
-        from_field="distinct_id",
-        join_table=PersonDistinctIdTable(),
-        join_function=join_with_person_distinct_ids_table,
-    )
-
-    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
-    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
+    fields: Dict[str, FieldOrTable] = {
+        **SESSION_REPLAY_EVENTS_COMMON_FIELDS,
+        "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp"),
+        "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp"),
+        "first_url": DatabaseField(name="first_url"),
+    }
 
     def avoid_asterisk_fields(self) -> List[str]:
         return ["first_url"]
@@ -65,6 +75,8 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
         "console_log_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_log_count"])]),
         "console_warn_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_warn_count"])]),
         "console_error_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_error_count"])]),
+        "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
+        "size": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "size"])]),
     }
 
     select_fields: List[ast.Expr] = []
@@ -85,30 +97,12 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
 
 
 class SessionReplayEventsTable(LazyTable):
-    session_id: StringDatabaseField = StringDatabaseField(name="session_id")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
-
-    start_time: DateTimeDatabaseField = DateTimeDatabaseField(name="start_time")
-    end_time: DateTimeDatabaseField = DateTimeDatabaseField(name="end_time")
-    first_url: StringDatabaseField = StringDatabaseField(name="first_url")
-
-    click_count: IntegerDatabaseField = IntegerDatabaseField(name="click_count")
-    keypress_count: IntegerDatabaseField = IntegerDatabaseField(name="keypress_count")
-    mouse_activity_count: IntegerDatabaseField = IntegerDatabaseField(name="mouse_activity_count")
-    active_milliseconds: IntegerDatabaseField = IntegerDatabaseField(name="active_milliseconds")
-    console_log_count: IntegerDatabaseField = IntegerDatabaseField(name="console_log_count")
-    console_warn_count: IntegerDatabaseField = IntegerDatabaseField(name="console_warn_count")
-    console_error_count: IntegerDatabaseField = IntegerDatabaseField(name="console_error_count")
-
-    pdi: LazyJoin = LazyJoin(
-        from_field="distinct_id",
-        join_table=PersonDistinctIdTable(),
-        join_function=join_with_person_distinct_ids_table,
-    )
-
-    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
-    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
+    fields: Dict[str, FieldOrTable] = {
+        **SESSION_REPLAY_EVENTS_COMMON_FIELDS,
+        "start_time": DateTimeDatabaseField(name="start_time"),
+        "end_time": DateTimeDatabaseField(name="end_time"),
+        "first_url": StringDatabaseField(name="first_url"),
+    }
 
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_session_replay_events_table(requested_fields)

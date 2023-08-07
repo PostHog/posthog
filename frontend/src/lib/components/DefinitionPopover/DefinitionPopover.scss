@@ -1,5 +1,5 @@
 .definition-popover {
-    width: 316px;
+    width: 20rem;
     padding: 0.5rem 0.75rem 0.75rem 0.75rem;
 
     .definition-popover-header {
@@ -10,13 +10,13 @@
             display: flex;
             flex-direction: row;
             justify-content: space-between;
-            margin-bottom: 4px;
+            margin-bottom: 0.25rem;
             line-height: 2rem;
 
             .definition-popover-header-row-title {
-                font-size: 11px;
+                font-size: 0.6875rem;
                 font-weight: 600;
-                letter-spacing: 0.5px;
+                letter-spacing: 0.05em;
                 text-transform: uppercase;
                 color: var(--muted);
             }
@@ -24,11 +24,11 @@
             .definition-popover-header-row-buttons {
                 display: flex;
                 flex-direction: row;
-                font-size: 13px;
+                font-size: 0.8125rem;
 
                 a {
                     user-select: none;
-                    margin-left: 16px;
+                    margin-left: 1rem;
                 }
 
                 .definition-popover-disabled-button {
@@ -42,13 +42,15 @@
             display: flex;
             align-items: center;
             font-weight: 600;
-            font-size: 20px;
-            min-height: 24px;
-            margin-bottom: 4px;
+            font-size: 1.25rem;
+            min-height: 1.5rem;
+            margin-bottom: 0.25rem;
+            white-space: normal;
+            line-height: 1.2;
 
             svg.taxonomy-icon {
                 font-size: 1.5rem;
-                margin-right: 0.5rem;
+                margin-right: 0.75rem;
                 flex-shrink: 0;
 
                 &.taxonomy-icon-muted {
@@ -72,7 +74,7 @@
 
     .definition-popover-description {
         font-weight: 400;
-        margin-bottom: 4px;
+        margin: 0.5rem 0;
         overflow-wrap: break-word;
 
         &.empty {
@@ -82,70 +84,48 @@
     }
 
     .definition-popover-examples {
-        margin-bottom: 4px;
+        margin-bottom: 0.25rem;
         font-style: italic;
     }
 
     .definition-popover-timemeta {
-        display: inline;
-        margin-top: 4px;
-        margin-bottom: 4px;
+        margin: 0.5rem 0;
 
         .definition-popover-timemeta-user {
             display: inline-flex;
         }
         .definition-popover-timemeta-spacer {
-            margin-right: 4px;
+            margin-right: 0.5rem;
         }
     }
 
     .definition-popover-divider {
         width: 100%;
-        margin-top: 16px;
-        margin-bottom: 16px;
+        margin-top: 1rem;
+        margin-bottom: 1rem;
         align-items: flex-start;
         text-transform: uppercase;
-        font-size: 11px;
+        font-size: 0.6875rem;
     }
 
     .definition-popover-grid {
         display: grid;
-        grid-gap: 8px;
+        grid-gap: 0.5rem;
 
         .definition-popover-grid-card {
             display: flex;
             flex-direction: column;
 
             .definition-popover-grid-card-title {
-                font-size: 11px;
+                font-size: 0.6875rem;
                 font-weight: 600;
-                letter-spacing: 0.5px;
+                letter-spacing: 0.05em;
                 text-transform: uppercase;
                 color: var(--muted);
-                margin-bottom: 4px;
             }
 
             .definition-popover-grid-card-content {
-                ul {
-                    padding-inline-start: 1rem;
-                    margin-bottom: 0;
-
-                    > li {
-                        span {
-                            display: flex;
-                            flex-wrap: wrap;
-                            align-items: center;
-                        }
-
-                        pre {
-                            background-color: var(--mid);
-                            padding: 0 4px;
-                            font-size: 12px;
-                            margin: 2px 0.25rem 1px;
-                            border-radius: 4px;
-                        }
-                    }
-                }
+                margin-top: 0.25rem;
             }
         }
     }
@@ -156,15 +136,15 @@
 
         .label-text {
             font-weight: 600;
-            margin-right: 4px;
+            margin-right: 0.25rem;
         }
 
         .definition-popover-edit-form-label {
-            margin-bottom: 8px;
+            margin-bottom: 0.5rem;
         }
 
         .definition-popover-edit-form-value {
-            margin-bottom: 16px;
+            margin-bottom: 1rem;
 
             &.definition-popover-owner-select {
                 .ant-select-selector {
@@ -172,20 +152,6 @@
                         color: black;
                         font-weight: normal;
                     }
-                }
-            }
-        }
-
-        .definition-popover-edit-form-buttons {
-            display: flex;
-            justify-content: space-between;
-
-            .definition-popover-edit-form-buttons-secondary {
-                color: var(--primary);
-
-                &:hover,
-                &:focus {
-                    border-color: var(--primary);
                 }
             }
         }

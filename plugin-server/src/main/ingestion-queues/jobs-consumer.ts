@@ -7,7 +7,7 @@ import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
 import { EnqueuedPluginJob, JobName } from '../../types'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
-import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
+import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge } from './metrics'
 
 const jobsConsumerSuccessCounter = new Counter({
@@ -114,7 +114,7 @@ export const startJobsConsumer = async ({
     await consumer.subscribe({ topic: KAFKA_JOBS })
     await consumer.run({
         eachBatch: async (payload) => {
-            return await instrumentEachBatch(KAFKA_JOBS, eachBatch, payload, statsd)
+            return await instrumentEachBatchKafkaJS(KAFKA_JOBS, eachBatch, payload, statsd)
         },
     })
 

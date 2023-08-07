@@ -28,6 +28,7 @@
     box-shadow: var(--shadow-elevation);
     background: var(--bg-light);
     flex-grow: 1;
+    max-width: 100%;
     padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
@@ -92,26 +93,30 @@
     width: 0.5rem;
     height: 0.5rem;
     transform: rotate(45deg);
-    background: #fff;
+    background: var(--bg-light);
 
-    &--top {
+    [data-placement^='bottom'] & {
+        top: -0.25rem;
         border-top: 1px solid var(--border);
         border-left: 1px solid var(--border);
     }
 
-    &--bottom {
+    [data-placement^='top'] & {
+        bottom: -0.25rem;
         border-bottom: 1px solid var(--border);
         border-right: 1px solid var(--border);
     }
 
-    &--right {
-        border-bottom: 1px solid var(--border);
-        border-left: 1px solid var(--border);
-    }
-
-    &--left {
+    [data-placement^='left'] & {
+        right: -0.25rem;
         border-top: 1px solid var(--border);
         border-right: 1px solid var(--border);
+    }
+
+    [data-placement^='right'] & {
+        left: -0.25rem;
+        border-bottom: 1px solid var(--border);
+        border-left: 1px solid var(--border);
     }
 
     .Popover--actionable & {

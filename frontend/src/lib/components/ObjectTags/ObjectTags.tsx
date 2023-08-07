@@ -123,7 +123,7 @@ export function ObjectTags({
                         style={{
                             cursor: 'pointer',
                             borderStyle: 'dashed',
-                            backgroundColor: '#ffffff',
+                            backgroundColor: 'var(--bg-light)',
                             display: addingNewTag ? 'none' : 'initial',
                         }}
                         icon={<PlusOutlined />}

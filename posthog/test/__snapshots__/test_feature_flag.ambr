@@ -14,6 +14,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -61,7 +62,8 @@
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id"
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -83,7 +85,8 @@
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id"
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -105,7 +108,8 @@
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id"
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -287,30 +291,16 @@
      WHERE team_id = 2
        AND person_id IN
          (SELECT person_id
-          FROM target_person_ids) ),
-       flags_to_override AS
-    (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 2
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
-         (SELECT feature_flag_key
-          FROM existing_overrides) )
-  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT team_id,
-         person_id,
-         key,
-         'example_id'
-  FROM flags_to_override,
-       target_person_ids
-  WHERE
-    EXISTS
-      (SELECT 1
-       FROM posthog_person
-       WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
+          FROM target_person_ids) )
+  SELECT key
+  FROM posthog_featureflag
+  WHERE team_id = 2
+    AND ensure_experience_continuity = TRUE
+    AND active = TRUE
+    AND deleted = FALSE
+    AND key NOT IN
+      (SELECT feature_flag_key
+       FROM existing_overrides)
   '
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.2
@@ -355,8 +345,7 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE
-    EXISTS
+  WHERE EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
@@ -371,6 +360,55 @@
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.5
   '
+  WITH target_person_ids AS
+    (SELECT team_id,
+            person_id
+     FROM posthog_persondistinctid
+     WHERE team_id = 2
+       AND distinct_id IN ('other_id',
+                           'example_id') ),
+       existing_overrides AS
+    (SELECT team_id,
+            person_id,
+            feature_flag_key,
+            hash_key
+     FROM posthog_featureflaghashkeyoverride
+     WHERE team_id = 2
+       AND person_id IN
+         (SELECT person_id
+          FROM target_person_ids) ),
+       flags_to_override AS
+    (SELECT key
+     FROM posthog_featureflag
+     WHERE team_id = 2
+       AND ensure_experience_continuity = TRUE
+       AND active = TRUE
+       AND deleted = FALSE
+       AND key NOT IN
+         (SELECT feature_flag_key
+          FROM existing_overrides) )
+  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+  SELECT team_id,
+         person_id,
+         key,
+         'example_id'
+  FROM flags_to_override,
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
+  '
+---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.6
+  '
+  
+  SET LOCAL statement_timeout = 2
+  '
+---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.7
+  '
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
@@ -379,21 +417,7 @@
          AND "posthog_persondistinctid"."team_id" = 2)
   '
 ---
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.6
-  '
-  SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
-         "posthog_featureflaghashkeyoverride"."hash_key",
-         "posthog_featureflaghashkeyoverride"."person_id"
-  FROM "posthog_featureflaghashkeyoverride"
-  WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (1,
-                                                              2,
-                                                              3,
-                                                              4,
-                                                              5 /* ... */)
-         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
-  '
----
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.7
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.8
   '
   SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
          "posthog_featureflaghashkeyoverride"."hash_key",
@@ -431,30 +455,16 @@
      WHERE team_id = 2
        AND person_id IN
          (SELECT person_id
-          FROM target_person_ids) ),
-       flags_to_override AS
-    (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 2
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
-         (SELECT feature_flag_key
-          FROM existing_overrides) )
-  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT team_id,
-         person_id,
-         key,
-         'example_id'
-  FROM flags_to_override,
-       target_person_ids
-  WHERE
-    EXISTS
-      (SELECT 1
-       FROM posthog_person
-       WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
+          FROM target_person_ids) )
+  SELECT key
+  FROM posthog_featureflag
+  WHERE team_id = 2
+    AND ensure_experience_continuity = TRUE
+    AND active = TRUE
+    AND deleted = FALSE
+    AND key NOT IN
+      (SELECT feature_flag_key
+       FROM existing_overrides)
   '
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.2
@@ -499,8 +509,7 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE
-    EXISTS
+  WHERE EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
@@ -515,6 +524,55 @@
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.5
   '
+  WITH target_person_ids AS
+    (SELECT team_id,
+            person_id
+     FROM posthog_persondistinctid
+     WHERE team_id = 2
+       AND distinct_id IN ('other_id',
+                           'example_id') ),
+       existing_overrides AS
+    (SELECT team_id,
+            person_id,
+            feature_flag_key,
+            hash_key
+     FROM posthog_featureflaghashkeyoverride
+     WHERE team_id = 2
+       AND person_id IN
+         (SELECT person_id
+          FROM target_person_ids) ),
+       flags_to_override AS
+    (SELECT key
+     FROM posthog_featureflag
+     WHERE team_id = 2
+       AND ensure_experience_continuity = TRUE
+       AND active = TRUE
+       AND deleted = FALSE
+       AND key NOT IN
+         (SELECT feature_flag_key
+          FROM existing_overrides) )
+  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+  SELECT team_id,
+         person_id,
+         key,
+         'example_id'
+  FROM flags_to_override,
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
+  '
+---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.6
+  '
+  
+  SET LOCAL statement_timeout = 2
+  '
+---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.7
+  '
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
@@ -523,21 +581,7 @@
          AND "posthog_persondistinctid"."team_id" = 2)
   '
 ---
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.6
-  '
-  SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
-         "posthog_featureflaghashkeyoverride"."hash_key",
-         "posthog_featureflaghashkeyoverride"."person_id"
-  FROM "posthog_featureflaghashkeyoverride"
-  WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (1,
-                                                              2,
-                                                              3,
-                                                              4,
-                                                              5 /* ... */)
-         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
-  '
----
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.7
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.8
   '
   SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
          "posthog_featureflaghashkeyoverride"."hash_key",

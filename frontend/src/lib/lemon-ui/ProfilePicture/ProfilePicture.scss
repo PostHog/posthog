@@ -11,19 +11,15 @@
     font-weight: 500;
 }
 
-.profile-picture {
+.ProfilePicture {
     flex-shrink: 0;
     border-radius: 50%;
-    width: 32px;
-    height: 32px;
-    line-height: 32px;
     background-color: var(--lettermark-6-text);
     color: #5f1903;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 600;
-    font-size: 18px; // 2/3 of width/height in the smallest size, 1/2 in the biggest, interpolated in between
     user-select: none;
 
     &.xxl {
@@ -38,6 +34,13 @@
         height: 40px;
         line-height: 40px;
         font-size: 20px;
+    }
+
+    &.lg {
+        width: 32px;
+        height: 32px;
+        line-height: 32px;
+        font-size: 18px; // 2/3 of width/height in the smallest size, 1/2 in the biggest, interpolated in between
     }
 
     &.md {
@@ -73,7 +76,7 @@
     display: flex;
     align-items: center;
     > * {
-        outline: 0.125rem solid #fff;
+        outline: 0.125rem solid var(--bg-light);
     }
     > :not(:first-child) {
         margin-left: -0.125rem;

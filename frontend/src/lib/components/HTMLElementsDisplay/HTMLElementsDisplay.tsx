@@ -6,26 +6,19 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import clsx from 'clsx'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
 }
 
-function CloseAllTags({ elements, highlight }: { elements: ElementType[]; highlight: boolean }): JSX.Element {
+function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
     return (
         <>
             {[...elements]
                 .reverse()
                 .slice(1)
                 .map((element, index) => (
-                    <pre
-                        className={clsx(
-                            'whitespace-pre-wrap break-all p-0 m-0 rounded-none text-white text-sm',
-                            highlight && 'bg-default-dark'
-                        )}
-                        key={index}
-                    >
+                    <pre className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-white text-sm" key={index}>
                         {indent(elements.length - index - 2)}
                         &lt;/{element.tag_name}&gt;
                     </pre>
@@ -107,7 +100,7 @@ export function HTMLElementsDisplay({
         <div className="flex flex-col gap-1">
             {editable && !!elements.length && (
                 <div>
-                    Selector: <CodeSnippet copyDescription={'chosen selector'}>{chosenSelector}</CodeSnippet>
+                    Selector: <CodeSnippet thing={'chosen selector'}>{chosenSelector}</CodeSnippet>
                 </div>
             )}
             {checkUniqueness && (
@@ -130,10 +123,10 @@ export function HTMLElementsDisplay({
                             parsedCSSSelectors={parsedSelectors}
                             onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
                         />
-                        <CloseAllTags elements={elements} highlight={highlight} />
+                        <CloseAllTags elements={elements} />
                     </>
                 ) : (
-                    <div className="text-muted-light">No elements to display</div>
+                    <div className="text-side">No elements to display</div>
                 )}
             </div>
         </div>

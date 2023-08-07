@@ -26,6 +26,7 @@ import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigatio
 import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { useEffect } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { FeaturePreviewsModal } from '~/layout/FeaturePreviews'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -94,7 +95,7 @@ export function App(): JSX.Element | null {
         )
     }
 
-    return showingDelayedSpinner ? <SpinnerOverlay /> : null
+    return showingDelayedSpinner ? <SpinnerOverlay sceneLevel /> : null
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
@@ -134,7 +135,7 @@ function AppScene(): JSX.Element | null {
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <SpinnerOverlay /> : null))
+        (() => (showingDelayedSpinner ? <SpinnerOverlay sceneLevel /> : null))
 
     const toastContainer = (
         <ToastContainer
@@ -175,6 +176,7 @@ function AppScene(): JSX.Element | null {
         <>
             <Navigation>{protectedBoundActiveScene}</Navigation>
             {toastContainer}
+            <FeaturePreviewsModal />
             <UpgradeModal />
             {user.organization?.enforce_2fa && !user.is_2fa_enabled && (
                 <LemonModal title="Set up 2FA" closable={false}>

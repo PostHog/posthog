@@ -1,0 +1,27 @@
+.Link {
+    transition: color 200ms ease, opacity 200ms ease;
+    background: none;
+    color: var(--primary);
+    border: none;
+    outline: none;
+    padding: 0;
+    line-height: inherit;
+    cursor: pointer;
+
+    &:not(:disabled) {
+        &:hover {
+            color: var(--primary-light);
+        }
+        &:active {
+            color: var(--primary-dark);
+        }
+    }
+    &:disabled {
+        opacity: var(--opacity-disabled);
+        cursor: not-allowed;
+    }
+
+    > .LemonIcon {
+        margin-left: 0.3em;
+    }
+}

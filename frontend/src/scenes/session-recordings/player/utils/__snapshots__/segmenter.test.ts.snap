@@ -3,44 +3,12 @@
 exports[`segmenter matches snapshots 1`] = `
 [
   {
-    "durationMs": 5,
-    "endTimestamp": 1682952380882,
-    "isActive": false,
+    "durationMs": 7255,
+    "endTimestamp": 1682952388132,
+    "isActive": true,
     "kind": "window",
     "startTimestamp": 1682952380877,
     "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
-  },
-  {
-    "durationMs": 2156,
-    "endTimestamp": 1682952383039,
-    "isActive": false,
-    "kind": "gap",
-    "startTimestamp": 1682952380883,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
-  },
-  {
-    "durationMs": 3531,
-    "endTimestamp": 1682952386571,
-    "isActive": true,
-    "kind": "window",
-    "startTimestamp": 1682952383040,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
-  },
-  {
-    "durationMs": 1531,
-    "endTimestamp": 1682952388103,
-    "isActive": false,
-    "kind": "gap",
-    "startTimestamp": 1682952386572,
-    "windowId": undefined,
-  },
-  {
-    "durationMs": 28,
-    "endTimestamp": 1682952388132,
-    "isActive": false,
-    "kind": "window",
-    "startTimestamp": 1682952388104,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
   },
   {
     "durationMs": 525,

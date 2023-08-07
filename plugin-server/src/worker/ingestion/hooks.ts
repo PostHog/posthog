@@ -1,14 +1,14 @@
 import { captureException } from '@sentry/node'
 import { StatsD } from 'hot-shots'
+import { Client, Pool } from 'pg'
 import { format } from 'util'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
-import { DB } from '../../utils/db/db'
+import { postgresQuery } from '../../utils/db/postgres'
 import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
-import { SiteUrlManager } from './site-url-manager'
 import { TeamManager } from './team-manager'
 
 export enum WebhookType {
@@ -215,7 +215,7 @@ export function getFormattedMessage(
         const markdownValues: string[] = []
 
         for (const token of tokens) {
-            const tokenParts = token.match(/\$\w+|\$\$\w+|\w+/g) || []
+            const tokenParts = token.split('.') || []
 
             const [value, markdownValue] = getValueOfToken(action, event, team, siteUrl, webhookType, tokenParts)
             values.push(value)
@@ -233,26 +233,30 @@ export function getFormattedMessage(
 }
 
 export class HookCommander {
-    db: DB
+    postgres: Client | Pool
     teamManager: TeamManager
     organizationManager: OrganizationManager
-    siteUrlManager: SiteUrlManager
     statsd: StatsD | undefined
+    siteUrl: string
 
     /** Hook request timeout in ms. */
     EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
 
     constructor(
-        db: DB,
+        postgres: Client | Pool,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
-        siteUrlManager: SiteUrlManager,
         statsd?: StatsD
     ) {
-        this.db = db
+        this.postgres = postgres
         this.teamManager = teamManager
         this.organizationManager = organizationManager
-        this.siteUrlManager = siteUrlManager
+        if (process.env.SITE_URL) {
+            this.siteUrl = process.env.SITE_URL
+        } else {
+            status.warn('⚠️', 'SITE_URL env is not set for webhooks')
+            this.siteUrl = ''
+        }
         this.statsd = statsd
     }
 
@@ -304,8 +308,7 @@ export class HookCommander {
         team: Team
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
-        const siteUrl = await this.siteUrlManager.getSiteUrl()
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, team, siteUrl || '', webhookType)
+        const [messageText, messageMarkdown] = getFormattedMessage(action, event, team, this.siteUrl, webhookType)
         let message: Record<string, any>
         if (webhookType === WebhookType.Slack) {
             message = {
@@ -353,8 +356,12 @@ export class HookCommander {
         })
         if (request.status === 410) {
             // Delete hook on our side if it's gone on Zapier's
-            await this.db.deleteRestHook(hook.id)
+            await this.deleteRestHook(hook.id)
         }
         this.statsd?.increment('rest_hook_firings')
+    }
+
+    private async deleteRestHook(hookId: Hook['id']): Promise<void> {
+        await postgresQuery(this.postgres, `DELETE FROM ee_hook WHERE id = $1`, [hookId], 'deleteRestHook')
     }
 }

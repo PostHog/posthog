@@ -1,22 +1,20 @@
 import re
-from pydantic import BaseModel, Extra
+from dataclasses import dataclass, field
+
 from typing import Literal, Optional
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedException
-from pydantic import Field as PydanticField
 
 
 # Given a string like "CorrectHorseBS", match the "H" and "B", so that we can convert this to "correct_horse_bs"
 camel_case_pattern = re.compile(r"(?<!^)(?<![A-Z])(?=[A-Z])")
 
 
-class AST(BaseModel):
-    start: Optional[int] = None
-    end: Optional[int] = None
-
-    class Config:
-        extra = Extra.forbid
+@dataclass(kw_only=True)
+class AST:
+    start: Optional[int] = field(default=None)
+    end: Optional[int] = field(default=None)
 
     def accept(self, visitor):
         camel_case_name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
@@ -29,6 +27,7 @@ class AST(BaseModel):
         raise NotImplementedException(f"Visitor has no method {method_name}")
 
 
+@dataclass(kw_only=True)
 class Type(AST):
     def get_child(self, name: str) -> "Type":
         raise NotImplementedException("Type.get_child not overridden")
@@ -40,10 +39,12 @@ class Type(AST):
         return UnknownType()
 
 
+@dataclass(kw_only=True)
 class Expr(AST):
-    type: Optional[Type] = None
+    type: Optional[Type] = field(default=None)
 
 
+@dataclass(kw_only=True)
 class CTE(Expr):
     """A common table expression."""
 
@@ -53,12 +54,20 @@ class CTE(Expr):
     cte_type: Literal["column", "subquery"]
 
 
+@dataclass(kw_only=True)
 class ConstantType(Type):
     data_type: ConstantDataType
 
     def resolve_constant_type(self) -> "ConstantType":
         return self
 
+    def print_type(self) -> str:
+        raise NotImplementedException("ConstantType.print_type not implemented")
 
+
+@dataclass(kw_only=True)
 class UnknownType(ConstantType):
-    data_type: ConstantDataType = PydanticField("unknown", const=True)
+    data_type: ConstantDataType = field(default="unknown", init=False)
+
+    def print_type(self) -> str:
+        return "Unknown"

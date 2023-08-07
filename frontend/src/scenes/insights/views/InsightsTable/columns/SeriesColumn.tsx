@@ -11,7 +11,7 @@ type SeriesColumnItemProps = {
     item: IndexedTrendResult
     indexedResults: IndexedTrendResult[]
     canEditSeriesNameInline: boolean
-    compare?: boolean
+    compare?: boolean | null
     handleEditClick: (item: IndexedTrendResult) => void
     hasMultipleSeries?: boolean
 }
@@ -29,7 +29,7 @@ export function SeriesColumnItem({
     return (
         <div className="series-name-wrapper-col">
             <InsightLabel
-                seriesColor={getSeriesColor(item.seriesIndex, compare)}
+                seriesColor={getSeriesColor(item.seriesIndex, compare || false)}
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                 hasMultipleSeries={hasMultipleSeries}

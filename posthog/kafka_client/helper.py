@@ -9,10 +9,7 @@ import os
 import ssl
 from tempfile import NamedTemporaryFile
 
-try:
-    from urllib.parse import urlparse
-except ImportError:
-    from urlparse import urlparse  # type: ignore
+from django.conf import settings
 
 from base64 import standard_b64encode
 
@@ -82,29 +79,13 @@ def get_kafka_ssl_context():
     return ssl_context
 
 
-def get_kafka_brokers():
-    """
-    Parses the KAKFA_URL and returns a list of hostname:port pairs in the format
-    that kafka-python expects.
-    """
-    # NOTE: The Kafka environment variables need to be present. If using
-    # Apache Kafka on Heroku, they will be available in your app configuration.
-    if not os.environ.get("KAFKA_URL"):
-        raise RuntimeError("The KAFKA_URL config variable is not set.")
-
-    return [
-        "{}:{}".format(parsedUrl.hostname, parsedUrl.port)
-        for parsedUrl in [urlparse(url) for url in os.environ.get("KAFKA_URL", "").split(",")]
-    ]
-
-
 def get_kafka_producer(acks="all", value_serializer=lambda v: json.dumps(v).encode("utf-8"), **kwargs):
     """
     Return a KafkaProducer that uses the SSLContext created with create_ssl_context.
     """
 
     producer = KafkaProducer(
-        bootstrap_servers=get_kafka_brokers(),
+        bootstrap_servers=settings.KAFKA_HOSTS,
         security_protocol="SSL",
         ssl_context=get_kafka_ssl_context(),
         value_serializer=value_serializer,
@@ -123,7 +104,7 @@ def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.dec
     # Create the KafkaConsumer connected to the specified brokers. Use the
     # SSLContext that is created with create_ssl_context.
     consumer = KafkaConsumer(
-        bootstrap_servers=get_kafka_brokers(),
+        bootstrap_servers=settings.KAFKA_HOSTS,
         security_protocol="SSL",
         ssl_context=get_kafka_ssl_context(),
         value_deserializer=value_deserializer,

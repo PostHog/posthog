@@ -17,7 +17,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     connect((props: SessionRecordingLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
-            ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
+            [
+                'urls',
+                'sessionPlayerData',
+                'sessionEventsData',
+                'sessionPlayerMetaData',
+                'sessionPlayerMetaDataLoading',
+                'windowIds',
+            ],
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment'],
             sessionRecordingsListPropertiesLogic,
@@ -77,7 +84,25 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
-                return windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
+                const index = windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
+
+                return index === -1 ? 0 : index
+            },
+        ],
+        lastUrl: [
+            (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp],
+            (urls, sessionPlayerMetaData, currentTimestamp): string | undefined => {
+                if (!urls.length || !currentTimestamp) {
+                    return sessionPlayerMetaData?.start_url ?? undefined
+                }
+
+                // Go through the events in reverse to find the latest pageview
+                for (let i = urls.length - 1; i >= 0; i--) {
+                    const urlTimestamp = urls[i]
+                    if (i === 0 || urlTimestamp.timestamp < currentTimestamp) {
+                        return urlTimestamp.url
+                    }
+                }
             },
         ],
         lastPageviewEvent: [
@@ -108,9 +133,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
     })),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, values }) => ({
         loadRecordingMetaSuccess: () => {
-            actions.maybeLoadPropertiesForSessions([props.sessionRecordingId])
+            if (values.sessionPlayerMetaData) {
+                actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
+            }
         },
     })),
 ])

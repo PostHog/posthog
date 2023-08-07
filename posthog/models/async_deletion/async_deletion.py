@@ -28,7 +28,9 @@ class AsyncDeletion(models.Model):
 
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     # Should be one of the DeletionType enum
-    deletion_type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=False, blank=False)
+    deletion_type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        null=False, blank=False, choices=DeletionType.choices
+    )
 
     # Team whose data shall be deleted. This is not a foreign key, because we still need this value
     # when the team is gone (we are talking about _async_ deletions after all)

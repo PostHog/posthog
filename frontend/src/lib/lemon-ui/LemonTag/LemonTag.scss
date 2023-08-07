@@ -12,38 +12,46 @@
 
     &.primary {
         background-color: var(--primary);
-        color: var(--inverse);
+        color: #fff;
     }
 
     &.highlight {
-        background-color: var(--mark-color);
+        background-color: var(--mark);
+        color: var(--bg-charcoal);
     }
 
     &.warning {
         background-color: var(--warning);
+        color: var(--bg-charcoal);
     }
 
     &.danger {
         background-color: var(--danger);
-        color: var(--inverse);
+        color: #fff;
     }
 
     &.success {
         background-color: var(--success);
-        color: var(--inverse);
+        color: #fff;
     }
 
     &.completion {
         background-color: var(--purple-light);
-        color: var(--purple-dark);
+        color: var(--bg-charcoal);
     }
 
     &.caution {
         background-color: var(--danger-lighter);
+        color: var(--bg-charcoal);
     }
 
     &.none {
         background: none;
+    }
+
+    &.LemonTag--size-small {
+        font-size: 0.625rem;
+        padding: 0.0625rem 0.1875rem;
     }
 
     .LemonTag__icon {
@@ -56,9 +64,5 @@
         margin-left: 0.25rem;
         min-height: 1.5rem;
         padding: 0.125rem 0.125rem;
-    }
-
-    &.clickable {
-        cursor: pointer;
     }
 }

@@ -4,7 +4,8 @@ from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.models import Team
-from posthog.schema import HogQLMetadataResponse, HogQLMetadata
+from posthog.schema import HogQLMetadataResponse, HogQLMetadata, HogQLNotice
+from posthog.hogql import ast
 
 
 def get_hogql_metadata(
@@ -13,8 +14,12 @@ def get_hogql_metadata(
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
+        isValidView=False,
         inputExpr=query.expr,
         inputSelect=query.select,
+        errors=[],
+        warnings=[],
+        notices=[],
     )
 
     try:
@@ -23,22 +28,33 @@ def get_hogql_metadata(
             translate_hogql(query.expr, context=context)
         elif isinstance(query.select, str):
             context = HogQLContext(team_id=team.pk, enable_select_queries=True)
+            select_ast = parse_select(query.select)
+            _is_valid_view = is_valid_view(select_ast)
+            response.isValidView = _is_valid_view
             print_ast(parse_select(query.select), context=context, dialect="clickhouse")
         else:
             raise ValueError("Either expr or select must be provided")
+        response.warnings = context.warnings
+        response.notices = context.notices
     except Exception as e:
         response.isValid = False
         if isinstance(e, ValueError):
-            response.error = str(e)
+            response.errors.append(HogQLNotice(message=str(e)))
         elif isinstance(e, HogQLException):
-            response.error = str(e)
-            response.errorStart = e.start
-            response.errorEnd = e.end
+            error = str(e)
+            if "mismatched input '<EOF>' expecting" in error:
+                error = "Unexpected end of query"
+            response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
         else:
             # We don't want to accidentally expose too much data via errors
-            response.error = f"Unexpected f{e.__class__.__name__}"
-
-    if response.error and "mismatched input '<EOF>' expecting" in response.error:
-        response.error = "Unexpected end of query"
+            response.errors.append(HogQLNotice(message=f"Unexpected f{e.__class__.__name__}"))
 
     return response
+
+
+def is_valid_view(select_query: ast.SelectQuery | ast.SelectUnionQuery) -> bool:
+    for field in select_query.select:
+        if not isinstance(field, ast.Alias):
+            return False
+
+    return True

@@ -1,73 +1,37 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
-import { BindLogic, useValues } from 'kea'
-import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightShortId, ItemMode } from '~/types'
-import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { NodeViewProps } from '@tiptap/core'
+import { InsightShortId } from '~/types'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { posthogNodePasteRule } from './utils'
 import { urls } from 'scenes/urls'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { useValues } from 'kea'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = (props: NodeViewProps): JSX.Element => {
-    const logic = insightLogic({ dashboardItemId: props.node.attrs.id })
-    const { insightProps } = useValues(logic)
+const Component = (props: NodeViewProps): JSX.Element | null => {
+    const { expanded } = useValues(notebookNodeLogic)
 
-    const href = `/insights/${props.node.attrs.id}`
-
-    return (
-        <NodeWrapper nodeType={NotebookNodeType.Insight} title="Insight" href={href} heightEstimate="16rem" {...props}>
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <div className="insights-container" data-attr="insight-view">
-                    <LegacyInsightContainer
-                        insightMode={ItemMode.Sharing}
-                        disableHeader
-                        disableLastComputation
-                        disableTable
-                    />
-                </div>
-            </BindLogic>
-        </NodeWrapper>
-    )
+    if (!expanded) {
+        return null
+    }
+    return <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id }} />
 }
 
-export const NotebookNodeInsight = Node.create({
-    name: NotebookNodeType.Insight,
-    group: 'block',
-    atom: true,
-    draggable: true,
-
-    addAttributes() {
-        return {
-            id: '',
-        }
+export const NotebookNodeInsight = createPostHogWidgetNode({
+    nodeType: NotebookNodeType.Insight,
+    title: 'Insight',
+    Component,
+    heightEstimate: '16rem',
+    href: (attrs) => urls.insightView(attrs.id),
+    resizeable: false,
+    startExpanded: true,
+    attributes: {
+        id: {},
     },
-
-    parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Insight,
-            },
-        ]
-    },
-
-    renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.Insight, mergeAttributes(HTMLAttributes)]
-    },
-
-    addNodeView() {
-        return ReactNodeViewRenderer(Component)
-    },
-
-    addPasteRules() {
-        return [
-            posthogNodePasteRule({
-                find: urls.insightView('(.+)' as InsightShortId),
-                type: this.type,
-                getAttributes: (match) => {
-                    return { id: match[1] }
-                },
-            }),
-        ]
+    pasteOptions: {
+        find: urls.insightView('(.+)' as InsightShortId),
+        getAttributes: (match) => {
+            return { id: match[1] }
+        },
     },
 })

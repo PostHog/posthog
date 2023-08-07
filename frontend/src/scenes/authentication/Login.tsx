@@ -13,13 +13,11 @@ import { Field } from 'lib/forms/Field'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconBugShield } from 'lib/lemon-ui/icons'
 import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { captureException } from '@sentry/react'
-import { SupportModal } from 'lib/components/Support/SupportModal'
+import { SupportModalButton } from './SupportModalButton'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -56,7 +54,6 @@ export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
-    const { openSupportLoggedOutForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
@@ -89,29 +86,19 @@ export function Login(): JSX.Element {
                     <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
                 </>
             }
-            footer={
-                <div className="text-center">
-                    <LemonButton
-                        onClick={() => {
-                            openSupportLoggedOutForm(null, null, 'bug', 'login')
-                        }}
-                        status="stealth"
-                        icon={<IconBugShield />}
-                        size="small"
-                    >
-                        <span className="text-muted">Report an issue</span>
-                    </LemonButton>
-                    <SupportModal loggedIn={false} />
-                </div>
-            }
+            footer={<SupportModalButton />}
         >
             <div className="space-y-2">
                 <h2>Log in</h2>
                 {generalError && (
                     <LemonBanner type="error">
-                        {generalError.detail ||
-                            ERROR_MESSAGES[generalError.code] ||
-                            'Could not complete your login. Please try again.'}
+                        {generalError.detail || ERROR_MESSAGES[generalError.code] || (
+                            <>
+                                Could not complete your login.
+                                <br />
+                                Please try again.
+                            </>
+                        )}
                     </LemonBanner>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
@@ -124,8 +111,12 @@ export function Login(): JSX.Element {
                             placeholder="email@yourcompany.com"
                             type="email"
                             onBlur={() => precheck({ email: login.email })}
-                            onPressEnter={() => {
+                            onPressEnter={(e) => {
                                 precheck({ email: login.email })
+                                if (isPasswordHidden) {
+                                    e.preventDefault() // Don't trigger submission if password field is still hidden
+                                    passwordInputRef.current?.focus()
+                                }
                             }}
                         />
                     </Field>

@@ -17,7 +17,7 @@ function numberOfScheduledJobs() {
 }
 
 describe('server', () => {
-    let pluginsServer: ServerInstance | null = null
+    let pluginsServer: Partial<ServerInstance> | null = null
 
     function createPluginServer(
         config: Partial<PluginsServerConfig> = {},
@@ -41,9 +41,9 @@ describe('server', () => {
     })
 
     afterEach(async () => {
-        await pluginsServer?.stop()
+        await pluginsServer?.stop?.()
         pluginsServer = null
-        jest.runAllTimers()
+        jest.runOnlyPendingTimers()
         jest.useRealTimers()
     })
 
@@ -64,7 +64,7 @@ describe('server', () => {
 
         expect(numberOfScheduledJobs()).toBeGreaterThan(1)
 
-        await pluginsServer.stop()
+        await pluginsServer.stop?.()
         pluginsServer = null
 
         expect(numberOfScheduledJobs()).toEqual(0)

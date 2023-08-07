@@ -16,12 +16,14 @@ from posthog.constants import (
     PATH_REPLACEMENTS,
     PATH_START_KEY,
     PATH_TYPE,
+    PATHS_HOGQL_EXPRESSION,
     PATHS_EXCLUDE_EVENTS,
     PATHS_INCLUDE_CUSTOM_EVENTS,
     PATHS_INCLUDE_EVENT_TYPES,
     SCREEN_EVENT,
     START_POINT,
     STEP_LIMIT,
+    HOGQL,
 )
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
@@ -74,6 +76,8 @@ class PropTypeDerivedMixin(PathTypeMixin):
             return "properties->> '$screen_name'"
         elif self.path_type == CUSTOM_EVENT:
             return "event"
+        elif self.path_type == HOGQL:
+            return "event"
         else:
             return "properties->> '$current_url'"
 
@@ -94,10 +98,23 @@ class TargetEventDerivedMixin(PropTypeDerivedMixin):
     def target_event(self) -> Tuple[Optional[PathType], Dict[str, str]]:
         if self.path_type == SCREEN_EVENT:
             return cast(PathType, SCREEN_EVENT), {"event": SCREEN_EVENT}
-        elif self.path_type == CUSTOM_EVENT:
+        elif self.path_type == HOGQL or self.path_type == CUSTOM_EVENT:
             return None, {}
         else:
             return cast(PathType, PAGEVIEW_EVENT), {"event": PAGEVIEW_EVENT}
+
+
+class PathsHogQLExpressionMixin(PathTypeMixin):
+    @cached_property
+    def paths_hogql_expression(self) -> Optional[str]:
+        if self.path_type == HOGQL or HOGQL in self._data.get(PATHS_INCLUDE_EVENT_TYPES, []):
+            return self._data.get(PATHS_HOGQL_EXPRESSION, "event")
+        else:
+            return None
+
+    @include_dict
+    def paths_hogql_expression_to_dict(self):
+        return {"paths_hogql_expression": self.paths_hogql_expression} if self.paths_hogql_expression else {}
 
 
 class TargetEventsMixin(BaseParamMixin):
@@ -134,6 +151,10 @@ class TargetEventsMixin(BaseParamMixin):
     @property
     def include_all_custom_events(self) -> bool:
         return CUSTOM_EVENT in self.target_events
+
+    @property
+    def include_hogql(self) -> bool:
+        return HOGQL in self.target_events
 
     @include_dict
     def target_events_to_dict(self) -> dict:

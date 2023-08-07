@@ -16,7 +16,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -89,12 +88,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                     await breakpoint(300)
                 }
                 const { filters } = values
-                const includeQueryInsights = !!values.featureFlags[FEATURE_FLAGS.HOGQL]
 
                 const params = {
                     ...values.paramsFromFilters,
                     basic: true,
-                    include_query_insights: includeQueryInsights,
+                    include_query_insights: true,
                 }
 
                 const response = await api.get(
@@ -103,9 +101,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const include_queries = includeQueryInsights ? '&include_query_insights=true' : ''
                         const insight: InsightModel = await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}${include_queries}`
+                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}/?include_query_insights=true`
                         )
                         return {
                             ...response,

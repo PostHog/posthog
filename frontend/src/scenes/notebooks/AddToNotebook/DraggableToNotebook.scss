@@ -1,99 +1,15 @@
 .DraggableToNotebook {
     position: relative;
-    // Weird hack - this fixes chrome from not correctly identifying the bounds of the component for the drag preview
-    // https://github.com/react-dnd/react-dnd/issues/832#issuecomment-442071628
-    transform: translate3d(0, 0, 0);
+
+    &--dragging {
+        // Weird hack - this fixes chrome from not correctly identifying the bounds of the component for the drag preview
+        // https://github.com/react-dnd/react-dnd/issues/832#issuecomment-442071628
+        transform: translate3d(0, 0, 0);
+        outline: 1px solid var(--primary);
+        background-color: var(--bg-light);
+    }
 
     &[draggable='true'] {
         cursor: grab;
     }
-
-    .DraggableToNotebook__highlighter {
-        position: absolute;
-        left: 0px;
-        right: 0px;
-        bottom: 0px;
-        top: 0px;
-        outline: 2px solid var(--primary-light);
-        pointer-events: none;
-        outline-offset: 0.25rem;
-        border-radius: 0.25rem;
-        animation: notebook-indicator-appear 150ms ease-out;
-        z-index: var(--z-modal);
-
-        .DraggableToNotebook__highlighter__info {
-            position: absolute;
-            right: 0px;
-            top: 0px;
-            border-radius: 0.25rem;
-            background-color: var(--primary);
-            color: var(--white);
-            font-size: 0.75rem;
-            padding: 0.25rem 0.5rem;
-            font-weight: 700;
-            animation: notebook-indicator-appear-no-overflow 150ms ease-out;
-            transition: opacity 150ms ease-out;
-            display: flex;
-            gap: 0.25rem;
-            align-items: center;
-        }
-
-        .Notebook & {
-            display: none;
-        }
-    }
-
-    .DraggableToNotebook__highlighter__info__text {
-        display: none;
-    }
-
-    &:hover {
-        .DraggableToNotebook__highlighter__info__text {
-            display: inline;
-        }
-    }
-
-    &--no-overflow {
-        .DraggableToNotebook__highlighter {
-            outline-offset: -0.125rem;
-            border-radius: 0.125rem;
-            animation: notebook-indicator-appear-no-overflow 150ms ease-out;
-        }
-    }
-
-    &--highlighted {
-        cursor: grab;
-        z-index: var(--z-modal);
-    }
-}
-
-@keyframes notebook-indicator-appear-no-overflow {
-    0% {
-        opacity: 0;
-    }
-
-    100% {
-        opacity: 1;
-    }
-}
-
-@keyframes notebook-indicator-appear {
-    0% {
-        outline-offset: 1rem;
-        opacity: 0;
-    }
-
-    100% {
-        outline-offset: 0.25rem;
-        opacity: 1;
-    }
-}
-
-.DraggableToNotebookIndicator__placeholder {
-    position: absolute;
-    top: 0px;
-    left: 0px;
-    bottom: 0px;
-    right: 0px;
-    pointer-events: none;
 }

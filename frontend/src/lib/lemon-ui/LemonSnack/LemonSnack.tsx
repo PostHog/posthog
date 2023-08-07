@@ -1,7 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { IconClose } from 'lib/lemon-ui/icons'
-import './LemonSnack.scss'
 
 export interface LemonSnackProps {
     type?: 'regular' | 'pill'
@@ -12,7 +11,6 @@ export interface LemonSnackProps {
     wrap?: boolean
     className?: string
     'data-attr'?: string
-    color?: 'primary-extralight' | 'primary-highlight'
 }
 
 export function LemonSnack({
@@ -23,12 +21,10 @@ export function LemonSnack({
     onClose,
     title,
     className,
-    color,
 }: LemonSnackProps): JSX.Element {
     const isRegular = type === 'regular'
     const isClickable = !!onClick
-    const defaultBgColor = isRegular ? 'primary-highlight' : 'primary-alt-highlight'
-    const bgColor = color || defaultBgColor
+    const bgColor = isRegular ? 'primary-highlight' : 'primary-alt-highlight'
     return (
         <span
             className={clsx(

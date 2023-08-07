@@ -32,10 +32,100 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "concept"
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
+
+    def test_promote_to_beta(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
+                "stage": "concept",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        feature_id = response_data["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={
+                "stage": EarlyAccessFeature.Stage.BETA,
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["stage"] == EarlyAccessFeature.Stage.BETA
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+
+    def test_archive(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
+                "stage": "beta",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+
+        feature_id = response_data["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={
+                "stage": EarlyAccessFeature.Stage.ARCHIVED,
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["stage"] == EarlyAccessFeature.Stage.ARCHIVED
+        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+
+    def test_update_doesnt_remove_super_condition(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
+                "stage": "beta",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+
+        feature_id = response_data["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={
+                "description": "Something else!",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["stage"] == EarlyAccessFeature.Stage.BETA
+        assert response_data["description"] == "Something else!"
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
 
     def test_we_dont_delete_existing_flag_information_when_creating_early_access_feature(self):
 

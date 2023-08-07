@@ -392,15 +392,22 @@ class QueryMatchingTest:
             query,
         )
 
-        # Replace organization_id lookups, for postgres
+        # Replace organization_id and notebook_id lookups, for postgres
         query = re.sub(
-            rf"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
+            rf"""("organization_id"|"posthog_organization"\."id"|"posthog_notebook"."id") = '[^']+'::uuid""",
             r"""\1 = '00000000-0000-0000-0000-000000000000'::uuid""",
             query,
         )
         query = re.sub(
-            rf"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
+            rf"""("organization_id"|"posthog_organization"\."id"|"posthog_notebook"."id") IN \('[^']+'::uuid\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
+            query,
+        )
+
+        # Replace notebook short_id lookups, for postgres
+        query = re.sub(
+            r"\"posthog_notebook\".\"short_id\" = '[a-zA-Z0-9]{8}'",
+            '"posthog_notebook"."short_id" = \'00000000\'',
             query,
         )
 

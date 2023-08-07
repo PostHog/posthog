@@ -21,37 +21,21 @@ import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType, TrendsFilterType } from '~/types'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-
-export interface LineGraphProps {
-    datasets: GraphDataset[]
-    hiddenLegendKeys?: Record<string | number, boolean | undefined>
-    labels: string[]
-    type: GraphType
-    isInProgress?: boolean
-    onClick?: (payload: GraphPointPayload) => void
-    ['data-attr']: string
-    inSharedMode?: boolean
-    showPersonsModal?: boolean
-    tooltip?: TooltipConfig
-    isCompare?: boolean
-    inCardView?: boolean
-    isArea?: boolean
-    incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
-    labelGroupType: number | 'people' | 'none'
-    filters?: Partial<TrendsFilterType>
-}
+import { TrendsFilter } from '~/queries/schema'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 
 export function ensureTooltipElement(): HTMLElement {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
@@ -139,14 +123,6 @@ export function onChartClick(
     })
 }
 
-export const LineGraph = (props: LineGraphProps): JSX.Element => {
-    return (
-        <ErrorBoundary>
-            {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
-        </ErrorBoundary>
-    )
-}
-
 export function onChartHover(
     event: ChartEvent,
     chart: Chart,
@@ -217,6 +193,37 @@ function createPinstripePattern(color: string): CanvasPattern {
     return pattern
 }
 
+export interface LineGraphProps {
+    datasets: GraphDataset[]
+    hiddenLegendKeys?: Record<string | number, boolean | undefined>
+    labels: string[]
+    type: GraphType
+    isInProgress?: boolean
+    onClick?: (payload: GraphPointPayload) => void
+    ['data-attr']: string
+    inSharedMode?: boolean
+    showPersonsModal?: boolean
+    tooltip?: TooltipConfig
+    inCardView?: boolean
+    isArea?: boolean
+    incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
+    labelGroupType: number | 'people' | 'none'
+    trendsFilter?: TrendsFilter | null
+    formula?: string | null
+    compare?: boolean | null
+    showValueOnSeries?: boolean | null
+    showPercentStackView?: boolean | null
+    supportsPercentStackView?: boolean
+}
+
+export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    return (
+        <ErrorBoundary>
+            {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
+        </ErrorBoundary>
+    )
+}
+
 export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -226,20 +233,27 @@ export function LineGraph_({
     onClick,
     ['data-attr']: dataAttr,
     showPersonsModal = true,
-    isCompare = false,
+    compare = false,
     inCardView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
-    filters,
+    trendsFilter,
+    formula,
+    showValueOnSeries,
+    showPercentStackView,
+    supportsPercentStackView,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
-    const { createTooltipData } = useValues(lineGraphLogic)
-    const { insight, timezone } = useValues(insightLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
+
+    const { insightProps, insight } = useValues(insightLogic)
+    const { timezone, isTrends } = useValues(insightVizDataLogic(insightProps))
+
+    const { createTooltipData } = useValues(lineGraphLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
@@ -248,7 +262,6 @@ export function LineGraph_({
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
     const colors = getGraphColors(isDarkModeOn)
-    const insightType = insight.filters?.insight
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
     if (isPie) {
@@ -257,7 +270,8 @@ export function LineGraph_({
 
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
-    const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal
+    const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
+    const showAnnotations = isTrends && !isHorizontal
     const shouldAutoResize = isHorizontal && !inCardView
 
     // Remove tooltip element on unmount
@@ -271,7 +285,7 @@ export function LineGraph_({
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getSeriesColor(dataset.id, isCompare && !isArea)
+            : getSeriesColor(dataset.id, compare && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
         const areaIncompletePattern = createPinstripePattern(areaBackgroundColor)
@@ -363,6 +377,7 @@ export function LineGraph_({
                 },
             },
             plugins: {
+                stacked100: { enable: isPercentStackView, precision: 1 },
                 datalabels: {
                     color: 'white',
                     anchor: (context) => {
@@ -374,11 +389,14 @@ export function LineGraph_({
                     },
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
-                        return filters?.show_values_on_series === true && typeof datum === 'number' && datum !== 0
-                            ? 'auto'
-                            : false
+                        return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
-                    formatter: (value: number) => formatAggregationAxisValue(filters, value),
+                    formatter: (value: number, context) => {
+                        const data = context.chart.data as ExtendedChartData
+                        const { datasetIndex, dataIndex } = context
+                        const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
+                        return formatPercentStackAxisValue(trendsFilter, percentageValue || value, isPercentStackView)
+                    },
                     borderWidth: 2,
                     borderRadius: 4,
                     borderColor: 'white',
@@ -429,7 +447,7 @@ export function LineGraph_({
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
                                         return (
                                             <div className="datum-label-column">
-                                                {!filters?.formula && (
+                                                {!formula && (
                                                     <SeriesLetter
                                                         className="mr-2"
                                                         hasBreakdown={hasBreakdown}
@@ -443,9 +461,10 @@ export function LineGraph_({
                                     }}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
-                                        ((value: number): string => formatAggregationAxisValue(filters, value))
+                                        ((value: number): string =>
+                                            formatPercentStackAxisValue(trendsFilter, value, isPercentStackView))
                                     }
-                                    entitiesAsColumnsOverride={filters?.formula ? false : undefined}
+                                    entitiesAsColumnsOverride={formula ? false : undefined}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
                                     groupTypeLabel={
                                         labelGroupType === 'people'
@@ -528,7 +547,7 @@ export function LineGraph_({
                         precision,
                         color: colors.axisLabel as string,
                         callback: (value) => {
-                            return formatAggregationAxisValue(filters, value)
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
                 },
@@ -549,12 +568,12 @@ export function LineGraph_({
                 y: {
                     beginAtZero: true,
                     display: true,
-                    stacked: isArea,
+                    stacked: showPercentStackView || isArea,
                     ticks: {
                         precision,
                         ...tickOptions,
                         callback: (value) => {
-                            return formatAggregationAxisValue(filters, value)
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
                     grid: {
@@ -571,7 +590,7 @@ export function LineGraph_({
                         ...tickOptions,
                         precision,
                         callback: (value) => {
-                            return formatAggregationAxisValue(filters, value)
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
                 },
@@ -608,7 +627,7 @@ export function LineGraph_({
             }
             options.indexAxis = 'y'
         }
-
+        Chart.register(ChartjsPluginStacked100)
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },

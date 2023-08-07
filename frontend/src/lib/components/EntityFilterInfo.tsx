@@ -1,7 +1,7 @@
 import { ActionFilter, EntityFilter } from '~/types'
 import { Typography } from 'antd'
 import { TextProps } from 'antd/lib/typography/Text'
-import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { getKeyMapping } from 'lib/taxonomy'
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 interface EntityFilterInfoProps {
@@ -25,12 +25,8 @@ export function EntityFilterInfo({
     showSingleName = false,
     style,
 }: EntityFilterInfoProps): JSX.Element {
-    if (isAllEventsEntityFilter(filter)) {
-        return (
-            <TextWrapper title="All events" className="text-muted-alt">
-                All events
-            </TextWrapper>
-        )
+    if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
+        return <TextWrapper title="All events">All events</TextWrapper>
     }
 
     const title = getDisplayNameFromEntityFilter(filter, false)

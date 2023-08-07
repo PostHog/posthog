@@ -1,12 +1,13 @@
-import os
 import json
+import os
+from typing import List
 from urllib.parse import urlparse
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, str_to_bool, get_list
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
@@ -48,6 +49,9 @@ def postgres_config(host: str) -> dict:
             "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", None),
             "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
             "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
+        },
+        "TEST": {
+            "MIRROR": "default",
         },
     }
 
@@ -154,21 +158,42 @@ if CLICKHOUSE_SECURE:
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
+CLICKHOUSE_OFFLINE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_OFFLINE_CLUSTER_HOST}:{_clickhouse_http_port}/"
+
+if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
+    # When testing, there is no offline cluster.
+    # Also in EU, there is no offline cluster.
+    CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
+
+
 READONLY_CLICKHOUSE_USER = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
-# Kafka configs
 
-_parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host in kafka_url.split(","))
+def _parse_kafka_hosts(hosts_string: str) -> List[str]:
+    hosts = []
+    for host in hosts_string.split(","):
+        if "://" in host:
+            hosts.append(urlparse(host).netloc)
+        else:
+            hosts.append(host)
+
+    # We don't want empty strings
+    return [host for host in hosts if host]
+
 
 # URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
-KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka:9092")
-KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
+# We prefer KAFKA_HOSTS over KAFKA_URL (which used to be used)
+KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("KAFKA_HOSTS", "") or os.getenv("KAFKA_URL", "") or "kafka:9092")
+# Dedicated kafka hosts for session recordings
+SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("SESSION_RECORDING_KAFKA_HOSTS", "")) or KAFKA_HOSTS
+# Kafka broker host(s) that is used by clickhouse for ingesting messages.
+# Useful if clickhouse is hosted outside the cluster.
+KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
 
-SESSION_RECORDING_KAFKA_URL = os.getenv("SESSION_RECORDING_KAFKA_URL", "")
-SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(SESSION_RECORDING_KAFKA_URL)
-
-# can set ('gzip', 'snappy', 'lz4', None)
+# can set ('gzip', 'snappy', 'lz4', 'zstd' None)
+# NB if you want to set a compression you need to install it... the producer compresses not kafka
+# so, at time of writing only 'gzip' and None/'uncompressed' are available
 SESSION_RECORDING_KAFKA_COMPRESSION = os.getenv("SESSION_RECORDING_KAFKA_COMPRESSION", None)
 
 # To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
@@ -177,13 +202,12 @@ SESSION_RECORDING_KAFKA_COMPRESSION = os.getenv("SESSION_RECORDING_KAFKA_COMPRES
 # for details.
 KAFKA_PREFIX = os.getenv("KAFKA_PREFIX", "")
 
-# Kafka broker host(s) that is used by clickhouse for ingesting messages. Useful if clickhouse is hosted outside the cluster.
-KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", KAFKA_URL))
-
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
-SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES = get_from_env(
-    "SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES", None, type_cast=int, optional=True
+SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: int = get_from_env(
+    "SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES",
+    1024 * 1024,  # 1MB
+    type_cast=int,
 )
 
 KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
@@ -205,6 +229,12 @@ KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
     "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
 )
 
+# A list of tokens for which events should be sent to the historical topic
+# TODO: possibly remove this and replace with something that provides the
+# separation of concerns between realtime and historical ingestion but without
+# needing to have a deploy.
+TOKENS_HISTORICAL_DATA = os.getenv("TOKENS_HISTORICAL_DATA", "").split(",")
+
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
@@ -217,6 +247,15 @@ if not REDIS_URL and get_from_env("POSTHOG_REDIS_HOST", ""):
         os.getenv("POSTHOG_REDIS_HOST", ""),
         os.getenv("POSTHOG_REDIS_PORT", "6379"),
     )
+
+SESSION_RECORDING_REDIS_URL = REDIS_URL
+
+if get_from_env("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""):
+    SESSION_RECORDING_REDIS_URL = "redis://{}:{}/".format(
+        os.getenv("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""),
+        os.getenv("POSTHOG_SESSION_RECORDING_REDIS_PORT", "6379"),
+    )
+
 
 if not REDIS_URL:
     raise ImproperlyConfigured(

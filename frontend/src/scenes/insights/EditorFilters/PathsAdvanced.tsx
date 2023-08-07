@@ -12,13 +12,12 @@ import { IconSettings } from 'lib/lemon-ui/icons'
 
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { PathsFilter } from '~/queries/schema'
 
 export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX.Element {
-    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { edge_limit, min_edge_weight, max_edge_weight } = (insightFilter || {}) as PathsFilter
+    const { edge_limit, min_edge_weight, max_edge_weight } = pathsFilter || {}
 
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
         edge_limit: edge_limit,

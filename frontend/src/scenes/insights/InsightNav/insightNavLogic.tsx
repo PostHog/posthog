@@ -7,7 +7,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { NodeKind } from '~/queries/schema'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
@@ -46,7 +45,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
         },
     }),
     selectors({
-        allowQueryTab: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL]],
         activeView: [
             (s) => [s.filters, s.query, s.userSelectedView],
             (filters, query, userSelectedView) => {
@@ -74,8 +72,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.allowQueryTab, s.activeView],
-            (allowQueryTab, activeView) => {
+            (s) => [s.activeView],
+            (activeView) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -109,37 +107,35 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     },
                 ]
 
-                if (allowQueryTab) {
+                tabs.push({
+                    label: (
+                        <>
+                            SQL
+                            <LemonTag type="warning" className="uppercase ml-2">
+                                Beta
+                            </LemonTag>
+                        </>
+                    ),
+                    type: InsightType.SQL,
+                    dataAttr: 'insight-sql-tab',
+                })
+
+                if (activeView === InsightType.JSON) {
+                    // only display this tab when it is selected by the provided insight query
+                    // don't display it otherwise... humans shouldn't be able to click to select this tab
+                    // it only opens when you click the <OpenEditorButton/>
                     tabs.push({
                         label: (
                             <>
-                                SQL
+                                Custom{' '}
                                 <LemonTag type="warning" className="uppercase ml-2">
                                     Beta
                                 </LemonTag>
                             </>
                         ),
-                        type: InsightType.SQL,
-                        dataAttr: 'insight-sql-tab',
+                        type: InsightType.JSON,
+                        dataAttr: 'insight-json-tab',
                     })
-
-                    if (activeView === InsightType.JSON) {
-                        // only display this tab when it is selected by the provided insight query
-                        // don't display it otherwise... humans shouldn't be able to click to select this tab
-                        // it only opens when you click the <OpenEditorButton/>
-                        tabs.push({
-                            label: (
-                                <>
-                                    Custom{' '}
-                                    <LemonTag type="warning" className="uppercase ml-2">
-                                        Beta
-                                    </LemonTag>
-                                </>
-                            ),
-                            type: InsightType.JSON,
-                            dataAttr: 'insight-json-tab',
-                        })
-                    }
                 }
 
                 return tabs

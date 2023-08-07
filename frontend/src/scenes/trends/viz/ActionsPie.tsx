@@ -2,7 +2,6 @@ import './ActionsPie.scss'
 import { useState, useEffect } from 'react'
 import { getSeriesColor } from 'lib/colors'
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, GraphType, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -12,19 +11,22 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import clsx from 'clsx'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { trendsDataLogic } from '../trendsDataLogic'
 
 export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
-    const { insightProps, insight } = useValues(insightLogic)
-    const logic = trendsLogic(insightProps)
-    const { indexedResults, labelGroupType, hiddenLegendKeys, filters } = useValues(logic)
+
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries } = useValues(
+        trendsDataLogic(insightProps)
+    )
 
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
@@ -68,7 +70,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                 className={clsx(
                     'ActionsPie w-full',
                     inCardView && 'flex flex-row h-full items-center',
-                    isTrendsFilter(filters) && filters.show_legend && 'pr-4'
+                    trendsFilter?.show_legend && 'pr-4'
                 )}
             >
                 <div className={clsx('actions-pie-component', inCardView && 'grow')}>
@@ -82,9 +84,11 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                             labelGroupType={labelGroupType}
                             inSharedMode={!!inSharedMode}
                             showPersonsModal={showPersonsModal}
-                            filters={insight.filters}
+                            trendsFilter={trendsFilter}
+                            formula={formula}
+                            showValueOnSeries={showValueOnSeries}
                             onClick={
-                                !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters?.formula)
+                                !showPersonsModal || formula
                                     ? undefined
                                     : (payload) => {
                                           const { points, index, crossDataset } = payload
@@ -106,10 +110,10 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                         />
                     </div>
                     <h3 className="text-7xl text-center font-bold m-0">
-                        {formatAggregationAxisValue(insight.filters, total)}
+                        {formatAggregationAxisValue(trendsFilter, total)}
                     </h3>
                 </div>
-                {inCardView && isTrendsFilter(filters) && filters.show_legend && <InsightLegend inCardView />}
+                {inCardView && trendsFilter?.show_legend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

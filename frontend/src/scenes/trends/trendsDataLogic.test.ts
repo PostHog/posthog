@@ -2,13 +2,13 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from './trendsDataLogic'
 
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 import { DataNode, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
 import { trendResult, trendPieResult, lifecycleResult } from './__mocks__/trendsDataLogicMocks'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 let logic: ReturnType<typeof trendsDataLogic.build>
 let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
@@ -38,13 +38,6 @@ describe('trendsDataLogic', () => {
 
     describe('based on insightDataLogic', () => {
         describe('results', () => {
-            it.skip('with non-trends insight', async () => {
-                await expectLogic(logic).toMatchValues({
-                    insight: expect.objectContaining({ filters: {} }),
-                    results: [],
-                })
-            })
-
             it('for standard trend', async () => {
                 const insight: Partial<InsightModel> = {
                     result: trendResult.result,
@@ -125,28 +118,22 @@ describe('trendsDataLogic', () => {
                 }).toMatchValues({
                     indexedResults: [
                         expect.objectContaining({
-                            // count: 35346.0,
-                            status: 'new',
-                            id: 0,
-                            seriesIndex: 0,
-                        }),
-                        expect.objectContaining({
-                            // count: -50255.0,
+                            count: -50255.0,
                             status: 'dormant',
-                            id: 1,
+                            id: 0,
                             seriesIndex: 1,
                         }),
-                        // expect.objectContaining({
-                        //     count: 9814.0,
-                        //     status: 'returning',
-                        //     id: 0,
-                        //     seriesIndex: 2,
-                        // }),
                         expect.objectContaining({
-                            // count: 11612.0,
+                            count: 11612.0,
                             status: 'resurrecting',
-                            id: 2,
+                            id: 1,
                             seriesIndex: 3,
+                        }),
+                        expect.objectContaining({
+                            count: 35346.0,
+                            status: 'new',
+                            id: 2,
+                            seriesIndex: 0,
                         }),
                     ],
                 })

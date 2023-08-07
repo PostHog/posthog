@@ -20,7 +20,7 @@ const BillingGaugeItem = ({ width, className, tooltip, top, value }: BillingGaug
                 width: width,
             }}
         >
-            <div className="absolute right-0 w-px h-full bg-inverse" />
+            <div className="absolute right-0 w-px h-full bg-bg-light" />
             <Tooltip title={value.toLocaleString()} placement={'right'}>
                 <div
                     className={clsx('BillingGaugeItem__info', {

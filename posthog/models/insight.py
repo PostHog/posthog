@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
+from posthog.models.utils import sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
@@ -80,6 +81,11 @@ class Insight(models.Model):
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
 
+    __repr__ = sane_repr("team_id", "id", "short_id", "name")
+
+    def __str__(self):
+        return self.name or self.derived_name or self.short_id
+
     @property
     def is_sharing_enabled(self):
         # uses .all and not .first so that prefetching can be used
@@ -103,7 +109,6 @@ class Insight(models.Model):
         if dashboard and not self.query:
             dashboard_filters = {**dashboard.filters}
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
-
             insight_date_from = self.filters.get("date_from", None)
             insight_date_to = self.filters.get("date_to", None)
             dashboard_date_from = dashboard_filters.get("date_from", None)
@@ -112,11 +117,14 @@ class Insight(models.Model):
             filters = {
                 **self.filters,
                 **dashboard_filters,
-                "date_from": dashboard_date_from or insight_date_from,
             }
 
-            if dashboard_date_to or insight_date_to:
-                filters["date_to"] = dashboard_date_to or insight_date_to
+            if dashboard_date_from is None:
+                filters["date_from"] = insight_date_from
+                filters["date_to"] = insight_date_to
+            else:
+                filters["date_from"] = dashboard_date_from
+                filters["date_to"] = dashboard_date_to
 
             if dashboard_date_from == "all" and filters.get("compare", None) is True:
                 filters["compare"] = None

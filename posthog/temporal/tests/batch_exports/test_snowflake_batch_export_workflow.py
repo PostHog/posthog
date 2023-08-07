@@ -1,30 +1,31 @@
-from collections import deque
+import gzip
 import json
 import re
+from collections import deque
 from typing import TypedDict
 from uuid import uuid4
 
-import gzip
-
-from aiochclient import ChClient
 import pytest
+import responses
 from django.conf import settings
 from django.test import override_settings
+from requests.models import PreparedRequest
+from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
+
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
-
+from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
+from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity,
 )
-from requests.models import PreparedRequest
-import responses
 
 
 class EventValues(TypedDict):
@@ -34,20 +35,22 @@ class EventValues(TypedDict):
     event: str
     timestamp: str
     _timestamp: str
+    inserted_at: str
     person_id: str
     team_id: int
-    properties: str
+    properties: dict
 
 
-async def insert_events(client: ChClient, events: list[EventValues]):
+async def insert_events(client: ClickHouseClient, events: list[EventValues]):
     """Insert some events into the sharded_events table."""
-    await client.execute(
+    await client.execute_query(
         f"""
         INSERT INTO `sharded_events` (
             uuid,
             event,
             timestamp,
             _timestamp,
+            inserted_at,
             person_id,
             team_id,
             properties
@@ -60,13 +63,13 @@ async def insert_events(client: ChClient, events: list[EventValues]):
                 event["event"],
                 event["timestamp"],
                 event["_timestamp"],
+                event["inserted_at"],
                 event["person_id"],
                 event["team_id"],
-                event["properties"],
+                json.dumps(event["properties"]),
             )
             for event in events
         ],
-        json=False,
     )
 
 
@@ -87,7 +90,7 @@ def contains_queries_in_order(queries: list[str], *queries_to_find: str):
     return not queries_to_find_deque
 
 
-def add_mock_snowflake_api(rsps: responses.RequestsMock):
+def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = False):
     # Create a crube mock of the Snowflake API that just stores the queries
     # in a list for us to inspect.
     #
@@ -102,6 +105,8 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock):
         sql_text = json.loads(gzip.decompress(request.body))["sqlText"]
         queries.append(sql_text)
 
+        rowset = [("test", "LOADED", 456, 192, "NONE", "GZIP", "UPLOADED", "")]
+
         # If the query is something that looks like `PUT file:///tmp/tmp50nod7v9
         # @%"events"` we extract the /tmp/tmp50nod7v9 and store the file
         # contents as a string in `staged_files`.
@@ -109,6 +114,13 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock):
             file_path = match.group("file_path")
             with open(file_path, "r") as f:
                 staged_files.append(f.read())
+
+            if fail == "put":
+                rowset = [("test", "test.gz", 456, 0, "NONE", "GZIP", "FAILED", "Some error on put")]
+
+        else:
+            if fail == "copy":
+                rowset = [("test", "LOAD FAILED", 100, 99, 1, 1, "Some error on copy", 3)]
 
         return (
             200,
@@ -120,10 +132,75 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock):
                     "success": True,
                     "data": {
                         "parameters": [],
-                        "rowtype": [],
-                        "rowset": [],
-                        "total": 0,
-                        "returned": 0,
+                        "rowtype": [
+                            {
+                                "name": "source",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "target",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "source_size",
+                                "type": "fixed",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "target_size",
+                                "type": "fixed",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "source_compression",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "target_compression",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "status",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "message",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                        ],
+                        "rowset": rowset,
+                        "total": 1,
+                        "returned": 1,
                         "queryId": "query-id",
                         "queryResultFormat": "json",
                     },
@@ -151,12 +228,12 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock):
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the_right_team():
-    """
-    Test that the whole workflow not just the activity works. It should update
-    the batch export run status to completed, as well as updating the record
+    """Test that the whole workflow not just the activity works.
+
+    It should update the batch export run status to completed, as well as updating the record
     count.
     """
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -199,9 +276,10 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
             "event": "test",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
             "_timestamp": "2023-04-20 14:30:00",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "person_id": str(uuid4()),
             "team_id": team.pk,
-            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
         }
         # NOTE: we have to do a lot here, otherwise we do not trigger a
         # multipart upload, and the minimum part chunk size is 5MB.
@@ -227,27 +305,30 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "event": "test",
                 "timestamp": "2023-04-20 13:30:00",
                 "_timestamp": "2023-04-20 13:30:00",
+                "inserted_at": f"2023-04-20 13:30:00",
                 "person_id": str(uuid4()),
                 "team_id": team.pk,
-                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             },
             {
                 "uuid": str(uuid4()),
                 "event": "test",
                 "timestamp": "2023-04-20 15:30:00",
                 "_timestamp": "2023-04-20 15:30:00",
+                "inserted_at": f"2023-04-20 15:30:00",
                 "person_id": str(uuid4()),
                 "team_id": team.pk,
-                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             },
             {
                 "uuid": str(uuid4()),
                 "event": "test",
                 "timestamp": "2023-04-20 14:30:00",
                 "_timestamp": "2023-04-20 14:30:00",
+                "inserted_at": f"2023-04-20 14:30:00",
                 "person_id": str(uuid4()),
                 "team_id": other_team.pk,
-                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             },
         ],
     )
@@ -310,9 +391,10 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 json_data.sort(key=lambda x: x["timestamp"])
                 # Drop _timestamp and team_id from events
                 events = [
-                    {key: value for key, value in event.items() if key not in ("team_id", "_timestamp")}
+                    {key: value for key, value in event.items() if key not in ("team_id", "_timestamp", "inserted_at")}
                     for event in events
                 ]
+                assert json_data[0] == events[0]
                 assert json_data == events
 
         runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
@@ -379,3 +461,193 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
 
         run = runs[1]
         assert run.status == "Completed"
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_snowflake_export_workflow_raises_error_on_put_fail():
+    destination_data = {
+        "type": "Snowflake",
+        "config": {
+            "user": "hazzadous",
+            "password": "password",
+            "account": "account",
+            "database": "PostHog",
+            "schema": "test",
+            "warehouse": "COMPUTE_WH",
+            "table_name": "events",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-snowflake-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = await acreate_organization("test")
+    team = await acreate_team(organization=organization)
+    batch_export = await acreate_batch_export(
+        team_id=team.pk,
+        name=batch_export_data["name"],
+        destination_data=batch_export_data["destination"],
+        interval=batch_export_data["interval"],
+    )
+
+    ch_client = ClickHouseClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "_timestamp": "2023-04-20 14:30:00",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "person_id": str(uuid4()),
+            "team_id": team.pk,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+        }
+        for i in range(2)
+    ]
+
+    await insert_events(
+        client=ch_client,
+        events=events,
+    )
+
+    inputs = SnowflakeBatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=str(batch_export.id),
+        data_interval_end="2023-04-20 14:40:00.000000",
+        **batch_export.destination.config,
+    )
+
+    workflow_id = str(uuid4())
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SnowflakeBatchExportWorkflow],
+            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with responses.RequestsMock(
+                target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send"
+            ) as rsps, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2):
+                add_mock_snowflake_api(rsps, fail="put")
+
+                with pytest.raises(WorkflowFailureError) as exc_info:
+                    await activity_environment.client.execute_workflow(
+                        SnowflakeBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+
+                err = exc_info.value
+                assert hasattr(err, "__cause__"), "Workflow failure missing cause"
+                assert isinstance(err.__cause__, ActivityError)
+                assert isinstance(err.__cause__.__cause__, ApplicationError)
+                assert err.__cause__.__cause__.type == "SnowflakeFileNotUploadedError"
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_snowflake_export_workflow_raises_error_on_copy_fail():
+    destination_data = {
+        "type": "Snowflake",
+        "config": {
+            "user": "hazzadous",
+            "password": "password",
+            "account": "account",
+            "database": "PostHog",
+            "schema": "test",
+            "warehouse": "COMPUTE_WH",
+            "table_name": "events",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-snowflake-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = await acreate_organization("test")
+    team = await acreate_team(organization=organization)
+    batch_export = await acreate_batch_export(
+        team_id=team.pk,
+        name=batch_export_data["name"],
+        destination_data=batch_export_data["destination"],
+        interval=batch_export_data["interval"],
+    )
+
+    ch_client = ClickHouseClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "_timestamp": "2023-04-20 14:30:00",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "person_id": str(uuid4()),
+            "team_id": team.pk,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+        }
+        for i in range(2)
+    ]
+
+    await insert_events(
+        client=ch_client,
+        events=events,
+    )
+
+    inputs = SnowflakeBatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=str(batch_export.id),
+        data_interval_end="2023-04-20 14:40:00.000000",
+        **batch_export.destination.config,
+    )
+
+    workflow_id = str(uuid4())
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SnowflakeBatchExportWorkflow],
+            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with responses.RequestsMock(
+                target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send"
+            ) as rsps, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2):
+                add_mock_snowflake_api(rsps, fail="copy")
+
+                with pytest.raises(WorkflowFailureError) as exc_info:
+                    await activity_environment.client.execute_workflow(
+                        SnowflakeBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+
+                err = exc_info.value
+                assert hasattr(err, "__cause__"), "Workflow failure missing cause"
+                assert isinstance(err.__cause__, ActivityError)
+                assert isinstance(err.__cause__.__cause__, ApplicationError)
+                assert err.__cause__.__cause__.type == "SnowflakeFileNotLoadedError"

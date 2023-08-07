@@ -73,7 +73,7 @@ export function Customisation(): JSX.Element {
 export function DarkBackground(): JSX.Element {
     return (
         <div className="space-y-2 bg-default p-2 rounded">
-            <p className="text-inverse">
+            <p className="text-white">
                 Skeletons have a bunch of presets to help with simulating other LemonUI Components
             </p>
 

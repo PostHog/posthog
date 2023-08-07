@@ -28,7 +28,6 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
-from django.db import DEFAULT_DB_ALIAS, connections
 
 import lzstring
 import posthoganalytics
@@ -302,7 +301,7 @@ def get_git_commit() -> Optional[str]:
 def get_js_url(request: HttpRequest) -> str:
     """
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
-    it is necessary to set the JS_URL host based on the calling origin
+    it is necessary to set the JS_URL host based on the calling origin.
     """
     if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
         return f"http://{request.get_host().split(':')[0]}:8234"
@@ -320,7 +319,7 @@ def render_template(
 
     template = get_template(template_name)
 
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
 
@@ -336,8 +335,9 @@ def render_template(
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
-
-    if settings.SELF_CAPTURE:
+        context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
+        context["js_posthog_host"] = "'https://app.posthog.com'"
+    elif settings.SELF_CAPTURE:
         api_token = get_self_capture_api_token(request)
 
         if api_token:
@@ -435,6 +435,8 @@ def render_template(
     # that don't depend on any person properties. To get these flags, add person properties to the
     # `get_all_flags` call above.
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
+
+    context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
     html = template.render(context, request=request)
     return HttpResponse(html)
@@ -757,22 +759,6 @@ def compact_number(value: Union[int, float]) -> str:
         magnitude += 1
         value /= 1000.0
     return f"{value:f}".rstrip("0").rstrip(".") + ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
-
-
-@lru_cache(maxsize=1)
-def is_postgres_connected_cached_check(_ttl: int) -> bool:
-    """
-    The setting will change way less frequently than it will be called
-    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
-    """
-    # Uses the same check as in the healthcheck
-    try:
-        with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
-            cursor.execute("SELECT 1")
-        return True
-    except Exception:
-        logger.exception("postgres_connection_failure")
-        return False
 
 
 def is_postgres_alive() -> bool:
@@ -1292,3 +1278,26 @@ class PersonOnEventsMode(str, Enum):
     DISABLED = "disabled"
     V1_ENABLED = "v1_enabled"
     V2_ENABLED = "v2_enabled"
+
+
+def label_for_team_id_to_track(team_id: int) -> str:
+    team_id_filter: List[str] = settings.DECIDE_TRACK_TEAM_IDS
+
+    team_id_as_string = str(team_id)
+
+    if "all" in team_id_filter:
+        return team_id_as_string
+
+    if team_id_as_string in team_id_filter:
+        return team_id_as_string
+
+    team_id_ranges = [team_id_range for team_id_range in team_id_filter if ":" in team_id_range]
+    for range in team_id_ranges:
+        try:
+            start, end = range.split(":")
+            if int(start) <= team_id <= int(end):
+                return team_id_as_string
+        except Exception:
+            pass
+
+    return "unknown"

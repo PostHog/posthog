@@ -109,15 +109,19 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
         : name
 }
 
-export const isSelectedPathStartOrEnd = (filter: Partial<PathsFilterType>, pathItemCard: PathNodeData): boolean => {
+export const isSelectedPathStartOrEnd = (
+    pathsFilter: Partial<PathsFilterType>,
+    pathItemCard: PathNodeData
+): boolean => {
     const cardName = pageUrl(pathItemCard)
     const isPathStart = pathItemCard.targetLinks.length === 0
     const isPathEnd = pathItemCard.sourceLinks.length === 0
+    const { start_point, end_point, funnel_paths, funnel_filter } = pathsFilter
     return (
-        (filter.start_point === cardName && isPathStart) ||
-        (filter.end_point === cardName && isPathEnd) ||
-        (filter.funnel_paths === FunnelPathType.between &&
-            ((cardName === filter.funnel_filter?.events[filter.funnel_filter.funnel_step - 1].name && isPathEnd) ||
-                (cardName === filter.funnel_filter?.events[filter.funnel_filter.funnel_step - 2].name && isPathStart)))
+        (start_point === cardName && isPathStart) ||
+        (end_point === cardName && isPathEnd) ||
+        (funnel_paths === FunnelPathType.between &&
+            ((cardName === funnel_filter?.events[funnel_filter.funnel_step - 1].name && isPathEnd) ||
+                (cardName === funnel_filter?.events[funnel_filter.funnel_step - 2].name && isPathStart)))
     )
 }

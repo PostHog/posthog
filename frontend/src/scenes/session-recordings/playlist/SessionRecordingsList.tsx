@@ -112,12 +112,12 @@ export function SessionRecordingsList({
 
     return (
         <div
-            className={clsx('flex flex-col w-full bg-white border rounded', className, {
+            className={clsx('flex flex-col w-full bg-bg-light border rounded', className, {
                 'border-dashed': !recordings?.length,
                 'overflow-hidden': recordings?.length,
             })}
         >
-            <DraggableToNotebook href={draggableHref} alwaysDraggable noOverflow>
+            <DraggableToNotebook href={draggableHref}>
                 <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap">
                     {onCollapse ? (
                         <LemonButton

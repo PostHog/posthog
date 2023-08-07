@@ -1,13 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
-import {
-    FlattenedFunnelStepByBreakdown,
-    FunnelStep,
-    FunnelStepWithConversionMetrics,
-    FunnelStepWithNestedBreakdown,
-} from '~/types'
+import { FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
@@ -22,88 +16,24 @@ import { IconFlag } from 'lib/lemon-ui/icons'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { BreakdownFilter } from '~/queries/schema'
-import { cleanHiddenLegendSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-
-export function FunnelStepsTableDataExploration(): JSX.Element | null {
-    const { insightProps, insightLoading } = useValues(insightLogic)
-    const { breakdown } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, funnelsFilter, canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
-    const { openPersonsModalForSeries } = useActions(funnelLogic(insightProps))
-
-    return (
-        <FunnelStepsTableComponent
-            insightLoading={insightLoading}
-            breakdownFilter={breakdown ?? undefined}
-            steps={steps}
-            flattenedBreakdowns={flattenedBreakdowns}
-            isOnlySeries={flattenedBreakdowns.length <= 1}
-            hiddenLegendBreakdowns={funnelsFilter?.hidden_legend_breakdowns}
-            setHiddenLegendBreakdowns={(hidden_legend_breakdowns: string[]) => {
-                updateInsightFilter({ hidden_legend_breakdowns })
-            }}
-            openPersonsModalForSeries={canOpenPersonModal ? openPersonsModalForSeries : null}
-        />
-    )
-}
+import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
-    const { filters, steps, flattenedBreakdowns, hiddenLegendKeys, isOnlySeries, canOpenPersonModal } = useValues(
-        funnelLogic(insightProps)
-    )
-    const { setFilters, openPersonsModalForSeries } = useActions(funnelLogic(insightProps))
+    const { breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
-    return (
-        <FunnelStepsTableComponent
-            insightLoading={insightLoading}
-            breakdownFilter={filters}
-            steps={steps}
-            flattenedBreakdowns={flattenedBreakdowns}
-            setHiddenLegendBreakdowns={(hidden_legend_breakdowns: string[]) => {
-                const hidden_legend_keys = hidden_legend_breakdowns.reduce((k, b) => ({ ...k, [b]: true }), {})
-                setFilters({ ...filters, hidden_legend_keys })
-            }}
-            hiddenLegendBreakdowns={cleanHiddenLegendSeries(hiddenLegendKeys)}
-            isOnlySeries={isOnlySeries}
-            openPersonsModalForSeries={canOpenPersonModal ? openPersonsModalForSeries : null}
-        />
-    )
-}
+    const breakdownFilter = breakdown ?? undefined
+    const isOnlySeries = flattenedBreakdowns.length <= 1
+    const hiddenLegendBreakdowns = funnelsFilter?.hidden_legend_breakdowns
+    const setHiddenLegendBreakdowns = (hidden_legend_breakdowns: string[]): void => {
+        updateInsightFilter({ hidden_legend_breakdowns })
+    }
 
-type FunnelStepsTableComponentProps = {
-    insightLoading: boolean
-    breakdownFilter?: BreakdownFilter
-    steps: FunnelStepWithNestedBreakdown[]
-    flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
-    isOnlySeries: boolean
-    hiddenLegendBreakdowns: string[] | undefined
-    setHiddenLegendBreakdowns: (hidden_legend_breakdowns: string[]) => void
-    openPersonsModalForSeries:
-        | null
-        | (({
-              step,
-              series,
-              converted,
-          }: {
-              step: FunnelStep
-              series: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>
-              converted: boolean
-          }) => void)
-}
-
-export function FunnelStepsTableComponent({
-    insightLoading,
-    breakdownFilter,
-    steps,
-    flattenedBreakdowns,
-    hiddenLegendBreakdowns,
-    setHiddenLegendBreakdowns,
-    isOnlySeries,
-    openPersonsModalForSeries,
-}: FunnelStepsTableComponentProps): JSX.Element | null {
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -205,12 +135,11 @@ export function FunnelStepsTableComponent({
                         const stepSeries = breakdown.steps?.[stepIndex]
                         return (
                             stepSeries &&
-                            (openPersonsModalForSeries ? (
+                            (canOpenPersonModal ? (
                                 <ValueInspectorButton
                                     onClick={() =>
                                         openPersonsModalForSeries({ step, series: stepSeries, converted: true })
                                     }
-                                    style={{ padding: 0 }}
                                 >
                                     {humanFriendlyNumber(stepSeries.count ?? 0)}
                                 </ValueInspectorButton>
@@ -234,7 +163,7 @@ export function FunnelStepsTableComponent({
                                   const stepSeries = breakdown.steps?.[stepIndex]
                                   return (
                                       stepSeries &&
-                                      (openPersonsModalForSeries ? (
+                                      (canOpenPersonModal ? (
                                           <ValueInspectorButton
                                               onClick={() =>
                                                   openPersonsModalForSeries({
@@ -243,7 +172,6 @@ export function FunnelStepsTableComponent({
                                                       converted: false,
                                                   })
                                               }
-                                              style={{ padding: 0 }}
                                           >
                                               {humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}
                                           </ValueInspectorButton>

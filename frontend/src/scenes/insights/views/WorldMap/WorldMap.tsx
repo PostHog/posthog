@@ -11,7 +11,6 @@ import { worldMapLogic } from './worldMapLogic'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { countryVectors } from './countryVectors'
 import { groupsModel } from '~/models/groupsModel'
-import { toLocalFilters } from '../../filters/ActionFilter/entityFilterLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
@@ -23,7 +22,9 @@ const WORLD_MAP_TOOLTIP_OFFSET_PX = 8
 
 function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGElement> {
     const { insightProps } = useValues(insightLogic)
-    const { filters, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(worldMapLogic(insightProps))
+    const { series, trendsFilter, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(
+        worldMapLogic(insightProps)
+    )
     const { aggregationLabel } = useValues(groupsModel)
 
     const svgRef = useRef<SVGSVGElement>(null)
@@ -57,11 +58,11 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     </div>
                                 )
                             }
-                            renderCount={(value: number) => <>{formatAggregationAxisValue(filters, value)}</>}
+                            renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value)}</>}
                             showHeader={false}
                             hideColorCol
                             hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
-                            groupTypeLabel={aggregationLabel(toLocalFilters(filters)[0].math_group_type_index).plural}
+                            groupTypeLabel={aggregationLabel(series?.[0].math_group_type_index).plural}
                         />
                     )}
                 </>,
@@ -175,9 +176,8 @@ const WorldMapSVG = React.memo(
 
 export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const localLogic = worldMapLogic(insightProps)
-    const { countryCodeToSeries, maxAggregatedValue } = useValues(localLogic)
-    const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(localLogic)
+    const { countryCodeToSeries, maxAggregatedValue } = useValues(worldMapLogic(insightProps))
+    const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(worldMapLogic(insightProps))
 
     const svgRef = useWorldMapTooltip(showPersonsModal)
 

@@ -18,6 +18,7 @@ import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptio
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
+import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 
 /**
  * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules
@@ -38,6 +39,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.EVENT_DEFINITION:
         case ActivityScope.PROPERTY_DEFINITION:
             return dataManagementActivityDescriber
+        case ActivityScope.NOTEBOOK:
+            return notebookActivityDescriber
         default:
             return undefined
     }

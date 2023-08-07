@@ -8,9 +8,17 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     LazyJoin,
     LazyTable,
+    FieldOrTable,
 )
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
 from posthog.hogql.errors import HogQLException
+
+PERSON_DISTINCT_IDS_FIELDS = {
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "distinct_id": StringDatabaseField(name="distinct_id"),
+    "person_id": StringDatabaseField(name="person_id"),
+    "person": LazyJoin(from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table),
+}
 
 
 def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str]]):
@@ -30,24 +38,26 @@ def join_with_person_distinct_ids_table(from_table: str, to_table: str, requeste
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise HogQLException("No fields requested from person_distinct_ids.")
+        raise HogQLException("No fields requested from person_distinct_ids")
     join_expr = ast.JoinExpr(table=select_from_person_distinct_ids_table(requested_fields))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
-    join_expr.constraint = ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=[from_table, "distinct_id"]),
-        right=ast.Field(chain=[to_table, "distinct_id"]),
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[from_table, "distinct_id"]),
+            right=ast.Field(chain=[to_table, "distinct_id"]),
+        )
     )
     return join_expr
 
 
-class RawPersonDistinctIdTable(Table):
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
-    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
-    is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
-    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+class RawPersonDistinctIdsTable(Table):
+    fields: Dict[str, FieldOrTable] = {
+        **PERSON_DISTINCT_IDS_FIELDS,
+        "is_deleted": BooleanDatabaseField(name="is_deleted"),
+        "version": IntegerDatabaseField(name="version"),
+    }
 
     def to_printed_clickhouse(self, context):
         return "person_distinct_id2"
@@ -56,13 +66,8 @@ class RawPersonDistinctIdTable(Table):
         return "raw_person_distinct_ids"
 
 
-class PersonDistinctIdTable(LazyTable):
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
-    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
-    person: LazyJoin = LazyJoin(
-        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
-    )
+class PersonDistinctIdsTable(LazyTable):
+    fields: Dict[str, FieldOrTable] = PERSON_DISTINCT_IDS_FIELDS
 
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_person_distinct_ids_table(requested_fields)

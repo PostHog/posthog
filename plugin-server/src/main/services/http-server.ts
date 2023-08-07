@@ -1,5 +1,5 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
-import { IngestionConsumer } from 'main/ingestion-queues/kafka-queue'
+import { IngestionConsumer, KafkaJSIngestionConsumer } from 'main/ingestion-queues/kafka-queue'
 import * as prometheus from 'prom-client'
 
 import { status } from '../../utils/status'
@@ -10,7 +10,7 @@ prometheus.collectDefaultMetrics()
 
 export function createHttpServer(
     healthChecks: { [service: string]: () => Promise<boolean> | boolean },
-    analyticsEventsIngestionConsumer?: IngestionConsumer
+    analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer
 ): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {

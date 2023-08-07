@@ -11,9 +11,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.api.test.base import LicensedTestMixin
-from ee.models import DashboardPrivilege
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.models import (
@@ -46,7 +43,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
 
 
-class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
+class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     maxDiff = None
 
     def setUp(self) -> None:
@@ -361,7 +358,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12)],
+            [FuzzyInt(10, 11), FuzzyInt(10, 11), FuzzyInt(10, 11), FuzzyInt(10, 11), FuzzyInt(10, 11)],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -410,43 +407,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(any_on_dashboard_one.status_code, status.HTTP_200_OK)
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert sorted(matched_insights) == [insight_one_id]
-
-    def test_searching_insights_includes_tags_and_description(self) -> None:
-        insight_one_id, _ = self.dashboard_api.create_insight(
-            {
-                "name": "needle in a haystack",
-                "filters": {"events": [{"id": "$pageview"}]},
-            }
-        )
-        insight_two_id, _ = self.dashboard_api.create_insight(
-            {"name": "not matching", "filters": {"events": [{"id": "$pageview"}]}}
-        )
-
-        insight_three_id, _ = self.dashboard_api.create_insight(
-            {
-                "name": "not matching name",
-                "filters": {"events": [{"id": "$pageview"}]},
-                "tags": ["needle"],
-            }
-        )
-
-        insight_four_id, _ = self.dashboard_api.create_insight(
-            {
-                "name": "not matching name",
-                "description": "another needle",
-                "filters": {"events": [{"id": "$pageview"}]},
-                "tags": ["not matching"],
-            }
-        )
-
-        matching = self.client.get(f"/api/projects/{self.team.id}/insights/?search=needle")
-        self.assertEqual(matching.status_code, status.HTTP_200_OK)
-        matched_insights = [insight["id"] for insight in matching.json()["results"]]
-        assert sorted(matched_insights) == [
-            insight_one_id,
-            insight_three_id,
-            insight_four_id,
-        ]
 
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self) -> None:
@@ -877,7 +837,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
             response_data = response.json()
             self.assertEqual(response_data["name"], "insight new name")
-            self.assertEqual(sorted(response_data["tags"]), sorted(["add", "these", "tags"]))
+            # tags are a paid feature and safely ignored when not licensed
+            self.assertEqual(sorted(response_data["tags"]), [])
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
             self.assertEqual(
                 response_data["effective_restriction_level"],
@@ -902,13 +863,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "item_id": str(insight_id),
                         "detail": {
                             "changes": [
-                                {
-                                    "type": "Insight",
-                                    "action": "changed",
-                                    "field": "tags",
-                                    "before": [],
-                                    "after": ["add", "tags", "these"],
-                                },
                                 {
                                     "type": "Insight",
                                     "action": "changed",
@@ -952,97 +906,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["filters_hash"], original_filters_hash)
-
-    @freeze_time("2012-01-14T03:21:34.000Z")
-    def test_can_add_and_remove_tags(self) -> None:
-        insight_id, response_data = self.dashboard_api.create_insight(
-            {
-                "name": "a created dashboard",
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-            }
-        )
-        insight_short_id = response_data["short_id"]
-        self.assertEqual(response_data["tags"], [])
-
-        add_tags_response = self.client.patch(
-            # tags are displayed in order of insertion
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"tags": ["2", "1", "3"]},
-        )
-
-        self.assertEqual(sorted(add_tags_response.json()["tags"]), ["1", "2", "3"])
-
-        remove_tags_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]})
-
-        self.assertEqual(remove_tags_response.json()["tags"], ["3"])
-
-        self.assert_insight_activity(
-            insight_id=insight_id,
-            expected=[
-                {
-                    "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "created",
-                    "scope": "Insight",
-                    "item_id": str(insight_id),
-                    "detail": {
-                        "changes": None,
-                        "trigger": None,
-                        "type": None,
-                        "name": "a created dashboard",
-                        "short_id": insight_short_id,
-                    },
-                    "created_at": "2012-01-14T03:21:34Z",
-                },
-                {
-                    "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "updated",
-                    "scope": "Insight",
-                    "item_id": str(insight_id),
-                    "detail": {
-                        "changes": [
-                            {
-                                "type": "Insight",
-                                "action": "changed",
-                                "field": "tags",
-                                "before": [],
-                                "after": ["1", "2", "3"],
-                            }
-                        ],
-                        "trigger": None,
-                        "type": None,
-                        "name": "a created dashboard",
-                        "short_id": insight_short_id,
-                    },
-                    "created_at": "2012-01-14T03:21:34Z",
-                },
-                {
-                    "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "updated",
-                    "scope": "Insight",
-                    "item_id": str(insight_id),
-                    "detail": {
-                        "changes": [
-                            {
-                                "type": "Insight",
-                                "action": "changed",
-                                "field": "tags",
-                                "before": ["1", "2", "3"],
-                                "after": ["3"],
-                            }
-                        ],
-                        "trigger": None,
-                        "type": None,
-                        "name": "a created dashboard",
-                        "short_id": insight_short_id,
-                    },
-                    "created_at": "2012-01-14T03:21:34Z",
-                },
-            ],
-        )
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self) -> None:
@@ -1906,37 +1769,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_insight_trends_forbidden_if_project_private_and_org_member(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertDictEqual(
-            self.permission_denied_response("You don't have access to the project."),
-            response.json(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_insight_trends_allowed_if_project_private_and_org_member_and_project_member(
-        self,
-    ) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
-        ExplicitTeamMembership.objects.create(
-            team=self.team,
-            parent_membership=self.organization_membership,
-            level=ExplicitTeamMembership.Level.MEMBER,
-        )
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
     @patch("posthog.api.insight.capture_exception")
     def test_serializer(self, patch_capture_exception) -> None:
         """
@@ -2296,240 +2128,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {"dashboards": [dashboard_own_team.pk, dashboard_other_team.pk]},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_an_insight_on_no_dashboard_has_no_restrictions(self) -> None:
-        _, response_data = self.dashboard_api.create_insight(data={"name": "not on a dashboard"})
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-    def test_an_insight_on_unrestricted_dashboard_has_no_restrictions(self) -> None:
-        dashboard: Dashboard = Dashboard.objects.create(team=self.team)
-        _, response_data = self.dashboard_api.create_insight(
-            data={"name": "on an unrestricted dashboard", "dashboards": [dashboard.pk]}
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-    def test_an_insight_on_restricted_dashboard_has_restrictions_cannot_edit_without_explicit_privilege(
-        self,
-    ) -> None:
-        dashboard: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        _, response_data = self.dashboard_api.create_insight(
-            data={"name": "on a restricted dashboard", "dashboards": [dashboard.pk]}
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_VIEW,
-        )
-
-    def test_an_insight_on_both_restricted_and_unrestricted_dashboard_has_no_restrictions(
-        self,
-    ) -> None:
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        dashboard_unrestricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        _, response_data = self.dashboard_api.create_insight(
-            data={
-                "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk, dashboard_unrestricted.pk],
-            }
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-    def test_an_insight_on_restricted_dashboard_does_not_restrict_admin(self) -> None:
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        admin = User.objects.create_and_join(
-            organization=self.organization,
-            email="y@x.com",
-            password=None,
-            level=OrganizationMembership.Level.ADMIN,
-        )
-        self.client.force_login(admin)
-        _, response_data = self.dashboard_api.create_insight(
-            data={
-                "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk],
-            }
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-    def test_an_insight_on_both_restricted_dashboard_does_not_restrict_with_explicit_privilege(
-        self,
-    ) -> None:
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        DashboardPrivilege.objects.create(
-            dashboard=dashboard_restricted,
-            user=self.user,
-            level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        _, response_data = self.dashboard_api.create_insight(
-            data={
-                "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk],
-            }
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-    def test_cannot_update_an_insight_if_on_restricted_dashboard(self) -> None:
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        insight_id, response_data = self.dashboard_api.create_insight(
-            data={
-                "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk],
-            }
-        )
-        assert [t["dashboard_id"] for t in response_data["dashboard_tiles"]] == [dashboard_restricted.pk]
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"name": "changing when restricted"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_non_admin_user_cannot_add_an_insight_to_a_restricted_dashboard(
-        self,
-    ) -> None:
-        # create insight and dashboard separately with default user
-        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
-            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
-        )
-
-        insight_id, response_data = self.dashboard_api.create_insight(data={"name": "starts un-restricted dashboard"})
-
-        # user with no permissions on the dashboard cannot add insight to it
-        user_without_permissions = User.objects.create_and_join(
-            organization=self.organization,
-            email="no_access_user@posthog.com",
-            password=None,
-        )
-        self.client.force_login(user_without_permissions)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"dashboards": [dashboard_restricted_id]},
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-        self.client.force_login(self.user)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"dashboards": [dashboard_restricted_id]},
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-    def test_non_admin_user_with_privilege_can_add_an_insight_to_a_restricted_dashboard(
-        self,
-    ) -> None:
-        # create insight and dashboard separately with default user
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        insight_id, response_data = self.dashboard_api.create_insight(data={"name": "starts un-restricted dashboard"})
-
-        user_with_permissions = User.objects.create_and_join(
-            organization=self.organization,
-            email="with_access_user@posthog.com",
-            password=None,
-        )
-
-        DashboardPrivilege.objects.create(
-            dashboard=dashboard_restricted,
-            user=user_with_permissions,
-            level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        self.client.force_login(user_with_permissions)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"dashboards": [dashboard_restricted.id]},
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-    def test_admin_user_can_add_an_insight_to_a_restricted_dashboard(self) -> None:
-        # create insight and dashboard separately with default user
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        insight_id, response_data = self.dashboard_api.create_insight(data={"name": "starts un-restricted dashboard"})
-
-        # an admin user has implicit permissions on the dashboard and can add the insight to it
-        admin = User.objects.create_and_join(
-            organization=self.organization,
-            email="team2@posthog.com",
-            password=None,
-            level=OrganizationMembership.Level.ADMIN,
-        )
-        self.client.force_login(admin)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"dashboards": [dashboard_restricted.id]},
-        )
-        assert response.status_code == status.HTTP_200_OK
 
     def test_hard_delete_is_forbidden(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
@@ -2894,6 +2492,133 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(response_json["result"][0][1]["count"], 0)
             self.assertEqual(response_json["result"][0][1]["breakdown"], ["there is no fish"])
             self.assertEqual(response_json["result"][0][1]["breakdown_value"], ["there is no fish"])
+            self.assertEqual(response_json["timezone"], "UTC")
+
+    def test_insight_funnels_hogql_aggregating_steps(self) -> None:
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_person(team=self.team, distinct_ids=["1"], properties={"int_value": 1})
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Chrome"})
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Firefox"})
+            _create_event(team=self.team, event="user did things", distinct_id="1", properties={"$browser": "Chrome"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/funnel/",
+                {
+                    "insight": "FUNNELS",
+                    "entity_type": "events",
+                    "events": [
+                        {"id": "user signed up", "type": "events", "order": 0, "math": "total"},
+                        {"id": "user did things", "type": "events", "order": 1, "math": "total"},
+                    ],
+                    "properties": json.dumps(
+                        [
+                            {"key": "toInt(person.properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                        ]
+                    ),
+                    "funnel_aggregate_by_hogql": "properties.$browser",
+                    "funnel_viz_type": "steps",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_json = response.json()
+            self.assertEqual(len(response_json["result"]), 2)
+            self.assertEqual(response_json["result"][0]["name"], "user signed up")
+            self.assertEqual(response_json["result"][0]["count"], 2)
+            self.assertEqual(response_json["result"][1]["name"], "user did things")
+            self.assertEqual(response_json["result"][1]["count"], 1)
+            self.assertEqual(response_json["timezone"], "UTC")
+
+    def test_insight_funnels_hogql_aggregating_time_to_convert(self) -> None:
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_person(team=self.team, distinct_ids=["1"], properties={"int_value": 1})
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Chrome"})
+        with freeze_time("2012-01-15T04:01:36.500Z"):
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Firefox"})
+        with freeze_time("2012-01-15T04:01:38.200Z"):
+            _create_event(team=self.team, event="user did things", distinct_id="1", properties={"$browser": "Chrome"})
+        with freeze_time("2012-01-16T04:01:38.200Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/funnel/",
+                {
+                    "insight": "FUNNELS",
+                    "entity_type": "events",
+                    "events": [
+                        {"id": "user signed up", "type": "events", "order": 0, "math": "total"},
+                        {"id": "user did things", "type": "events", "order": 1, "math": "total"},
+                    ],
+                    "properties": json.dumps(
+                        [
+                            {"key": "toInt(person.properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                        ]
+                    ),
+                    "funnel_aggregate_by_hogql": "properties.$browser",
+                    "funnel_viz_type": "time_to_convert",
+                    "date_from": "-14d",
+                    "date_to": None,
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_json = response.json()
+            self.assertEqual(response_json["result"]["bins"], [[4.0, 1], [64.0, 0]])
+            self.assertEqual(response_json["result"]["average_conversion_time"], 4.0)
+            self.assertEqual(response_json["timezone"], "UTC")
+
+    def test_insight_funnels_hogql_aggregating_trends(self) -> None:
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_person(team=self.team, distinct_ids=["1"], properties={"int_value": 1})
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Chrome"})
+        with freeze_time("2012-01-15T04:01:36.500Z"):
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Firefox"})
+        with freeze_time("2012-01-15T04:01:38.200Z"):
+            _create_event(team=self.team, event="user did things", distinct_id="1", properties={"$browser": "Chrome"})
+        with freeze_time("2012-01-16T04:01:38.200Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/funnel/",
+                {
+                    "insight": "FUNNELS",
+                    "entity_type": "events",
+                    "events": [
+                        {"id": "user signed up", "type": "events", "order": 0},
+                        {"id": "user did things", "type": "events", "order": 1},
+                    ],
+                    "properties": json.dumps(
+                        [
+                            {"key": "toInt(person.properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                        ]
+                    ),
+                    "funnel_aggregate_by_hogql": "properties.$browser",
+                    "funnel_viz_type": "trends",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_json = response.json()
+            self.assertEqual(len(response_json["result"]), 1)
+            self.assertEqual(response_json["result"][0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 0.0])
+            self.assertEqual(
+                response_json["result"][0]["days"],
+                [
+                    "2012-01-09",
+                    "2012-01-10",
+                    "2012-01-11",
+                    "2012-01-12",
+                    "2012-01-13",
+                    "2012-01-14",
+                    "2012-01-15",
+                    "2012-01-16",
+                ],
+            )
+            self.assertEqual(
+                response_json["result"][0]["labels"],
+                [
+                    "9-Jan-2012",
+                    "10-Jan-2012",
+                    "11-Jan-2012",
+                    "12-Jan-2012",
+                    "13-Jan-2012",
+                    "14-Jan-2012",
+                    "15-Jan-2012",
+                    "16-Jan-2012",
+                ],
+            )
             self.assertEqual(response_json["timezone"], "UTC")
 
     def test_insight_retention_hogql(self) -> None:

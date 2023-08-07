@@ -1054,3 +1054,30 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 3), [person4.uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 4), [person4.uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 5), [person4.uuid])
+
+    def test_funnel_unordered_all_events_with_properties(self):
+        _create_person(distinct_ids=["user"], team=self.team)
+        _create_event(event="user signed up", distinct_id="user", team=self.team)
+        _create_event(event="added to card", distinct_id="user", properties={"is_saved": True}, team=self.team)
+
+        filters = {
+            "events": [
+                {"type": "events", "id": "user signed up", "order": 0, "name": "user signed up", "math": "total"},
+                {
+                    "type": "events",
+                    "id": None,
+                    "order": 1,
+                    "name": "All events",
+                    "math": "total",
+                    "properties": [{"key": "is_saved", "value": ["true"], "operator": "exact", "type": "event"}],
+                },
+            ],
+            "funnel_window_days": 14,
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelUnordered(filter, self.team)
+        result = funnel.run()
+
+        self.assertEqual(result[0]["count"], 1)
+        self.assertEqual(result[1]["count"], 1)

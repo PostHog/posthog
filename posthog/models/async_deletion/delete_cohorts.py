@@ -10,10 +10,10 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
 
     def process(self, deletions: List[AsyncDeletion]):
         if len(deletions) == 0:
-            logger.debug("No AsyncDeletion for cohorts to perform")
+            logger.warn("No AsyncDeletion for cohorts to perform")
             return
 
-        logger.info(
+        logger.warn(
             "Starting AsyncDeletion on `cohortpeople` table in ClickHouse",
             {"count": len(deletions), "team_ids": list(set(row.team_id for row in deletions))},
         )
@@ -22,8 +22,8 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
 
         sync_execute(
             f"""
-            ALTER TABLE cohortpeople
-            DELETE WHERE {" OR ".join(conditions)}
+            DELETE FROM cohortpeople
+            WHERE {" OR ".join(conditions)}
             """,
             args,
         )
@@ -31,7 +31,9 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
     def _verify_by_group(self, deletion_type: int, async_deletions: List[AsyncDeletion]) -> List[AsyncDeletion]:
         if deletion_type == DeletionType.Cohort_stale or deletion_type == DeletionType.Cohort_full:
             cohort_ids_with_data = self._verify_by_column("team_id, cohort_id", async_deletions)
-            return [row for row in async_deletions if (row.team_id, row.key.split("_")[0]) not in cohort_ids_with_data]
+            return [
+                row for row in async_deletions if (row.team_id, int(row.key.split("_")[0])) not in cohort_ids_with_data
+            ]
         else:
             return []
 
@@ -55,15 +57,18 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
         return "cohort_id"
 
     def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> Tuple[str, Dict]:
+        team_id_param = f"team_id{suffix}"
+        key_param = f"key{suffix}"
+        version_param = f"version{suffix}"
         if async_deletion.deletion_type == DeletionType.Cohort_full:
             key, _ = async_deletion.key.split("_")
-            return f"team_id = %(team_id{suffix})s AND {self._column_name(async_deletion)} = %(key{suffix})s", {
-                f"team_id{suffix}": async_deletion.team_id,
-                f"key{suffix}": key,
+            return f"( team_id = %({team_id_param})s AND {self._column_name(async_deletion)} = %({key_param})s )", {
+                team_id_param: async_deletion.team_id,
+                key_param: key,
             }
         else:
             key, version = async_deletion.key.split("_")
             return (
-                f"team_id = %(team_id{suffix})s AND {self._column_name(async_deletion)} = %(key{suffix})s AND version < %(version{suffix})s",
-                {f"team_id{suffix}": async_deletion.team_id, f"version{suffix}": version, f"key{suffix}": key},
+                f"( team_id = %({team_id_param})s AND {self._column_name(async_deletion)} = %({key_param})s AND version < %({version_param})s )",
+                {team_id_param: async_deletion.team_id, version_param: version, key_param: key},
             )

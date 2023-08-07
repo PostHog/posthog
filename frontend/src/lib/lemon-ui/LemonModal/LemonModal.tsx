@@ -1,8 +1,13 @@
+import { useEffect, useRef, useState } from 'react'
+import clsx from 'clsx'
+import Modal from 'react-modal'
+
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import Modal from 'react-modal'
+
 import './LemonModal.scss'
-import clsx from 'clsx'
+import { Tooltip } from '../Tooltip'
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 interface LemonModalInnerProps {
     children?: React.ReactNode
@@ -26,6 +31,8 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    /** If there is unsaved input that's not persisted, the modal can't be closed closed on overlay click. */
+    hasUnsavedInput?: boolean
     /** Expands the modal to fill the entire screen */
     fullScreen?: boolean
     /**
@@ -65,23 +72,55 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
+    hasUnsavedInput,
     fullScreen = false,
     forceAbovePopovers = false,
     contentRef,
     overlayRef,
     getPopupContainer,
 }: LemonModalProps): JSX.Element {
+    const nodeRef = useRef(null)
+    const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
+
+    useEffect(() => setIgnoredOverlayClickCount(0), [hasUnsavedInput]) // Reset when there no longer is unsaved input
+
     const modalContent = (
-        <>
+        <div ref={nodeRef} className="LemonModal__container">
             {closable && (
-                <div className="LemonModal__closebutton">
-                    <LemonButton
-                        icon={<IconClose />}
-                        size="small"
-                        status="stealth"
-                        onClick={onClose}
-                        aria-label="close"
-                    />
+                // The key causes the div to be re-rendered, which restarts the animation,
+                // providing immediate visual feedback on click
+                <div
+                    key={ignoredOverlayClickCount}
+                    className={clsx(
+                        'LemonModal__close',
+                        ignoredOverlayClickCount > 0 && 'LemonModal__close--highlighted'
+                    )}
+                >
+                    <Tooltip
+                        visible={!!ignoredOverlayClickCount || undefined}
+                        title={
+                            ignoredOverlayClickCount ? (
+                                <>
+                                    You have unsaved input that will be discarded.
+                                    <br />
+                                    Use the <IconClose /> button to close explicitly.
+                                </>
+                            ) : (
+                                <>
+                                    Close <KeyboardShortcut escape />
+                                </>
+                            )
+                        }
+                    >
+                        <LemonButton
+                            icon={<IconClose />}
+                            size="small"
+                            status="stealth"
+                            onClick={onClose}
+                            aria-label="close"
+                            onMouseEnter={() => setIgnoredOverlayClickCount(0)}
+                        />
+                    </Tooltip>
                 </div>
             )}
 
@@ -108,7 +147,7 @@ export function LemonModal({
                     </>
                 )}
             </div>
-        </>
+        </div>
     )
 
     width = !fullScreen ? width : undefined
@@ -121,7 +160,14 @@ export function LemonModal({
     ) : (
         <Modal
             isOpen={isOpen}
-            onRequestClose={onClose}
+            onRequestClose={(e) => {
+                if (hasUnsavedInput && e.type === 'click') {
+                    // Only ignore clicks, not Esc
+                    setIgnoredOverlayClickCount(ignoredOverlayClickCount + 1)
+                } else {
+                    onClose?.()
+                }
+            }}
             shouldCloseOnOverlayClick={closable}
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}

@@ -4,13 +4,12 @@ import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { EventPropertyFilter, PropertyFilterType, PropertyOperator, EditorFilterProps } from '~/types'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
-import { PathsFilter } from '~/queries/schema'
 
 export function PathsExclusions({ insightProps }: EditorFilterProps): JSX.Element {
-    const { insightFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { exclude_events, path_groupings } = (insightFilter || {}) as PathsFilter
+    const { exclude_events, path_groupings } = pathsFilter || {}
     return (
         <PathItemFilters
             taxonomicGroupTypes={taxonomicGroupTypes}

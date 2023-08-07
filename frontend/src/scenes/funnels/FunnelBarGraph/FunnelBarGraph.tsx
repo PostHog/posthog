@@ -3,75 +3,39 @@ import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { funnelLogic } from '../funnelLogic'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { FunnelLayout } from 'lib/constants'
 import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
-import { ChartParams, FunnelStepReference, FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
+import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { FunnelStepMoreDataExploration, FunnelStepMore } from '../FunnelStepMore'
+import { FunnelStepMore } from '../FunnelStepMore'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 import { Bar } from './Bar'
-import { AverageTimeInspector } from './AverageTimeInspector'
-import { Noun } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from '../funnelDataLogic'
-import { FunnelsFilter } from '~/queries/schema'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 
-export function FunnelBarGraphDataExploration(props: ChartParams): JSX.Element {
+export function FunnelBarGraph({
+    inCardView,
+    showPersonsModal: showPersonsModalProp = true,
+}: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(
         funnelDataLogic(insightProps)
     )
-    return (
-        <FunnelBarGraphComponent
-            steps={visibleStepsWithConversionMetrics}
-            stepReference={funnelsFilter?.funnel_step_reference || FunnelStepReference.total}
-            aggregationTargetLabel={aggregationTargetLabel}
-            funnelsFilter={funnelsFilter}
-            isUsingDataExploration
-            {...props}
-        />
-    )
-}
 
-export function FunnelBarGraph(props: ChartParams): JSX.Element {
-    const { filters, visibleStepsWithConversionMetrics, stepReference, aggregationTargetLabel } = useValues(funnelLogic)
-    return (
-        <FunnelBarGraphComponent
-            steps={visibleStepsWithConversionMetrics}
-            stepReference={stepReference}
-            aggregationTargetLabel={aggregationTargetLabel}
-            funnelsFilter={filters}
-            {...props}
-        />
-    )
-}
-
-type FunnelBarGraphComponentProps = {
-    steps: FunnelStepWithConversionMetrics[]
-    stepReference: FunnelStepReference
-    aggregationTargetLabel: Noun
-    funnelsFilter?: FunnelsFilter | null
-    isUsingDataExploration?: boolean
-} & ChartParams
-
-export function FunnelBarGraphComponent({
-    steps,
-    stepReference,
-    aggregationTargetLabel,
-    funnelsFilter,
-    isUsingDataExploration,
-    ...props
-}: FunnelBarGraphComponentProps): JSX.Element {
-    const { isInDashboardContext } = useValues(funnelLogic)
-    const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelLogic)
+    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
     const { ref: graphRef, width } = useResizeObserver()
+
+    const steps = visibleStepsWithConversionMetrics
+    const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
+
+    const showPersonsModal = canOpenPersonModal && showPersonsModalProp
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
@@ -121,22 +85,14 @@ export function FunnelBarGraphComponent({
                                 {funnelsFilter?.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
-                                {isUsingDataExploration ? (
-                                    <FunnelStepMoreDataExploration stepIndex={stepIndex} />
-                                ) : (
-                                    <FunnelStepMore stepIndex={stepIndex} />
-                                )}
+                                <FunnelStepMore stepIndex={stepIndex} />
                             </div>
-                            <div className={`funnel-step-metadata funnel-time-metadata ${FunnelLayout.horizontal}`}>
-                                {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
-                                    <AverageTimeInspector
-                                        onClick={() => {}}
-                                        averageTime={step.average_conversion_time}
-                                        aggregationTargetLabel={aggregationTargetLabel}
-                                        disabled
-                                    />
-                                ) : null}
-                            </div>
+                            {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
+                                <div className="text-muted-alt">
+                                    Average time to convert:{' '}
+                                    <b>{humanFriendlyDuration(step.average_conversion_time, 2)}</b>
+                                </div>
+                            ) : null}
                         </header>
                         <div className="funnel-inner-viz">
                             <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })}>
@@ -164,7 +120,7 @@ export function FunnelBarGraphComponent({
                                                             converted: true,
                                                         })
                                                     }
-                                                    disabled={isInDashboardContext}
+                                                    disabled={!showPersonsModal}
                                                     popoverTitle={
                                                         // eslint-disable-next-line react/forbid-dom-props
                                                         <div style={{ wordWrap: 'break-word' }}>
@@ -242,7 +198,7 @@ export function FunnelBarGraphComponent({
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{
                                                 flex: `${1 - breakdownSum / basisStep.count} 1 0`,
-                                                cursor: `${!props.inCardView ? 'pointer' : ''}`,
+                                                cursor: `${!inCardView ? 'pointer' : ''}`,
                                             }}
                                         />
                                     </>
@@ -252,7 +208,7 @@ export function FunnelBarGraphComponent({
                                             percentage={step.conversionRates.fromBasisStep}
                                             name={step.name}
                                             onBarClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={isInDashboardContext}
+                                            disabled={!showPersonsModal}
                                             popoverTitle={<PropertyKeyInfo value={step.name} />}
                                             popoverMetrics={[
                                                 {
@@ -301,50 +257,45 @@ export function FunnelBarGraphComponent({
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{
                                                 flex: `${1 - step.conversionRates.fromBasisStep} 1 0`,
-                                                cursor: `${!props.inCardView ? 'pointer' : ''}`,
+                                                cursor: `${!inCardView ? 'pointer' : ''}`,
                                             }}
                                         />
                                     </>
                                 )}
                             </div>
                             <div className="funnel-conversion-metadata funnel-step-metadata">
-                                <div className="step-stat">
-                                    <div className="center-flex">
-                                        <ValueInspectorButton
-                                            onClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={isInDashboardContext}
-                                        >
-                                            <IconTrendingFlat
-                                                style={{ color: 'var(--success)' }}
-                                                className="value-inspector-button-icon"
-                                            />
-                                            <b>
-                                                {pluralize(
-                                                    step.count,
-                                                    aggregationTargetLabel.singular,
-                                                    aggregationTargetLabel.plural
-                                                )}
-                                            </b>
-                                        </ValueInspectorButton>
-                                        <span className="text-muted-alt">
-                                            (
-                                            {percentage(
-                                                step.order > 0 ? step.count / steps[stepIndex - 1].count : 1,
-                                                2,
-                                                true
+                                <div>
+                                    <ValueInspectorButton
+                                        onClick={
+                                            showPersonsModal
+                                                ? () => openPersonsModalForStep({ step, converted: true })
+                                                : undefined
+                                        }
+                                    >
+                                        <IconTrendingFlat
+                                            style={{ color: 'var(--success)' }}
+                                            className="value-inspector-button-icon"
+                                        />
+                                        <b>
+                                            {pluralize(
+                                                step.count,
+                                                aggregationTargetLabel.singular,
+                                                aggregationTargetLabel.plural
                                             )}
-                                            )
-                                        </span>
-                                    </div>
-                                    <div className="text-muted-alt conversion-metadata-caption grow">
-                                        completed step
-                                    </div>
+                                        </b>
+                                    </ValueInspectorButton>{' '}
+                                    <span className="text-muted-alt grow">
+                                        {`(${percentage(step.conversionRates.fromPrevious, 2, true)}) completed step`}
+                                    </span>
                                 </div>
-                                <div className={clsx('step-stat', stepIndex === 0 && 'invisible')}>
-                                    <div className="center-flex">
+                                {stepIndex > 0 && (
+                                    <div>
                                         <ValueInspectorButton
-                                            onClick={() => openPersonsModalForStep({ step, converted: false })}
-                                            disabled={isInDashboardContext}
+                                            onClick={
+                                                showPersonsModal
+                                                    ? () => openPersonsModalForStep({ step, converted: false })
+                                                    : undefined
+                                            }
                                         >
                                             <IconTrendingFlatDown
                                                 style={{ color: 'var(--danger)' }}
@@ -357,19 +308,16 @@ export function FunnelBarGraphComponent({
                                                     aggregationTargetLabel.plural
                                                 )}
                                             </b>
-                                        </ValueInspectorButton>
+                                        </ValueInspectorButton>{' '}
                                         <span className="text-muted-alt">
-                                            (
-                                            {percentage(
-                                                step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0,
+                                            {`(${percentage(
+                                                1 - step.conversionRates.fromPrevious,
                                                 2,
                                                 true
-                                            )}
-                                            )
+                                            )}) dropped off`}
                                         </span>
                                     </div>
-                                    <div className="text-muted-alt conversion-metadata-caption">dropped off</div>
-                                </div>
+                                )}
                             </div>
                         </div>
                     </section>

@@ -8,7 +8,17 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     StringJSONDatabaseField,
     Table,
+    FieldOrTable,
 )
+
+GROUPS_TABLE_FIELDS = {
+    "index": IntegerDatabaseField(name="group_type_index"),
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "key": StringDatabaseField(name="group_key"),
+    "created_at": DateTimeDatabaseField(name="created_at"),
+    "updated_at": DateTimeDatabaseField(name="_timestamp"),
+    "properties": StringJSONDatabaseField(name="group_properties"),
+}
 
 
 def select_from_groups_table(requested_fields: Dict[str, List[str]]):
@@ -21,13 +31,7 @@ def select_from_groups_table(requested_fields: Dict[str, List[str]]):
 
 
 class RawGroupsTable(Table):
-    index: IntegerDatabaseField = IntegerDatabaseField(name="group_type_index")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-
-    key: StringDatabaseField = StringDatabaseField(name="group_key")
-    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
-    updated_at: DateTimeDatabaseField = DateTimeDatabaseField(name="_timestamp")
-    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
+    fields: Dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def to_printed_clickhouse(self, context):
         return "groups"
@@ -37,13 +41,7 @@ class RawGroupsTable(Table):
 
 
 class GroupsTable(LazyTable):
-    index: IntegerDatabaseField = IntegerDatabaseField(name="group_type_index")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-
-    key: StringDatabaseField = StringDatabaseField(name="group_key")
-    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
-    updated_at: DateTimeDatabaseField = DateTimeDatabaseField(name="_timestamp")
-    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
+    fields: Dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_groups_table(requested_fields)

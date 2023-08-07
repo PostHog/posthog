@@ -5,6 +5,8 @@ import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { verifyEmailLogic } from './verifyEmailLogic'
+import { SupportModal } from 'lib/components/Support/SupportModal'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 export const scene: SceneExport = {
     component: VerifyEmail,
@@ -14,10 +16,17 @@ export const scene: SceneExport = {
 export const VerifyEmailHelpLinks = (): JSX.Element => {
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { uuid } = useValues(verifyEmailLogic)
+    const { openSupportLoggedOutForm } = useActions(supportLogic)
 
     return (
         <div className="flex flex-row gap-x-4">
-            <LemonButton type="secondary" className="mt-8" to={'mailto:hey@posthog.com'}>
+            <LemonButton
+                type="secondary"
+                className="mt-8"
+                onClick={() => {
+                    openSupportLoggedOutForm(null, null, 'bug', 'login')
+                }}
+            >
                 Contact support
             </LemonButton>
             {uuid && (
@@ -31,6 +40,7 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
                     Request a new link
                 </LemonButton>
             )}
+            <SupportModal loggedIn={false} />
         </div>
     )
 }

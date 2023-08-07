@@ -1,48 +1,48 @@
 import posthog from 'posthog-js'
 import {
     ActionType,
-    RawAnnotationType,
     CohortType,
-    EventDefinitionType,
     DashboardCollaboratorType,
+    DashboardTemplateEditorType,
+    DashboardTemplateListParams,
+    DashboardTemplateType,
     DashboardType,
+    DataWarehouseTable,
+    DataWarehouseSavedQuery,
+    EarlyAccessFeatureType,
     EventDefinition,
+    EventDefinitionType,
+    EventsListQueryParams,
     EventType,
     ExportedAssetType,
+    FeatureFlagAssociatedRoleType,
     FeatureFlagType,
     InsightModel,
     IntegrationType,
+    MediaUploadResponse,
+    NewEarlyAccessFeatureType,
+    NotebookType,
+    OrganizationResourcePermissionType,
     OrganizationType,
     PersonListParams,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
+    PropertyDefinitionType,
+    RawAnnotationType,
+    RoleMemberType,
+    RolesListParams,
+    RoleType,
+    SessionRecordingPlaylistType,
+    SessionRecordingSnapshotResponse,
+    SessionRecordingsResponse,
+    SessionRecordingType,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
+    Survey,
     TeamType,
     UserType,
-    MediaUploadResponse,
-    SessionRecordingsResponse,
-    SessionRecordingPropertiesType,
-    EventsListQueryParams,
-    SessionRecordingPlaylistType,
-    RoleType,
-    RoleMemberType,
-    OrganizationResourcePermissionType,
-    RolesListParams,
-    FeatureFlagAssociatedRoleType,
-    SessionRecordingType,
-    PerformanceEvent,
-    RecentPerformancePageView,
-    DashboardTemplateType,
-    DashboardTemplateEditorType,
-    EarlyAccessFeatureType,
-    NewEarlyAccessFeatureType,
-    Survey,
-    NotebookType,
-    DashboardTemplateListParams,
-    PropertyDefinitionType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -54,8 +54,8 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/prop
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
+import { decompressSync, strFromU8 } from 'fflate'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { encodeParams } from 'kea-router'
 
@@ -136,8 +136,8 @@ class ApiRequest {
         return this
     }
 
-    public withQueryString(queryString?: string): ApiRequest {
-        this.queryString = queryString
+    public withQueryString(queryString?: string | Record<string, any>): ApiRequest {
+        this.queryString = typeof queryString === 'object' ? toParams(queryString) : queryString
         return this
     }
 
@@ -261,6 +261,19 @@ class ApiRequest {
             .addPathComponent(propertyDefinitionId)
     }
 
+    public propertyDefinitionSeenTogether(
+        eventNames: string[],
+        propertyDefinitionName: PropertyDefinition['name'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        const queryParams = toParams({ event_names: eventNames, property_name: propertyDefinitionName }, true)
+
+        return this.projectsDetail(teamId)
+            .addPathComponent('property_definitions')
+            .addPathComponent('seen_together')
+            .withQueryString(queryParams)
+    }
+
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
@@ -272,6 +285,9 @@ class ApiRequest {
 
     public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
+    }
+    public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
 
     // Recordings
@@ -417,6 +433,22 @@ class ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
 
+    // # Warehouse
+    public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_table')
+    }
+    public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseTables(teamId).addPathComponent(id)
+    }
+
+    // # Warehouse view
+    public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_query')
+    }
+    public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('subscriptions')
@@ -454,18 +486,6 @@ class ApiRequest {
         id: FeatureFlagAssociatedRoleType['id']
     ): ApiRequest {
         return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
-    }
-
-    // Performance events
-    public performanceEvents(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('performance_events')
-    }
-
-    public recentPageViewPerformanceEvents(dateFrom: string, dateTo: string, teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('performance_events')
-            .addPathComponent('recent_pageviews')
-            .withQueryString(toParams({ date_from: dateFrom, date_to: dateTo }))
     }
 
     // # Queries
@@ -583,7 +603,7 @@ const api = {
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
-            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
+            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest | null> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
@@ -610,12 +630,17 @@ const api = {
                     // TODO allow someone to load _only_ property definitions?
                     return new ApiRequest().dataManagementActivity()
                 },
+                [ActivityScope.NOTEBOOK]: () => {
+                    // not implemented
+                    return null
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            return requestForScope[activityLogProps.scope](activityLogProps)
-                .withQueryString(toParams(pagingParameters))
-                .get()
+            const request = requestForScope[activityLogProps.scope](activityLogProps)
+            return request !== null
+                ? request.withQueryString(toParams(pagingParameters)).get()
+                : Promise.resolve({ results: [], count: 0 })
         },
     },
 
@@ -735,6 +760,15 @@ const api = {
         }): Promise<PropertyDefinition> {
             return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).get()
         },
+        async seenTogether({
+            eventNames,
+            propertyDefinitionName,
+        }: {
+            eventNames: string[]
+            propertyDefinitionName: PropertyDefinition['name']
+        }): Promise<Record<string, boolean>> {
+            return new ApiRequest().propertyDefinitionSeenTogether(eventNames, propertyDefinitionName).get()
+        },
         async update({
             propertyDefinitionId,
             propertyDefinitionData,
@@ -819,6 +853,9 @@ const api = {
                 .cohortsDetail(cohortId)
                 .withQueryString(filterParams)
                 .update({ data: cohortData })
+        },
+        async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
+            return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
         async list(): Promise<PaginatedResponse<CohortType>> {
             // TODO: Remove hard limit and paginate cohorts
@@ -1069,8 +1106,14 @@ const api = {
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<RawAnnotationType>> {
-            return await new ApiRequest().annotations().get()
+        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<RawAnnotationType>> {
+            return await new ApiRequest()
+                .annotations()
+                .withQueryString({
+                    limit: params?.limit,
+                    offset: params?.offset,
+                })
+                .get()
         },
         async create(
             data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
@@ -1086,10 +1129,6 @@ const api = {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
         },
-        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
-            return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
-        },
-
         async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(params).get()
         },
@@ -1098,8 +1137,32 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async listSnapshots(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
+        async listSnapshots(
+            recordingId: SessionRecordingType['id'],
+            params: string
+        ): Promise<SessionRecordingSnapshotResponse> {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
+        },
+
+        async getBlobSnapshots(recordingId: SessionRecordingType['id'], blobKey: string): Promise<string[]> {
+            const response = await new ApiRequest()
+                .recording(recordingId)
+                .withAction('snapshots')
+                .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
+                .getResponse()
+
+            try {
+                const textLines = await response.text()
+
+                if (textLines) {
+                    return textLines.split('\n')
+                }
+            } catch (e) {
+                // Must be gzipped
+            }
+
+            const contentBuffer = new Uint8Array(await response.arrayBuffer())
+            return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
 
         async updateRecording(
@@ -1219,6 +1282,48 @@ const api = {
         },
     },
 
+    dataWarehouseTables: {
+        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest().dataWarehouseTables().get()
+        },
+        async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTable(tableId).get()
+        },
+        async create(data: Partial<DataWarehouseTable>): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTables().create({ data })
+        },
+        async delete(tableId: DataWarehouseTable['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).delete()
+        },
+        async update(
+            tableId: DataWarehouseTable['id'],
+            data: Pick<DataWarehouseTable, 'name'>
+        ): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
+        },
+    },
+
+    dataWarehouseSavedQueries: {
+        async list(): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
+            return await new ApiRequest().dataWarehouseSavedQueries().get()
+        },
+        async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()
+        },
+        async create(data: Partial<DataWarehouseSavedQuery>): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQueries().create({ data })
+        },
+        async delete(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQuery(viewId).delete()
+        },
+        async update(
+            viewId: DataWarehouseSavedQuery['id'],
+            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+        ): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
+        },
+    },
+
     subscriptions: {
         async get(subscriptionId: SubscriptionType['id']): Promise<SubscriptionType> {
             return await new ApiRequest().subscription(subscriptionId).get()
@@ -1290,37 +1395,6 @@ const api = {
         },
     },
 
-    performanceEvents: {
-        async list(
-            params: any,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<PerformanceEvent>> {
-            return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
-        },
-        recentPageViewsURL(teamId: TeamType['id'] = getCurrentTeamId(), dateFrom?: string, dateTo?: string): string {
-            return new ApiRequest()
-                .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
-                    dateTo || dayjs().toISOString(),
-                    teamId
-                )
-                .assembleEndpointUrl()
-        },
-        async recentPageViews(
-            teamId: TeamType['id'] = getCurrentTeamId(),
-            dateFrom?: string,
-            dateTo?: string
-        ): Promise<PaginatedResponse<RecentPerformancePageView>> {
-            return new ApiRequest()
-                .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
-                    dateTo || dayjs().toISOString(),
-                    teamId
-                )
-                .get()
-        },
-    },
-
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
@@ -1350,7 +1424,13 @@ const api = {
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, { signal: options?.signal })
+            response = await fetch(url, {
+                signal: options?.signal,
+                headers: {
+                    // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                    // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                },
+            })
         } catch (e) {
             throw { status: 0, message: e }
         }
@@ -1373,6 +1453,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1404,6 +1486,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1429,6 +1513,8 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
         })
 

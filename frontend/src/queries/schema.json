@@ -369,9 +369,6 @@
                             "$ref": "#/definitions/PersonsNode"
                         },
                         {
-                            "$ref": "#/definitions/RecentPerformancePageViewNode"
-                        },
-                        {
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
@@ -1114,14 +1111,11 @@
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
-                "error": {
-                    "type": "string"
-                },
-                "errorEnd": {
-                    "type": "number"
-                },
-                "errorStart": {
-                    "type": "number"
+                "errors": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
                 },
                 "inputExpr": {
                     "type": "string"
@@ -1131,8 +1125,43 @@
                 },
                 "isValid": {
                     "type": "boolean"
+                },
+                "isValidView": {
+                    "type": "boolean"
+                },
+                "notices": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
                 }
             },
+            "required": ["errors", "warnings", "notices"],
+            "type": "object"
+        },
+        "HogQLNotice": {
+            "additionalProperties": false,
+            "properties": {
+                "end": {
+                    "type": "number"
+                },
+                "fix": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "number"
+                }
+            },
+            "required": ["message"],
             "type": "object"
         },
         "HogQLPropertyFilter": {
@@ -1222,6 +1251,9 @@
                 }
             ]
         },
+        "InsightShortId": {
+            "type": "string"
+        },
         "InsightVizNode": {
             "additionalProperties": false,
             "properties": {
@@ -1240,6 +1272,12 @@
                     "type": "boolean"
                 },
                 "showLastComputation": {
+                    "type": "boolean"
+                },
+                "showLastComputationRefresh": {
+                    "type": "boolean"
+                },
+                "showLegendButton": {
                     "type": "boolean"
                 },
                 "showTable": {
@@ -1355,7 +1393,7 @@
             "type": "object"
         },
         "PathType": {
-            "enum": ["$pageview", "$screen", "custom_event"],
+            "enum": ["$pageview", "$screen", "custom_event", "hogql"],
             "type": "string"
         },
         "PathsFilter": {
@@ -1418,6 +1456,9 @@
                 },
                 "path_type": {
                     "$ref": "#/definitions/PathType"
+                },
+                "paths_hogql_expression": {
+                    "type": "string"
                 },
                 "start_point": {
                     "type": "string"
@@ -1638,6 +1679,9 @@
                     "$ref": "#/definitions/DataTableNode"
                 },
                 {
+                    "$ref": "#/definitions/SavedInsightNode"
+                },
+                {
                     "$ref": "#/definitions/InsightVizNode"
                 },
                 {
@@ -1659,34 +1703,12 @@
                     "$ref": "#/definitions/LifecycleQuery"
                 },
                 {
-                    "$ref": "#/definitions/RecentPerformancePageViewNode"
-                },
-                {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
-        },
-        "RecentPerformancePageViewNode": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "kind": {
-                    "const": "RecentPerformancePageViewNode",
-                    "description": "Performance",
-                    "type": "string"
-                },
-                "response": {
-                    "description": "Cached query response",
-                    "type": "object"
-                }
-            },
-            "required": ["dateRange", "kind"],
-            "type": "object"
         },
         "RecordingDurationFilter": {
             "additionalProperties": false,
@@ -1790,6 +1812,20 @@
         "RetentionType": {
             "enum": ["retention_recurring", "retention_first_time"],
             "type": "string"
+        },
+        "SavedInsightNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "SavedInsightNode",
+                    "type": "string"
+                },
+                "shortId": {
+                    "$ref": "#/definitions/InsightShortId"
+                }
+            },
+            "required": ["kind", "shortId"],
+            "type": "object"
         },
         "SessionPropertyFilter": {
             "additionalProperties": false,
@@ -1985,6 +2021,9 @@
                     "type": "array"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_percent_stack_view": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {

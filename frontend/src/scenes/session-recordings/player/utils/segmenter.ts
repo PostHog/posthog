@@ -46,9 +46,8 @@ export const createSegments = (snapshots: RecordingSnapshot[], start?: Dayjs, en
 
     const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
 
-    snapshots.forEach((snapshot) => {
-        const eventIsActive = isActiveEvent(snapshot)
-        lastActiveEventTimestamp = eventIsActive ? snapshot.timestamp : lastActiveEventTimestamp
+    snapshots.forEach((snapshot, index) => {
+        const eventIsActive = isActiveEvent(snapshot) || index === 0
 
         // When do we create a new segment?
         // 1. If we don't have one yet
@@ -65,9 +64,12 @@ export const createSegments = (snapshots: RecordingSnapshot[], start?: Dayjs, en
         }
 
         // 4. If windowId changes we create a new segment
-        if (activeSegment?.windowId !== snapshot.windowId) {
+        if (activeSegment?.windowId !== snapshot.windowId && eventIsActive) {
             isNewSegment = true
         }
+
+        // NOTE: We have to make sure that we set this _after_ we use it
+        lastActiveEventTimestamp = eventIsActive ? snapshot.timestamp : lastActiveEventTimestamp
 
         if (isNewSegment) {
             if (activeSegment) {

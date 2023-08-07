@@ -4,13 +4,15 @@
     height: 100%;
     width: 100%;
     overflow: hidden;
-    background-color: var(--default);
+    background-color: var(--bg-charcoal);
     display: flex;
     justify-content: center;
     align-items: center;
     position: relative;
-    border: 1px solid var(--default);
 
+    .posthog-3000 & {
+        background-color: var(--bg-3000);
+    }
     .PlayerFrame__content {
         position: absolute;
 

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { InputNumber, Select } from 'antd'
 import { BinCountValue } from '~/types'
@@ -7,7 +6,6 @@ import { BarChartOutlined } from '@ant-design/icons'
 import clsx from 'clsx'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { FunnelsFilter } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 // Constraints as defined in funnel_time_to_convert.py:34
@@ -42,7 +40,7 @@ const options: BinOption[] = [
 
 type FunnelBinsPickerProps = { disabled?: boolean }
 
-export function FunnelBinsPickerDataExploration(props: FunnelBinsPickerProps): JSX.Element {
+export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter, numericBinCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
@@ -51,43 +49,6 @@ export function FunnelBinsPickerDataExploration(props: FunnelBinsPickerProps): J
         updateInsightFilter({ bin_count: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
     }
 
-    return (
-        <FunnelBinsPickerComponent
-            funnelsFilter={funnelsFilter}
-            setBinCount={setBinCount}
-            numericBinCount={numericBinCount}
-            {...props}
-        />
-    )
-}
-
-export function FunnelBinsPicker(props: FunnelBinsPickerProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { filters, numericBinCount } = useValues(funnelLogic(insightProps))
-    const { setBinCount } = useActions(funnelLogic(insightProps))
-
-    return (
-        <FunnelBinsPickerComponent
-            funnelsFilter={filters}
-            setBinCount={setBinCount}
-            numericBinCount={numericBinCount}
-            {...props}
-        />
-    )
-}
-
-type FunnelBinsPickerComponentProps = FunnelBinsPickerProps & {
-    funnelsFilter?: FunnelsFilter | null
-    setBinCount: (binCount: BinCountValue) => void
-    numericBinCount: number
-}
-
-function FunnelBinsPickerComponent({
-    funnelsFilter,
-    setBinCount,
-    numericBinCount,
-    disabled,
-}: FunnelBinsPickerComponentProps): JSX.Element {
     return (
         <Select
             id="funnel-bin-filter"

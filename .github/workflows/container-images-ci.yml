@@ -1,13 +1,3 @@
-#
-# Make sure PostHog and PostHog Cloud container images can be built
-# successfully.
-#
-# - posthog_build: build and push the PostHog container image to the
-#   GitHub Container Registry
-#
-# - posthog_cloud_build: build the PostHog Cloud container image using
-#   as base image the container image from the previous step
-#
 name: Container Images CI
 
 on:
@@ -19,125 +9,49 @@ concurrency:
 
 jobs:
     posthog_build:
-        name: Build PostHog
+        name: Build Docker image
         runs-on: ubuntu-latest
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
-            packages: write # allow push to ghcr.io
-
-        outputs:
-            container_image_tags: ${{ steps.meta.outputs.tags }}
-            container_image_version: ${{ steps.meta.outputs.version }}
 
         steps:
-            - name: Checkout code
+            - name: Check out
               uses: actions/checkout@v3
 
-            - name: Lowercase GITHUB_REPOSITORY
-              id: lowercase
-              run: |
-                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-
-            - name: Docker meta
-              id: meta
-              uses: docker/metadata-action@v4
+            - name: Build and cache Docker image in Depot
+              uses: ./.github/actions/build-n-cache-image
               with:
-                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog
-                  tags: |
-                      type=schedule
-                      type=ref,event=branch
-                      type=ref,event=tag
-                      type=ref,event=pr
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v2
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
-
-            - name: Login to GitHub Container Registry
-              uses: docker/login-action@v2
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.repository_owner }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Build container images
-              id: build
-              uses: depot/build-push-action@v1
-              with:
-                  project: x19jffd9zf # posthog
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
-                  cache-from: type=gha # always pull the layers from GHA
-                  cache-to: type=gha,mode=max # always push the layers to GHA
-                  push: true
-                  tags: ${{ steps.meta.outputs.tags }}
-                  platforms: linux/amd64,linux/arm64
-
-    posthog_cloud_build:
-        name: Build PostHog Cloud
-        if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-latest
-        permissions:
-            id-token: write # allow issuing OIDC tokens for this workflow run
-            contents: read # allow at least reading the repo contents, add other permissions if necessary
-            packages: read # allow pull from ghcr.io
-        needs: [posthog_build]
-
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v3
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v2
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
-
-            - name: Checkout PostHog Cloud code
-              run: |
-                  mkdir cloud/
-                  cd cloud/
-                  curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
-
-            - name: Login to GitHub Container Registry
-              uses: docker/login-action@v2
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.repository_owner }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Lowercase GITHUB_REPOSITORY
-              id: lowercase
-              run: |
-                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-
-            - name: Build container images
-              id: build
-              uses: depot/build-push-action@v1
-              with:
-                  project: 1stsk4xt19 # posthog-cloud
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
-                  cache-from: type=gha # always pull the layers from GHA
-                  cache-to: type=gha,mode=max # always push the layers to GHA
-                  push: false
-                  platforms: linux/amd64,linux/arm64
-                  file: Dockerfile.cloud
-                  context: cloud
-                  # Use the non-cloud image as base image and extend it with
-                  # the posthog-cloud code we've checked out.
-                  build-args: |
-                      BASE_IMAGE=ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog:${{ needs.posthog_build.outputs.container_image_version }}
+                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
     deploy_preview:
+        name: Deploy preview environment
         uses: ./.github/workflows/pr-deploy.yml
-        needs: [posthog_cloud_build]
+        needs: [posthog_build]
         secrets: inherit
         if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
+
+    lint:
+        name: Lint changed Dockerfiles
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check out
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 0
+
+            - name: Check if any Dockerfile has changed
+              id: changed-files
+              uses: tj-actions/changed-files@v34
+              with:
+                  files: |
+                      **/Dockerfile
+                      **/*.Dockerfile
+                      **/Dockerfile.*
+                  separator: ' '
+
+            - name: Lint changed Dockerfile(s) with Hadolint
+              uses: jbergstroem/hadolint-gh-action@v1
+              if: steps.changed-files.outputs.any_changed == 'true'
+              with:
+                  dockerfile: '${{ steps.changed-files.outputs.all_modified_files }}'

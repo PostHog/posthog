@@ -1,10 +1,10 @@
 import {
     ActionType,
+    AnnotationType,
     AnyPartialFilterType,
     DashboardType,
     FilterType,
     InsightShortId,
-    PerformancePageView,
     ReplayTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
@@ -52,7 +52,7 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     exports: (): string => '/exports',
-    createExport: (): string => `/exports/new/`,
+    createExport: (): string => `/exports/new`,
     viewExport: (id: string | number): string => `/exports/${id}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
@@ -60,6 +60,16 @@ export const urls = {
             ...(filters ? { filters } : {}),
             ...(query ? { q: query } : {}),
         }).url,
+    insightNewHogQL: (query: string): string =>
+        urls.insightNew(
+            undefined,
+            undefined,
+            JSON.stringify({
+                kind: 'DataTableNode',
+                full: true,
+                source: { kind: 'HogQLQuery', query },
+            })
+        ),
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
@@ -67,14 +77,6 @@ export const urls = {
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
-    webPerformance: (): string => '/web-performance',
-    webPerformanceWaterfall: (pageview?: PerformancePageView): string => {
-        // KLUDGE: only allow no pageview param for urlToAction in the logic
-        const queryParams = !!pageview
-            ? `?sessionId=${pageview.session_id}&pageviewId=${pageview.pageview_id}&timestamp=${pageview.timestamp}`
-            : ''
-        return `/web-performance/waterfall${queryParams}`
-    },
 
     replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
@@ -98,8 +100,14 @@ export const urls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
     surveys: (): string => '/surveys',
-    survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
+    dataWarehouse: (): string => '/warehouse',
+    dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
+    dataWarehousePosthog: (): string => '/data-warehouse/posthog',
+    dataWarehouseExternal: (): string => '/data-warehouse/external',
+    dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
+    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
     annotations: (): string => '/annotations',
+    annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/apps/${id}`,
     projectAppSearch: (name: string): string => `/apps?name=${name}`,
@@ -119,6 +127,7 @@ export const urls = {
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     organizationCreateFirst: (): string => '/organization/create',
     toolbarLaunch: (): string => '/toolbar',
+    site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
     // Onboarding / setup routes
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',

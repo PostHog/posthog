@@ -53,7 +53,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Live Events',
+        name: 'Event Explorer',
     },
     [Scene.Exports]: {
         projectBased: true,
@@ -102,10 +102,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Database]: {
         projectBased: true,
         name: 'Data Management',
-    },
-    [Scene.WebPerformance]: {
-        projectBased: true,
-        name: 'Web Performance',
     },
     [Scene.Replay]: {
         projectBased: true,
@@ -162,6 +158,26 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Survey',
     },
+    [Scene.DataWarehouse]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehousePosthog]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseExternal]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseSavedQueries]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseTable]: {
+        projectBased: true,
+        name: 'Data Warehouse Table',
+    },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
     },
@@ -202,11 +218,16 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Ingestion]: {
         projectBased: true,
-        plain: true,
+        layout: 'plain',
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch Toolbar',
+    },
+    [Scene.Site]: {
+        projectBased: true,
+        hideProjectNotice: true,
+        layout: 'app-raw',
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
@@ -244,7 +265,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
-        plain: true,
+        layout: 'plain',
     },
     // Instance management routes
     [Scene.SystemStatus]: {
@@ -274,7 +295,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
-        plain: true,
+        layout: 'plain',
     },
     [Scene.Feedback]: {
         projectBased: true,
@@ -283,6 +304,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Notebook]: {
         projectBased: true,
         name: 'Notebook',
+        layout: 'app-raw',
     },
 }
 
@@ -364,8 +386,6 @@ export const routes: Record<string, Scene> = {
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,
     [urls.database()]: Scene.Database,
     [urls.events()]: Scene.Events,
-    [urls.webPerformance()]: Scene.WebPerformance,
-    [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce((acc, tab) => {
@@ -387,9 +407,15 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
+    [urls.dataWarehouse()]: Scene.DataWarehouse,
+    [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
+    [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
+    [urls.dataWarehouseExternal()]: Scene.DataWarehouseExternal,
+    [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
+    [urls.annotation(':id')]: Scene.Annotations,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Plugins,
@@ -416,6 +442,7 @@ export const routes: Record<string, Scene> = {
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
+    [urls.site(':url')]: Scene.Site,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.login2FA()]: Scene.Login2FA,

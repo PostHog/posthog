@@ -1,18 +1,32 @@
 import { expectLogic } from 'kea-test-utils'
-import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
-import { InsightShortId, PathType } from '~/types'
 import { initKeaTests } from '~/test/init'
+
+import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+
+import { InsightLogicProps, InsightType, PathType } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-const Insight123 = '123' as InsightShortId
+let logic: ReturnType<typeof pathsDataLogic.build>
+
+const insightProps: InsightLogicProps = {
+    dashboardItemId: undefined,
+    cachedInsight: {
+        filters: {
+            insight: InsightType.PATHS,
+        },
+    },
+}
+
+async function initPathsDataLogic(): Promise<void> {
+    logic = pathsDataLogic(insightProps)
+    logic.mount()
+    await expectLogic(logic).toFinishAllListeners()
+}
 
 describe('pathsDataLogic', () => {
-    let logic: ReturnType<typeof pathsDataLogic.build>
-    const props = { dashboardItemId: Insight123 }
-    beforeEach(() => {
-        initKeaTests()
-        logic = pathsDataLogic(props)
-        logic.mount()
+    beforeEach(async () => {
+        initKeaTests(false)
+        await initPathsDataLogic()
     })
 
     it('selects taxonomicGroupTypes from pathsFilter', async () => {

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
-import { keyMappingKeys, PropertyKeyInfo } from '../PropertyKeyInfo'
+import { keyMappingKeys } from 'lib/taxonomy'
+import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
 import { IconDeleteForever, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -223,6 +224,12 @@ export function PropertiesTable({
                         return aHighlightValue - bHighlightValue
                     }
                 }
+
+                if (aKey.startsWith('$') && !bKey.startsWith('$')) {
+                    return 1
+                } else if (!aKey.startsWith('$') && bKey.startsWith('$')) {
+                    return -1
+                }
                 return aKey.localeCompare(bKey)
             })
         } else if (highlightedKeys) {
@@ -378,7 +385,7 @@ export function PropertiesTable({
                     onRow={(record) =>
                         highlightedKeys?.includes(record[0])
                             ? {
-                                  style: { background: 'var(--mark-color)' },
+                                  style: { background: 'var(--mark)' },
                               }
                             : {}
                     }

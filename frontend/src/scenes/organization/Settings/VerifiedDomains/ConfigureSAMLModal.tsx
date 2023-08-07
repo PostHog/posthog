@@ -9,6 +9,8 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Form } from 'kea-forms'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Link } from '@posthog/lemon-ui'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 export function ConfigureSAMLModal(): JSX.Element {
     const { configureSAMLModalId, isSamlConfigSubmitting, samlConfig } = useValues(verifiedDomainsLogic)
@@ -30,11 +32,19 @@ export function ConfigureSAMLModal(): JSX.Element {
                     <h3>Configure SAML authentication and provisioning</h3>
                 </LemonModal.Header>
                 <LemonModal.Content className="space-y-2">
+                    <p>
+                        <Link to={'https://posthog.com/docs/data/sso#setting-up-saml'}>
+                            Read the docs <IconOpenInNew />
+                        </Link>
+                    </p>
                     <Field label="ACS Consumer URL" name="_ACSConsumerUrl">
-                        <CopyToClipboardInline>{`${siteUrl}/complete/saml`}</CopyToClipboardInline>
+                        <CopyToClipboardInline>{`${siteUrl}/complete/saml/`}</CopyToClipboardInline>
                     </Field>
                     <Field label="RelayState" name="_RelayState">
                         <CopyToClipboardInline>{configureSAMLModalId ?? undefined}</CopyToClipboardInline>
+                    </Field>
+                    <Field label="Audience / Entity ID" name="_Audience">
+                        <CopyToClipboardInline>{siteUrl}</CopyToClipboardInline>
                     </Field>
                     <Field name="saml_acs_url" label="SAML ACS URL">
                         <LemonInput className="ph-ignore-input" placeholder="Your IdP's ACS or single sign-on URL." />

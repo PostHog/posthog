@@ -15,7 +15,7 @@ import {
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/taxonomy'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -29,7 +29,12 @@ import { urls } from 'scenes/urls'
 import { examples } from '~/queries/examples'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
-    return filter !== null && filter.type === EntityTypes.EVENTS && filter.id === null && !filter.name
+    return (
+        filter !== null &&
+        filter.type === EntityTypes.EVENTS &&
+        filter.id === null &&
+        (!filter.name || filter.name === 'All events')
+    )
 }
 
 export const getDisplayNameFromEntityFilter = (
@@ -39,8 +44,8 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in keyMapping.event) {
-        name = keyMapping.event[name].label
+    if (name && name in KEY_MAPPING.event) {
+        name = KEY_MAPPING.event[name].label
     }
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
@@ -54,8 +59,8 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in keyMapping.event) {
-        name = keyMapping.event[name].label
+    if (name && name in KEY_MAPPING.event) {
+        name = KEY_MAPPING.event[name].label
     }
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'
@@ -155,21 +160,23 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
 export function humanizePathsEventTypes(include_event_types: PathsFilterType['include_event_types']): string[] {
     let humanEventTypes: string[] = []
     if (include_event_types) {
-        let matchCount = 0
         if (include_event_types.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
-            matchCount++
         }
         if (include_event_types.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
-            matchCount++
         }
         if (include_event_types.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
-            matchCount++
         }
-        if (matchCount === 0 || matchCount === Object.keys(PathType).length) {
+        if (
+            (humanEventTypes.length === 0 && !include_event_types.includes(PathType.HogQL)) ||
+            humanEventTypes.length === 3
+        ) {
             humanEventTypes = ['all events']
+        }
+        if (include_event_types.includes(PathType.HogQL)) {
+            humanEventTypes.push('HogQL expression')
         }
     }
     return humanEventTypes
@@ -275,4 +282,17 @@ export const insightTypeURL: Record<InsightType, string> = {
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
     JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
     SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
+}
+
+/** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
+export function concatWithPunctuation(phrases: string[]): string {
+    if (phrases === null || phrases.length === 0) {
+        return ''
+    } else if (phrases.length === 1) {
+        return phrases[0]
+    } else if (phrases.length === 2) {
+        return `${phrases[0]} and ${phrases[1]}`
+    } else {
+        return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
+    }
 }

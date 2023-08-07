@@ -48,7 +48,6 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
         ],
-        showDatabaseTab: [(s) => [s.featureFlags], (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HOGQL]],
     },
     actionToUrl: () => ({
         setTab: ({ tab }) => tabUrls[tab as DataManagementTab] || urls.events(),
@@ -68,7 +67,7 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
 })
 
 export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX.Element {
-    const { showWarningsTab, showDatabaseTab } = useValues(eventsTabsLogic)
+    const { showWarningsTab } = useValues(eventsTabsLogic)
     const { setTab } = useActions(eventsTabsLogic)
 
     return (
@@ -121,7 +120,7 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                         label: <span data-attr="data-management-warnings-tab">Ingestion Warnings</span>,
                     },
 
-                    showDatabaseTab && {
+                    {
                         key: DataManagementTab.Database,
                         label: (
                             <span data-attr="data-management-database-tab">

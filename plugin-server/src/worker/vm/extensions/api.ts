@@ -38,7 +38,7 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
             throw new Error('You must specify a personalApiKey if you specify a projectApiKey and vice-versa!')
         }
 
-        let host = options.host ?? (await server.siteUrlManager.getSiteUrl()) ?? DEFAULT_API_HOST
+        let host = options.host ?? process.env.SITE_URL ?? DEFAULT_API_HOST
 
         if (path.startsWith('/')) {
             path = path.slice(1)

@@ -61,6 +61,50 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 
+    def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
+        stage = validated_data.get("stage", None)
+
+        if instance.stage != EarlyAccessFeature.Stage.BETA and stage == EarlyAccessFeature.Stage.BETA:
+
+            super_conditions = lambda feature_flag_key: [
+                {
+                    "properties": [
+                        {
+                            "key": f"$feature_enrollment/{feature_flag_key}",
+                            "type": "person",
+                            "operator": "exact",
+                            "value": ["true"],
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+            ]
+
+            related_feature_flag = instance.feature_flag
+            if related_feature_flag:
+
+                related_feature_flag_key = related_feature_flag.key
+                serialized_data_filters = {
+                    **related_feature_flag.filters,
+                    "super_groups": super_conditions(related_feature_flag_key),
+                }
+
+                serializer = FeatureFlagSerializer(
+                    related_feature_flag, data={"filters": serialized_data_filters}, context=self.context, partial=True
+                )
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+        elif stage is not None and stage != EarlyAccessFeature.Stage.BETA:
+            related_feature_flag = instance.feature_flag
+            if related_feature_flag:
+                related_feature_flag.filters = {
+                    **related_feature_flag.filters,
+                    "super_groups": None,
+                }
+                related_feature_flag.save()
+
+        return super().update(instance, validated_data)
+
 
 class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     feature_flag_id = serializers.IntegerField(required=False, write_only=True)
@@ -133,24 +177,29 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
             feature_flag_key = feature_flag.key
 
-            serialized_data_filters = {**feature_flag.filters, "super_groups": super_conditions(feature_flag_key)}
+            if validated_data.get("stage") == EarlyAccessFeature.Stage.BETA:
+                serialized_data_filters = {**feature_flag.filters, "super_groups": super_conditions(feature_flag_key)}
 
-            serializer = FeatureFlagSerializer(
-                feature_flag, data={"filters": serialized_data_filters}, context=self.context, partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
+                serializer = FeatureFlagSerializer(
+                    feature_flag, data={"filters": serialized_data_filters}, context=self.context, partial=True
+                )
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
         else:
             feature_flag_key = slugify(validated_data["name"])
+
+            filters = {
+                "groups": default_condition,
+            }
+
+            if validated_data.get("stage") == EarlyAccessFeature.Stage.BETA:
+                filters["super_groups"] = super_conditions(feature_flag_key)
 
             feature_flag_serializer = FeatureFlagSerializer(
                 data={
                     "key": feature_flag_key,
                     "name": f"Feature Flag for Feature {validated_data['name']}",
-                    "filters": {
-                        "groups": default_condition,
-                        "super_groups": super_conditions(feature_flag_key),
-                    },
+                    "filters": filters,
                 },
                 context=self.context,
             )

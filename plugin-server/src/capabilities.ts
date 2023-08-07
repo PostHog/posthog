@@ -1,8 +1,10 @@
-import { PluginServerCapabilities, PluginsServerConfig } from './types'
+import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
 import { isTestEnv } from './utils/env-utils'
 
 export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
-    const mode = config.PLUGIN_SERVER_MODE
+    const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
+        ? stringToPluginServerMode[config.PLUGIN_SERVER_MODE]
+        : null
     const sharedCapabilities = !isTestEnv() ? { http: true } : {}
 
     switch (mode) {
@@ -11,14 +13,16 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 mmdb: true,
                 ingestion: true,
                 ingestionOverflow: true,
+                ingestionHistorical: true,
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
-                processAsyncHandlers: true,
+                processAsyncOnEventHandlers: true,
+                processAsyncWebhooksHandlers: true,
                 sessionRecordingIngestion: true,
                 sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
             }
-        case 'ingestion':
+        case PluginServerMode.ingestion:
             // NOTE: this mode will be removed in the future and replaced with
             // `analytics-ingestion` and `recordings-ingestion` modes.
             return {
@@ -27,53 +31,51 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingIngestion: true,
                 ...sharedCapabilities,
             }
-        case 'ingestion-overflow':
+        case PluginServerMode.ingestion_overflow:
             return {
                 mmdb: true,
                 ingestionOverflow: true,
                 ...sharedCapabilities,
             }
-        case 'analytics-ingestion':
+        case PluginServerMode.ingestion_historical:
+            return {
+                mmdb: true,
+                ingestionHistorical: true,
+                ...sharedCapabilities,
+            }
+        case PluginServerMode.analytics_ingestion:
             return {
                 mmdb: true,
                 ingestion: true,
                 ...sharedCapabilities,
             }
-        case 'recordings-ingestion':
+        case PluginServerMode.recordings_ingestion:
             return {
                 sessionRecordingIngestion: true,
                 ...sharedCapabilities,
             }
-        case 'recordings-blob-ingestion':
+        case PluginServerMode.recordings_blob_ingestion:
             return {
                 sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
             }
-
-        case 'async':
+        case PluginServerMode.async_onevent:
             return {
-                mmdb: true,
-                processPluginJobs: true,
-                processAsyncHandlers: true,
-                pluginScheduledTasks: true,
+                processAsyncOnEventHandlers: true,
                 ...sharedCapabilities,
             }
-        case 'exports':
+        case PluginServerMode.async_webhooks:
             return {
-                mmdb: true,
-                processAsyncHandlers: true,
+                processAsyncWebhooksHandlers: true,
                 ...sharedCapabilities,
             }
-        case 'jobs': {
+        case PluginServerMode.jobs:
             return {
-                mmdb: true,
                 processPluginJobs: true,
                 ...sharedCapabilities,
             }
-        }
-        case 'scheduler':
+        case PluginServerMode.scheduler:
             return {
-                mmdb: true,
                 pluginScheduledTasks: true,
                 ...sharedCapabilities,
             }

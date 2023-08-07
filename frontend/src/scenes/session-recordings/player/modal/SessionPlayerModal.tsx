@@ -3,16 +3,17 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 import { LemonModal } from '@posthog/lemon-ui'
 import { PlayerMeta } from '../PlayerMeta'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 export function SessionPlayerModal(): JSX.Element | null {
     const { activeSessionRecording } = useValues(sessionPlayerModalLogic())
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
-    const logicProps = {
+    const logicProps: SessionRecordingPlayerLogicProps = {
         playerKey: 'modal',
         sessionRecordingId: activeSessionRecording?.id || '',
         matching: activeSessionRecording?.matching_events,
+        autoPlay: true,
     }
 
     const { isFullScreen } = useValues(sessionRecordingPlayerLogic(logicProps))
@@ -35,7 +36,7 @@ export function SessionPlayerModal(): JSX.Element | null {
                 ) : null}
             </header>
             <LemonModal.Content embedded>
-                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} includeMeta={false} noBorder />}
+                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noMeta noBorder />}
             </LemonModal.Content>
         </LemonModal>
     )

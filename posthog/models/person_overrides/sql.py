@@ -91,7 +91,7 @@ KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 
     ENGINE = Kafka(
-        '{KAFKA_HOSTS}', -- Kafka hosts
+        '{",".join(KAFKA_HOSTS)}', -- Kafka hosts
         '{KAFKA_PERSON_OVERRIDE}', -- Kafka topic
         'clickhouse-person-overrides', -- Kafka consumer group id
         'JSONEachRow' -- Specify that we should pass Kafka messages as JSON

@@ -1,5 +1,4 @@
-import { FunnelPathType, PathType, InsightType, FunnelsFilterType } from '~/types'
-import { funnelLogic } from './funnelLogic'
+import { FunnelPathType, PathType, InsightType } from '~/types'
 import { useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
@@ -13,46 +12,16 @@ type FunnelStepMoreProps = {
     stepIndex: number
 }
 
-export function FunnelStepMoreDataExploration(props: FunnelStepMoreProps): JSX.Element | null {
+export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource } = useValues(funnelDataLogic(insightProps))
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const filterProps = cleanFilters(queryNodeToFilter(querySource!))
 
-    return (
-        <FunnelStepMoreComponent
-            aggregation_group_type_index={querySource?.aggregation_group_type_index}
-            filterProps={filterProps}
-            {...props}
-        />
-    )
-}
+    const aggregationGroupTypeIndex = querySource?.aggregation_group_type_index
 
-export function FunnelStepMore(props: FunnelStepMoreProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { propertiesForUrl, filters } = useValues(funnelLogic(insightProps))
-
-    return (
-        <FunnelStepMoreComponent
-            aggregation_group_type_index={filters.aggregation_group_type_index}
-            filterProps={propertiesForUrl}
-            {...props}
-        />
-    )
-}
-
-type FunnelStepMoreComponentProps = FunnelStepMoreProps & {
-    aggregation_group_type_index: number | undefined
-    filterProps: Partial<FunnelsFilterType>
-}
-
-function FunnelStepMoreComponent({
-    stepIndex,
-    aggregation_group_type_index,
-    filterProps,
-}: FunnelStepMoreComponentProps): JSX.Element | null {
     // Don't show paths modal if aggregating by groups - paths is user-based!
-    if (aggregation_group_type_index != undefined) {
+    if (aggregationGroupTypeIndex != undefined) {
         return null
     }
 

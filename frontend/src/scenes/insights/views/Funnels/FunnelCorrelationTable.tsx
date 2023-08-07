@@ -4,9 +4,7 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -24,6 +22,8 @@ import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsa
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+import { LemonCheckbox } from '@posthog/lemon-ui'
+import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -54,7 +54,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         }
     }, [querySource])
 
-    const { openCorrelationPersonsModal } = useActions(funnelLogic(insightProps))
+    const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
     const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
@@ -209,27 +209,21 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     </span>
                     <span className="table-options">
                         <p className="title">CORRELATION</p>
-                        <div
-                            className="tab-btn ant-btn"
-                            onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
-                        >
-                            <Checkbox
+                        <div className="flex">
+                            <LemonCheckbox
                                 checked={correlationTypes.includes(FunnelCorrelationType.Success)}
-                                className="pointer-events-none"
-                            >
-                                Success
-                            </Checkbox>
-                        </div>
-                        <div
-                            className="tab-btn ant-btn"
-                            onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
-                        >
-                            <Checkbox
+                                onChange={() => onClickCorrelationType(FunnelCorrelationType.Success)}
+                                label="Success"
+                                size="small"
+                                bordered
+                            />
+                            <LemonCheckbox
                                 checked={correlationTypes.includes(FunnelCorrelationType.Failure)}
-                                className="pointer-events-none"
-                            >
-                                Drop-off
-                            </Checkbox>
+                                onChange={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
+                                label="Drop-off"
+                                size="small"
+                                bordered
+                            />
                         </div>
                     </span>
                 </span>
@@ -238,21 +232,23 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         loadedEventCorrelationsTableOnce ? (
                             <Empty />
                         ) : (
-                            <p style={{ margin: 'auto', maxWidth: 500 }}>
-                                Highlight events which are likely to have affected the conversion rate within the
-                                funnel.{' '}
-                                <Link to="https://posthog.com/manual/correlation">
-                                    Learn more about correlation analysis.
-                                </Link>
-                                <br />
+                            <>
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <p className="m-auto" style={{ maxWidth: 500 }}>
+                                    Highlight events which are likely to have affected the conversion rate within the
+                                    funnel.{' '}
+                                    <Link to="https://posthog.com/manual/correlation">
+                                        Learn more about correlation analysis.
+                                    </Link>
+                                </p>
                                 <LemonButton
                                     onClick={() => loadEventCorrelations({})}
                                     type="secondary"
-                                    className="m-auto"
+                                    className="mx-auto mt-2"
                                 >
                                     Load results
                                 </LemonButton>
-                            </p>
+                            </>
                         )
                     }
                 >

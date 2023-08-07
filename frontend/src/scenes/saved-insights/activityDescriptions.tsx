@@ -59,7 +59,7 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    renamed {asNotification && 'your insight '}"{change?.before}" to{' '}
+                    renamed {asNotification && 'the insight '}"{change?.before}" to{' '}
                     <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
@@ -89,7 +89,7 @@ const insightActionsMapping: Record<
             description: [
                 <>
                     {describeChange}
-                    {asNotification && ' your insight '}
+                    {asNotification && ' the insight '}
                 </>,
             ],
             suffix: <>{nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>,
@@ -99,7 +99,7 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed the short id {asNotification && ' of your insight '}to <strong>"{change?.after}"</strong>
+                    changed the short id {asNotification && ' of the insight '}to <strong>"{change?.after}"</strong>
                 </>,
             ],
         }
@@ -108,7 +108,7 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    renamed {asNotification && ' your insight '}"{change?.before}" to{' '}
+                    renamed {asNotification && ' the insight '}"{change?.before}" to{' '}
                     <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
@@ -119,7 +119,7 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed the description {asNotification && ' of your insight '}to <strong>"{change?.after}"</strong>
+                    changed the description {asNotification && ' of the insight '}to <strong>"{change?.after}"</strong>
                 </>,
             ],
         }
@@ -130,7 +130,7 @@ const insightActionsMapping: Record<
             description: [
                 <>
                     <div className="highlighted-activity">
-                        {isFavoriteAfter ? '' : 'un-'}favorited{asNotification && ' your insight '}
+                        {isFavoriteAfter ? '' : 'un-'}favorited{asNotification && ' the insight '}
                     </div>
                 </>,
             ],
@@ -178,7 +178,7 @@ const insightActionsMapping: Record<
             <SentenceList
                 prefix={
                     <>
-                        added {asNotification && ' your insight '}
+                        added {asNotification && ' the insight '}
                         {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to
                     </>
                 }
@@ -192,7 +192,7 @@ const insightActionsMapping: Record<
             <SentenceList
                 prefix={
                     <>
-                        removed {asNotification && ' your insight '}
+                        removed {asNotification && ' the insight '}
                         {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from
                     </>
                 }
@@ -254,6 +254,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             ),
         }
     }
+
     if (logItem.activity == 'deleted') {
         return {
             description: (
@@ -264,12 +265,46 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             ),
         }
     }
+
+    if (logItem.activity == 'exported for opengraph image') {
+        return {
+            description: (
+                <>
+                    <strong>PostHog</strong> exported {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}{' '}
+                    as an image for the shared insight link.
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'sharing enabled') {
+        return {
+            description: (
+                <>
+                    <strong>{logItem.user.first_name}</strong> shared {asNotification ? 'your' : 'the'} insight:{' '}
+                    {logItem.detail.name}.
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'sharing disabled') {
+        return {
+            description: (
+                <>
+                    <strong>{logItem.user.first_name}</strong> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
+                    insight: {logItem.detail.name}.
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
         let extendedDescription: JSX.Element | undefined
         let changeSuffix: Description = (
             <>
-                on {asNotification && ' your insight '}
+                on {asNotification && ' the insight '}
                 {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
             </>
         )

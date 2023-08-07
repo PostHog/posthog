@@ -9,6 +9,7 @@ export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     actions({
         toggleTheme: true,
+        overrideTheme: (darkModePreference: boolean) => ({ darkModePreference }),
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
     }),
     reducers({
@@ -19,6 +20,7 @@ export const themeLogic = kea<themeLogicType>([
             },
             {
                 toggleTheme: (state) => (state === false ? null : !state),
+                overrideTheme: (_, { darkModePreference }) => darkModePreference,
             },
         ],
         darkModeSystemPreference: [

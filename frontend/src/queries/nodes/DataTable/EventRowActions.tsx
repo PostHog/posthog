@@ -9,6 +9,7 @@ import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { copyToClipboard, insightUrlForEvent } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
 
 interface EventActionProps {
     event: EventType
@@ -63,9 +64,10 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             onClick={(e) => {
                                 e.preventDefault()
                                 if (event.properties.$session_id) {
-                                    openSessionPlayer({
-                                        id: event.properties.$session_id,
-                                    })
+                                    openSessionPlayer(
+                                        { id: event.properties.$session_id },
+                                        dayjs(event.timestamp).valueOf()
+                                    )
                                 }
                             }}
                             fullWidth

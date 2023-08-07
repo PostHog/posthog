@@ -1,26 +1,25 @@
 import { useValues } from 'kea'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
+import { Textfit } from 'react-textfit'
+import clsx from 'clsx'
+
+import { insightLogic } from '../../insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { ChartParams, TrendResult } from '~/types'
-import { insightLogic } from '../../insightLogic'
-import { Textfit } from 'react-textfit'
-
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import clsx from 'clsx'
 import { ensureTooltipElement } from '../LineGraph/LineGraph'
 import { groupsModel } from '~/models/groupsModel'
-import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
 import { LemonRow } from '@posthog/lemon-ui'
 import { percentage } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
-
-import './BoldNumber.scss'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+
+import './BoldNumber.scss'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -32,7 +31,8 @@ function useBoldNumberTooltip({
     showPersonsModal: boolean
     isTooltipShown: boolean
 }): React.RefObject<HTMLDivElement> {
-    const { filters, insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { series, insightData, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const divRef = useRef<HTMLDivElement>(null)
@@ -42,11 +42,11 @@ function useBoldNumberTooltip({
         const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
 
-        const seriesResult = insight.result?.[0]
+        const seriesResult = insightData?.result?.[0]
 
         ReactDOM.render(
             <InsightTooltip
-                renderCount={(value: number) => <>{formatAggregationAxisValue(filters, value)}</>}
+                renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value)}</>}
                 seriesData={[
                     {
                         dataIndex: 1,
@@ -60,7 +60,7 @@ function useBoldNumberTooltip({
                 renderSeries={(value: React.ReactNode) => <span className="font-semibold">{value}</span>}
                 hideColorCol
                 hideInspectActorsSection={!showPersonsModal}
-                groupTypeLabel={aggregationLabel(toLocalFilters(filters)[0].math_group_type_index).plural}
+                groupTypeLabel={aggregationLabel(series?.[0].math_group_type_index).plural}
             />,
             tooltipEl,
             () => {
@@ -79,14 +79,15 @@ function useBoldNumberTooltip({
 }
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
-    const { insight, filters } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { insightData, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const [textFitTimer, setTextFitTimer] = useState<NodeJS.Timeout | null>(null)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
-    const showComparison = isTrendsFilter(filters) && filters.compare && insight.result?.length > 1
-    const resultSeries = insight?.result?.[0] as TrendResult | undefined
+    const showComparison = !!trendsFilter?.compare && insightData?.result?.length > 1
+    const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
     useEffect(() => {
         // sometimes text fit can get stuck and leave text too small
@@ -129,7 +130,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                     ref={valueRef}
                     onMouseEnter={() => setIsTooltipShown(true)}
                 >
-                    {formatAggregationAxisValue(filters, resultSeries.aggregated_value)}
+                    {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value)}
                 </div>
             </Textfit>
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} />}
@@ -139,10 +140,15 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     )
 }
 
-function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element {
-    const { insight } = useValues(insightLogic)
+function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { insightData } = useValues(insightVizDataLogic(insightProps))
 
-    const [currentPeriodSeries, previousPeriodSeries] = insight.result as TrendResult[]
+    if (!insightData?.result) {
+        return null
+    }
+
+    const [currentPeriodSeries, previousPeriodSeries] = insightData.result as TrendResult[]
 
     const previousValue = previousPeriodSeries.aggregated_value
     const currentValue = currentPeriodSeries.aggregated_value

@@ -2,17 +2,43 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { sessionRecordingsListPropertiesLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListPropertiesLogic'
+import { SessionRecordingType } from '~/types'
+
+const mockSessons: SessionRecordingType[] = [
+    {
+        id: 's1',
+        start_time: '2021-01-01T00:00:00Z',
+        end_time: '2021-01-01T01:00:00Z',
+        viewed: false,
+        recording_duration: 0,
+    },
+    {
+        id: 's2',
+        start_time: '2021-01-01T02:00:00Z',
+        end_time: '2021-01-01T03:00:00Z',
+        viewed: false,
+        recording_duration: 0,
+    },
+
+    {
+        id: 's3',
+        start_time: '2021-01-01T03:00:00Z',
+        end_time: '2021-01-01T04:00:00Z',
+        viewed: false,
+        recording_duration: 0,
+    },
+]
 
 describe('sessionRecordingsListPropertiesLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsListPropertiesLogic.build>
 
     beforeEach(() => {
         useMocks({
-            get: {
-                '/api/projects/:team/session_recordings/properties': {
+            post: {
+                '/api/projects/:team/query': {
                     results: [
-                        { id: 's1', properties: { blah: 'blah1' } },
-                        { id: 's2', properties: { blah: 'blah2' } },
+                        ['s1', JSON.stringify({ blah: 'blah1' })],
+                        ['s2', JSON.stringify({ blah: 'blah2' })],
                     ],
                 },
             },
@@ -26,10 +52,8 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     })
 
     it('loads properties', async () => {
-        const nextSessionIds = ['1', '2', '3']
-
         await expectLogic(logic, async () => {
-            logic.actions.loadPropertiesForSessions(nextSessionIds)
+            logic.actions.loadPropertiesForSessions(mockSessons)
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(logic.values).toMatchObject({
@@ -45,10 +69,8 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     })
 
     it('does not loads cached properties', async () => {
-        const nextSessionIds = ['1', '2', '3']
-
         await expectLogic(logic, async () => {
-            logic.actions.loadPropertiesForSessions(nextSessionIds)
+            logic.actions.loadPropertiesForSessions(mockSessons)
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(logic.values).toMatchObject({
@@ -59,7 +81,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         })
 
         await expectLogic(logic, async () => {
-            logic.actions.maybeLoadPropertiesForSessions(nextSessionIds)
+            logic.actions.maybeLoadPropertiesForSessions(mockSessons)
         }).toNotHaveDispatchedActions(['loadPropertiesForSessionsSuccess'])
 
         expect(logic.values).toMatchObject({

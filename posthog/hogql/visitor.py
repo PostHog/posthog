@@ -40,7 +40,7 @@ class TraversingVisitor(Visitor):
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         self.visit(node.left)
         self.visit(node.right)
 
@@ -92,6 +92,9 @@ class TraversingVisitor(Visitor):
     def visit_call(self, node: ast.Call):
         for expr in node.args:
             self.visit(expr)
+        if node.params:
+            for expr in node.params:
+                self.visit(expr)
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         self.visit(node.sample_value)
@@ -178,6 +181,9 @@ class TraversingVisitor(Visitor):
     def visit_call_type(self, node: ast.CallType):
         for expr in node.arg_types:
             self.visit(expr)
+        if node.param_types:
+            for expr in node.param_types:
+                self.visit(expr)
 
     def visit_integer_type(self, node: ast.IntegerType):
         pass
@@ -229,6 +235,9 @@ class TraversingVisitor(Visitor):
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         pass
 
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        self.visit(node.expr)
+
 
 class CloningVisitor(Visitor):
     """Visitor that traverses and clones the AST tree. Clears types."""
@@ -259,8 +268,8 @@ class CloningVisitor(Visitor):
             expr=self.visit(node.expr),
         )
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
-        return ast.BinaryOperation(
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        return ast.ArithmeticOperation(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
@@ -321,7 +330,7 @@ class CloningVisitor(Visitor):
             index=node.index,
         )
 
-    def visit_tuple(self, node: ast.Array):
+    def visit_tuple(self, node: ast.Tuple):
         return ast.Tuple(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
@@ -368,7 +377,7 @@ class CloningVisitor(Visitor):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            chain=node.chain,
+            chain=node.chain.copy(),
         )
 
     def visit_placeholder(self, node: ast.Placeholder):
@@ -386,6 +395,7 @@ class CloningVisitor(Visitor):
             type=None if self.clear_types else node.type,
             name=node.name,
             args=[self.visit(arg) for arg in node.args],
+            params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,
         )
 
@@ -484,3 +494,6 @@ class CloningVisitor(Visitor):
             frame_type=node.frame_type,
             frame_value=node.frame_value,
         )
+
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        return ast.JoinConstraint(expr=self.visit(node.expr))

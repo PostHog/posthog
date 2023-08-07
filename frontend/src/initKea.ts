@@ -50,9 +50,11 @@ export const loggerPlugin: () => KeaPlugin = () => ({
         beforeReduxStore(options) {
             options.middleware.push((store) => (next) => (action) => {
                 const response = next(action)
+                /* eslint-disable no-console */
                 console.groupCollapsed('KEA LOGGER', action)
                 console.log(store.getState())
                 console.groupEnd()
+                /* eslint-enable no-console */
                 return response
             })
         },

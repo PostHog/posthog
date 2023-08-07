@@ -354,3 +354,167 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(people.count(), 1)
         self.assertEqual(cohort.count, 1)
+
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
+    def test_create_lifecycle_cohort(self, _insert_cohort_from_insight_filter):
+        def _create_events(data, event="$pageview"):
+            person_result = []
+            for id, timestamps in data:
+                with freeze_time(timestamps[0]):
+                    person_result.append(
+                        _create_person(
+                            team_id=self.team.pk,
+                            distinct_ids=[id],
+                            properties={"name": id, **({"email": "test@posthog.com"} if id == "p1" else {})},
+                        )
+                    )
+                for timestamp in timestamps:
+                    _create_event(team=self.team, event=event, distinct_id=id, timestamp=timestamp)
+            return person_result
+
+        people = _create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
+
+        query_params = {
+            "date_from": "2020-01-12T00:00:00Z",
+            "date_to": "2020-01-19T00:00:00Z",
+            "events": json.dumps([{"id": "$pageview", "type": "events", "order": 0}]),
+            "insight": "LIFECYCLE",
+            "interval": "day",
+            "shown_as": "Lifecycle",
+            "smoothing_intervals": 1,
+            "entity_id": "$pageview",
+            "entity_type": "events",
+            "entity_math": "total",
+            "target_date": "2020-01-13",
+            "entity_order": 0,
+            "lifecycle_type": "returning",
+        }
+
+        response = self.client.post(
+            f"/api/cohort/?{urllib.parse.urlencode(query_params)}",
+            data={"is_static": True, "name": "lifecycle_static_cohort_returning"},
+        ).json()
+        cohort_id = response["id"]
+
+        _insert_cohort_from_insight_filter.assert_called_once_with(
+            cohort_id,
+            {
+                "date_from": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-19T00:00:00Z",
+                "events": '[{"id": "$pageview", "type": "events", "order": 0}]',
+                "insight": "LIFECYCLE",
+                "interval": "day",
+                "shown_as": "Lifecycle",
+                "smoothing_intervals": "1",
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "entity_math": "total",
+                "target_date": "2020-01-13",
+                "entity_order": "0",
+                "lifecycle_type": "returning",
+            },
+        )
+
+        insert_cohort_from_insight_filter(
+            cohort_id,
+            {
+                "date_from": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-19T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "insight": "LIFECYCLE",
+                "interval": "day",
+                "shown_as": "Lifecycle",
+                "smoothing_intervals": "1",
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "entity_math": "total",
+                "target_date": "2020-01-13",
+                "entity_order": "0",
+                "lifecycle_type": "returning",
+            },
+        )
+        cohort = Cohort.objects.get(pk=response["id"])
+        people_result = Person.objects.filter(cohort__id=cohort.pk).values_list("id", flat=True)
+        self.assertIn(people[0].id, people_result)
+
+        query_params = {
+            "date_from": "2020-01-12T00:00:00Z",
+            "date_to": "2020-01-19T00:00:00Z",
+            "events": json.dumps([{"id": "$pageview", "type": "events", "order": 0}]),
+            "insight": "LIFECYCLE",
+            "interval": "day",
+            "shown_as": "Lifecycle",
+            "smoothing_intervals": 1,
+            "entity_id": "$pageview",
+            "entity_type": "events",
+            "entity_math": "total",
+            "target_date": "2020-01-13",
+            "entity_order": 0,
+            "lifecycle_type": "dormant",
+        }
+        response = self.client.post(
+            f"/api/cohort/?{urllib.parse.urlencode(query_params)}",
+            data={"is_static": True, "name": "lifecycle_static_cohort_dormant"},
+        ).json()
+        cohort_id = response["id"]
+
+        _insert_cohort_from_insight_filter.assert_called_with(
+            cohort_id,
+            {
+                "date_from": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-19T00:00:00Z",
+                "events": '[{"id": "$pageview", "type": "events", "order": 0}]',
+                "insight": "LIFECYCLE",
+                "interval": "day",
+                "shown_as": "Lifecycle",
+                "smoothing_intervals": "1",
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "entity_math": "total",
+                "target_date": "2020-01-13",
+                "entity_order": "0",
+                "lifecycle_type": "dormant",
+            },
+        )
+        self.assertEqual(_insert_cohort_from_insight_filter.call_count, 2)
+
+        insert_cohort_from_insight_filter(
+            cohort_id,
+            {
+                "date_from": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-19T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "insight": "LIFECYCLE",
+                "interval": "day",
+                "shown_as": "Lifecycle",
+                "smoothing_intervals": "1",
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "entity_math": "total",
+                "target_date": "2020-01-13",
+                "entity_order": "0",
+                "lifecycle_type": "dormant",
+            },
+        )
+
+        cohort = Cohort.objects.get(pk=response["id"])
+        self.assertEqual(cohort.count, 2)
+        people_result = Person.objects.filter(cohort__id=cohort.pk).values_list("id", flat=True)
+        self.assertCountEqual([people[1].id, people[2].id], people_result)

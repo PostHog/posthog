@@ -180,6 +180,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             shown_as: filters.shown_as,
             display: filters.display,
             show_values_on_series: filters.show_values_on_series,
+            show_percent_stack_view: filters.show_percent_stack_view,
         })
     }
 
@@ -228,6 +229,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isPathsFilter(filters) && isPathsQuery(query)) {
         query.pathsFilter = objectCleanWithEmpty({
             path_type: filters.path_type,
+            paths_hogql_expression: filters.paths_hogql_expression,
             include_event_types: filters.include_event_types,
             start_point: filters.start_point,
             end_point: filters.end_point,

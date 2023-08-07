@@ -35,9 +35,9 @@ KAFKA_COLUMNS_WITH_PARTITION = """
 """
 
 
-def kafka_engine(topic: str, kafka_host=None, group="group1"):
+def kafka_engine(topic: str, kafka_host: str | None = None, group="group1") -> str:
     if kafka_host is None:
-        kafka_host = settings.KAFKA_HOSTS_FOR_CLICKHOUSE
+        kafka_host = ",".join(settings.KAFKA_HOSTS_FOR_CLICKHOUSE)
     return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization="JSONEachRow")
 
 

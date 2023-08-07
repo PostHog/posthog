@@ -43,7 +43,7 @@ export function WebInstructions(): JSX.Element {
                     style={{
                         marginLeft: 10,
                         padding: 4,
-                        backgroundColor: 'var(--mark-color)',
+                        backgroundColor: 'var(--mark)',
                         borderRadius: 'var(--radius)',
                         color: 'var(--primary-alt)',
                         fontSize: 11,

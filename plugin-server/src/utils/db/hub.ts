@@ -1,9 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import * as Sentry from '@sentry/node'
 import * as fs from 'fs'
-import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
-import Redis from 'ioredis'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
@@ -26,16 +24,12 @@ import {
     PluginServerCapabilities,
     PluginsServerConfig,
 } from '../../types'
-import { ActionManager } from '../../worker/ingestion/action-manager'
-import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
-import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
-import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { status } from '../status'
-import { createPostgresPool, createRedis, UUIDT } from '../utils'
+import { createPostgresPool, createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
@@ -72,38 +66,11 @@ export async function createHub(
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
-    let statsd: StatsD | undefined
-
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
 
-    if (serverConfig.STATSD_HOST) {
-        status.info('🤔', `Connecting to StatsD...`)
-        statsd = new StatsD({
-            port: serverConfig.STATSD_PORT,
-            host: serverConfig.STATSD_HOST,
-            prefix: serverConfig.STATSD_PREFIX,
-            telegraf: true,
-            globalTags: serverConfig.PLUGIN_SERVER_MODE
-                ? { pluginServerMode: serverConfig.PLUGIN_SERVER_MODE }
-                : undefined,
-            errorHandler: (error) => {
-                status.warn('⚠️', 'StatsD error', error)
-                Sentry.captureException(error, {
-                    extra: { threadId },
-                })
-            },
-        })
-        // don't repeat the same info in each thread
-        if (threadId === null) {
-            status.info(
-                '🪵',
-                `Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
-            )
-        }
-        status.info('👍', `StatsD ready`)
-    }
+    const statsd: StatsD | undefined = createStatsdClient(serverConfig, threadId)
 
     status.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
@@ -128,9 +95,8 @@ export async function createHub(
 
     status.info('🤔', `Connecting to Kafka...`)
 
-    const kafka = createKafkaClient(serverConfig as KafkaConfig)
-
-    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig as KafkaConfig)
+    const kafka = createKafkaClient(serverConfig)
+    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
     const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
 
     const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
@@ -141,19 +107,7 @@ export async function createHub(
     status.info('👍', `Postgresql ready`)
 
     status.info('🤔', `Connecting to Redis...`)
-    const redisPool = createPool<Redis.Redis>(
-        {
-            create: () => createRedis(serverConfig),
-            destroy: async (client) => {
-                await client.quit()
-            },
-        },
-        {
-            min: serverConfig.REDIS_POOL_MIN_SIZE,
-            max: serverConfig.REDIS_POOL_MAX_SIZE,
-            autostart: true,
-        }
-    )
+    const redisPool = createRedisPool(serverConfig)
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
@@ -177,12 +131,9 @@ export async function createHub(
         serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(postgres, serverConfig, statsd)
-    const organizationManager = new OrganizationManager(db, teamManager)
+    const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
-    const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
-    const actionManager = new ActionManager(db, capabilities)
-    await actionManager.prepare()
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
@@ -229,16 +180,12 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         promiseManager,
-        siteUrlManager,
-        actionManager,
-        actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
     const closeHub = async () => {
@@ -260,6 +207,38 @@ export type KafkaConfig = {
     KAFKA_SASL_USER?: string
     KAFKA_SASL_PASSWORD?: string
     KAFKA_CLIENT_RACK?: string
+}
+
+export function createStatsdClient(serverConfig: PluginsServerConfig, threadId: number | null) {
+    let statsd: StatsD | undefined
+
+    if (serverConfig.STATSD_HOST) {
+        status.info('🤔', `Connecting to StatsD...`)
+        statsd = new StatsD({
+            port: serverConfig.STATSD_PORT,
+            host: serverConfig.STATSD_HOST,
+            prefix: serverConfig.STATSD_PREFIX,
+            telegraf: true,
+            globalTags: serverConfig.PLUGIN_SERVER_MODE
+                ? { pluginServerMode: serverConfig.PLUGIN_SERVER_MODE }
+                : undefined,
+            errorHandler: (error) => {
+                status.warn('⚠️', 'StatsD error', error)
+                Sentry.captureException(error, {
+                    extra: { threadId },
+                })
+            },
+        })
+        // don't repeat the same info in each thread
+        if (threadId === null) {
+            status.info(
+                '🪵',
+                `Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
+            )
+        }
+        status.info('👍', `StatsD ready`)
+    }
+    return statsd
 }
 
 export function createKafkaClient({

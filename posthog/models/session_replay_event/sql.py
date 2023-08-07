@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     active_milliseconds Int64,
     console_log_count Int64,
     console_warn_count Int64,
-    console_error_count Int64
+    console_error_count Int64,
+    size Int64
 ) ENGINE = {engine}
 """
 
@@ -50,7 +51,9 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     active_milliseconds SimpleAggregateFunction(sum, Int64),
     console_log_count SimpleAggregateFunction(sum, Int64),
     console_warn_count SimpleAggregateFunction(sum, Int64),
-    console_error_count SimpleAggregateFunction(sum, Int64)
+    console_error_count SimpleAggregateFunction(sum, Int64),
+    -- this column allows us to estimate the amount of data that is being ingested
+    size SimpleAggregateFunction(sum, Int64)
 ) ENGINE = {engine}
 """
 
@@ -113,7 +116,8 @@ sum(mouse_activity_count) as mouse_activity_count,
 sum(active_milliseconds) as active_milliseconds,
 sum(console_log_count) as console_log_count,
 sum(console_warn_count) as console_warn_count,
-sum(console_error_count) as console_error_count
+sum(console_error_count) as console_error_count,
+sum(size) as size
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(

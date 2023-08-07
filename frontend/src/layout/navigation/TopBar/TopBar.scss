@@ -80,8 +80,9 @@
     height: 3rem;
     padding: 0 1rem 0 0.5rem; // padding is larger on the right to accommodate the close button
     text-align: center;
+    font-weight: 500;
 
-    &--hidden {
+    &.Announcement--hidden {
         margin-top: -3rem;
     }
 
@@ -93,8 +94,13 @@
         margin: 0;
     }
 
+    b,
+    strong {
+        font-weight: 700;
+    }
+
     a:link {
-        color: var(--primary);
+        color: inherit;
         text-decoration: underline;
     }
 }
@@ -145,7 +151,7 @@
     position: absolute;
     top: -0.375rem;
     right: -0.375rem;
-    color: var(--white);
+    color: #fff;
     background: var(--danger);
     font-size: 0.75rem;
     box-sizing: content-box;

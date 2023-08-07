@@ -45,3 +45,18 @@ export function posthogNodePasteRule(options: {
         },
     })
 }
+
+export function externalLinkPasteRule(options: {
+    find: string
+    type: NodeType
+    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+}): PasteRule {
+    return nodePasteRule({
+        find: createUrlRegex(options.find, '(https?|mailto)://'),
+        type: options.type,
+        getAttributes: (match) => {
+            const attrs = options.getAttributes(match)
+            return attrs
+        },
+    })
+}

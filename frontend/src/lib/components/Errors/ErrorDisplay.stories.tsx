@@ -138,3 +138,16 @@ export function ImportingModule(): JSX.Element {
         />
     )
 }
+
+export function AnonymousErrorWithStackTrace(): JSX.Element {
+    return (
+        <ErrorDisplay
+            event={errorEvent({
+                $exception_type: 'Error',
+                $exception_message: 'wat',
+                $exception_stack_trace_raw:
+                    '[{"filename":"<anonymous>","function":"?","in_app":true,"lineno":1,"colno":26}]',
+            })}
+        />
+    )
+}

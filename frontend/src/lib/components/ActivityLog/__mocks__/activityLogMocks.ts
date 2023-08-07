@@ -699,18 +699,31 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         created_at: '2022-05-03T15:27:29.072978Z',
     },
     {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'updated',
-        scope: ActivityScope.INSIGHT,
-        item_id: '738061',
-        detail: {
-            changes: [{ type: 'Insight', action: 'changed', field: 'deleted', before: true, after: false }],
-            merge: null,
-            trigger: null,
-            name: 'Pageview count',
-            short_id: 'iVXqSrre' as InsightShortId,
+        user: {
+            first_name: 'System',
+            email: null,
+            is_system: true,
         },
-        created_at: '2022-05-03T15:27:29.072978Z',
+        activity: 'exported for opengraph image',
+        scope: ActivityScope.INSIGHT,
+        item_id: '1102349',
+        detail: {
+            changes: [
+                {
+                    type: 'Insight',
+                    action: 'exported',
+                    field: 'export_format',
+                    before: null,
+                    after: 'image/png',
+                },
+            ],
+            trigger: null,
+            name: 'my amazing insight',
+            short_id: '02l6yZ1I' as InsightShortId,
+            type: undefined,
+            merge: null,
+        },
+        created_at: '2023-07-03T15:54:15.604336Z',
     },
     {
         user: { first_name: 'Cameron', email: 'cameron@posthog.com' },

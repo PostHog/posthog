@@ -1,4 +1,4 @@
-from functools import cached_property
+from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from rest_framework import authentication
@@ -157,6 +157,7 @@ class StructuredViewSetMixin(_GenericViewSet):
         serializer_context["get_organization"] = lambda: self.organization
         return serializer_context
 
+    @lru_cache(maxsize=1)
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
         token = get_token(None, self.request)

@@ -1,8 +1,9 @@
-import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
+import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import jsonFullSnapshot from './data/snapshot-full.json'
 
 export function createIncomingRecordingMessage(
-    partialIncomingMessage: Partial<IncomingRecordingMessage> = {}
+    partialIncomingMessage: Partial<IncomingRecordingMessage> = {},
+    partialMetadata: Partial<IncomingRecordingMessage['metadata']> = {}
 ): IncomingRecordingMessage {
     // the data on the kafka message is a compressed string.
     // it is a compressed $snapshot PostHog event
@@ -15,6 +16,7 @@ export function createIncomingRecordingMessage(
         session_id: 'session_id_1',
         window_id: 'window_id_1',
         events: [{ ...jsonFullSnapshot }],
+        replayIngestionConsumer: 'v2',
         ...partialIncomingMessage,
 
         metadata: {
@@ -23,10 +25,9 @@ export function createIncomingRecordingMessage(
             offset: 1,
             timestamp: 1,
             ...partialIncomingMessage.metadata,
+            ...partialMetadata,
         },
     }
-
-    console.log(message)
 
     return message
 }

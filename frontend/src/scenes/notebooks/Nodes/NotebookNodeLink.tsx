@@ -1,9 +1,8 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { NotebookNodeType } from '~/types'
-import { posthogNodePasteRule } from './utils'
+import { NotebookNodeType, NotebookTarget } from '~/types'
+import { posthogNodePasteRule, externalLinkPasteRule } from './utils'
 import { Link } from '@posthog/lemon-ui'
-import { useMemo } from 'react'
 import {
     IconGauge,
     IconBarChart,
@@ -18,8 +17,12 @@ import {
     IconCohort,
     IconComment,
     IconLink,
+    IconJournal,
 } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
+import { useMemo } from 'react'
+import { openNotebook } from '../Notebook/notebooksListLogic'
+import { useValues } from 'kea'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 const ICON_MAP = {
     dashboard: <IconGauge />,
@@ -28,6 +31,7 @@ const ICON_MAP = {
     feature_flags: <IconFlag />,
     early_access_features: <IconRocketLaunch />,
     experiments: <IconExperiment />,
+    notebooks: <IconJournal />,
     'web-performance': <IconCoffee />,
     events: <IconLive />,
     'data-management': <IconUnverifiedEvent />,
@@ -38,26 +42,28 @@ const ICON_MAP = {
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const { shortId } = useValues(notebookLogic)
+
     const href: string = props.node.attrs.href
 
-    const [path, icon] = useMemo(() => {
+    const [path, pathStart, internal] = useMemo(() => {
         const path = href.replace(window.location.origin, '')
         const pathStart = path.split('/')[1]?.toLowerCase()
+        const internal = href.startsWith(window.location.origin)
 
-        return [path, ICON_MAP[pathStart] || <IconLink />]
+        return [path, pathStart, internal]
     }, [href])
 
     return (
         <NodeViewWrapper as="span">
             <Link
-                to={path}
-                className={clsx(
-                    'py-px px-1 rounded',
-                    props.selected && 'bg-primary-light text-white',
-                    !props.selected && 'bg-primary-highlight'
-                )}
+                to={href}
+                onClick={() => openNotebook(shortId, NotebookTarget.Popover)}
+                target={internal ? undefined : '_blank'}
+                className="p-1 rounded"
             >
-                <span>{icon}</span> {path}
+                <span>{ICON_MAP[pathStart] || <IconLink />}</span>
+                <span>{path}</span>
             </Link>
         </NodeViewWrapper>
     )
@@ -96,6 +102,13 @@ export const NotebookNodeLink = Node.create({
     addPasteRules() {
         return [
             posthogNodePasteRule({
+                find: '(.+)',
+                type: this.type,
+                getAttributes: (match) => {
+                    return { href: match[0] }
+                },
+            }),
+            externalLinkPasteRule({
                 find: '(.+)',
                 type: this.type,
                 getAttributes: (match) => {

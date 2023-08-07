@@ -10,10 +10,11 @@ import {
     IconPlus,
     IconArticle,
     IconCheckCircleOutline,
+    IconInfo,
 } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 import { convertLargeNumberToWords, getUpgradeAllProductsLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
@@ -23,20 +24,6 @@ import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { PlanComparisonModal } from './PlanComparisonModal'
-
-const getCurrentAndUpgradePlans = (
-    product: BillingProductV2Type | BillingProductV2AddonType
-): { currentPlan: BillingV2PlanType; upgradePlan: BillingV2PlanType; downgradePlan: BillingV2PlanType } => {
-    const { isUnlicensedDebug } = useValues(billingLogic)
-    const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
-    const currentPlan = product.plans?.[currentPlanIndex]
-    const upgradePlan =
-        // If in debug mode and with no license there will be
-        // no currentPlan. So we want to upgrade to the highest plan.
-        isUnlicensedDebug ? product.plans?.[product.plans.length - 1] : product.plans?.[currentPlanIndex + 1]
-    const downgradePlan = product.plans?.[currentPlanIndex - 1]
-    return { currentPlan, upgradePlan, downgradePlan }
-}
 
 export const getTierDescription = (
     tier: BillingV2TierType,
@@ -54,7 +41,7 @@ export const getTierDescription = (
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const { billing, redirectPath } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
-    const { isPricingModalOpen } = useValues(billingProductLogic({ product: addon }))
+    const { isPricingModalOpen, currentAndUpgradePlans } = useValues(billingProductLogic({ product: addon }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
@@ -87,7 +74,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         <p className="ml-0 mb-0">{addon.description}</p>
                     </div>
                 </div>
-                <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2">
+                <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
                     {addon.docs_url && (
                         <Tooltip title="Read the docs">
                             <LemonButton icon={<IconArticle />} status="stealth" size="small" to={addon.docs_url} />
@@ -129,7 +116,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 icon={<IconPlus />}
                                 size="small"
                                 to={`/api/billing-v2/activation?products=${addon.type}:${
-                                    getCurrentAndUpgradePlans(addon).upgradePlan?.plan_key
+                                    currentAndUpgradePlans?.upgradePlan?.plan_key
                                 }${redirectPath && `&redirect_path=${redirectPath}`}`}
                                 disableClientSideRouting
                             >
@@ -145,8 +132,8 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 product={addon}
                 planKey={
                     addon.subscribed
-                        ? getCurrentAndUpgradePlans(addon).currentPlan?.plan_key
-                        : getCurrentAndUpgradePlans(addon).upgradePlan?.plan_key
+                        ? currentAndUpgradePlans?.currentPlan?.plan_key
+                        : currentAndUpgradePlans?.upgradePlan?.plan_key
                 }
             />
         </div>
@@ -156,8 +143,14 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
-    const { customLimitUsd, showTierBreakdown, billingGaugeItems, isPricingModalOpen, isPlanComparisonModalOpen } =
-        useValues(billingProductLogic({ product }))
+    const {
+        customLimitUsd,
+        showTierBreakdown,
+        billingGaugeItems,
+        isPricingModalOpen,
+        isPlanComparisonModalOpen,
+        currentAndUpgradePlans,
+    } = useValues(billingProductLogic({ product }))
     const {
         setIsEditingBillingLimit,
         setShowTierBreakdown,
@@ -167,9 +160,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
-    const upgradePlan = getCurrentAndUpgradePlans(product).upgradePlan
-    const currentPlan = getCurrentAndUpgradePlans(product).currentPlan
-    const downgradePlan = getCurrentAndUpgradePlans(product).downgradePlan
+    const upgradePlan = currentAndUpgradePlans?.upgradePlan
+    const currentPlan = currentAndUpgradePlans?.currentPlan
+    const downgradePlan = currentAndUpgradePlans?.downgradePlan
     const additionalFeaturesOnUpgradedPlan = upgradePlan
         ? upgradePlan?.features?.filter(
               (feature) =>
@@ -286,7 +279,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             })}
             ref={ref}
         >
-            <div className="border border-border rounded w-full bg-white">
+            <div className="border border-border rounded w-full bg-bg-light">
                 <div className="border-b border-border bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {product.image_url ? (
@@ -319,7 +312,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         type="primary"
                                         to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request"
                                     >
-                                        Contact support
+                                        Get in touch
                                     </LemonButton>
                                 </>
                             ) : (
@@ -374,11 +367,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 {!billing?.has_active_subscription && (
                                     <p className="ml-0">
                                         Every product subsciption comes with free platform features such as{' '}
-                                        <b>
-                                            Multiple projects, Feature flags, Experimentation, Integrations, Apps, and
-                                            more
-                                        </b>
-                                        . Subscribe to one of the products above to get instant access.
+                                        <b>Multiple projects, Integrations, Apps, and more</b>. Subscribe to one of the
+                                        products above to get instant access.
                                     </p>
                                 )}
                                 <p className="m-0">
@@ -486,14 +476,29 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {showTierBreakdown && (
                         <div className="pl-16 pb-8">
                             {product.tiered && tableTierData ? (
-                                <LemonTable
-                                    borderedRows={false}
-                                    size="xs"
-                                    uppercaseHeader={false}
-                                    display="stealth"
-                                    columns={tableColumns}
-                                    dataSource={tableTierData}
-                                />
+                                <>
+                                    <LemonTable
+                                        borderedRows={false}
+                                        size="xs"
+                                        uppercaseHeader={false}
+                                        display="stealth"
+                                        columns={tableColumns}
+                                        dataSource={tableTierData}
+                                    />
+                                    {product.type === 'feature_flags' && (
+                                        <p className="mt-4 ml-0 text-sm text-muted italic">
+                                            <IconInfo className="mr-1" />
+                                            Using local evaluation? Here's{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/bootstrapping-and-local-evaluation#server-side-local-evaluation"
+                                                className="italic"
+                                            >
+                                                how we calculate usage
+                                            </Link>
+                                            .
+                                        </p>
+                                    )}
+                                </>
                             ) : (
                                 <LemonTable
                                     borderedRows={false}
@@ -535,45 +540,56 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <h4 className={`${product.subscribed ? 'text-success-dark' : 'text-warning-dark'}`}>
                                 You're on the {product.subscribed ? 'paid' : 'free'} plan for {product.name}.
                             </h4>
-                            <p className="ml-0 max-w-200">
-                                {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as:
-                            </p>
-                            <div>
-                                {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
-                                    return (
-                                        i < 3 && (
+                            {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
+                                <>
+                                    <p className="ml-0 max-w-200">
+                                        {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as:
+                                    </p>
+                                    <div>
+                                        {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
+                                            return (
+                                                i < 3 && (
+                                                    <div
+                                                        className="flex gap-x-2 items-center mb-2"
+                                                        key={'additional-features-' + product.type + i}
+                                                    >
+                                                        <IconCheckCircleOutline className="text-success" />
+                                                        <Tooltip key={feature.key} title={feature.description}>
+                                                            <b>{feature.name} </b>
+                                                        </Tooltip>
+                                                    </div>
+                                                )
+                                            )
+                                        })}
+                                        {!billing?.has_active_subscription && (
                                             <div className="flex gap-x-2 items-center mb-2">
                                                 <IconCheckCircleOutline className="text-success" />
-                                                <Tooltip key={feature.key} title={feature.description}>
-                                                    <b>{feature.name} </b>
+                                                <Tooltip
+                                                    title={
+                                                        'Multiple projects, Feature flags, Experiments, Integrations, Apps, and more'
+                                                    }
+                                                >
+                                                    <b>Upgraded platform features</b>
                                                 </Tooltip>
                                             </div>
-                                        )
-                                    )
-                                })}
-                                {!billing?.has_active_subscription && (
-                                    <div className="flex gap-x-2 items-center mb-2">
-                                        <IconCheckCircleOutline className="text-success" />
-                                        <Tooltip
-                                            title={
-                                                'Multiple projects, Feature flags, Experiments, Integrations, Apps, and more'
-                                            }
-                                        >
-                                            <b>Upgraded platform features</b>
-                                        </Tooltip>
+                                        )}
+                                        <div className="flex gap-x-2 items-center mb-2">
+                                            <IconCheckCircleOutline className="text-success" />
+                                            {product.subscribed ? (
+                                                <b>And more</b>
+                                            ) : (
+                                                <Link onClick={toggleIsPlanComparisonModalOpen}>
+                                                    <b>And more...</b>
+                                                </Link>
+                                            )}
+                                        </div>
                                     </div>
-                                )}
-                                <div className="flex gap-x-2 items-center mb-2">
-                                    <IconCheckCircleOutline className="text-success" />
-                                    {product.subscribed ? (
-                                        <b>And more</b>
-                                    ) : (
-                                        <Link onClick={toggleIsPlanComparisonModalOpen}>
-                                            <b>And more...</b>
-                                        </Link>
-                                    )}
-                                </div>
-                            </div>
+                                </>
+                            ) : (
+                                <p className="ml-0 max-w-200">
+                                    You've got access to all the features we offer for {product.name}.
+                                </p>
+                            )}
                             {upgradePlan?.tiers?.[0].unit_amount_usd &&
                                 parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
                                     <p className="ml-0 mb-0 mt-4">

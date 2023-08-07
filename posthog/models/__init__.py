@@ -122,4 +122,5 @@ __all__ = [
     "User",
     "UserManager",
     "UserPromptState",
+    "DataWarehouseTable",
 ]

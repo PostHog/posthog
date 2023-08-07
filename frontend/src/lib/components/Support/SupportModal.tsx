@@ -40,11 +40,17 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
     support: 'What can we help you with?',
 }
 
-export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element {
-    const { sendSupportRequest, isSupportFormOpen } = useValues(supportLogic)
+export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element | null {
+    const { sendSupportRequest, isSupportFormOpen, sendSupportLoggedOutRequest } = useValues(supportLogic)
     const { setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
 
+    if (!preflightLogic.values.preflight?.cloud) {
+        if (isSupportFormOpen) {
+            lemonToast.error(`In-app support isn't provided for self-hosted instances.`)
+        }
+        return null
+    }
     const dropRef = useRef<HTMLDivElement>(null)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -75,6 +81,7 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
                     </LemonButton>
                 </div>
             }
+            hasUnsavedInput={loggedIn ? !!sendSupportRequest.message : !!sendSupportLoggedOutRequest.message}
         >
             <Form
                 logic={supportLogic}

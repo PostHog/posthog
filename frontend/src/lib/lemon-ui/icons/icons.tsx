@@ -45,40 +45,6 @@ const LemonIconBase: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...p
     />
 )
 
-export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { monocolor?: boolean }): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            {/* top-right */}
-            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : 'var(--brand-blue)'} fillOpacity={1} />
-            {/* top-left */}
-            <circle
-                cx="7"
-                cy="7.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-yellow)'}
-                fillOpacity={monocolor ? 0.75 : 1}
-            />
-
-            {/* bottom-left */}
-            <circle
-                cx="7"
-                cy="17.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-red)'}
-                fillOpacity={monocolor ? 0.5 : 1}
-            />
-            {/* bottom-right */}
-            <circle
-                cx="17"
-                cy="17.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-key)'}
-                fillOpacity={monocolor ? 0.25 : 1}
-            />
-        </LemonIconBase>
-    )
-}
-
 // material design format-size icon
 export function IconTextSize(props: LemonIconProps): JSX.Element {
     return (
@@ -282,12 +248,12 @@ export function IconSelectAll(props: LemonIconProps): JSX.Element {
 /** Material Design Rate Review icon. */
 export function IconSurveys(props: LemonIconProps): JSX.Element {
     return (
-        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" {...props}>
+        <LemonIconBase {...props}>
             <path
-                d="M240-400h98l236-234q6-6 6-15t-6-15l-70-70q-6-6-15-6t-15 6L240-498v98Zm180 0h300v-80H500l-80 80ZM80-80v-720q0-33 23.5-56.5T160-880h640q33 0 56.5 23.5T880-800v480q0 33-23.5 56.5T800-240H240L80-80Zm126-240h594v-480H160v525l46-45Zm-46 0v-480 480Z"
+                d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17l-.59.59-.58.58V4h16v12zm-9.5-2H18v-2h-5.5zm3.86-5.87c.2-.2.2-.51 0-.71l-1.77-1.77c-.2-.2-.51-.2-.71 0L6 11.53V14h2.47l5.89-5.87z"
                 fill="currentColor"
             />
-        </svg>
+        </LemonIconBase>
     )
 }
 
@@ -1332,6 +1298,19 @@ export function IconQueryEditor(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Design Auto Awesome icon. */
+export function IconAutoAwesome(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <g fill="currentColor">
+                <polygon points="19,9 20.25,6.25 23,5 20.25,3.75 19,1 17.75,3.75 15,5 17.75,6.25" />
+                <polygon points="19,15 17.75,17.75 15,19 17.75,20.25 19,23 20.25,20.25 23,19 20.25,17.75" />
+                <path d="M11.5,9.5L9,4L6.5,9.5L1,12l5.5,2.5L9,20l2.5-5.5L17,12L11.5,9.5z M9.99,12.99L9,15.17l-0.99-2.18L5.83,12l2.18-0.99 L9,8.83l0.99,2.18L12.17,12L9.99,12.99z" />
+            </g>
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Ads Click and Auto Fix High icons combined. */
 export function IconAutocapture(props: LemonIconProps): JSX.Element {
     return (
@@ -2355,6 +2334,17 @@ export function IconSad(props: LemonIconProps): JSX.Element {
             <path
                 fill="currentColor"
                 d="M20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12M22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2A10,10 0 0,1 22,12M15.5,8C16.3,8 17,8.7 17,9.5C17,10.3 16.3,11 15.5,11C14.7,11 14,10.3 14,9.5C14,8.7 14.7,8 15.5,8M10,9.5C10,10.3 9.3,11 8.5,11C7.7,11 7,10.3 7,9.5C7,8.7 7.7,8 8.5,8C9.3,8 10,8.7 10,9.5M12,14C13.75,14 15.29,14.72 16.19,15.81L14.77,17.23C14.32,16.5 13.25,16 12,16C10.75,16 9.68,16.5 9.23,17.23L7.81,15.81C8.71,14.72 10.25,14 12,14Z"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconDatabase(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                fill="currentColor"
+                d="M12,3C7.58,3 4,4.79 4,7C4,9.21 7.58,11 12,11C16.42,11 20,9.21 20,7C20,4.79 16.42,3 12,3M4,9V12C4,14.21 7.58,16 12,16C16.42,16 20,14.21 20,12V9C20,11.21 16.42,13 12,13C7.58,13 4,11.21 4,9M4,14V17C4,19.21 7.58,21 12,21C16.42,21 20,19.21 20,17V14C20,16.21 16.42,18 12,18C7.58,18 4,16.21 4,14Z"
             />
         </LemonIconBase>
     )

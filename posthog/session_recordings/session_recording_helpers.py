@@ -152,6 +152,8 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
     if len(events) == 0:
         return []
 
+    size_with_headroom = max_size_bytes * 0.95  # Leave 5% headroom
+
     distinct_id = events[0]["properties"]["distinct_id"]
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
@@ -178,7 +180,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
             additional_bytes = event["properties"]["$snapshot_bytes"]
             additional_data = flatten([event["properties"]["$snapshot_data"]], max_depth=1)
 
-            if not current_event or current_event_size + additional_bytes > max_size_bytes:
+            if not current_event or current_event_size + additional_bytes > size_with_headroom:
                 # If adding the new data would put us over the max size, yield the current event and start a new one
                 if current_event:
                     yield current_event
@@ -193,8 +195,8 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
     else:
         snapshot_data_list = list(flatten([event["properties"]["$snapshot_data"] for event in events], max_depth=1))
 
-        # 2. Otherwise try and group all the events if they are small enough
-        if byte_size_dict(snapshot_data_list) < max_size_bytes:
+        # 2. Otherwise, try and group all the events if they are small enough
+        if byte_size_dict(snapshot_data_list) < size_with_headroom:
             event = new_event(snapshot_data_list)
             yield event
         else:
@@ -214,7 +216,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
                 yield event
 
             # Try and group the rest
-            if byte_size_dict(other_snapshots) < max_size_bytes:
+            if byte_size_dict(other_snapshots) < size_with_headroom:
                 event = new_event(other_snapshots)
                 yield event
             else:
@@ -441,5 +443,5 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
     return events_summary
 
 
-def byte_size_dict(d: Dict) -> int:
-    return len(json.dumps(d))
+def byte_size_dict(x: Dict | List) -> int:
+    return len(json.dumps(x))

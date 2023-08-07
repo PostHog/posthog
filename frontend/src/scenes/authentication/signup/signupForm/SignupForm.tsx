@@ -64,7 +64,7 @@ export function SignupForm(): JSX.Element | null {
                     </div>
                 </>
             )}
-            {showSpinner ? <SpinnerOverlay /> : null}
+            {showSpinner ? <SpinnerOverlay sceneLevel /> : null}
         </div>
     ) : null
 }

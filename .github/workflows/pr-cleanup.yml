@@ -35,10 +35,13 @@ jobs:
                   role-duration-seconds: 3600
 
             - name: connect to tailscale
-              uses: tailscale/github-action@ce41a99162202a647a4b24c30c558a567b926709
+              uses: tailscale/github-action@8b804aa882ac3429b804a2a22f9803a2101a0db9
+              env:
+                  TS_EXPERIMENT_OAUTH_AUTHKEY: true
               with:
-                  authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-                  hostname: github-posthog-${{ github.action }}-${{ github.job }}
+                  version: 1.42.0
+                  authkey: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+                  args: --advertise-tags tag:github-runner
 
             - name: Delete preview deployment
               id: cleanup

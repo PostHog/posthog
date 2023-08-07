@@ -15,12 +15,13 @@ with SASS, leading to duplicated config. When changing any variable here, please
 @text-color-secondary: #403939;
 @disabled-color: @text-muted;
 @border-radius-base: 4px;
-@border-color-base: rgba(0, 0, 0, 0.15);
-@body-background:  var(--bg-light);
+@border-color-base: var(--border);
+@body-background: var(--bg-light);
+@component-background: var(--bg-light);
 @layout-body-background: var(--bg-light);
 @font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
     'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-@table-expanded-row-bg: #fafaf9;
+@table-expanded-row-bg: var(--side);
 
 .hide-gte-lg {
     display: none !important;

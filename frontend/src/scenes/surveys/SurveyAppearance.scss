@@ -1,0 +1,179 @@
+// @import '../../../styles/mixins';
+
+.survey-form {
+    color: black;
+    font-weight: normal;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    text-align: left;
+    z-index: 99999; //changeable: zIndex
+    flex-direction: column;
+    background: white; //changeable: backgroundColor
+    border: 1px solid #f0f0f0;
+    border-radius: 8px;
+    padding-top: 5px;
+    max-width: 320px; //changeable: maxWidth
+    box-shadow: -6px 0 16px -8px rgb(0 0 0 / 8%), -9px 0 28px 0 rgb(0 0 0 / 5%), -12px 0 48px 16px rgb(0 0 0 / 3%);
+
+    .button {
+        width: 64px;
+        height: 64px;
+        border-radius: 100%;
+        text-align: center;
+        line-height: 60px;
+        font-size: 32px;
+        border: none;
+        cursor: pointer;
+    }
+    .button:hover {
+        filter: brightness(1.2);
+    }
+    .form-submit[disabled] {
+        opacity: 0.6;
+        filter: grayscale(100%);
+        cursor: not-allowed;
+    }
+
+    .survey-box {
+        padding: 0.5rem 1rem;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .survey-question {
+        padding-top: 4px;
+        padding-bottom: 4px;
+        font-size: 16px;
+        font-weight: 500;
+        color: black; //changeable: textColor
+    }
+
+    .question-textarea-wrapper {
+        display: flex;
+        flex-direction: column;
+        padding-bottom: 4px;
+    }
+
+    .survey-textarea {
+        color: #2d2d2d;
+        font-size: 14px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
+            'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+        background: white;
+        color: black;
+        border: 1px solid;
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 10px;
+        border-radius: 6px;
+        margin: 0.5rem;
+    }
+
+    .buttons {
+        display: flex;
+        justify-content: center;
+    }
+
+    .footer-branding {
+        color: #6a6b69;
+        font-size: 10.5px;
+        padding-top: 0.5rem;
+        text-align: center;
+    }
+
+    .form-submit {
+        box-sizing: border-box;
+        margin: 0;
+        font-family: inherit;
+        overflow: visible;
+        text-transform: none;
+        line-height: 1.5715;
+        position: relative;
+        display: inline-block;
+        font-weight: 400;
+        white-space: nowrap;
+        text-align: center;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+        user-select: none;
+        touch-action: manipulation;
+        height: 32px;
+        padding: 4px 15px;
+        font-size: 14px;
+        border-radius: 4px;
+        outline: 0;
+        background: #2c2c2c; // changeable: submitButtonColor
+        color: #e5e7e0;
+        text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.12);
+        box-shadow: 0 2px 0 rgba(0, 0, 0, 0.045);
+    }
+
+    .form-submit:hover {
+        filter: brightness(1.2);
+    }
+
+    .form-cancel {
+        background: white; // changeable: backgroundColor
+        float: right;
+        border: none;
+        cursor: pointer;
+    }
+
+    .bottom-section {
+        padding-bottom: 0.5rem;
+    }
+
+    .description {
+        font-size: 14px;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+        color: #4b4b52; //changeable: descriptionTextColor
+    }
+    .rating-options {
+        margin-top: 0.5rem;
+    }
+    .ratings-number {
+        background-color: #e0e2e8;
+        font-size: 14px;
+        border-radius: 6px;
+        border: 1px solid #e0e2e8;
+        padding: 8px;
+    }
+    .ratings-number:hover {
+        cursor: pointer;
+        filter: brightness(0.75);
+    }
+    .rating-options-buttons {
+        display: flex;
+        justify-content: space-evenly;
+    }
+    .max-numbers {
+        min-width: 280px;
+    }
+    .rating-options-emoji {
+        display: flex;
+        justify-content: space-evenly;
+    }
+    .ratings-emoji {
+        font-size: 16px;
+        background-color: transparent;
+        border: none;
+    }
+    .ratings-emoji:hover {
+        cursor: pointer;
+        fill: coral; //changeable: ratingButtonHoverColor
+    }
+    .rating-text {
+        display: flex;
+        flex-direction: row;
+        font-size: 12px;
+        justify-content: space-between;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+        color: #4b4b52;
+    }
+    .rating-section {
+        margin-bottom: 0.5rem;
+    }
+}

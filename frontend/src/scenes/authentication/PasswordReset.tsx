@@ -12,9 +12,8 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { IconBugShield, IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { SupportModal } from 'lib/components/Support/SupportModal'
+import { IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -24,27 +23,9 @@ export const scene: SceneExport = {
 export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { requestPasswordResetSucceeded, requestPasswordResetManualErrors } = useValues(passwordResetLogic)
-    const { openSupportLoggedOutForm } = useActions(supportLogic)
 
     return (
-        <BridgePage
-            view="password-reset"
-            footer={
-                <div className="text-center">
-                    <LemonButton
-                        onClick={() => {
-                            openSupportLoggedOutForm(null, null, 'bug', 'login')
-                        }}
-                        status="stealth"
-                        icon={<IconBugShield />}
-                        size="small"
-                    >
-                        <span className="text-muted">Report an issue</span>
-                    </LemonButton>
-                    <SupportModal loggedIn={false} />
-                </div>
-            }
-        >
+        <BridgePage view="password-reset" footer={<SupportModalButton />}>
             {requestPasswordResetManualErrors?.code === 'throttled' ? (
                 <div className="text-center ">
                     <IconErrorOutline className="text-5xl text-danger" />

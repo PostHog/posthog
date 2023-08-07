@@ -3,6 +3,8 @@ from typing import Literal, Optional
 from django.test import override_settings
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.models import DateDatabaseField
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
@@ -12,6 +14,8 @@ from posthog.utils import PersonOnEventsMode
 
 
 class TestPrinter(BaseTest):
+    maxDiff = None
+
     # Helper to always translate HogQL with a blank context
     def _expr(
         self, query: str, context: Optional[HogQLContext] = None, dialect: Literal["hogql", "clickhouse"] = "clickhouse"
@@ -69,8 +73,10 @@ class TestPrinter(BaseTest):
         )
 
     def test_equals_null(self):
-        self.assertEqual(self._expr("1 == null"), "isNull(1)")
-        self.assertEqual(self._expr("1 != null"), "isNotNull(1)")
+        self.assertEqual(self._expr("event == null"), "isNull(events.event)")
+        self.assertEqual(self._expr("event != null"), "isNotNull(events.event)")
+        self.assertEqual(self._expr("1 == null"), "0")
+        self.assertEqual(self._expr("1 != null"), "1")
 
     def test_fields_and_properties(self):
         self.assertEqual(
@@ -220,8 +226,8 @@ class TestPrinter(BaseTest):
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
         self.assertEqual(self._expr("count(distinct event)"), "count(DISTINCT events.event)")
-        self.assertEqual(self._expr("countIf(distinct event, 1 == 2)"), "countIf(DISTINCT events.event, equals(1, 2))")
-        self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIf(1, equals(1, 2))")
+        self.assertEqual(self._expr("countIf(distinct event, 1 == 2)"), "countIf(DISTINCT events.event, 0)")
+        self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIf(1, 0)")
 
     def test_functions(self):
         context = HogQLContext(team_id=self.team.pk)  # inline values
@@ -229,14 +235,23 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._expr("toInt('1')", context), "toInt64OrNull(%(hogql_val_0)s)")
         self.assertEqual(self._expr("toFloat('1.3')", context), "toFloat64OrNull(%(hogql_val_1)s)")
+        self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
-        self._assert_expr_error("count(1,2,3,4)", "Aggregation 'count' requires between 0 and 1 arguments, found 4")
-        self._assert_expr_error("countIf()", "Aggregation 'countIf' requires between 1 and 2 arguments, found 0")
-        self._assert_expr_error("countIf(2,3,4)", "Aggregation 'countIf' requires between 1 and 2 arguments, found 3")
-        self._assert_expr_error("uniq()", "Aggregation 'uniq' requires at least 1 argument, found 0")
+        self._assert_expr_error("count(1,2,3,4)", "Aggregation 'count' expects at most 1 argument, found 4")
+        self._assert_expr_error("countIf()", "Aggregation 'countIf' expects at least 1 argument, found 0")
+        self._assert_expr_error("countIf(2,3,4)", "Aggregation 'countIf' expects at most 2 arguments, found 3")
+        self._assert_expr_error("uniq()", "Aggregation 'uniq' expects at least 1 argument, found 0")
+        self._assert_expr_error(
+            "quantile(event)", "Aggregation 'quantile' requires parameters in addition to arguments"
+        )
+        self._assert_expr_error(
+            "quantile()(event)", "Aggregation 'quantile' requires parameters in addition to arguments"
+        )
+        self._assert_expr_error("quantile(0.5, 2)(event)", "Aggregation 'quantile' expects 1 parameter, found 2")
+        self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
         self._assert_expr_error("noway(event)", "Unsupported function call 'noway(...)'. Perhaps you meant 'now(...)'?")
@@ -251,6 +266,9 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
         self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array[1]")
         self._assert_expr_error("properties.id.0", "SQL indexes start from one, not from zero. E.g: array[1]")
+        self._assert_expr_error(
+            "event as `as%d`", 'The HogQL identifier "as%d" is not permitted as it contains the "%" character'
+        )
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_expr_parse_errors_poe_on(self):
@@ -265,6 +283,7 @@ class TestPrinter(BaseTest):
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "no viable alternative at input '('")
         self._assert_expr_error("())", "no viable alternative at input '()'")
+        self._assert_expr_error("(3 57", "no viable alternative at input '(3 57'")
         self._assert_expr_error("select query from events", "mismatched input 'from' expecting <EOF>")
         self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
         self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
@@ -297,11 +316,19 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("event < 'E'", context), "less(events.event, %(hogql_val_4)s)")
         self.assertEqual(self._expr("event <= 'E'", context), "lessOrEquals(events.event, %(hogql_val_5)s)")
         self.assertEqual(self._expr("event like 'E'", context), "like(events.event, %(hogql_val_6)s)")
-        self.assertEqual(self._expr("event not like 'E'", context), "not(like(events.event, %(hogql_val_7)s))")
+        self.assertEqual(self._expr("event not like 'E'", context), "notLike(events.event, %(hogql_val_7)s)")
         self.assertEqual(self._expr("event ilike 'E'", context), "ilike(events.event, %(hogql_val_8)s)")
-        self.assertEqual(self._expr("event not ilike 'E'", context), "not(ilike(events.event, %(hogql_val_9)s))")
+        self.assertEqual(self._expr("event not ilike 'E'", context), "notILike(events.event, %(hogql_val_9)s)")
         self.assertEqual(self._expr("event in 'E'", context), "in(events.event, %(hogql_val_10)s)")
-        self.assertEqual(self._expr("event not in 'E'", context), "not(in(events.event, %(hogql_val_11)s))")
+        self.assertEqual(self._expr("event not in 'E'", context), "notIn(events.event, %(hogql_val_11)s)")
+        self.assertEqual(self._expr("event ~ 'E'", context), "match(events.event, %(hogql_val_12)s)")
+        self.assertEqual(self._expr("event =~ 'E'", context), "match(events.event, %(hogql_val_13)s)")
+        self.assertEqual(self._expr("event !~ 'E'", context), "not(match(events.event, %(hogql_val_14)s))")
+        self.assertEqual(self._expr("event ~* 'E'", context), "match(events.event, concat('(?i)', %(hogql_val_15)s))")
+        self.assertEqual(self._expr("event =~* 'E'", context), "match(events.event, concat('(?i)', %(hogql_val_16)s))")
+        self.assertEqual(
+            self._expr("event !~* 'E'", context), "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))"
+        )
 
     def test_comments(self):
         context = HogQLContext(team_id=self.team.pk)
@@ -318,9 +345,9 @@ class TestPrinter(BaseTest):
         self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
 
     def test_alias_keywords(self):
-        self._assert_expr_error("1 as team_id", "Alias 'team_id' is a reserved keyword.")
-        self._assert_expr_error("1 as true", "Alias 'true' is a reserved keyword.")
-        self._assert_select_error("select 1 as team_id from events", "Alias 'team_id' is a reserved keyword.")
+        self._assert_expr_error("1 as team_id", "Alias 'team_id' is a reserved keyword")
+        self._assert_expr_error("1 as true", "Alias 'true' is a reserved keyword")
+        self._assert_select_error("select 1 as team_id from events", "Alias 'team_id' is a reserved keyword")
         self.assertEqual(
             self._select("select 1 as `-- select team_id` from events"),
             f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
@@ -364,23 +391,23 @@ class TestPrinter(BaseTest):
     def test_select_where(self):
         self.assertEqual(
             self._select("select 1 from events where 1 == 2"),
-            f"SELECT 1 FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(1, 2)) LIMIT 10000",
+            f"SELECT 1 FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT 10000",
         )
 
     def test_select_having(self):
         self.assertEqual(
             self._select("select 1 from events having 1 == 2"),
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) HAVING equals(1, 2) LIMIT 10000",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) HAVING 0 LIMIT 10000",
         )
 
     def test_select_prewhere(self):
         self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2"),
-            f"SELECT 1 FROM events PREWHERE equals(1, 2) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            f"SELECT 1 FROM events PREWHERE 0 WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
-            f"SELECT 1 FROM events PREWHERE equals(1, 2) WHERE and(equals(events.team_id, {self.team.pk}), equals(2, 3)) LIMIT 10000",
+            f"SELECT 1 FROM events PREWHERE 0 WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT 10000",
         )
 
     def test_select_order_by(self):
@@ -417,6 +444,11 @@ class TestPrinter(BaseTest):
         )
 
     def test_select_offset(self):
+        # Only the default limit if OFFSET is specified alone
+        self.assertEqual(
+            self._select("select event from events offset 10"),
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 OFFSET 10",
+        )
         self.assertEqual(
             self._select("select event from events limit 10 offset 10"),
             f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 10",
@@ -426,8 +458,8 @@ class TestPrinter(BaseTest):
             f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0",
         )
         self.assertEqual(
-            self._select("select event from events limit 10 offset 0 with ties"),
-            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0 WITH TIES",
+            self._select("select event from events limit 10 with ties offset 0"),
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 WITH TIES OFFSET 0",
         )
 
     def test_select_limit_by(self):
@@ -461,13 +493,13 @@ class TestPrinter(BaseTest):
     def test_select_union_all(self):
         self.assertEqual(
             self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2"),
-            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 UNION ALL SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(1, 2)) LIMIT 10000",
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 UNION ALL SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT 10000",
         )
         self.assertEqual(
             self._select(
                 "SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2 UNION ALL SELECT events.event FROM events WHERE 1 = 2"
             ),
-            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 UNION ALL SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(1, 2)) LIMIT 10000 UNION ALL SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(1, 2)) LIMIT 10000",
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 UNION ALL SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT 10000 UNION ALL SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT 10000",
         )
         self.assertEqual(
             self._select("SELECT 1 UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1"),
@@ -503,14 +535,14 @@ class TestPrinter(BaseTest):
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id"
                 ),
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS persons ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
             self.assertEqual(
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id"
                 ),
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
@@ -519,7 +551,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 expected,
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
             expected = self._select(
@@ -527,7 +559,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 expected,
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
     def test_count_distinct(self):
@@ -550,9 +582,14 @@ class TestPrinter(BaseTest):
 
     def test_print_timezone(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        context.database = create_hogql_database(self.team.pk)
+        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")
+
         self.assertEqual(
-            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now64(6, %(hogql_val_0)s), parseDateTime64BestEffortOrNull(toTimeZone(events.timestamp, %(hogql_val_1)s), 6, %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            self._select(
+                "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02') FROM events", context
+            ),
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date, %(hogql_val_3)s), parseDateTime64BestEffortOrNull(%(hogql_val_4)s, 6, %(hogql_val_5)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
             context.values,
@@ -560,8 +597,9 @@ class TestPrinter(BaseTest):
                 "hogql_val_0": "UTC",
                 "hogql_val_1": "UTC",
                 "hogql_val_2": "UTC",
-                "hogql_val_3": "2020-02-02",
-                "hogql_val_4": "UTC",
+                "hogql_val_3": "UTC",
+                "hogql_val_4": "2020-02-02",
+                "hogql_val_5": "UTC",
             },
         )
 
@@ -571,7 +609,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
             self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now64(6, %(hogql_val_0)s), parseDateTime64BestEffortOrNull(toTimeZone(events.timestamp, %(hogql_val_1)s), 6, %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
             context.values,
@@ -619,4 +657,92 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("'a' || 'b' || 3 || timestamp"),
             f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
+        )
+
+    def test_functions_expecting_datetime_arg(self):
+        self.assertEqual(
+            self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(now(), toIntervalDay('1'))"),
+            f"tumble(toDateTime(now64(6, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTimeOrNull(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s))), toIntervalDay(%(hogql_val_3)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+        )
+        self.assertEqual(
+            self._select("SELECT tumble(timestamp, toIntervalDay('1')) FROM events"),
+            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+
+    def test_field_nullable_equals(self):
+        generated_sql_statements = self._select(
+            "SELECT min_first_timestamp = toStartOfMonth(now()), now() = now(), 1 = now(), now() = 1, 1 = 1, click_count = 1, 1 = click_count, click_count = keypress_count, click_count = null, null = click_count FROM session_replay_events"
+        )
+        assert generated_sql_statements == (
+            f"SELECT "
+            # min_first_timestamp = toStartOfMonth(now())
+            # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
+            f"ifNull(equals(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
+            f"isNull(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            # now() = now() (also two nullable fields)
+            f"ifNull(equals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNull(now64(6, %(hogql_val_2)s)) and isNull(now64(6, %(hogql_val_3)s))), "
+            # 1 = now()
+            f"ifNull(equals(1, now64(6, %(hogql_val_4)s)), 0), "
+            # now() = 1
+            f"ifNull(equals(now64(6, %(hogql_val_5)s), 1), 0), "
+            # 1 = 1
+            f"1, "
+            # click_count = 1
+            f"ifNull(equals(session_replay_events.click_count, 1), 0), "
+            # 1 = click_count
+            f"ifNull(equals(1, session_replay_events.click_count), 0), "
+            # click_count = keypress_count
+            f"ifNull(equals(session_replay_events.click_count, session_replay_events.keypress_count), isNull(session_replay_events.click_count) and isNull(session_replay_events.keypress_count)), "
+            # click_count = null
+            f"isNull(session_replay_events.click_count), "
+            # null = click_count
+            f"isNull(session_replay_events.click_count) "
+            # ...
+            f"FROM (SELECT session_replay_events.min_first_timestamp AS min_first_timestamp, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.min_first_timestamp) AS session_replay_events LIMIT 10000"
+        )
+
+    def test_field_nullable_not_equals(self):
+        generated_sql = self._select(
+            "SELECT min_first_timestamp != toStartOfMonth(now()), now() != now(), 1 != now(), now() != 1, 1 != 1, "
+            "click_count != 1, 1 != click_count, click_count != keypress_count, click_count != null, null != click_count "
+            "FROM session_replay_events"
+        )
+        assert generated_sql == (
+            f"SELECT "
+            # min_first_timestamp = toStartOfMonth(now())
+            # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
+            f"ifNull(notEquals(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
+            f"isNotNull(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            # now() = now() (also two nullable fields)
+            f"ifNull(notEquals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNotNull(now64(6, %(hogql_val_2)s)) or isNotNull(now64(6, %(hogql_val_3)s))), "
+            # 1 = now()
+            f"ifNull(notEquals(1, now64(6, %(hogql_val_4)s)), 1), "
+            # now() = 1
+            f"ifNull(notEquals(now64(6, %(hogql_val_5)s), 1), 1), "
+            # 1 = 1
+            f"0, "
+            # click_count = 1
+            f"ifNull(notEquals(session_replay_events.click_count, 1), 1), "
+            # 1 = click_count
+            f"ifNull(notEquals(1, session_replay_events.click_count), 1), "
+            # click_count = keypress_count
+            f"ifNull(notEquals(session_replay_events.click_count, session_replay_events.keypress_count), isNotNull(session_replay_events.click_count) or isNotNull(session_replay_events.keypress_count)), "
+            # click_count = null
+            f"isNotNull(session_replay_events.click_count), "
+            # null = click_count
+            f"isNotNull(session_replay_events.click_count) "
+            # ...
+            f"FROM (SELECT session_replay_events.min_first_timestamp AS min_first_timestamp, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.min_first_timestamp) AS session_replay_events LIMIT 10000"
         )

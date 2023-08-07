@@ -134,7 +134,7 @@ describe('runRetriableFunction', () => {
         )
     })
 
-    it('catches RetryError error and retries up to 5 times', async () => {
+    it('catches RetryError error and retries up to 3 times', async () => {
         const tryFn = jest.fn().mockImplementation(() => {
             throw new RetryError()
         })
@@ -163,16 +163,14 @@ describe('runRetriableFunction', () => {
 
         jest.runAllTimers()
 
-        await expect(promise).resolves.toEqual(5)
-        expect(tryFn).toHaveBeenCalledTimes(5)
+        await expect(promise).resolves.toEqual(3)
+        expect(tryFn).toHaveBeenCalledTimes(3)
         expect(catchFn).toHaveBeenCalledTimes(1)
         expect(catchFn).toHaveBeenCalledWith(expect.any(RetryError))
         expect(finallyFn).toHaveBeenCalledTimes(1)
-        expect(setTimeout).toHaveBeenCalledTimes(4)
-        expect(setTimeout).toHaveBeenNthCalledWith(1, expect.any(Function), 5_000)
-        expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 10_000)
-        expect(setTimeout).toHaveBeenNthCalledWith(3, expect.any(Function), 20_000)
-        expect(setTimeout).toHaveBeenNthCalledWith(4, expect.any(Function), 40_000)
+        expect(setTimeout).toHaveBeenCalledTimes(2)
+        expect(setTimeout).toHaveBeenNthCalledWith(1, expect.any(Function), 3_000)
+        expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 6_000)
         expect(mockHub.appMetrics.queueError).toHaveBeenCalledWith(
             {
                 ...appMetric,
@@ -222,8 +220,8 @@ describe('runRetriableFunction', () => {
         expect(catchFn).toHaveBeenCalledTimes(0)
         expect(finallyFn).toHaveBeenCalledTimes(1)
         expect(setTimeout).toHaveBeenCalledTimes(2)
-        expect(setTimeout).toHaveBeenNthCalledWith(1, expect.any(Function), 5_000)
-        expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 10_000)
+        expect(setTimeout).toHaveBeenNthCalledWith(1, expect.any(Function), 3_000)
+        expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 6_000)
         expect(mockHub.appMetrics.queueMetric).toHaveBeenCalledWith({
             ...appMetric,
             successes: 0,

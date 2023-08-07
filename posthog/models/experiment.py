@@ -17,6 +17,7 @@ class Experiment(models.Model):
     #   recommended_running_time: number
     #   recommended_sample_size: number
     #   feature_flag_variants: { key: string, name: string, rollout_percentage: number }[]
+    #   custom_exposure_filter: Filter json
     parameters: models.JSONField = models.JSONField(default=dict, null=True)
 
     # A list of filters for secondary metrics

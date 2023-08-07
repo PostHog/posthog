@@ -1,8 +1,7 @@
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
-import { funnelLogic } from './funnelLogic'
-import { FilterType, FunnelStepWithConversionMetrics } from '~/types'
+import { FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -15,6 +14,10 @@ import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTool
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { BreakdownFilter } from '~/queries/schema'
+import { funnelDataLogic } from './funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelTooltipLogic } from './funnelTooltipLogic'
 
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 4
@@ -24,7 +27,7 @@ interface FunnelTooltipProps {
     stepIndex: number
     series: FunnelStepWithConversionMetrics
     groupTypeLabel: string
-    filters: Partial<FilterType>
+    breakdownFilter: BreakdownFilter | null | undefined
 }
 
 function FunnelTooltip({
@@ -32,7 +35,7 @@ function FunnelTooltip({
     stepIndex,
     series,
     groupTypeLabel,
-    filters,
+    breakdownFilter,
 }: FunnelTooltipProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -50,7 +53,7 @@ function FunnelTooltip({
                         formatPropertyValueForDisplay,
                         series.breakdown_value,
                         series.breakdown,
-                        filters.breakdown_type
+                        breakdownFilter?.breakdown_type
                     )}
                 </strong>
             </LemonRow>
@@ -97,7 +100,9 @@ function FunnelTooltip({
 }
 
 export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
-    const { filters, isTooltipShown, currentTooltip, tooltipOrigin } = useValues(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { breakdown, querySource } = useValues(funnelDataLogic(insightProps))
+    const { isTooltipShown, currentTooltip, tooltipOrigin } = useValues(funnelTooltipLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const vizRef = useRef<HTMLDivElement>(null)
@@ -115,8 +120,8 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
                             showPersonsModal={showPersonsModal}
                             stepIndex={currentTooltip[0]}
                             series={currentTooltip[1]}
-                            groupTypeLabel={aggregationLabel(filters.aggregation_group_type_index).plural}
-                            filters={filters}
+                            groupTypeLabel={aggregationLabel(querySource?.aggregation_group_type_index).plural}
+                            breakdownFilter={breakdown}
                         />
                     )}
                 </>,

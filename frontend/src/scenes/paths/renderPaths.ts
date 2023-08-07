@@ -8,7 +8,7 @@ import { D3Selector } from 'lib/hooks/useD3'
 
 import { HIDE_PATH_CARD_HEIGHT, FALLBACK_CANVAS_WIDTH } from './Paths'
 import { roundedRect, isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
-import { PathNode } from './pathsLogic'
+import { PathNode } from './pathsDataLogic'
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
@@ -33,7 +33,7 @@ const createSankey = (width: number, height: number): Sankey.SankeyLayout<any, a
 const appendPathNodes = (
     svg: any,
     nodes: PathNodeData[],
-    filter: Partial<PathsFilterType>,
+    pathsFilter: Partial<PathsFilterType>,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void => {
     svg.append('g')
@@ -62,7 +62,7 @@ const appendPathNodes = (
                     }
                 }
             }
-            if (isSelectedPathStartOrEnd(filter, d)) {
+            if (isSelectedPathStartOrEnd(pathsFilter, d)) {
                 return d3.color('purple')
             }
             const startNodeColor = c && d3.color(c) ? d3.color(c) : d3.color('#5375ff')
@@ -93,7 +93,7 @@ const appendDropoffs = (svg: D3Selector): void => {
 
     dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(220,53,69,0.7)')
 
-    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', '#fff')
+    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--bg-light)')
 }
 
 const appendPathLinks = (
@@ -200,7 +200,7 @@ export function renderPaths(
     canvasWidth: number,
     canvasHeight: number,
     paths: { links: PathNode[]; nodes: any[] },
-    filter: Partial<PathsFilterType>,
+    pathsFilter: Partial<PathsFilterType>,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
     if (!paths || paths.nodes.length === 0) {
@@ -227,7 +227,7 @@ export function renderPaths(
 
     setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
 
-    appendPathNodes(svg, nodes, filter, setNodeCards)
+    appendPathNodes(svg, nodes, pathsFilter, setNodeCards)
     appendDropoffs(svg)
     appendPathLinks(svg, links, nodes, setNodeCards)
     addChartAxisLines(svg, height, nodes, maxLayer)

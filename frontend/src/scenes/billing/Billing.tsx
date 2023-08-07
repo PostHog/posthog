@@ -17,6 +17,7 @@ import { IconPlus } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { Field, Form } from 'kea-forms'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -57,7 +58,7 @@ export function Billing(): JSX.Element {
         return (
             <>
                 <BillingPageHeader />
-                <SpinnerOverlay />
+                <SpinnerOverlay sceneLevel />
             </>
         )
     }
@@ -67,22 +68,14 @@ export function Billing(): JSX.Element {
             <div className="space-y-4">
                 {!isOnboarding && <BillingPageHeader />}
                 <LemonBanner type="error">
-                    There was an issue retrieving your current billing information. If this message persists please
-                    <Link
-                        onClick={() => {
-                            openSupportForm('bug', 'billing')
-                        }}
-                    >
-                        submit a bug report
-                    </Link>
+                    There was an issue retrieving your current billing information. If this message persists, please
+                    {preflight?.cloud ? (
+                        <Link onClick={() => openSupportForm('bug', 'billing')}>submit a bug report</Link>
+                    ) : (
+                        <Link to="mailto:sales@posthog.com">contact sales@posthog.com</Link>
+                    )}
                     .
                 </LemonBanner>
-                {!cloudOrDev ? (
-                    <LemonBanner type="info">
-                        There was an issue retrieving your current billing information. If this message persists please
-                        contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link>.
-                    </LemonBanner>
-                ) : null}
             </div>
         )
     }
@@ -93,6 +86,7 @@ export function Billing(): JSX.Element {
             return ''
         }
         let url = '/api/billing-v2/activation?products='
+        let productsToUpgrade = ''
         for (const product of products) {
             if (product.subscribed || product.contact_support || product.inclusion_only) {
                 continue
@@ -104,20 +98,25 @@ export function Billing(): JSX.Element {
             if (!upgradePlanKey) {
                 continue
             }
-            url += `${product.type}:${upgradePlanKey},`
+            productsToUpgrade += `${product.type}:${upgradePlanKey},`
             if (product.addons?.length) {
                 for (const addon of product.addons) {
-                    url += `${addon.type}:${addon.plans[0].plan_key},`
+                    productsToUpgrade += `${addon.type}:${addon.plans[0].plan_key},`
                 }
             }
         }
         // remove the trailing comma that will be at the end of the url
-        url = url.slice(0, -1)
+        if (!productsToUpgrade) {
+            return ''
+        }
+        url += productsToUpgrade.slice(0, -1)
         if (redirectPath) {
             url += `&redirect_path=${redirectPath}`
         }
         return url
     }
+
+    const upgradeAllProductsLink = getUpgradeAllProductsLink()
 
     return (
         <div ref={ref}>
@@ -172,18 +171,26 @@ export function Billing(): JSX.Element {
             )}
             <div
                 className={clsx('flex flex-wrap gap-4', {
-                    'flex-col pb-4 items-stretch': size === 'small',
+                    'flex-col items-stretch': size === 'small',
                     'items-center': size !== 'small',
                 })}
             >
                 {!isOnboarding && billing?.billing_period && (
                     <div className="flex-1">
                         <div className="space-y-2">
-                            <p>
-                                Your current {billing?.has_active_subscription ? 'billing period' : 'cycle'} is from{' '}
-                                <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
-                                <b>{billing.billing_period.current_period_end.format('LL')}</b>
-                            </p>
+                            <div>
+                                <p className="ml-0 mb-0">
+                                    {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
+                                    <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
+                                    <b>{billing.billing_period.current_period_end.format('LL')}</b> (
+                                    {billing.billing_period.current_period_end.diff(dayjs(), 'days')} days remaining)
+                                </p>
+                                {!billing.has_active_subscription && (
+                                    <p className="italic ml-0 text-muted">
+                                        Monthly free allocation resets at the end of the cycle.
+                                    </p>
+                                )}
+                            </div>
 
                             {billing?.has_active_subscription && (
                                 <>
@@ -196,25 +203,35 @@ export function Billing(): JSX.Element {
                                         ${billing.current_total_amount_usd_after_discount}
                                     </div>
                                     {billing.discount_percent && (
-                                        <div className="text-xl">
-                                            ({billing.discount_percent}% off discount applied)
+                                        <div>
+                                            <p className="ml-0">
+                                                <strong>{billing.discount_percent}%</strong> off discount applied
+                                            </p>
                                         </div>
                                     )}
                                     {billing.discount_amount_usd && (
-                                        <div className="text-xl">
-                                            (-${billing.discount_amount_usd} discount applied)
+                                        <div>
+                                            <p className="ml-0">
+                                                <Tooltip
+                                                    title={
+                                                        billing?.amount_off_expires_at
+                                                            ? `Expires on ${billing?.amount_off_expires_at?.format(
+                                                                  'LL'
+                                                              )}`
+                                                            : null
+                                                    }
+                                                    placement="bottomLeft"
+                                                >
+                                                    <strong>
+                                                        ${parseInt(billing.discount_amount_usd).toLocaleString()}
+                                                    </strong>{' '}
+                                                </Tooltip>
+                                                remaining credits applied to your bill.
+                                            </p>
                                         </div>
                                     )}
                                 </>
                             )}
-
-                            <p>
-                                <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b> remaining
-                                in your{' '}
-                                {billing?.has_active_subscription
-                                    ? 'billing period.'
-                                    : 'cycle. Your free allocation will reset at the end of the cycle.'}
-                            </p>
                         </div>
                     </div>
                 )}
@@ -249,14 +266,14 @@ export function Billing(): JSX.Element {
 
             <div className="flex justify-between">
                 <h2>Products</h2>
-                {isOnboarding && (
+                {isOnboarding && upgradeAllProductsLink && (
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        to={getUpgradeAllProductsLink()}
+                        to={upgradeAllProductsLink}
                         disableClientSideRouting
                     >
-                        Upgrade All
+                        Upgrade all
                     </LemonButton>
                 )}
             </div>

@@ -1,4 +1,4 @@
-import { EventsQuery } from '../../queries/schema'
+import { EventsQuery, InsightVizNode } from '../../queries/schema'
 import { actions, afterMount, kea, path, reducers } from 'kea'
 import { DataTableNode, Node, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema'
 
@@ -24,7 +24,6 @@ const DEFAULT_DATATABLE_QUERY: DataTableNode = {
     propertiesViaUrl: true,
     showExport: true,
     showReload: true,
-    showColumnConfigurator: true,
     showEventFilter: true,
     showPropertyFilter: true,
 }
@@ -41,6 +40,11 @@ const DEFAULT_TREND_QUERY: TrendsQuery = {
     dateRange: {
         date_from: '-30d',
     },
+}
+
+const DEFAULT_TREND_INSIGHT_VIZ_NODE: InsightVizNode = {
+    kind: NodeKind.InsightVizNode,
+    source: DEFAULT_TREND_QUERY,
 }
 
 export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
@@ -70,28 +74,31 @@ export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
             },
         ],
         trendQuery: [
-            DEFAULT_TREND_QUERY as TrendsQuery,
+            DEFAULT_TREND_INSIGHT_VIZ_NODE as InsightVizNode,
             {
                 setDataTableQuery: (_, { query }) => {
                     if (query.kind === NodeKind.DataTableNode) {
                         const dataTableQuery = query as DataTableNode
                         const source = dataTableQuery.source as EventsQuery
                         return {
-                            ...DEFAULT_TREND_QUERY,
-                            series: [
-                                {
-                                    kind: NodeKind.EventsNode,
-                                    event: source.event,
-                                    name: source.event ?? undefined,
+                            ...DEFAULT_TREND_INSIGHT_VIZ_NODE,
+                            source: {
+                                ...DEFAULT_TREND_QUERY,
+                                series: [
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        event: source.event,
+                                        name: source.event ?? undefined,
+                                    },
+                                ],
+                                dateRange: {
+                                    date_from: source.after,
+                                    date_to: source.before,
                                 },
-                            ],
-                            dateRange: {
-                                date_from: source.after,
-                                date_to: source.before,
                             },
                         }
                     } else {
-                        return DEFAULT_TREND_QUERY
+                        return DEFAULT_TREND_INSIGHT_VIZ_NODE
                     }
                 },
             },

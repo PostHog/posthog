@@ -7,10 +7,12 @@ import { useActions, useValues } from 'kea'
 import { confirmOrganizationLogic } from './confirmOrganizationLogic'
 import { Field } from 'lib/forms/Field'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { urls } from 'scenes/urls'
 import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
+import SignupReferralSourceSelect from 'lib/components/SignupReferralSourceSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: ConfirmOrganization,
@@ -20,6 +22,7 @@ export const scene: SceneExport = {
 export function ConfirmOrganization(): JSX.Element {
     const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <BridgePage view="org-creation-confirmation" hedgehog>
@@ -77,6 +80,20 @@ export function ConfirmOrganization(): JSX.Element {
                 </Field>
 
                 <SignupRoleSelect />
+                {featureFlags[FEATURE_FLAGS.REFERRAL_SOURCE_SELECT] === 'test' ? (
+                    <SignupReferralSourceSelect />
+                ) : (
+                    <>
+                        <Field name="referral_source" label="Where did you hear about us?" showOptional>
+                            <LemonInput
+                                className="ph-ignore-input"
+                                data-attr="signup-referral-source"
+                                placeholder=""
+                                disabled={isConfirmOrganizationSubmitting}
+                            />
+                        </Field>
+                    </>
+                )}
 
                 <LemonButton
                     htmlType="submit"
@@ -86,16 +103,6 @@ export function ConfirmOrganization(): JSX.Element {
                     loading={isConfirmOrganizationSubmitting}
                 >
                     Create organization
-                </LemonButton>
-
-                <LemonButton
-                    fullWidth
-                    center
-                    type="secondary"
-                    disabled={isConfirmOrganizationSubmitting}
-                    to={urls.signup()}
-                >
-                    Cancel
                 </LemonButton>
             </Form>
 

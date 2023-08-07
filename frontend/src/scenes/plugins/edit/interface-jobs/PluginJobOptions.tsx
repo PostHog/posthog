@@ -1,4 +1,5 @@
 import { LemonTag } from '@posthog/lemon-ui'
+import { Link } from 'lib/lemon-ui/Link'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 import { JobSpec } from '~/types'
@@ -56,14 +57,23 @@ export function PluginJobOptions({
 
             {jobs.map((jobName) => (
                 <div key={jobName}>
-                    {jobName.includes('Export historical events') ? <i>Export historical events</i> : <i>{jobName}</i>}
-                    <PluginJobConfiguration
-                        jobName={jobName}
-                        jobSpec={publicJobs[jobName]}
-                        pluginConfigId={pluginConfigId}
-                        pluginId={pluginId}
-                        onSubmit={onSubmit}
-                    />
+                    {jobName.includes('Export historical events') ? (
+                        <i>
+                            Currently unavailable, see{' '}
+                            <Link to="https://github.com/PostHog/posthog/issues/15997">GitHub issue</Link>
+                        </i>
+                    ) : (
+                        <>
+                            <i>{jobName}</i>
+                            <PluginJobConfiguration
+                                jobName={jobName}
+                                jobSpec={publicJobs[jobName]}
+                                pluginConfigId={pluginConfigId}
+                                pluginId={pluginId}
+                                onSubmit={onSubmit}
+                            />
+                        </>
+                    )}
                 </div>
             ))}
         </>

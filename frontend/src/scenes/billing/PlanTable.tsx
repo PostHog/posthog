@@ -169,7 +169,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     <tr>
                         <th
                             colSpan={3}
-                            className="PlanTable__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
+                            className="PlanTable__th__section bg-side text-muted justify-left rounded text-left mb-2"
                         >
                             <span>Pricing</span>
                         </th>
@@ -213,7 +213,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     <tr>
                         <th
                             colSpan={3}
-                            className="PlanTable__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
+                            className="PlanTable__th__section bg-side text-muted justify-left rounded text-left mb-2"
                         >
                             <span>Features</span>
                         </th>

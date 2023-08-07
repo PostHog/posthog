@@ -12,9 +12,7 @@ import { urls } from 'scenes/urls'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appContextLogic } from './appContextLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -34,6 +32,10 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.FeatureFlag]: Scene.FeatureFlags,
     [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
     [Scene.Survey]: Scene.Surveys,
+    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
+    [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
+    [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
+    [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
     [Scene.AppMetrics]: Scene.Plugins,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
@@ -45,7 +47,6 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     connect: () => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        values: [featureFlagLogic, ['featureFlags']],
         actions: [router, ['locationChanged']],
     }),
     path: ['scenes', 'sceneLogic'],
@@ -127,14 +128,8 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     selectors: {
         sceneConfig: [
-            (s) => [s.scene, s.featureFlags],
-            (scene: Scene, featureFlags): SceneConfig | null => {
-                if (scene === Scene.Events && featureFlags[FEATURE_FLAGS.HOGQL]) {
-                    return {
-                        ...sceneConfigurations[scene],
-                        name: 'Event Explorer',
-                    }
-                }
+            (s) => [s.scene],
+            (scene: Scene): SceneConfig | null => {
                 return sceneConfigurations[scene] || null
             },
         ],
@@ -270,13 +265,13 @@ export const sceneLogic = kea<sceneLogicType>({
                 if (scene !== Scene.InviteSignup) {
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (location.pathname !== urls.organizationCreateFirst()) {
-                            console.log('Organization not available, redirecting to organization creation')
+                            console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
                             return
                         }
                     } else if (teamLogic.values.isCurrentTeamUnavailable) {
                         if (location.pathname !== urls.projectCreateFirst()) {
-                            console.log('Organization not available, redirecting to project creation')
+                            console.warn('Organization not available, redirecting to project creation')
                             router.actions.replace(urls.projectCreateFirst())
                             return
                         }
@@ -287,7 +282,7 @@ export const sceneLogic = kea<sceneLogicType>({
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/project/settings')
                     ) {
-                        console.log('Ingestion tutorial not completed, redirecting to it')
+                        console.warn('Ingestion tutorial not completed, redirecting to it')
                         router.actions.replace(urls.ingestion())
                         return
                     }

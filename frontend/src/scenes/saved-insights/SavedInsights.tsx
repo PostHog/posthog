@@ -57,7 +57,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -188,6 +187,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
+    [NodeKind.SavedInsightNode]: {
+        name: 'Insight visualization by short id',
+        description: 'View your insights',
+        icon: IconBarChart,
+        inMenu: true,
+    },
     [NodeKind.InsightVizNode]: {
         name: 'Insight visualization',
         description: 'View your insights',
@@ -203,12 +208,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.TimeToSeeDataQuery]: {
         name: 'Internal PostHog performance data',
         description: 'View listings of sessions holding performance data in PostHog itself',
-        icon: IconCoffee,
-        inMenu: true,
-    },
-    [NodeKind.RecentPerformancePageViewNode]: {
-        name: 'PostHog performance data',
-        description: 'PageViews where we recorded performance data about your site',
         icon: IconCoffee,
         inMenu: true,
     },
@@ -289,7 +288,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: overlayForNewInsightMenu(dataAttr, !!featureFlags[FEATURE_FLAGS.HOGQL]),
+                    overlay: overlayForNewInsightMenu(dataAttr),
                 },
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}
@@ -330,7 +329,7 @@ function SavedInsightsGrid(): JSX.Element {
                 {insightsLoading && (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ minHeight: '30rem' }}>
-                        <SpinnerOverlay />
+                        <SpinnerOverlay sceneLevel />
                     </div>
                 )}
             </div>
@@ -340,9 +339,6 @@ function SavedInsightsGrid(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.HOGQL]
-
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
@@ -372,7 +368,7 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <DraggableToNotebook href={urls.insightView(insight.short_id)}>
+                    <>
                         <span className="row-name">
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
@@ -381,7 +377,6 @@ export function SavedInsights(): JSX.Element {
                                             aggregationLabel,
                                             cohortsById,
                                             mathDefinitions,
-                                            isUsingDashboardQueries,
                                         })}
                                     </i>
                                 )}
@@ -403,7 +398,7 @@ export function SavedInsights(): JSX.Element {
                         {hasDashboardCollaboration && insight.description && (
                             <span className="row-description">{insight.description}</span>
                         )}
-                    </DraggableToNotebook>
+                    </>
                 )
             },
         },

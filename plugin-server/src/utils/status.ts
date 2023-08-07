@@ -83,28 +83,10 @@ export class Status implements StatusBlueprint {
 }
 
 function promptForMode(mode: PluginsServerConfig['PLUGIN_SERVER_MODE']): string {
-    switch (mode) {
-        case null:
-            return 'MAIN'
-        case 'ingestion':
-            return 'INGESTION'
-        case 'analytics-ingestion':
-            return 'ANALYTICS-INGESTION'
-        case 'ingestion-overflow':
-            return 'INGESTION-OVERFLOW'
-        case 'recordings-ingestion':
-            return 'RECORDINGS-INGESTION'
-        case 'recordings-blob-ingestion':
-            return 'RECORDINGS-BLOB-INGESTION'
-        case 'async':
-            return 'ASYNC'
-        case 'exports':
-            return 'EXPORTS'
-        case 'jobs':
-            return 'JOBS'
-        case 'scheduler':
-            return 'SCHEDULER'
+    if (mode == null) {
+        return 'MAIN'
     }
+    return mode.toUpperCase()
 }
 
 export const status = new Status()

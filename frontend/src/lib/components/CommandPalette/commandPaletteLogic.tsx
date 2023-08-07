@@ -559,7 +559,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                     preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
                               icon: IconTools,
-                              display: 'Debug queries (ClickHouse)',
+                              display: 'Debug ClickHouse Queries',
                               executor: () => {
                                   debugCHQueries()
                               },
@@ -574,17 +574,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                     icon: IconRecording,
                     display: 'Debug: Copy the session recording link to clipboard',
                     executor: () => {
-                        const LOOK_BACK = 30
-                        const recordingStartTime = Math.max(
-                            Math.floor(
-                                (new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000
-                            ) - LOOK_BACK,
-                            0
-                        )
-                        void copyToClipboard(
-                            `${window.location.origin}/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`,
-                            'Current session recording link to clipboard'
-                        )
+                        const url = posthog.get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
+                        void copyToClipboard(url, 'Current session recording link to clipboard')
                     },
                 },
             }

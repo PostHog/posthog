@@ -80,7 +80,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
     }),
 
-    selectors(({ props }) => ({
+    selectors(() => ({
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
@@ -121,16 +121,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
         aggregationTargetLabel: [
             (s) => [s.querySource, s.aggregationLabel],
-            (
-                querySource: FunnelsQuery,
-                aggregationLabel: (
-                    groupTypeIndex: number | null | undefined,
-                    deferToUserWording?: boolean | undefined
-                ) => Noun
-            ): Noun =>
-                querySource.funnelsFilter?.funnel_aggregate_by_hogql
+            (querySource, aggregationLabel): Noun => {
+                if (!querySource) {
+                    return { singular: '', plural: '' }
+                }
+
+                return querySource.funnelsFilter?.funnel_aggregate_by_hogql
                     ? aggregationLabelForHogQL(querySource.funnelsFilter.funnel_aggregate_by_hogql)
-                    : aggregationLabel(querySource.aggregation_group_type_index),
+                    : aggregationLabel(querySource.aggregation_group_type_index)
+            },
         ],
 
         results: [
@@ -186,10 +185,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return stepsWithConversionMetrics(steps, stepReference)
             },
         ],
+
+        // hack for experiments to remove displaying baseline from the funnel viz
+        disableFunnelBreakdownBaseline: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
+        ],
         flattenedBreakdowns: [
-            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter],
-            (steps, funnelsFilter): FlattenedFunnelStepByBreakdown[] => {
-                const disableBaseline = !!props.cachedInsight?.disable_baseline
+            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.disableFunnelBreakdownBaseline],
+            (steps, funnelsFilter, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
                 return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
             },
         ],
@@ -243,7 +247,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 const binSize = timeConversionResults.bins[1][0] - timeConversionResults.bins[0][0]
                 return timeConversionResults.bins.map(([id, count]: [id: number, count: number]) => {
                     const value = Math.max(0, id)
-                    const percent = count / totalCount
+                    const percent = totalCount === 0 ? 0 : count / totalCount
                     return {
                         id: value,
                         bin0: value,
@@ -317,8 +321,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
                         0
                     ),
-                    stepRate: toStep.count / fromStep.count,
-                    totalRate: steps[steps.length - 1].count / steps[0].count,
+                    stepRate: fromStep.count === 0 ? 0 : toStep.count / fromStep.count,
+                    totalRate: steps[0].count === 0 ? 0 : steps[steps.length - 1].count / steps[0].count,
                 }
             },
         ],
@@ -399,13 +403,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.conversionMetrics, s.skewWarningHidden],
             (conversionMetrics, skewWarningHidden): boolean => {
                 return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
-            },
-        ],
-
-        canOpenPersonModal: [
-            (s) => [s.funnelsFilter],
-            (funnelsFilter): boolean => {
-                return !funnelsFilter?.funnel_aggregate_by_hogql
             },
         ],
     })),

@@ -187,7 +187,7 @@ class LazyTableResolver(TraversingVisitor):
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed)
-            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context.database, [node.type]))
+            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, [node.type]))
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
@@ -205,7 +205,7 @@ class LazyTableResolver(TraversingVisitor):
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
                 join_scope.from_table, join_scope.to_table, join_scope.fields_accessed
             )
-            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context.database, [node.type]))
+            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, [node.type]))
             select_type.tables[to_table] = join_to_add.type
 
             join_ptr = node.select_from

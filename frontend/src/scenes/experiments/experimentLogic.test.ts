@@ -1,8 +1,6 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, InsightType } from '~/types'
+import { AvailableFeature } from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -17,9 +15,6 @@ describe('experimentLogic', () => {
     beforeEach(async () => {
         useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
         useMocks({
-            post: {
-                '/api/projects/:team/insights': { short_id: 'a5qqECqP', filters: { insight: InsightType.FUNNELS } },
-            },
             get: {
                 '/api/projects/:team/experiments': {
                     count: 1,
@@ -89,18 +84,6 @@ describe('experimentLogic', () => {
         logic = experimentLogic()
         logic.mount()
         await expectLogic(userLogic).toFinishAllListeners()
-    })
-
-    describe('when creating a new experiment', () => {
-        it('creates an insight funnel and clears the new experiment form', async () => {
-            router.actions.push(urls.experiment('new'))
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toDispatchActions(['setExperimentInsightId'])
-                .toMatchValues({
-                    experimentInsightId: 'a5qqECqP',
-                })
-        })
     })
 
     describe('selector values', () => {

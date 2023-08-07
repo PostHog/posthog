@@ -7,13 +7,12 @@ import { EditorFilterProps } from '~/types'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PathsFilter } from '~/queries/schema'
 
 export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Element {
-    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { local_path_cleaning_filters, path_replacements } = (insightFilter || {}) as PathsFilter
+    const { local_path_cleaning_filters, path_replacements } = pathsFilter || {}
 
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.path_cleaning_filters || []).length > 0

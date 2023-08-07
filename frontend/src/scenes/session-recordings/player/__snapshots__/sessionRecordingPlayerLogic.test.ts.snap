@@ -5,6 +5,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
   "bufferedToTime": 0,
   "durationMs": 11868,
   "end": "2023-05-01T14:46:32.745Z",
+  "fullyLoaded": false,
   "person": {
     "created_at": "2023-05-01T14:46:20.838000Z",
     "distinct_ids": [
@@ -37,6 +38,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
   "bufferedToTime": 11868,
   "durationMs": 11868,
   "end": "2023-05-01T14:46:32.745Z",
+  "fullyLoaded": true,
   "person": {
     "created_at": "2023-05-01T14:46:20.838000Z",
     "distinct_ids": [
@@ -52,44 +54,12 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
   "pinnedCount": 0,
   "segments": [
     {
-      "durationMs": 5,
-      "endTimestamp": 1682952380882,
-      "isActive": false,
+      "durationMs": 7255,
+      "endTimestamp": 1682952388132,
+      "isActive": true,
       "kind": "window",
       "startTimestamp": 1682952380877,
       "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
-    },
-    {
-      "durationMs": 2156,
-      "endTimestamp": 1682952383039,
-      "isActive": false,
-      "kind": "gap",
-      "startTimestamp": 1682952380883,
-      "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
-    },
-    {
-      "durationMs": 3531,
-      "endTimestamp": 1682952386571,
-      "isActive": true,
-      "kind": "window",
-      "startTimestamp": 1682952383040,
-      "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
-    },
-    {
-      "durationMs": 1531,
-      "endTimestamp": 1682952388103,
-      "isActive": false,
-      "kind": "gap",
-      "startTimestamp": 1682952386572,
-      "windowId": undefined,
-    },
-    {
-      "durationMs": 28,
-      "endTimestamp": 1682952388132,
-      "isActive": false,
-      "kind": "window",
-      "startTimestamp": 1682952388104,
-      "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
     },
     {
       "durationMs": 525,
@@ -2148,6 +2118,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata only by
   "bufferedToTime": 0,
   "durationMs": 11868,
   "end": "2023-05-01T14:46:32.745Z",
+  "fullyLoaded": false,
   "person": {
     "created_at": "2023-05-01T14:46:20.838000Z",
     "distinct_ids": [

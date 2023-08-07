@@ -146,7 +146,7 @@ export function PlayerInspectorListItem({
                     'flex-1 overflow-hidden rounded border',
                     isExpanded && 'border-primary',
                     item.highlightColor && `border-${item.highlightColor}-dark bg-${item.highlightColor}-highlight`,
-                    !item.highlightColor && 'bg-inverse'
+                    !item.highlightColor && 'bg-bg-light'
                 )}
             >
                 {item.type === SessionRecordingPlayerTab.NETWORK ? (

@@ -58,6 +58,7 @@ jobs:
             CYPRESS_INSTALL_BINARY: '0'
             NODE_OPTIONS: --max-old-space-size=6144
             JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
+            OPT_OUT_CAPTURE: 1
         outputs:
             # The below have to be manually listed unfortunately, as GitHub Actions doesn't allow matrix-dependent outputs
             chromium-1-added: ${{ steps.diff.outputs.chromium-1-added }}
@@ -103,7 +104,7 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
               uses: pnpm/action-setup@v2
@@ -147,7 +148,7 @@ jobs:
               run: |
                   pnpm test:visual-regression:legacy:ci:$VARIANT
 
-            - name: Count snapshot changes from git diff
+            - name: Count and optimize updated snapshots
               id: diff
               # Skip on forks
               if: github.event.pull_request.head.repo.full_name == github.repository
@@ -158,21 +159,19 @@ jobs:
                   MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
                   DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
                   TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
+
+                  # If added or modified, run OptiPNG
+                  if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
+                    echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
+                    apt update && apt install -y optipng
+                    git add frontend/__snapshots__/ playwright/
+                    pnpm lint-staged
+                  fi
+
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
-
-            - name: Compress new/changed images using OptiPNG
-              if: |
-                  github.event.pull_request.head.repo.full_name == github.repository && (
-                    steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-added != '0'
-                    || steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-modified != '0'
-                  )
-              run: |
-                  apt update && apt install -y optipng
-                  git add frontend/__snapshots__/ playwright/
-                  pnpm lint-staged
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
@@ -183,7 +182,7 @@ jobs:
                   message: 'Update UI snapshots for `${{ matrix.browser }}` (${{ matrix.shard }})'
                   pull: --rebase --autostash # Make sure we're up to date with other browsers' updates
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Add commit hash to outputs, including browser name
               id: commit-hash
@@ -201,7 +200,7 @@ jobs:
               if: github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@v6
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
                   script: |
                       const BROWSERS = ['chromium', 'webkit']
 

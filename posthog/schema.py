@@ -242,16 +242,14 @@ class FunnelCorrelationPersonConverted(str, Enum):
     false = "false"
 
 
-class HogQLMetadataResponse(BaseModel):
+class HogQLNotice(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    error: Optional[str] = None
-    errorEnd: Optional[float] = None
-    errorStart: Optional[float] = None
-    inputExpr: Optional[str] = None
-    inputSelect: Optional[str] = None
-    isValid: Optional[bool] = None
+    end: Optional[float] = None
+    fix: Optional[str] = None
+    message: str
+    start: Optional[float] = None
 
 
 class HogQLQueryResponse(BaseModel):
@@ -292,6 +290,7 @@ class PathType(str, Enum):
     field_pageview = "$pageview"
     field_screen = "$screen"
     custom_event = "custom_event"
+    hogql = "hogql"
 
 
 class PathsFilter(BaseModel):
@@ -313,6 +312,7 @@ class PathsFilter(BaseModel):
     path_replacements: Optional[bool] = None
     path_start_key: Optional[str] = None
     path_type: Optional[PathType] = None
+    paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
     step_limit: Optional[float] = None
 
@@ -350,15 +350,6 @@ class PropertyOperator(str, Enum):
     max = "max"
 
 
-class RecentPerformancePageViewNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    dateRange: DateRange
-    kind: str = Field("RecentPerformancePageViewNode", const=True, description="Performance")
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
-
-
 class RecordingDurationFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -385,6 +376,14 @@ class RetentionPeriod(str, Enum):
 class RetentionType(str, Enum):
     retention_recurring = "retention_recurring"
     retention_first_time = "retention_first_time"
+
+
+class SavedInsightNode(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("SavedInsightNode", const=True)
+    shortId: str
 
 
 class SessionPropertyFilter(BaseModel):
@@ -443,6 +442,7 @@ class TrendsFilter(BaseModel):
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
+    show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
@@ -542,14 +542,17 @@ class GroupPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class HogQLMetadata(BaseModel):
+class HogQLMetadataResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    expr: Optional[str] = None
-    kind: str = Field("HogQLMetadata", const=True)
-    response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
-    select: Optional[str] = None
+    errors: List[HogQLNotice]
+    inputExpr: Optional[str] = None
+    inputSelect: Optional[str] = None
+    isValid: Optional[bool] = None
+    isValidView: Optional[bool] = None
+    notices: List[HogQLNotice]
+    warnings: List[HogQLNotice]
 
 
 class HogQLPropertyFilter(BaseModel):
@@ -728,6 +731,16 @@ class EventsQuery(BaseModel):
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
 
 
+class HogQLMetadata(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    expr: Optional[str] = None
+    kind: str = Field("HogQLMetadata", const=True)
+    response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
+    select: Optional[str] = None
+
+
 class PersonsNode(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -885,9 +898,9 @@ class DataTableNode(BaseModel):
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    source: Union[
-        EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery, TimeToSeeDataSessionsQuery
-    ] = Field(..., description="Source of the events")
+    source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
+        ..., description="Source of the events"
+    )
 
 
 class PropertyGroupFilter(BaseModel):
@@ -1125,6 +1138,8 @@ class InsightVizNode(BaseModel):
     showCorrelationTable: Optional[bool] = None
     showHeader: Optional[bool] = None
     showLastComputation: Optional[bool] = None
+    showLastComputationRefresh: Optional[bool] = None
+    showLegendButton: Optional[bool] = None
     showTable: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
@@ -1132,6 +1147,7 @@ class InsightVizNode(BaseModel):
 class Model(BaseModel):
     __root__: Union[
         DataTableNode,
+        SavedInsightNode,
         InsightVizNode,
         TrendsQuery,
         FunnelsQuery,
@@ -1139,7 +1155,6 @@ class Model(BaseModel):
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
-        RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
         Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, HogQLMetadata, TimeToSeeDataSessionsQuery],

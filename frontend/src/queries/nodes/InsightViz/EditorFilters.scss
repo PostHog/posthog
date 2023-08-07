@@ -8,6 +8,7 @@
     border-radius: var(--radius);
     padding: 1rem;
     margin-bottom: 1rem;
+    background: var(--bg-light);
 
     .EditorFilters {
         > * + * {
@@ -28,24 +29,10 @@
     }
 
     &.EditorFiltersWrapper--singlecolumn {
-        margin-right: 1rem;
-        .EditorFilters {
-            flex-direction: column;
-            gap: 0rem;
-
-            .EditorFilterGroup {
-                width: auto;
-            }
-
-            > * + * {
-                margin-top: 1rem;
-            }
-        }
-    }
-
-    &.EditorFiltersWrapper--singlecolumn {
         border: none;
+        background: none;
         padding: 0px;
+        margin-right: 1rem;
 
         @include screen($xl) {
             --editor-panel-width: max(25vw, 28rem);
@@ -86,6 +73,19 @@
                     transform: translateX(calc(-1 * var(--editor-panel-width)));
                     transition: transform 250ms;
                 }
+            }
+        }
+
+        .EditorFilters {
+            flex-direction: column;
+            gap: 0rem;
+
+            .EditorFilterGroup {
+                width: auto;
+            }
+
+            > * + * {
+                margin-top: 1rem;
             }
         }
     }

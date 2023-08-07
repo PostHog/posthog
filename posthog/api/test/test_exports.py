@@ -1,12 +1,12 @@
-import datetime
 from typing import Dict, List, Optional
 from unittest.mock import patch
-
+from datetime import datetime, timedelta
 import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
 from django.http import HttpResponse
+from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -68,19 +68,48 @@ class TestExports(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        self.assertEqual(
-            data,
+        assert data == {
+            "id": data["id"],
+            "created_at": data["created_at"],
+            "dashboard": self.dashboard.id,
+            "export_format": "image/png",
+            "filename": "export-example-dashboard.png",
+            "has_content": False,
+            "insight": None,
+            "export_context": None,
+            # without an expiry being set at creation, the default is 6 months
+            "expires_after": (now() + timedelta(weeks=26))
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
+
+        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+
+    @patch("posthog.api.exports.exporter")
+    def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
+        one_week_from_now = datetime.now() + timedelta(weeks=1)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
             {
-                "id": data["id"],
-                "created_at": data["created_at"],
-                "dashboard": self.dashboard.id,
                 "export_format": "image/png",
-                "filename": "export-example-dashboard.png",
-                "has_content": False,
-                "insight": None,
-                "export_context": None,
+                "dashboard": self.dashboard.id,
+                "expires_after": one_week_from_now.isoformat(),
             },
         )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        assert data == {
+            "id": data["id"],
+            "created_at": data["created_at"],
+            "dashboard": self.dashboard.id,
+            "export_format": "image/png",
+            "filename": "export-example-dashboard.png",
+            "has_content": False,
+            "insight": None,
+            "export_context": None,
+            "expires_after": one_week_from_now.isoformat() + "Z",
+        }
 
         mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
 
@@ -122,6 +151,10 @@ class TestExports(APIBaseTest):
                 "has_content": False,
                 "dashboard": None,
                 "export_context": None,
+                "expires_after": (now() + timedelta(weeks=26))
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z"),
             },
         )
 
@@ -290,7 +323,7 @@ class TestExports(APIBaseTest):
             )
             flush_persons_and_events()
 
-            after = (datetime.datetime.now() - datetime.timedelta(minutes=10)).isoformat()
+            after = (datetime.now() - timedelta(minutes=10)).isoformat()
 
             def requests_side_effect(*args, **kwargs):
                 return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])

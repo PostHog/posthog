@@ -1,6 +1,9 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
+# PostHog has sunset support for self-hosted K8s deployments. 
+# See: https://posthog.com/blog/sunsetting-helm-support-posthog
+#
 # Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
 #
 # The stages are used to:
@@ -43,6 +46,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
+COPY ./plugin-server/patches/ ./patches/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
@@ -50,6 +54,7 @@ RUN apt-get update && \
     "gcc" \
     "python3" \
     "libssl-dev" \
+    "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \

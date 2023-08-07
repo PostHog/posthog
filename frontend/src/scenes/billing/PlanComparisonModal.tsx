@@ -137,8 +137,8 @@ export const PlanComparisonModal = ({
 
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
-            <div className="PlanComparisonModal flex items-center w-full h-full justify-center p-8">
-                <div className="text-left bg-white rounded-md relative w-full">
+            <div className="PlanComparisonModal flex w-full h-full justify-center p-8">
+                <div className="text-left bg-bg-light rounded-md relative w-full">
                     <h2>{product.name} plans</h2>
                     <table className="w-full table-fixed">
                         <thead>
@@ -158,7 +158,7 @@ export const PlanComparisonModal = ({
                             <tr>
                                 <th
                                     colSpan={3}
-                                    className="PlanTable__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
+                                    className="PlanTable__th__section bg-side text-muted justify-left rounded text-left mb-2"
                                 >
                                     <span>Pricing</span>
                                 </th>
@@ -224,7 +224,7 @@ export const PlanComparisonModal = ({
                             <tr>
                                 <th
                                     colSpan={3}
-                                    className="PlanTable__th__section bg-muted-light justify-left rounded text-left mb-2"
+                                    className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
                                 >
                                     <div className="flex items-center gap-x-2 my-2">
                                         {product.image_url && (
@@ -293,7 +293,7 @@ export const PlanComparisonModal = ({
                                                 <tr>
                                                     <th
                                                         colSpan={3}
-                                                        className="PlanTable__th__section bg-muted-light justify-left rounded text-left mb-2"
+                                                        className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
                                                     >
                                                         <div className="flex items-center gap-x-2 my-2">
                                                             {includedProduct.image_url && (

@@ -5,7 +5,6 @@ import { HistoricalExport } from './HistoricalExport'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Progress } from 'antd'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PluginJobModal } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
 import { useEffect } from 'react'
 
@@ -14,7 +13,7 @@ const RELOAD_HISTORICAL_EXPORTS_FREQUENCY_MS = 20000
 export function HistoricalExportsTab(): JSX.Element {
     const { historicalExports, historicalExportsLoading, pluginConfig, interfaceJobsProps, hasRunningExports } =
         useValues(appMetricsSceneLogic)
-    const { openHistoricalExportModal, loadHistoricalExports } = useActions(appMetricsSceneLogic)
+    const { loadHistoricalExports } = useActions(appMetricsSceneLogic)
 
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined
@@ -34,12 +33,6 @@ export function HistoricalExportsTab(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <div className="flex items-center justify-end">
-                <LemonButton type="primary" onClick={openHistoricalExportModal} disabled={!interfaceJobsProps}>
-                    Start new export
-                </LemonButton>
-            </div>
-
             <LemonTable
                 dataSource={historicalExports}
                 loading={historicalExportsLoading}
@@ -93,11 +86,6 @@ export function HistoricalExportsTab(): JSX.Element {
                 emptyState={
                     <div className="">
                         <b>Nothing has been exported yet!</b>
-                        {interfaceJobsProps && (
-                            <p className="m-0">
-                                Use "Start new export" button above to export historical data in a given time range.
-                            </p>
-                        )}
                     </div>
                 }
             />

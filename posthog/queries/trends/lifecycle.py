@@ -1,20 +1,16 @@
 import urllib
-from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
-
-from django.db.models.query import Prefetch
 
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters import Filter
+from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
 from posthog.queries.event_query import EventQuery
-from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
+from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
 from posthog.queries.util import get_person_properties_mode
 from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
@@ -58,32 +54,11 @@ class Lifecycle:
 
         return _parse
 
-    def get_people(self, filter: Filter, team: Team, target_date: datetime, lifecycle_type: str):
-        event_query, event_params = LifecycleEventQuery(
-            team=team, filter=filter, person_on_events_mode=team.person_on_events_mode
-        ).get_query()
+    def get_people(self, filter: LifecycleFilter, team: Team):
+        from posthog.queries.trends.lifecycle_actors import LifecycleActors
 
-        result = insight_sync_execute(
-            LIFECYCLE_PEOPLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
-            {
-                **event_params,
-                **filter.hogql_context.values,
-                "status": lifecycle_type,
-                "target_date": target_date,
-                "offset": filter.offset,
-                "limit": filter.limit or 100,
-            },
-            query_type="lifecycle_people",
-            filter=filter,
-            team_id=team.pk,
-        )
-        people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])
-        people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-
-        from posthog.api.person import PersonSerializer
-
-        serializer_context = {"get_team": lambda: team}
-        return PersonSerializer(people, context=serializer_context, many=True).data
+        _, serialized_actors, _ = LifecycleActors(filter=filter, team=team, limit_actors=True).get_actors()
+        return serialized_actors
 
     def _get_persons_urls(self, filter: Filter, entity: Entity, times: List[str], status) -> List[Dict[str, Any]]:
         persons_url = []

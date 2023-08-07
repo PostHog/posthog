@@ -38,7 +38,7 @@
             margin-top: 0.5rem;
         }
 
-        .profile-picture {
+        .ProfilePicture {
             flex-grow: 0;
         }
 
@@ -47,11 +47,10 @@
             margin-left: 0.5rem;
 
             .highlighted-activity {
-                background-color: var(--mark-color);
+                background-color: var(--mark);
                 display: inline;
 
-                & > .person-header {
-                    display: inline-block;
+                & > .PersonDisplay {
                     min-width: 5.5rem;
                 }
             }

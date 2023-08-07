@@ -83,22 +83,21 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     )
 
     # Send all instance usage to the Billing service
-    sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
+    sender.add_periodic_task(crontab(hour=1, minute=0), send_org_usage_reports.s(), name="send instance usage report")
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
     sender.add_periodic_task(crontab(hour="*", minute=30), update_quota_limiting.s(), name="update quota limiting")
 
     # PostHog Cloud cron jobs
-    if is_cloud():
-        # Verify that persons data is in sync every day at 4 AM UTC
-        sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
+    # NOTE: We can't use is_cloud here as some Django elements aren't loaded yet. We check in the task execution instead
+    # Verify that persons data is in sync every day at 4 AM UTC
+    sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
-        # Every 30 minutes, send decide request counts to the main posthog instance
-        sender.add_periodic_task(crontab(minute="*/30"), calculate_decide_usage.s(), name="calculate decide usage")
+    # Every 30 minutes, send decide request counts to the main posthog instance
+    sender.add_periodic_task(crontab(minute="*/30"), calculate_decide_usage.s(), name="calculate decide usage")
 
-    if is_cloud() or settings.DEMO:
-        # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
-        # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
-        sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
+    # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
+    # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
+    sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -135,15 +134,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(60, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
-
-    if settings.ASYNC_EVENT_PROPERTY_USAGE:
-        sender.add_periodic_task(
-            get_crontab(settings.EVENT_PROPERTY_USAGE_INTERVAL_CRON),
-            calculate_event_property_usage.s(),
-            name="calculate event property usage",
-        )
-
-        sender.add_periodic_task(get_crontab("0 6 * * *"), count_teams_with_no_property_query_count.s())
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
@@ -193,6 +183,19 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="check feature flags that should be rolled back",
         )
 
+        sender.add_periodic_task(
+            crontab(minute=10, hour="*/12"),
+            find_flags_with_enriched_analytics.s(),
+            name="find feature flags with enriched analytics",
+        )
+
+        sender.add_periodic_task(
+            # once a day a random minute after midnight
+            crontab(hour=0, minute=randrange(0, 40)),
+            delete_expired_exported_assets.s(),
+            name="delete expired exported assets",
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -212,6 +215,13 @@ def teardown_instrumentation(task_id, task, **kwargs):
     from posthog.clickhouse.query_tagging import reset_query_tags
 
     reset_query_tags()
+
+
+@app.task(ignore_result=True)
+def delete_expired_exported_assets() -> None:
+    from posthog.models import ExportedAsset
+
+    ExportedAsset.delete_expired_assets()
 
 
 @app.task(ignore_result=True)
@@ -338,7 +348,7 @@ def pg_row_count():
                     pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "person_overrides", "session_recording_events"]
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events"]
 
 
 @app.task(ignore_result=True)
@@ -491,7 +501,9 @@ def clickhouse_row_count():
         )
         for table in CLICKHOUSE_TABLES:
             try:
-                QUERY = """select count(1) freq from {table};"""
+                QUERY = (
+                    """select count(1) freq from {table} where _timestamp >= toStartOfDay(date_sub(DAY, 2, now()));"""
+                )
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
@@ -694,53 +706,15 @@ def debug_task(self):
     print(f"Request: {self.request!r}")
 
 
-@app.task(ignore_result=False)
-def calculate_event_property_usage():
-    from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
-
-    return calculate_event_property_usage()
-
-
-@app.task(ignore_result=True)
-def count_teams_with_no_property_query_count():
-    import structlog
-    from statshog.defaults.django import statsd
-
-    logger = structlog.get_logger(__name__)
-
-    with connection.cursor() as cursor:
-        try:
-            cursor.execute(
-                """
-                WITH team_has_recent_dashboards AS (
-                    SELECT distinct team_id FROM posthog_dashboarditem WHERE created_at > NOW() - INTERVAL '30 days'
-                )
-                SELECT count(*) AS team_count FROM
-                    (
-                    SELECT team_id, sum(query_usage_30_day) AS total
-                    FROM posthog_propertydefinition
-                    WHERE team_id IN (SELECT team_id FROM team_has_recent_dashboards)
-                    GROUP BY team_id
-                    ) as counted
-                WHERE counted.total = 0
-                """
-            )
-
-            count = cursor.fetchone()
-            statsd.gauge(
-                f"calculate_event_property_usage.teams_with_no_property_query_count",
-                count[0],
-            )
-        except Exception as exc:
-            logger.error("calculate_event_property_usage.count_teams_failed", exc=exc, exc_info=True)
-
-
 @app.task(ignore_result=True)
 def calculate_decide_usage() -> None:
     from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
     from posthog.models import Team
     from django.db.models import Q
     from posthoganalytics import Posthog
+
+    if not is_cloud():
+        return
 
     # send EU data to EU, US data to US
     api_key = None
@@ -767,10 +741,22 @@ def calculate_decide_usage() -> None:
 
 
 @app.task(ignore_result=True)
+def find_flags_with_enriched_analytics():
+    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
+    from datetime import datetime, timedelta
+
+    end = datetime.now()
+    begin = end - timedelta(hours=12)
+
+    find_flags_with_enriched_analytics(begin, end)
+
+
+@app.task(ignore_result=True)
 def demo_reset_master_team():
     from posthog.tasks.demo_reset_master_team import demo_reset_master_team
 
-    demo_reset_master_team()
+    if is_cloud() or settings.DEMO:
+        demo_reset_master_team()
 
 
 @app.task(ignore_result=True)
@@ -790,6 +776,9 @@ def check_async_migration_health():
 @app.task(ignore_result=True)
 def verify_persons_data_in_sync():
     from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
+
+    if not is_cloud():
+        return
 
     verify()
 

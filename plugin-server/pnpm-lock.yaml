@@ -1,5 +1,10 @@
 lockfileVersion: '6.0'
 
+patchedDependencies:
+  pg@8.10.0:
+    hash: ju7a73s3qkmrf666u3aacfrooi
+    path: patches/pg@8.10.0.patch
+
 dependencies:
   '@aws-sdk/client-s3':
     specifier: ^3.315.0
@@ -58,6 +63,9 @@ dependencies:
   '@types/lru-cache':
     specifier: ^5.1.0
     version: 5.1.1
+  '@types/tail':
+    specifier: ^2.2.1
+    version: 2.2.1
   asn1.js:
     specifier: ^5.4.1
     version: 5.4.1
@@ -114,7 +122,7 @@ dependencies:
     version: 2.1.1
   pg:
     specifier: ^8.6.0
-    version: 8.10.0
+    version: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
   pino:
     specifier: ^8.6.0
     version: 8.11.0
@@ -136,6 +144,9 @@ dependencies:
   snowflake-sdk:
     specifier: ^1.6.10
     version: 1.6.21(asn1.js@5.4.1)
+  tail:
+    specifier: ^2.2.6
+    version: 2.2.6
   uuid:
     specifier: ^8.3.2
     version: 8.3.2
@@ -4130,6 +4141,10 @@ packages:
     resolution: {integrity: sha512-Hl219/BT5fLAaz6NDkSuhzasy49dwQS/DSdu4MdggFB8zcXv7vflBI3xp7FEmkmdDkBUI2bPUNeMttp2knYdxw==}
     dev: true
 
+  /@types/tail@2.2.1:
+    resolution: {integrity: sha512-j75Gs5MiIpNR14wztQ4vtViUqxZi+lcgflyXC7P9iMgNnMab7XcV5p+2590IO3njsWWn5l8C+55ILk2CDDyaHg==}
+    dev: false
+
   /@types/tar-stream@2.2.2:
     resolution: {integrity: sha512-1AX+Yt3icFuU6kxwmPakaiGrJUwG44MpuiqPg4dSolRFk6jmvs4b3IbUol9wKDLIgU76gevn3EwE8y/DkSJCZQ==}
     dependencies:
@@ -6980,7 +6995,7 @@ packages:
       chokidar: 3.5.3
       cosmiconfig: 7.1.0
       json5: 2.2.3
-      pg: 8.10.0
+      pg: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
       tslib: 2.5.0
       yargs: 16.2.0
     transitivePeerDependencies:
@@ -9120,7 +9135,7 @@ packages:
       levn: 0.3.0
       prelude-ls: 1.1.2
       type-check: 0.3.2
-      word-wrap: 1.2.3
+      word-wrap: 1.2.4
     dev: false
 
   /optionator@0.9.1:
@@ -9132,7 +9147,7 @@ packages:
       levn: 0.4.1
       prelude-ls: 1.2.1
       type-check: 0.4.0
-      word-wrap: 1.2.3
+      word-wrap: 1.2.4
     dev: true
 
   /os-browserify@0.3.0:
@@ -9382,7 +9397,7 @@ packages:
     peerDependencies:
       pg: '>=8.0'
     dependencies:
-      pg: 8.10.0
+      pg: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
     dev: false
 
   /pg-protocol@1.6.0:
@@ -9398,7 +9413,7 @@ packages:
       postgres-date: 1.0.7
       postgres-interval: 1.2.0
 
-  /pg@8.10.0:
+  /pg@8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi):
     resolution: {integrity: sha512-ke7o7qSTMb47iwzOSaZMfeR7xToFdkE71ifIipOAAaLIM0DYzfOAXlgFFmYUIE2BcJtvnVlGCID84ZzCegE8CQ==}
     engines: {node: '>= 8.0.0'}
     peerDependencies:
@@ -9415,6 +9430,7 @@ packages:
       pg-types: 2.2.0
       pgpass: 1.0.5
     dev: false
+    patched: true
 
   /pgpass@1.0.5:
     resolution: {integrity: sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==}
@@ -10550,6 +10566,11 @@ packages:
     resolution: {integrity: sha512-2nA2IrYFy3raCM9fxJ2KODRGHVSZNTW3BR0YnlGsLUf1DA3pk3YfWZ/DdfbnZK6zLZS+jUenlUGJsKcA5fUiZg==}
     dev: true
 
+  /tail@2.2.6:
+    resolution: {integrity: sha512-IQ6G4wK/t8VBauYiGPLx+d3fA5XjSVagjWV5SIYzvEvglbQjwEcukeYI68JOPpdydjxhZ9sIgzRlSmwSpphHyw==}
+    engines: {node: '>= 6.0.0'}
+    dev: false
+
   /tap-mocha-reporter@5.0.3:
     resolution: {integrity: sha512-6zlGkaV4J+XMRFkN0X+yuw6xHbE9jyCZ3WUKfw4KxMyRGOpYSRuuQTRJyWX88WWuLdVTuFbxzwXhXuS2XE6o0g==}
     engines: {node: '>= 8'}
@@ -11324,8 +11345,8 @@ packages:
       winston-transport: 4.5.0
     dev: false
 
-  /word-wrap@1.2.3:
-    resolution: {integrity: sha512-Hz/mrNwitNRh/HUAtM/VT/5VH+ygD6DV7mYKZAtHOrbs8U7lvPS6xf7EJKMF0uW1KJCl0H701g3ZGus+muE5vQ==}
+  /word-wrap@1.2.4:
+    resolution: {integrity: sha512-2V81OA4ugVo5pRo46hAoD2ivUJx8jXmWXfUkY4KFNw0hEptvN0QfH3K4nHiwzGeKl5rFKedV48QVoqYavy4YpA==}
     engines: {node: '>=0.10.0'}
 
   /wrap-ansi@6.2.0:

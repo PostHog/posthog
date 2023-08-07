@@ -15,9 +15,9 @@ $screens: (
 );
 
 $tiny_spaces: 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
-$flex_sizes: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10;
-$humongous_spaces: 30, 32, 40, 60, 80, 100, 120, 140, 160, 180, 200;
+$humongous_spaces: 24, 30, 32, 40, 50, 60, 80, 100, 120, 140, 160, 180, 200;
 $all_spaces: list.join($tiny_spaces, $humongous_spaces);
+$flex_sizes: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10;
 $leadings: 3, 4, 5, 6, 7, 8, 9, 10;
 $sides: 'top', 'right', 'bottom', 'left';
 // CSS cursors from https://tailwindcss.com/docs/cursor
@@ -65,55 +65,62 @@ $list_style_types: 'none', 'disc', 'decimal';
 // See https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=2028%3A841
 // NOTE: Currently this has to be manually synced wit `tailwind.config.js` to allow IDE auto-completion
 $colors: (
-    'primary-highlight': #e8edff,
-    'primary-extralight': #d2dbff,
+    'primary-highlight': rgba(#1d4aff, 0.1),
     'primary-light': #345cff,
     'primary': #1d4aff,
     'primary-dark': #1330a6,
-    'danger-highlight': #fbebe6,
+    'danger-highlight': rgba(#db3707, 0.1),
     'danger-lighter': #ffa599,
     'danger-light': #df4b20,
     'danger': #db3707,
     'danger-dark': #992705,
-    'warning-highlight': #fef6e6,
+    'warning-highlight': rgba(#f7a501, 0.1),
     'warning-light': #f8b633,
     'warning': #f7a501,
     'warning-dark': #a06b01,
-    'success-highlight': #ebf3e5,
+    'success-highlight': rgba(#388600, 0.1),
     'success-light': #5f9d32,
     'success': #388600,
     'success-dark': #245700,
-    'primary-alt-highlight': #ebecf0,
+    'primary-alt-highlight': rgba(#35416b, 0.1),
     'primary-alt': #35416b,
     'primary-alt-dark': #222a46,
     'default': #2d2d2d,
     'default-dark': #050505,
     'muted': #5f5f5f,
-    // Duplicate of side
-    'muted-light': #fafaf9,
     'muted-dark': #403939,
     'muted-alt': #747ea1,
     'muted-alt-dark': #515871,
+    'mark': hsl(42deg 93% 86% / 80%),
     'white': #fff,
-    // This color is quite bad, because an explicit "white" is not compatible with dark mode
-    'inverse': #fff,
+    'bg-light': #fff,
     'side': #fafaf9,
     'mid': #f2f2f2,
     'border': rgba(0, 0, 0, 0.15),
     'border-light': rgba(0, 0, 0, 0.08),
-    'border-dark': rgba(0, 0, 0, 0.24),
+    'border-bold': rgba(0, 0, 0, 0.24),
     'border-active': rgba(0, 0, 0, 0.36),
     'transparent': transparent,
 
+    // Colors of the PostHog logo
+    'brand-blue': #1d4aff,
+    'brand-red': #f54e00,
+    'brand-yellow': #f9bd2b,
+    'brand-key': #000,
+
+    // This becomes white in dark mode
     // PostHog 3000
     'text-3000-light': #111,
     'muted-3000-light': rgba(#111, 0.5),
     'trace-3000-light': rgba(#111, 0.25),
-    'primary-3000-light': #393939,
-    'secondary-3000-light': #e4e6dc,
+    'primary-3000-light': rgba(#000, 0.75),
+    'primary-3000-hover-light': #000,
+    'secondary-3000-light': rgba(#cfd1c2, 0.6),
+    'secondary-3000-hover-light': #cfd1c2,
     'accent-3000-light': #eeefe9,
     'bg-3000-light': #f3f4ef,
     'border-3000-light': #dadbd2,
+    'border-bold-3000-light': #c1c2b9,
     'glass-bg-3000-light': #e4e5deb3,
     'glass-border-3000-light': #e4e5de,
 
@@ -121,12 +128,30 @@ $colors: (
     'muted-3000-dark': rgba(#fff, 0.5),
     'trace-3000-dark': rgba(#fff, 0.25),
     'primary-3000-dark': var(--primary),
+    'primary-3000-hover-dark': var(--primary-light),
     'secondary-3000-dark': #3b4159,
+    'secondary-3000-hover-dark': #575d77,
     'accent-3000-dark': #1d1f27,
     'bg-3000-dark': #151619,
     'border-3000-dark': #2b2c32,
+    'border-bold-3000-dark': #3f4046,
     'glass-bg-3000-dark': #1d1f27b3,
     'glass-border-3000-dark': var(--border-3000-dark),
+    // The derived colors
+    'text-3000': var(--text-3000),
+    'muted-3000': var(--muted-3000),
+    'trace-3000': var(--trace-3000),
+    'primary-3000': var(--primary-3000),
+    'primary-3000-hover': var(--primary-3000-hover),
+    'secondary-3000': var(--secondary-3000),
+    'secondary-3000-hover': var(--secondary-3000-hover),
+    'accent-3000': var(--accent-3000),
+    'bg-3000': var(--bg-3000),
+    'border-3000': var(--border-3000),
+    'border-bold-3000': var(--border-bold-3000),
+    'glass-bg-3000': var(--glass-bg-3000),
+    'glass-border-3000': var(--glass-border-3000),
+    // 'bg-light': var(--accent-3000),
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
@@ -154,8 +179,6 @@ $_lifecycle_dormant: $_danger;
 
     --bg-charcoal: #2d2d2d;
     --bg-bridge: #ebece8;
-    --bg-light: #ffffff;
-    --mark-color: hsl(42deg 93% 86% / 80%);
 
     // Non-color vars
     --radius: 4px;
@@ -167,12 +190,6 @@ $_lifecycle_dormant: $_danger;
         sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 
-    // Colors of the PostHog logo
-    --brand-blue: #1d4aff;
-    --brand-red: #f54e00;
-    --brand-yellow: #f9bd2b;
-    --brand-key: #000; // This is going to be white in dark mode
-
     // Dashboard item colors
     --blue: #597dce;
     --purple: #c278cf;
@@ -181,7 +198,6 @@ $_lifecycle_dormant: $_danger;
 
     // Tag colors
     --purple-light: #dcb1e3;
-    --purple-dark: #572e5e;
 
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-brand-blue: var(--primary);
@@ -213,9 +229,8 @@ $_lifecycle_dormant: $_danger;
     --funnel-default: var(--primary);
     --funnel-background: var(--border-light);
     --funnel-axis-zero: var(--default);
-    --funnel-axis: var(--border-dark);
+    --funnel-axis: var(--border-bold);
     --funnel-axis-label: var(--muted);
-    --funnel-canvas-background: #ffffff;
     --antd-table-background-dark: #fafafa;
 
     // Session Recording
@@ -230,7 +245,7 @@ $_lifecycle_dormant: $_danger;
     --recording-current-event-dark: var(--primary-alt);
     --recording-failure-event: #fee9e2;
     --recording-failure-event-dark: #cd3000;
-    --recording-highlight-event: var(--mark-color);
+    --recording-highlight-event: var(--mark);
     --recording-highlight-event-dark: #946508;
 
     // Z-indexes, synced with vars.ts
@@ -279,12 +294,6 @@ $_lifecycle_dormant: $_danger;
 
     //In App Prompts
     --in-app-prompts-width: 26rem;
-
-    // Deprecated color transforms from SCSS var heydays
-    --depr-lighten-primary-20: #{lighten($_primary, 20%)};
-    --depr-lighten-primary-10: #{lighten($_primary, 10%)};
-    --depr-lighten-primary-5: #{lighten($_primary, 5%)};
-    --depr-lighten-primary-15: #{lighten($_primary, 15%)};
 
     --lettermark-1-bg: #dcb1e3;
     --lettermark-1-text: #572e5e;

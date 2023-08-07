@@ -10,10 +10,12 @@ export const ProductIntroduction = ({
     productKey,
     thingName,
     description,
+    titleOverride,
     isEmpty,
     action,
     actionElementOverride,
     docsURL,
+    customHog: CustomHog,
 }: {
     /** The name of the product, e.g. "Cohorts" */
     productName: string
@@ -21,6 +23,8 @@ export const ProductIntroduction = ({
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
+    /** If you want to override the title, defaults to "Create your first *thing*" */
+    titleOverride?: string
     /** If we should show the empty state */
     isEmpty?: boolean
     /** The action to take when the user clicks the CTA */
@@ -28,6 +32,7 @@ export const ProductIntroduction = ({
     /** If you want to provide a custom action button instead of using the default one */
     actionElementOverride?: JSX.Element
     docsURL?: string
+    customHog?: React.ComponentType<{ className?: string }>
 }): JSX.Element => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const actionable = action || actionElementOverride
@@ -49,8 +54,10 @@ export const ProductIntroduction = ({
             )}
             <div className="flex items-center gap-x-8 w-full justify-center">
                 <div>
-                    <div className="w-40 mx-auto mb-4">
-                        {actionable ? (
+                    <div className="w-50 mx-auto mb-4">
+                        {CustomHog ? (
+                            <CustomHog className="w-full h-full" />
+                        ) : actionable ? (
                             <BuilderHog3 className="w-full h-full" />
                         ) : (
                             <DetectiveHog className="w-full h-full" />
@@ -62,7 +69,9 @@ export const ProductIntroduction = ({
                         {!isEmpty
                             ? `Welcome to ${productName}!`
                             : actionable
-                            ? `Create your first ${thingName}`
+                            ? titleOverride
+                                ? titleOverride
+                                : `Create your first ${thingName}`
                             : `No ${thingName}s yet`}
                     </h2>
                     <p className="ml-0">{description}</p>
@@ -95,6 +104,7 @@ export const ProductIntroduction = ({
                                 sideIcon={<IconOpenInNew className="w-4 h-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                                 data-attr="product-introduction-docs-link"
+                                targetBlank
                             >
                                 Learn more about {productName}
                             </LemonButton>

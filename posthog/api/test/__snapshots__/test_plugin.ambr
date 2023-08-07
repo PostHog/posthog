@@ -55,7 +55,13 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         OR "posthog_plugin"."is_global") /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+         OR "posthog_plugin"."is_global"
+         OR "posthog_plugin"."id" IN
+           (SELECT U0."plugin_id"
+            FROM "posthog_pluginconfig" U0
+            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
+            WHERE (U0."enabled"
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))) /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
   '
 ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.11
@@ -104,7 +110,13 @@
   FROM "posthog_plugin"
   INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         OR "posthog_plugin"."is_global")
+         OR "posthog_plugin"."is_global"
+         OR "posthog_plugin"."id" IN
+           (SELECT U0."plugin_id"
+            FROM "posthog_pluginconfig" U0
+            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
+            WHERE (U0."enabled"
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   LIMIT 100 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
   '
 ---
@@ -197,7 +209,13 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         OR "posthog_plugin"."is_global") /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+         OR "posthog_plugin"."is_global"
+         OR "posthog_plugin"."id" IN
+           (SELECT U0."plugin_id"
+            FROM "posthog_pluginconfig" U0
+            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
+            WHERE (U0."enabled"
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))) /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
   '
 ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.17
@@ -246,7 +264,13 @@
   FROM "posthog_plugin"
   INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         OR "posthog_plugin"."is_global")
+         OR "posthog_plugin"."is_global"
+         OR "posthog_plugin"."id" IN
+           (SELECT U0."plugin_id"
+            FROM "posthog_pluginconfig" U0
+            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
+            WHERE (U0."enabled"
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   LIMIT 100 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
   '
 ---
@@ -362,7 +386,13 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         OR "posthog_plugin"."is_global") /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+         OR "posthog_plugin"."is_global"
+         OR "posthog_plugin"."id" IN
+           (SELECT U0."plugin_id"
+            FROM "posthog_pluginconfig" U0
+            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
+            WHERE (U0."enabled"
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))) /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
   '
 ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.23
@@ -411,7 +441,13 @@
   FROM "posthog_plugin"
   INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         OR "posthog_plugin"."is_global")
+         OR "posthog_plugin"."is_global"
+         OR "posthog_plugin"."id" IN
+           (SELECT U0."plugin_id"
+            FROM "posthog_pluginconfig" U0
+            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
+            WHERE (U0."enabled"
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   LIMIT 100 /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
   '
 ---
@@ -440,7 +476,13 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         OR "posthog_plugin"."is_global") /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
+         OR "posthog_plugin"."is_global"
+         OR "posthog_plugin"."id" IN
+           (SELECT U0."plugin_id"
+            FROM "posthog_pluginconfig" U0
+            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
+            WHERE (U0."enabled"
+                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))) /*controller='organization_plugins-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/plugins/%3F%24'*/
   '
 ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.6

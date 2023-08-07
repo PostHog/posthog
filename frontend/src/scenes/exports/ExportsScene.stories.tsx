@@ -33,6 +33,8 @@ export default {
                             aws_secret_access_key: '',
                         },
                     },
+                    start_at: null,
+                    end_at: null,
                     interval: 'hour',
                     status: 'RUNNING',
                     paused: false,

@@ -23,7 +23,7 @@ const colorGroups = {
     'default (primary text)': ['default', 'default-dark'],
     'muted (secondary text)': ['muted', 'muted-dark'],
     'muted-alt ': ['muted-alt', 'muted-alt-dark'],
-    border: ['border', 'border-light', 'border-dark', 'border-active'],
+    border: ['border', 'border-light', 'border-bold', 'border-active'],
     light: ['white', 'light'],
 }
 

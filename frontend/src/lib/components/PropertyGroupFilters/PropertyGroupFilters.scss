@@ -64,12 +64,12 @@
 
         &.selected {
             background-color: var(--primary);
-            color: white;
+            color: #fff;
         }
     }
 
     .condition-option {
-        background-color: white;
+        background-color: var(--bg-light);
         padding: 0.5rem;
         margin-left: 0.5rem;
         margin-right: 0.5rem;

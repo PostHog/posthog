@@ -1,4 +1,6 @@
+import time
 from uuid import uuid4
+
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -71,7 +73,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
-
+        time.sleep(1)
         result = update_all_org_billing_quotas()
         org_id = str(self.organization.id)
         assert result["events"] == {org_id: 1612137599}

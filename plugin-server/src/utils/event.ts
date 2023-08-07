@@ -1,5 +1,6 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { KafkaMessage } from 'kafkajs'
+import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka-acosom'
 
 import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { convertDatabaseElementsToRawElements } from '../worker/vm/upgrades/utils/fetchEventsForInterval'
@@ -101,7 +102,7 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
     return event
 }
 
-export function formPipelineEvent(message: KafkaMessage): PipelineEvent {
+export function formPipelineEvent(message: Message): PipelineEvent {
     // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
     const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
@@ -111,4 +112,19 @@ export function formPipelineEvent(message: KafkaMessage): PipelineEvent {
         ip: combinedEvent.ip || null,
     })
     return event
+}
+
+export function formPluginEvent(event: RawClickHouseEvent): PluginEvent {
+    const postIngestionEvent = convertToIngestionEvent(event)
+    return {
+        distinct_id: postIngestionEvent.distinctId,
+        ip: postIngestionEvent.properties['$ip'],
+        site_url: '',
+        team_id: postIngestionEvent.teamId,
+        now: DateTime.now().toISO(),
+        event: postIngestionEvent.event,
+        properties: postIngestionEvent.properties,
+        timestamp: postIngestionEvent.timestamp,
+        uuid: postIngestionEvent.eventUuid,
+    }
 }

@@ -128,6 +128,7 @@ export function AnnotationModal({
                         placeholder="What's this annotation about?"
                         onPressCmdEnter={submitAnnotationModal}
                         data-attr="create-annotation-input"
+                        maxLength={400}
                     />
                 </Field>
             </Form>

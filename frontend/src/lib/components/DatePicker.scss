@@ -1,14 +1,33 @@
-// TODO: This is commented as date-range pickers end up nastily reversed.
-// Leaving it here to be fixed later
+.ant-picker {
+    box-shadow: none !important;
+}
 
-// .ant-picker .ant-picker-input,
-// .ant-picker.ant-picker-range {
-//     display: flex;
-//     flex-direction: row-reverse;
-// }
-
-// .ant-picker .ant-picker-input span.ant-picker-suffix,
-// .ant-picker.ant-picker-range span.ant-picker-suffix {
-//     margin-left: 0;
-//     margin-right: 5px;
-// }
+.posthog-3000 {
+    .ant-picker {
+        color: var(--default);
+        background: var(--secondary-3000);
+        border-color: transparent;
+        .ant-picker-suffix {
+            color: var(--default);
+        }
+    }
+    .ant-picker-panel-container {
+        color: var(--default);
+        background: var(--bg-3000);
+        border: 1px solid var(--border);
+        * {
+            border-color: var(--border);
+        }
+    }
+    .ant-picker-time-panel-column > li.ant-picker-time-panel-cell-selected .ant-picker-time-panel-cell-inner {
+        background: var(--primary-3000);
+    }
+    .ant-picker-cell:hover:not(.ant-picker-cell-in-view) .ant-picker-cell-inner,
+    .ant-picker-cell:hover:not(.ant-picker-cell-selected):not(.ant-picker-cell-range-start):not(
+            .ant-picker-cell-range-end
+        ):not(.ant-picker-cell-range-hover-start):not(.ant-picker-cell-range-hover-end)
+        .ant-picker-cell-inner,
+    .ant-picker-time-panel-column > li.ant-picker-time-panel-cell .ant-picker-time-panel-cell-inner:hover {
+        background: var(--secondary-3000);
+    }
+}

@@ -189,6 +189,7 @@ function AnnotationsPopover({
             referenceElement={activeBadgeElement as HTMLElement}
             visible={isPopoverShown}
             onClickOutside={closePopover}
+            showArrow
             overlay={
                 <LemonModal
                     inline

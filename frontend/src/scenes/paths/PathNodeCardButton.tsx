@@ -8,14 +8,14 @@ import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils'
 
 import { pageUrl, PathNodeData } from './pathUtils'
-import { pathsLogicType } from './pathsLogicType'
+import { pathsDataLogicType } from './pathsDataLogicType'
 
 type PathNodeCardButton = {
     name: string
     count: number
     node: PathNodeData
-    viewPathToFunnel: pathsLogicType['actions']['viewPathToFunnel']
-    openPersonsModal: pathsLogicType['actions']['openPersonsModal']
+    viewPathToFunnel: pathsDataLogicType['actions']['viewPathToFunnel']
+    openPersonsModal: pathsDataLogicType['actions']['openPersonsModal']
     filter: PathsFilterType
     setFilter: (filter: PathsFilterType) => void
 }

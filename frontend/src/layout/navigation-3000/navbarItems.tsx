@@ -10,6 +10,7 @@ import {
     IconLive,
     IconPerson,
     IconRecording,
+    IconTools,
     IconUnverifiedEvent,
 } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
@@ -21,7 +22,9 @@ import { cohortsSidebarLogic } from './sidebars/cohorts'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
+import { annotationsSidebarLogic } from './sidebars/annotations'
 import { experimentsSidebarLogic } from './sidebars/experiments'
+import { toolbarSidebarLogic } from './sidebars/toolbar'
 
 /** A list of navbar sections with items. */
 export const NAVBAR_ITEMS: NavbarItem[][] = [
@@ -60,6 +63,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             identifier: Scene.Annotations,
             label: 'Annotations',
             icon: <IconComment />,
+            logic: annotationsSidebarLogic,
         },
     ],
     [
@@ -90,6 +94,12 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             label: 'A/B Testing',
             icon: <IconExperiment />,
             logic: experimentsSidebarLogic,
+        },
+        {
+            identifier: Scene.ToolbarLaunch,
+            label: 'Toolbar',
+            icon: <IconTools />,
+            logic: toolbarSidebarLogic,
         },
     ],
     [

@@ -93,6 +93,7 @@ export function Bar({
             <div
                 ref={barRef}
                 className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     flex: `${conversionPercentage} 1 0`,
                     cursor: cursorType,

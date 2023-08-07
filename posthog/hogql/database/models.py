@@ -8,7 +8,11 @@ if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
 
-class DatabaseField(BaseModel):
+class FieldOrTable(BaseModel):
+    pass
+
+
+class DatabaseField(FieldOrTable):
     """
     Base class for a field in a database table.
     """
@@ -17,7 +21,8 @@ class DatabaseField(BaseModel):
         extra = Extra.forbid
 
     name: str
-    array: Optional[bool]
+    array: Optional[bool] = None
+    nullable: Optional[bool] = None
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -36,6 +41,10 @@ class StringJSONDatabaseField(DatabaseField):
     pass
 
 
+class StringArrayDatabaseField(DatabaseField):
+    pass
+
+
 class DateDatabaseField(DatabaseField):
     pass
 
@@ -48,24 +57,26 @@ class BooleanDatabaseField(DatabaseField):
     pass
 
 
-class FieldTraverser(BaseModel):
+class FieldTraverser(FieldOrTable):
     class Config:
         extra = Extra.forbid
 
     chain: List[str]
 
 
-class Table(BaseModel):
+class Table(FieldOrTable):
+    fields: Dict[str, FieldOrTable]
+
     class Config:
         extra = Extra.forbid
 
     def has_field(self, name: str) -> bool:
-        return hasattr(self, name)
+        return name in self.fields
 
-    def get_field(self, name: str) -> DatabaseField:
+    def get_field(self, name: str) -> FieldOrTable:
         if self.has_field(name):
-            return getattr(self, name)
-        raise HogQLException(f'Field "{name}" not found on table {self.__class__.__name__}')
+            return self.fields[name]
+        raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         raise NotImplementedException("Table.to_printed_clickhouse not overridden")
@@ -76,27 +87,22 @@ class Table(BaseModel):
     def avoid_asterisk_fields(self) -> List[str]:
         return []
 
-    def get_asterisk(self) -> Dict[str, DatabaseField]:
-        asterisk: Dict[str, DatabaseField] = {}
+    def get_asterisk(self):
         fields_to_avoid = self.avoid_asterisk_fields() + ["team_id"]
-        for key in self.dict().keys():
+        asterisk: Dict[str, FieldOrTable] = {}
+        for key, field in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            database_field = getattr(self, key)
-            if isinstance(database_field, DatabaseField):
-                asterisk[key] = database_field
-            elif (
-                isinstance(database_field, Table)
-                or isinstance(database_field, LazyJoin)
-                or isinstance(database_field, FieldTraverser)
-            ):
+            if isinstance(field, DatabaseField):
+                asterisk[key] = field
+            elif isinstance(field, Table) or isinstance(field, LazyJoin) or isinstance(field, FieldTraverser):
                 pass  # ignore virtual tables for now
             else:
-                raise HogQLException(f"Unknown field type {type(database_field).__name__} for asterisk")
+                raise HogQLException(f"Unknown field type {type(field).__name__} for asterisk")
         return asterisk
 
 
-class LazyJoin(BaseModel):
+class LazyJoin(FieldOrTable):
     class Config:
         extra = Extra.forbid
 
@@ -131,4 +137,13 @@ class FunctionCallTable(Table):
     A table that returns a function call, e.g. numbers(...) or s3(...). The team_id guard is NOT added for these.
     """
 
+    name: str
+
+
+class SavedQuery(Table):
+    """
+    A table that returns a subquery, e.g. my_saved_query -> (SELECT * FROM some_saved_table). The team_id guard is NOT added for the overall subquery
+    """
+
+    query: str
     name: str

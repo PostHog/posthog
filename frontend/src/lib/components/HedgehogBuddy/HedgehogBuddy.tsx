@@ -156,6 +156,7 @@ export class HedgehogActor {
             const duration = this.animationIterations
                 ? this.animationIterations * this.animation.frames * (1000 / FPS)
                 : '∞'
+            // eslint-disable-next-line no-console
             console.log(`Hedgehog: Will '${this.animationName}' for ${duration}ms`)
         }
     }
@@ -499,7 +500,7 @@ export function HedgehogBuddy({
                             </div>
                         ))}
 
-                        <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG} match>
+                        <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG}>
                             <>
                                 <LemonDivider />
                                 <div className="flex gap-2 my-2 overflow-y-auto">

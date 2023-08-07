@@ -8,6 +8,7 @@ import {
     EditorFilterProps,
     ChartDisplayType,
     AvailableFeature,
+    PathType,
 } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -31,12 +32,13 @@ import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySte
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
-import { SamplingFilterDataExploration } from 'scenes/insights/EditorFilters/SamplingFilter'
+import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import './EditorFilters.scss'
+import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -49,9 +51,8 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
     const availableFeatures = user?.organization?.available_features || []
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown } = useValues(
-        insightVizDataLogic(insightProps)
-    )
+    const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown, pathsFilter } =
+        useValues(insightVizDataLogic(insightProps))
     const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
 
     const hasBreakdown =
@@ -59,6 +60,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
         isStepsFunnel
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
+    const hasPathsHogQL = isPaths && pathsFilter?.include_event_types?.includes(PathType.HogQL)
 
     const editorFilters: InsightEditorFilterGroup[] = [
         {
@@ -75,6 +77,11 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                               key: 'event-types',
                               label: 'Event Types',
                               component: PathsEventsTypes,
+                          },
+                          hasPathsHogQL && {
+                              key: 'hogql',
+                              label: 'HogQL Expression',
+                              component: PathsHogQL,
                           },
                           hasPathsAdvanced && {
                               key: 'wildcard-groups',
@@ -228,7 +235,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                 {
                     key: 'sampling',
                     position: 'right',
-                    component: SamplingFilterDataExploration,
+                    component: SamplingFilter,
                 },
             ]),
         },
