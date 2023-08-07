@@ -176,15 +176,20 @@ class CohortSerializer(serializers.ModelSerializer):
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             cohort.deleted = deleted_state
-            if cohort.deleted is True:
+            if deleted_state:
                 AsyncDeletion.objects.get_or_create(
                     deletion_type=DeletionType.Cohort_full,
                     team_id=cohort.team.pk,
                     key=f"{cohort.pk}_{cohort.version}",
                     created_by=user,
                 )
-
-        if not cohort.is_static and not is_deletion_change:
+            else:
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Cohort_full,
+                    team_id=cohort.team.pk,
+                    key=f"{cohort.pk}_{cohort.version}",
+                ).delete()
+        elif not cohort.is_static:
             cohort.is_calculating = True
 
         if will_create_loops(cohort):

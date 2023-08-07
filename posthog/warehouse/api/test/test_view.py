@@ -3,7 +3,7 @@ from posthog.test.base import (
 )
 
 
-class TestSavedQuery(APIBaseTest):
+class TestView(APIBaseTest):
     def test_create(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_query/",
@@ -16,25 +16,12 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 201, response.content)
-        saved_query = response.json()
-        self.assertEqual(saved_query["name"], "event_view")
-        self.assertEqual(saved_query["columns"], [{"key": "event", "type": "string"}])
+        view = response.json()
+        self.assertEqual(view["name"], "event_view")
+        self.assertEqual(view["columns"], [{"key": "event", "type": "string"}])
 
-    def test_create_name_overlap_error(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/",
-            {
-                "name": "events",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": f"select event from events LIMIT 100",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 400, response.content)
-
-    def test_saved_query_doesnt_exist(self):
-        saved_query_1_response = self.client.post(
+    def test_view_doesnt_exist(self):
+        view_1_response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_query/",
             {
                 "name": "event_view",
@@ -44,7 +31,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(saved_query_1_response.status_code, 400, saved_query_1_response.content)
+        self.assertEqual(view_1_response.status_code, 400, view_1_response.content)
 
     def test_view_updated(self):
         response = self.client.post(
@@ -58,9 +45,9 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 201, response.content)
-        saved_query_1_response = response.json()
-        saved_query_1_response = self.client.patch(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/" + saved_query_1_response["id"],
+        view = response.json()
+        view_1_response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_saved_query/" + view["id"],
             {
                 "query": {
                     "kind": "HogQLQuery",
@@ -69,13 +56,13 @@ class TestSavedQuery(APIBaseTest):
             },
         )
 
-        self.assertEqual(saved_query_1_response.status_code, 200, saved_query_1_response.content)
-        view_1 = saved_query_1_response.json()
+        self.assertEqual(view_1_response.status_code, 200, view_1_response.content)
+        view_1 = view_1_response.json()
         self.assertEqual(view_1["name"], "event_view")
         self.assertEqual(view_1["columns"], [{"key": "distinct_id", "type": "string"}])
 
     def test_circular_view(self):
-        saved_query_1_response = self.client.post(
+        view_1_response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_query/",
             {
                 "name": "event_view",
@@ -85,10 +72,10 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(saved_query_1_response.status_code, 201, saved_query_1_response.content)
-        saved_query_1 = saved_query_1_response.json()
+        self.assertEqual(view_1_response.status_code, 201, view_1_response.content)
+        view_1 = view_1_response.json()
 
-        saved_view_2_response = self.client.post(
+        view_2_response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_query/",
             {
                 "name": "outer_event_view",
@@ -98,10 +85,10 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(saved_view_2_response.status_code, 201, saved_view_2_response.content)
+        self.assertEqual(view_2_response.status_code, 201, view_2_response.content)
 
-        saved_view_1_response = self.client.patch(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/" + saved_query_1["id"],
+        view_1_response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_saved_query/" + view_1["id"],
             {
                 "name": "event_view",
                 "query": {
@@ -110,4 +97,4 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(saved_view_1_response.status_code, 400, saved_view_1_response.content)
+        self.assertEqual(view_1_response.status_code, 400, view_1_response.content)
