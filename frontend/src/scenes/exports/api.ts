@@ -69,7 +69,7 @@ export const useExports = (
     return { exportsState: state, updateCallback }
 }
 
-type S3Destination = {
+export type S3Destination = {
     // At the moment we just support S3, but we include this nesting to
     // allow for future expansion easily without needing to change the
     // interface.
@@ -83,7 +83,7 @@ type S3Destination = {
     }
 }
 
-type SnowflakeDestination = {
+export type SnowflakeDestination = {
     type: 'Snowflake'
     config: {
         account: string
@@ -189,16 +189,7 @@ export const useUpdateExport = (): {
 
     const updateExport = useCallback((teamId: number, exportId: string, exportData: BatchExportData) => {
         setState({ loading: true, error: null })
-        return api.createResponse(`/api/projects/${teamId}/batch_exports/${exportId}`, exportData).then((response) => {
-            if (response.ok) {
-                setState({ loading: false, error: null })
-            } else {
-                // TODO: parse the error response.
-                const error = new Error(response.statusText)
-                setState({ loading: false, error: error })
-                throw error
-            }
-        })
+        return api.update(`/api/projects/${teamId}/batch_exports/${exportId}`, exportData)
     }, [])
 
     return { updateExport, ...state }

@@ -34,6 +34,7 @@ export enum Scene {
     Exports = 'Exports',
     CreateExport = 'CreateExport',
     ViewExport = 'ViewExport',
+    EditExport = 'EditExport',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
     EarlyAccessFeatures = 'EarlyAccessFeatures',

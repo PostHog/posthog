@@ -74,7 +74,7 @@ describe('CreateExport', () => {
         // Should be able to submit the form
 
         jest.useFakeTimers({ advanceTimers: true })
-        userEvent.click(getByRole(form, 'button', { name: 'Create Export' }))
+        userEvent.click(getByRole(form, 'button', { name: 'Save' }))
 
         // Wait e.g. for the create request to complete
         jest.advanceTimersByTime(5000)
