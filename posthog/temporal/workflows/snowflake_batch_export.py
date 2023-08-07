@@ -62,6 +62,7 @@ class SnowflakeInsertInputs:
     data_interval_start: str
     data_interval_end: str
     role: str | None = None
+    legacy_schema: bool = False
 
 
 def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
@@ -161,6 +162,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 team_id=inputs.team_id,
                 interval_start=inputs.data_interval_start,
                 interval_end=inputs.data_interval_end,
+                legacy=inputs.legacy_schema,
             )
             result = None
             local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
@@ -193,6 +195,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                             team_id=inputs.team_id,
                             interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
                             interval_end=inputs.data_interval_end,
+                            legacy=inputs.legacy_schema,
                         )
                         continue
 
@@ -320,6 +323,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             role=inputs.role,
+            legacy_schema=inputs.legacy_schema,
         )
         try:
             await workflow.execute_activity(
