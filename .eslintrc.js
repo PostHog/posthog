@@ -32,6 +32,7 @@ module.exports = {
     },
     plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests'],
     rules: {
+        'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
         'no-only-tests/no-only-tests': 'error',
         'react/prop-types': [0],
@@ -101,6 +102,14 @@ module.exports = {
                         message: 'use flex or space utility classes instead',
                     },
                     {
+                        element: 'Divider',
+                        message: 'use <LemonDivider> instead',
+                    },
+                    {
+                        element: 'Typography',
+                        message: 'use utility classes instead',
+                    },
+                    {
                         element: 'Card',
                         message: 'use utility classes instead',
                     },
@@ -121,8 +130,12 @@ module.exports = {
                         message: 'use <LemonSkeleton> instead',
                     },
                     {
-                        element: 'Tabs',
-                        message: 'use <LemonTabs> instead',
+                        element: 'Modal',
+                        message: 'use <LemonModal> or `<LemonDialog> instead',
+                    },
+                    {
+                        element: 'Select',
+                        message: 'use <LemonSelect> instead',
                     },
                     {
                         element: 'a',
@@ -138,6 +151,10 @@ module.exports = {
                     {
                         element: 'Layout',
                         message: 'use utility classes instead',
+                    },
+                    {
+                        element: 'Tabs',
+                        message: 'use <LemonTabs> instead',
                     },
                     {
                         element: 'Spin',

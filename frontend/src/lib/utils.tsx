@@ -48,6 +48,7 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { urls } from 'scenes/urls'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
+import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -408,7 +409,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
     return label.trim()
 }
 
-/** Check objects for deep equality, including "ordering" of properties */
+/** Compare objects deeply. */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
@@ -801,7 +802,7 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
 }
 
 export const dateMapping: DateMappingOption[] = [
-    { key: 'Custom', values: [] },
+    { key: CUSTOM_OPTION_KEY, values: [] },
     {
         key: 'Today',
         values: ['dStart'],
@@ -933,7 +934,7 @@ export function dateFilterToText(
     }
 
     for (const { key, values, getFormattedDate } of dateOptions) {
-        if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
+        if (values[0] === dateFrom && values[1] === dateTo && key !== CUSTOM_OPTION_KEY) {
             return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
         }
     }

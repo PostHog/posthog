@@ -21,16 +21,20 @@
     user-select: none;
     -webkit-appearance: none !important; // Important as this gets overridden by Ant styles...
 
-    &[aria-disabled='true'] {
-        opacity: var(--opacity-disabled);
-        cursor: not-allowed;
-    }
-
     .LemonButton__content {
         flex: 1;
         line-height: initial;
         display: flex;
         align-items: center;
+    }
+
+    &[aria-disabled='true']:not(.LemonButton--loading) {
+        cursor: not-allowed;
+        opacity: var(--opacity-disabled);
+    }
+
+    &.LemonButton--loading {
+        cursor: default;
     }
 
     &.LemonButton--full-width {
@@ -134,6 +138,7 @@
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
             background: var(--primary-highlight);
+            color: inherit; // Avoid links being colored on hover
         }
 
         &.LemonButton--active {

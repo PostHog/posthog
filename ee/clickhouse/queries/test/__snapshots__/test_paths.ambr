@@ -5528,8 +5528,8 @@
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
-                                         $session_id,
-                                         $window_id)) as matching_events
+                                         "$session_id",
+                                         "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -5636,9 +5636,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1', 's3', 's5']
   '
 ---
@@ -5647,8 +5646,8 @@
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
-                                         $session_id,
-                                         $window_id)) as matching_events
+                                         "$session_id",
+                                         "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -5756,9 +5755,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in []
   '
 ---
@@ -5767,8 +5765,8 @@
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
-                                         $session_id,
-                                         $window_id)) as matching_events
+                                         "$session_id",
+                                         "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -5876,9 +5874,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1']
   '
 ---
@@ -5887,8 +5884,8 @@
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
-                                         $session_id,
-                                         $window_id)) as matching_events
+                                         "$session_id",
+                                         "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -5995,9 +5992,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in []
   '
 ---
@@ -6006,8 +6002,8 @@
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
-                                         $session_id,
-                                         $window_id)) as matching_events
+                                         "$session_id",
+                                         "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -6123,9 +6119,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1']
   '
 ---

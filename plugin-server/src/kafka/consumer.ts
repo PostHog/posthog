@@ -135,31 +135,46 @@ export const consumeMessages = async (consumer: RdKafkaConsumer, fetchBatchSize:
         })
     })
 }
-export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
-    // Get the offsets for the last message for each partition, from
-    // messages
-    const offsets = messages.reduce((acc, message) => {
+
+export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
+    // We only need to commit the highest offset for a batch of messages
+    const messagesByTopicPartition = messages.reduce((acc, message) => {
         if (!acc[message.topic]) {
             acc[message.topic] = {}
         }
 
-        if (!acc[message.topic][message.partition.toString()]) {
-            acc[message.topic][message.partition.toString()] = message.offset
-        } else if (message.offset > acc[message.topic][message.partition.toString()]) {
-            acc[message.topic][message.partition.toString()] = message.offset
+        if (!acc[message.topic][message.partition]) {
+            acc[message.topic][message.partition] = []
         }
 
-        return acc
-    }, {} as { [topic: string]: { [partition: string]: number } })
+        acc[message.topic][message.partition].push(message)
 
-    const topicPartitionOffsets = Object.entries(offsets).flatMap(([topic, partitions]) => {
-        return Object.entries(partitions).map(([partition, offset]) => {
+        return acc
+    }, {} as { [topic: string]: { [partition: number]: TopicPartitionOffset[] } })
+
+    // Then we find the highest offset for each topic partition
+    const highestOffsets = Object.entries(messagesByTopicPartition).flatMap(([topic, partitions]) => {
+        return Object.entries(partitions).map(([partition, messages]) => {
+            const highestOffset = Math.max(...messages.map((message) => message.offset))
+
             return {
                 topic,
                 partition: parseInt(partition),
-                offset: offset + 1,
+                offset: highestOffset,
             }
         })
+    })
+
+    return highestOffsets
+}
+
+export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
+    const topicPartitionOffsets = findOffsetsToCommit(messages).map((message) => {
+        return {
+            ...message,
+            // When committing to Kafka you commit the offset of the next message you want to consume
+            offset: message.offset + 1,
+        }
     })
 
     if (topicPartitionOffsets.length > 0) {
@@ -167,6 +182,7 @@ export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaC
         consumer.commit(topicPartitionOffsets)
     }
 }
+
 export const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
     await new Promise((resolve, reject) => {
         consumer.disconnect((error, data) => {
