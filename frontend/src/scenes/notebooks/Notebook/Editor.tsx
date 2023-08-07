@@ -24,43 +24,13 @@ import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestam
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { useActions } from 'kea'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
+import { lemonToast } from '@posthog/lemon-ui'
+import { NotebookNodeType } from '~/types'
+import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
 })
-
-function uploadImage(file: File, view: EditorView, event: DragEvent): boolean {
-    try {
-        const formData = new FormData()
-        if (file.type.startsWith('image/')) {
-            lazyImageBlobReducer(file).then((compressedBlob) => {
-                file = new File([compressedBlob], file.name, { type: compressedBlob.type })
-                formData.append('image', file)
-                api.media.upload(formData).then((media) => {
-                    const { schema } = view.state
-                    const coordinates = view.posAtCoords({
-                        left: event.clientX,
-                        top: event.clientY,
-                    }) ?? {
-                        pos: 0,
-                    }
-                    const node = schema.nodes.image.create({
-                        src: media.image_location,
-                        alt: media.name,
-                    }) // creates the image element
-                    const transaction = view.state.tr.insert(coordinates.pos, node) // places it in the correct position
-                    return view.dispatch(transaction)
-                })
-            })
-        }
-    } catch (error) {
-        const errorDetail = (error as any).detail || 'unknown error'
-        console.error('could not upload image', errorDetail)
-        return false
-    }
-
-    return true
-}
 
 export function Editor({
     initialContent,
@@ -116,6 +86,7 @@ export function Editor({
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
+            NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
         ],
@@ -163,12 +134,38 @@ export function Editor({
                         // if dropping external files
                         const file = event.dataTransfer.files[0] // the dropped file
 
+                        posthog.capture('notebook file dropped', { file_type: file.type })
+
                         if (!file.type.startsWith('image/')) {
-                            console.log('we can only add image files to notebooks: Dropped file!', file)
-                            return false
+                            lemonToast.warning('Only images can be added to Notebooks at this time.')
+                            return true
                         }
 
-                        return uploadImage(file, view, event)
+                        const coordinates = view.posAtCoords({
+                            left: event.clientX,
+                            top: event.clientY,
+                        })
+
+                        if (!coordinates) {
+                            // TODO: Seek to end of document instead
+                            return true
+                        }
+
+                        editor
+                            .chain()
+                            .focus()
+                            .setTextSelection(coordinates.pos)
+                            .insertContent({
+                                type: NotebookNodeType.Image,
+                                attrs: {
+                                    file,
+                                },
+                            })
+                            .run()
+
+                        return true
+
+                        // return uploadImage(file, view, event)
                     }
                 }
 
