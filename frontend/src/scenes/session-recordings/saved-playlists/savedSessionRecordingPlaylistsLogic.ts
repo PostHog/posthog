@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { createPlaylist, deletePlaylist } from '../playlist/playlistUtils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from '~/initKea'
 
 export const PLAYLISTS_PER_PAGE = 30
 
@@ -213,7 +214,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                   }
               ]
             | void => {
-            if (router.values.location.pathname === urls.replay(ReplayTabs.Playlists)) {
+            if (removeProjectIdIfPresent(router.values.location.pathname) === urls.replay(ReplayTabs.Playlists)) {
                 const nextValues = values.filters
                 const urlValues = objectClean(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {

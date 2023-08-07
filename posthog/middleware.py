@@ -24,7 +24,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, User
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, User, Team
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL
 from posthog.settings.statsd import STATSD_HOST
@@ -157,7 +157,11 @@ class AutoProjectMiddleware:
             ):
                 project_id_in_url = int(path_parts[2])
 
-            if project_id_in_url is not None and request.user.team.pk != project_id_in_url:
+            if (
+                project_id_in_url is not None
+                and request.user.team is not None
+                and request.user.team.pk != project_id_in_url
+            ):
                 new_team = request.user.teams.get(pk=project_id_in_url)
                 self.switch_team(new_team, request)
                 return self.get_response(request)
@@ -198,9 +202,9 @@ class AutoProjectMiddleware:
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
-                self.switch_team(actual_item.team, current_team, request)
+                self.switch_team(actual_item.team, request)
 
-    def switch_team(self, new_team, request):
+    def switch_team(self, new_team: Team, request: HttpRequest):
         user = request.user
         # current_team = user.team
         user_permissions = UserPermissions(user)
@@ -212,7 +216,7 @@ class AutoProjectMiddleware:
             user.current_organization_id = new_team.organization_id
             user.save()
             # Information for POSTHOG_APP_CONTEXT
-            request.switched_team = new_team.id  # type: ignore
+            request.switched_team = new_team.id
 
 
 class CHQueries:
