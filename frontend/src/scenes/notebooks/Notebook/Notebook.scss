@@ -112,13 +112,17 @@
         top: 65px;
         min-width: 20rem;
 
-        .NotebookSettings__widget__header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-size: 0.75rem;
-            font-weight: 700;
-            padding: 0.25rem;
+        .NotebookSettings__widget {
+            background: var(--white);
+
+            .NotebookSettings__widget__header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                font-size: 0.75rem;
+                font-weight: 700;
+                padding: 0.25rem;
+            }
         }
     }
 

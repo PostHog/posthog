@@ -144,7 +144,6 @@ export function Editor({
         },
         onCreate: ({ editor }) => {
             editorRef.current = editor
-
             onCreate({
                 getJSON: () => editor.getJSON(),
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
