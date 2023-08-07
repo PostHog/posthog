@@ -43,6 +43,7 @@ import {
     Survey,
     TeamType,
     UserType,
+    BatchExportConfiguration,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -500,6 +501,15 @@ class ApiRequest {
 
     public notebook(id: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
         return this.notebooks(teamId).addPathComponent(id)
+    }
+
+    // Batch Exports
+    public batchExports(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('batch_exports')
+    }
+
+    public batchExport(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id)
     }
 
     // Request finalization
@@ -1240,6 +1250,28 @@ const api = {
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()
+        },
+    },
+
+    batchExports: {
+        async list(): Promise<PaginatedResponse<BatchExportConfiguration>> {
+            return await new ApiRequest().batchExports().get()
+        },
+        async get(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).get()
+        },
+        async update(
+            id: BatchExportConfiguration['id'],
+            data: Partial<BatchExportConfiguration>
+        ): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).update({ data })
+        },
+
+        async create(data?: Partial<BatchExportConfiguration>): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExports().create({ data })
+        },
+        async delete(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).delete()
         },
     },
 

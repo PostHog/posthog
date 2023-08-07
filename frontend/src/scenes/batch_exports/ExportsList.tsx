@@ -140,7 +140,7 @@ export function ExportActionButtons({
             <LemonButton
                 status="primary"
                 type={buttonType}
-                to={urls.editExport(export_.id)}
+                to={urls.batchExportEdit(export_.id)}
                 tooltip="Edit this BatchExport"
                 disabled={loading}
                 loading={loading}
@@ -281,7 +281,7 @@ export function Exports(): JSX.Element {
                         title: 'Name',
                         key: 'name',
                         render: function RenderName(_, export_) {
-                            return <Link to={urls.viewExport(export_.id)}>{export_.name}</Link>
+                            return <Link to={urls.batchExport(export_.id)}>{export_.name}</Link>
                         },
                     },
                     {
@@ -330,7 +330,7 @@ export function Exports(): JSX.Element {
                     },
                 ]}
             />
-            <LemonButton to={urls.createExport()}>Create export</LemonButton>
+            <LemonButton to={urls.batchExportNew()}>Create export</LemonButton>
             {/* If we are loading, we overlay a spinner */}
             {loading && <div>Loading...</div>}
         </>

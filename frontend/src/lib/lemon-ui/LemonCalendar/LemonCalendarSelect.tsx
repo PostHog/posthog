@@ -1,8 +1,9 @@
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useState } from 'react'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconClose } from 'lib/lemon-ui/icons'
+import { Popover } from '../Popover'
 
 export interface LemonCalendarSelectProps {
     value?: dayjs.Dayjs | null
@@ -56,5 +57,40 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
                 </LemonButton>
             </div>
         </div>
+    )
+}
+
+export function LemonCalendarSelectInput(
+    props: LemonCalendarSelectProps & {
+        buttonProps?: LemonButtonProps
+        placeholder?: string
+    }
+): JSX.Element {
+    const { buttonProps, placeholder, ...calendarProps } = props
+    const [visible, setVisible] = useState(false)
+
+    return (
+        <Popover
+            actionable
+            onClickOutside={() => setVisible(false)}
+            visible={visible}
+            overlay={
+                <LemonCalendarSelect
+                    {...calendarProps}
+                    onChange={(value) => {
+                        props.onChange(value)
+                        setVisible(false)
+                    }}
+                    onClose={() => {
+                        setVisible(false)
+                        props.onClose?.()
+                    }}
+                />
+            }
+        >
+            <LemonButton onClick={() => setVisible(true)} type="secondary" status="stealth" {...props.buttonProps}>
+                {props.value?.format('MMMM D, YYYY') ?? placeholder ?? 'Select date'}
+            </LemonButton>
+        </Popover>
     )
 }

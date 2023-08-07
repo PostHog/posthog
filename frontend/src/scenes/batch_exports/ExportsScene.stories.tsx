@@ -48,14 +48,14 @@ export default {
 
 export const Exports: Story = () => {
     useEffect(() => {
-        router.actions.push(urls.exports())
+        router.actions.push(urls.batchExports())
     })
     return <App />
 }
 
 export const CreateExport: Story = () => {
     useEffect(() => {
-        router.actions.push(urls.createExport())
+        router.actions.push(urls.batchExportNew())
     })
     return <App />
 }

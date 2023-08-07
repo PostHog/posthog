@@ -47,7 +47,6 @@ class S3BatchExportInputs:
     bucket_name: str
     region: str
     prefix: str
-    batch_window_size: int
     team_id: int
     batch_export_id: str
     aws_access_key_id: str | None = None

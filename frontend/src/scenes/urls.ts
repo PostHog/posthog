@@ -51,10 +51,10 @@ export const urls = {
     events: (): string => '/events',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
-    exports: (): string => '/exports',
-    createExport: (): string => `/exports/new`,
-    editExport: (exportId: string | number): string => `/exports/${exportId}/edit`,
-    viewExport: (id: string | number): string => `/exports/${id}`,
+    batchExports: (): string => '/batch_exports',
+    batchExportNew: (): string => `/batch_exports/new`,
+    batchExport: (id: string | number): string => `/batch_exports/${id}`,
+    batchExportEdit: (id: string | number): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {

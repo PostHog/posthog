@@ -3046,3 +3046,50 @@ export interface DataWarehouseSavedQuery {
     query: HogQLQuery
     columns: DatabaseSchemaQueryResponseField[]
 }
+
+export type BatchExportDestinationS3 = {
+    type: 'S3'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+    }
+}
+
+export type BatchExportDestinationSnowflake = {
+    type: 'Snowflake'
+    config: {
+        account: string
+        database: string
+        warehouse: string
+        user: string
+        password: string
+        schema: string
+        table_name: string
+        role: string | null
+    }
+}
+
+export type BatchExportDestination = BatchExportDestinationS3 | BatchExportDestinationSnowflake
+
+export type BatchExportConfiguration = {
+    // User provided data for the export. This is the data that the user
+    // provides when creating the export.
+    id: string
+    name: string
+    destination: BatchExportDestination
+    interval: 'hour' | 'day'
+    start_at: string | null
+    end_at: string | null
+}
+
+export type BatchExportRun = {
+    id: string
+    team_id: number
+    status: 'RUNNING' | 'FAILED' | 'COMPLETED' | 'PAUSED'
+    created_at: string
+    last_updated_at: string
+    paused: boolean
+}
