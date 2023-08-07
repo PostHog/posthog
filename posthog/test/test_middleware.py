@@ -247,6 +247,35 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api.status_code, 200)
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
 
+    def test_project_switched_when_accessing_another_project(self):
+        action = Action.objects.create(team=self.second_team)
+
+        response_app = self.client.get(f"/project/{self.second_team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        response_users_api_data = response_users_api.json()
+        self.user.refresh_from_db()
+        response_actions_api = self.client.get(f"/api/projects/@current/actions/{action.id}/")
+
+        self.assertEqual(response_app.status_code, 200)
+        self.assertEqual(response_users_api.status_code, 200)
+        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
+        self.assertEqual(response_actions_api.status_code, 200)
+
+    def test_project_not_switched_when_accessing_action_from_other_project_with_project_url(self):
+        action = Action.objects.create(team=self.second_team)
+        # action from a different team than self.team
+        response_app = self.client.get(f"/project/{self.team.pk}/actions/{action.id}")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        response_users_api_data = response_users_api.json()
+        self.user.refresh_from_db()
+        # does not switch to the team from the action, uses the team in the URL
+        response_actions_api = self.client.get(f"/api/projects/@current/actions/{action.id}/")
+
+        self.assertEqual(response_app.status_code, 200)
+        self.assertEqual(response_users_api.status_code, 200)
+        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
+        self.assertEqual(response_actions_api.status_code, 404)
+
 
 class TestPostHogTokenCookieMiddleware(APIBaseTest):
     initial_cloud_mode = True
