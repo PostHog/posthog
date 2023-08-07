@@ -5,6 +5,7 @@ import {
     SurveyQuestion,
     RatingSurveyQuestion,
     SurveyQuestionType,
+    MultipleSurveyQuestion,
 } from '~/types'
 import { defaultSurveyAppearance } from './surveyLogic'
 import {
@@ -20,7 +21,7 @@ interface SurveyAppearanceProps {
     type: SurveyQuestionType
     question: string
     appearance: SurveyAppearanceType
-    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion
+    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
     description?: string | null
     link?: string | null
     readOnly?: boolean
@@ -39,14 +40,25 @@ export function SurveyAppearance({
     return (
         <>
             <h3 className="mb-4 text-center">Preview</h3>
-            {type === SurveyQuestionType.Rating ? (
+            {type === SurveyQuestionType.Rating && (
                 <SurveyRatingAppearance
                     ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
                     appearance={appearance}
                     question={question}
                     description={description}
                 />
-            ) : (
+            )}
+            {(surveyQuestionItem.type === SurveyQuestionType.SingleChoice ||
+                surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
+                <SurveyMultipleChoiceAppearance
+                    multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
+                    appearance={appearance}
+                    question={question}
+                    description={description}
+                />
+            )}
+            {(surveyQuestionItem.type === SurveyQuestionType.Open ||
+                surveyQuestionItem.type === SurveyQuestionType.Link) && (
                 <BaseAppearance
                     type={type}
                     question={question}
@@ -262,6 +274,64 @@ function SurveyRatingAppearance({
                     <div className="rating-text">
                         <div>{ratingSurveyQuestion.lowerBoundLabel}</div>
                         <div>{ratingSurveyQuestion.upperBoundLabel}</div>
+                    </div>
+                    <div className="footer-branding">powered by {posthogLogoSVG} PostHog</div>
+                </div>
+            </div>
+        </form>
+    )
+}
+
+function SurveyMultipleChoiceAppearance({
+    multipleChoiceQuestion,
+    appearance,
+    question,
+    description,
+}: {
+    multipleChoiceQuestion: MultipleSurveyQuestion
+    appearance: SurveyAppearanceType
+    question: string
+    description?: string | null
+}): JSX.Element {
+    const inputType = multipleChoiceQuestion.type === SurveyQuestionType.SingleChoice ? 'radio' : 'checkbox'
+    return (
+        <form className="survey-form" style={{ backgroundColor: appearance.backgroundColor }}>
+            <div className="survey-box">
+                <div className="cancel-btn-wrapper">
+                    <button
+                        className="form-cancel"
+                        type="button"
+                        style={{ backgroundColor: appearance.backgroundColor }}
+                    >
+                        X
+                    </button>
+                </div>
+                <div className="survey-question" style={{ color: appearance.textColor }}>
+                    {question}
+                </div>
+                {description && (
+                    <div className="description" style={{ color: appearance.descriptionTextColor }}>
+                        {description}
+                    </div>
+                )}
+                <div className="multiple-choice-options">
+                    {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
+                        <div className="choice-option" key={idx}>
+                            <input type={inputType} name="choice" value={choice} />
+                            <label>{choice}</label>
+                        </div>
+                    ))}
+                </div>
+                <div className="bottom-section">
+                    <div className="buttons">
+                        <button
+                            className="form-submit"
+                            type="button"
+                            onClick={() => {}}
+                            style={{ backgroundColor: appearance.submitButtonColor }}
+                        >
+                            {appearance.submitButtonText || 'Submit'}
+                        </button>
                     </div>
                     <div className="footer-branding">powered by {posthogLogoSVG} PostHog</div>
                 </div>
