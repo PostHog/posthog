@@ -1129,6 +1129,18 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
     )
 }
 
+export function parseGithubRepoURL(url: string): Record<string, string> {
+    const match = url.match(
+        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
+    )
+
+    if (!match) {
+        throw new Error(`${url} is not a valid GitHub URL`)
+    }
+
+    const [, user, repo, , type, path] = match
+    return { user, repo, type, path }
+
 export async function copyToClipboard(value: string, description: string = 'text'): Promise<boolean> {
   if (!navigator.clipboard) {
     lemonToast.warning('Oops! Clipboard capabilities are only available over HTTPS or on localhost');
