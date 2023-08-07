@@ -12,9 +12,6 @@ export const NotebookSettings = (): JSX.Element | null => {
     return (
         <div>
             <div className="NotebookSettings space-y-2">
-                <NotebookSettingsWidget id={'notebook'} title="Notebook Settings">
-                    <div>Notebook settings</div>
-                </NotebookSettingsWidget>
                 {selectedNodeLogic && selectedNodeLogic.values.hasSettings ? (
                     <NotebookSettingsWidget id={selectedNodeLogic.props.nodeId} title={selectedNodeLogic.values.title}>
                         <SelectedNodeSettingsWidget
