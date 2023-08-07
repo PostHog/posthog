@@ -90,7 +90,6 @@ export function Editor({
         ],
         content: initialContent,
         editorProps: {
-            attributes: { class: 'NotebookEditor' },
             handleDrop: (view, event, _slice, moved) => {
                 const editor = editorRef.current
                 if (!editor) {
@@ -171,7 +170,7 @@ export function Editor({
 
     return (
         <>
-            <EditorContent editor={_editor} className="flex flex-col items-center" />
+            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
             {_editor && <FloatingSuggestions editor={_editor} />}
         </>
     )

@@ -74,13 +74,7 @@ export function Notebook({
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div
-                className={clsx(
-                    'Notebook flex flex-col flex-1',
-                    !isExpanded && 'Notebook--compact',
-                    editable && 'Notebook--editable'
-                )}
-            >
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
                 {notebook.is_template && (
                     <LemonBanner
                         type="info"
@@ -107,12 +101,8 @@ export function Notebook({
                     </LemonBanner>
                 ) : null}
 
-                <div className="flex flex-1 space-x-4">
-                    {editable && (
-                        <div className="flex justify-end Notebook__spacer">
-                            {showNodeSettings && <NotebookSettings />}
-                        </div>
-                    )}
+                <div className="flex flex-1 justify-center space-x-4">
+                    {editable && showNodeSettings ? <NotebookSettings /> : null}
                     <Editor
                         initialContent={content}
                         onCreate={setEditor}
@@ -130,7 +120,7 @@ export function Notebook({
                             return ''
                         }}
                     />
-                    {editable && <div className="flex Notebook__spacer" />}
+                    {editable && <div className="flex shrink Notebook__spacer" />}
                 </div>
             </div>
         </BindLogic>

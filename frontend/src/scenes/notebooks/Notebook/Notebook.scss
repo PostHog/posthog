@@ -1,10 +1,14 @@
 .Notebook {
     --notebook-settings-widget-width: 20rem;
-    --compact-notebook-max-width: 35rem;
+    --compact-notebook-min-width: 50rem;
 
     .NotebookEditor {
         flex: 1;
-        min-width: var(--compact-notebook-max-width);
+        width: 100%;
+
+        @media (min-width: 1200px) {
+            min-width: var(--compact-notebook-min-width);
+        }
 
         > h1,
         > h2,
@@ -18,7 +22,7 @@
             margin-bottom: 0.2rem;
         }
 
-        > &.ProseMirror-focused {
+        > .ProseMirror-focused {
             outline: none;
         }
 
@@ -94,15 +98,15 @@
 
     &--compact {
         .NotebookEditor {
-            max-width: var(--compact-notebook-max-width);
+            max-width: 800px;
         }
-    }
 
-    .Notebook__spacer {
-        flex: 1;
+        .Notebook__spacer {
+            width: var(--notebook-settings-widget-width);
 
-        @media (max-width: 75rem) {
-            max-width: var(--notebook-settings-widget-width);
+            @media (max-width: 1200px) {
+                width: 0px;
+            }
         }
     }
 
@@ -118,9 +122,10 @@
         align-self: flex-start;
         top: 65px;
         width: var(--notebook-settings-widget-width);
+        min-width: var(--notebook-settings-widget-width);
         z-index: 1;
 
-        @media (max-width: 75rem) {
+        @media (max-width: 1000px) {
             position: fixed;
             left: 0;
             right: 0;
