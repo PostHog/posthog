@@ -42,7 +42,7 @@ class Person(models.Model):
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
-    def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int]):
+    def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
         distinct_ids = Person.objects.get(pk=self.pk).distinct_ids
         if not main_distinct_id:
             self.properties = {}
