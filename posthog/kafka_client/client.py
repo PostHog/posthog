@@ -43,7 +43,7 @@ class KafkaProducerForTests:
         future.success(None)
         return future
 
-    def flush(self):
+    def flush(self, timeout=None):
         return
 
 
