@@ -315,7 +315,7 @@ function SurveyMultipleChoiceAppearance({
                     </div>
                 )}
                 <div className="multiple-choice-options">
-                    {multipleChoiceQuestion.choices.map((choice, idx) => (
+                    {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
                         <div className="choice-option" key={idx}>
                             <input type={inputType} name="choice" value={choice} />
                             <label>{choice}</label>
@@ -327,9 +327,7 @@ function SurveyMultipleChoiceAppearance({
                         <button
                             className="form-submit"
                             type="button"
-                            onClick={() => {
-                                // link && type === SurveyQuestionType.Link ? window.open(link) : null
-                            }}
+                            onClick={() => {}}
                             style={{ backgroundColor: appearance.submitButtonColor }}
                         >
                             {appearance.submitButtonText || 'Submit'}

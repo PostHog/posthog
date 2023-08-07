@@ -2050,7 +2050,7 @@ export interface Survey {
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
-    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion)[]
+    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
     start_date: string | null
