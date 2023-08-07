@@ -70,6 +70,7 @@ class SnowflakeBatchExportInputs:
     table_name: str = "events"
     data_interval_end: str | None = None
     role: str | None = None
+    legacy_schema: bool = False
 
 
 @dataclass
