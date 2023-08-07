@@ -28,7 +28,6 @@ from posthog.queries.trends.sql import (
     VOLUME_PER_ACTOR_SQL,
     VOLUME_SQL,
 )
-from posthog.queries.trends.trends_actors import offset_time_series_date_by_interval
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
@@ -36,6 +35,7 @@ from posthog.queries.trends.util import (
     determine_aggregator,
     ensure_value_is_json_serializable,
     enumerate_time_range,
+    offset_time_series_date_by_interval,
     parse_response,
     process_math,
 )

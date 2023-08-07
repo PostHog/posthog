@@ -1,8 +1,7 @@
 import json
 from urllib.parse import quote
-
-from django.test.client import Client
 from rest_framework import status
+from django.test.client import Client
 
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
@@ -20,6 +19,7 @@ class TestAccessMiddleware(APIBaseTest):
         """
 
         with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):
+
             # not in list
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -384,17 +384,12 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_current_project_name"].value, self.team.name)
         self.assertEqual(response.cookies["ph_current_project_name"]["max-age"], 31536000)
 
-        self.assertEqual(response.cookies["ph_current_instance"].key, "ph_current_instance")
-        self.assertEqual(response.cookies["ph_current_instance"].value, SITE_URL)
-        self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
-
         response = self.client.get("/logout")
 
         # Check that the local cookies will be removed by having 'expires' in the past
         self.assertTrue(response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
         self.assertTrue(response.cookies["ph_current_project_name"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
-        # We don't want to remove the ph_current_instance cookie
-        self.assertNotIn("ph_current_instance", response.cookies)
+        self.assertTrue(response.cookies["ph_current_instance"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
 
         # Request a page after logging out
         response = self.client.get("/")
@@ -402,3 +397,4 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         # Check if the cookies are not present in the response
         self.assertNotIn("ph_current_project_token", response.cookies)
         self.assertNotIn("ph_current_project_name", response.cookies)
+        self.assertNotIn("ph_current_instance", response.cookies)
