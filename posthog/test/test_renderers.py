@@ -14,7 +14,7 @@ class TestCleanDataForJSON(TestCase):
 
         self.assertEqual(top_level_markers, (False, False))
         self.assertDictEqual(
-            data, {"control": 1.0, "test_1": None, "test_1::nan!": True, "test_2": None, "test_2::inf!": True}
+            data, {"control": 1.0, "test_1": None, "test_1::nan": True, "test_2": None, "test_2::inf": True}
         )
 
     def test_cleans_dict_with_nan_and_inf_list(self):
@@ -26,7 +26,7 @@ class TestCleanDataForJSON(TestCase):
 
         self.assertEqual(top_level_markers, (False, False))
         self.assertDictEqual(
-            {"control": 1.0, "test": [None, 1.0, None], "test::nan!": {2: True}, "test::inf!": {0: True}}, data
+            {"control": 1.0, "test": [None, 1.0, None], "test::nan": {2: True}, "test::inf": {0: True}}, data
         )
 
     def test_cleans_dict_with_nan_and_inf_nested_list(self):
@@ -41,8 +41,8 @@ class TestCleanDataForJSON(TestCase):
             {
                 "control": 1.0,
                 "test": [None, [None, None, 1.0], None, 5.0],
-                "test::nan!": {1: {1: True}, 2: True},
-                "test::inf!": {0: True, 1: {0: True}},
+                "test::nan": {1: {1: True}, 2: True},
+                "test::inf": {0: True, 1: {0: True}},
             },
             data,
         )
@@ -56,6 +56,6 @@ class TestCleanDataForJSON(TestCase):
 
         self.assertEqual(top_level_markers, (False, False))
         self.assertDictEqual(
-            {"control": 1.0, "test": [{"yup": True, "meh": [], "nope": None, "nope::nan!": True}]},
+            {"control": 1.0, "test": [{"yup": True, "meh": [], "nope": None, "nope::nan": True}]},
             data,
         )

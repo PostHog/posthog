@@ -29,11 +29,11 @@ def clean_data_for_json(data) -> Tuple[CleaningMarker, CleaningMarker]:
         for key, value in data.items():
             nan, inf = clean_data_for_json(value)
             if nan:
-                marker_payload[f"{key}::nan!"] = nan
+                marker_payload[f"{key}::nan"] = nan
                 if nan is True:
                     data[key] = None
             if inf:
-                marker_payload[f"{key}::inf!"] = inf
+                marker_payload[f"{key}::inf"] = inf
                 if inf is True:
                     data[key] = None
         data.update(marker_payload)
