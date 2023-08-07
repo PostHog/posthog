@@ -15,7 +15,7 @@ export const NotebookSettings = (): JSX.Element | null => {
                 <NotebookSettingsWidget id={'notebook'} title="Notebook Settings">
                     <div>Notebook settings</div>
                 </NotebookSettingsWidget>
-                {selectedNodeLogic && (
+                {selectedNodeLogic && selectedNodeLogic.values.hasSettings ? (
                     <NotebookSettingsWidget id={selectedNodeLogic.props.nodeId} title={selectedNodeLogic.values.title}>
                         <SelectedNodeSettingsWidget
                             nodeType={selectedNodeLogic.props.nodeType}
@@ -23,7 +23,7 @@ export const NotebookSettings = (): JSX.Element | null => {
                             updateAttributes={selectedNodeLogic.actions.updateAttributes}
                         />
                     </NotebookSettingsWidget>
-                )}
+                ) : null}
             </div>
         </div>
     )
@@ -73,7 +73,7 @@ const NotebookSettingsWidget = ({
                     icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                 />
             </div>
-            {isExpanded ? <div className="p-1 border-t border-border">{children}</div> : null}
+            {isExpanded ? <div className="px-3 py-2 border-t border-border">{children}</div> : null}
         </div>
     )
 }

@@ -15,18 +15,21 @@ import {
     SessionRecordingPreviewSkeleton,
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const id = props.node.attrs.id
+    const id: string = props.node.attrs.id
+    const noInspector: boolean = props.node.attrs.noInspector
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
         autoPlay: false,
         mode: SessionRecordingPlayerMode.Notebook,
         noBorder: true,
+        noInspector: noInspector,
     }
 
     const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
@@ -63,6 +66,9 @@ export const NotebookNodeRecording = createPostHogWidgetNode({
         id: {
             default: null,
         },
+        noInspector: {
+            default: false,
+        },
     },
     pasteOptions: {
         find: urls.replaySingle('') + '(.+)',
@@ -72,8 +78,15 @@ export const NotebookNodeRecording = createPostHogWidgetNode({
     },
 })
 
-export const Settings = ({ attributes }: NotebookNodeWidgetSettings): JSX.Element => {
-    return <div>{attributes.length}</div>
+export const Settings = ({ attributes, updateAttributes }: NotebookNodeWidgetSettings): JSX.Element => {
+    return (
+        <LemonSwitch
+            onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
+            label="Hide Inspector"
+            checked={attributes.noInspector}
+            fullWidth={true}
+        />
+    )
 }
 
 export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {
