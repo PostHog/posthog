@@ -2,7 +2,7 @@ import { api } from '@posthog/apps-common'
 import { NodeViewProps } from '@tiptap/core'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lazyImageBlobReducer } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { MediaUploadResponse, NotebookNodeType } from '~/types'
@@ -36,11 +36,10 @@ const Component = (props: NodeViewProps): JSX.Element => {
                 return
             }
 
-            // Start uploading
             setUploading(true)
 
             uploadFile(file)
-                .then((media) => {
+                .then(async (media) => {
                     props.updateAttributes({
                         file: undefined,
                         src: media.image_location,
