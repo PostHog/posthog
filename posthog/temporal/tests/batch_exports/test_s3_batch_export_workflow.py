@@ -28,6 +28,7 @@ from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportWorkflow,
     S3InsertInputs,
     insert_into_s3_activity,
+    get_s3_key,
 )
 
 TEST_ROOT_BUCKET = "test-batch-exports"
@@ -1203,3 +1204,94 @@ async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(clien
         assert run.status == "Completed"
 
     assert_events_in_s3(s3_client, bucket_name, prefix, events)
+
+
+# We don't care about these for the next test, just need something to be defined.
+base_inputs = {
+    "bucket_name": "test",
+    "region": "test",
+    "team_id": 1,
+}
+
+
+@pytest.mark.parametrize(
+    "inputs,expected",
+    [
+        (
+            S3InsertInputs(
+                prefix="/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="my-fancy-prefix",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/my-fancy-prefix",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="my-fancy-prefix-with-a-forwardslash/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "my-fancy-prefix-with-a-forwardslash/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/my-fancy-prefix-with-a-forwardslash/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "my-fancy-prefix-with-a-forwardslash/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+    ],
+)
+def test_get_s3_key(inputs, expected):
+    """Test the get_s3_key function renders the expected S3 key given inputs."""
+    result = get_s3_key(inputs)
+    assert result == expected

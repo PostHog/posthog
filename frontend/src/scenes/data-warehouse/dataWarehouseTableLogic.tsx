@@ -136,9 +136,9 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         },
     })),
     afterMount(async ({ props, actions }) => {
-        if (props.id !== 'new') {
-            await actions.loadTable()
-        }
+        // if (props.id !== 'new') {
+        //     await actions.loadTable()
+        // }
         if (props.id === 'new') {
             actions.resetTable()
         }

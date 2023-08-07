@@ -5,7 +5,7 @@ import { useCallback, useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, Node } from './utils'
+import { EditorRange, EditorFocusPosition, Node } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -140,13 +140,14 @@ export function Editor({
                 return false
             },
         },
-        autofocus: 'end',
         onCreate: ({ editor }) => {
             editorRef.current = editor
             onCreate({
                 getJSON: () => editor.getJSON(),
-                setEditable: (editable: boolean) => editor.setEditable(editable, false),
-                setContent: (content: JSONContent) => editor.commands.setContent(content, false),
+                setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
+                setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
+                focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                destroy: () => editor.destroy(),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
@@ -237,7 +238,7 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
 function getPreviousNode(editor: TTEditor): Node | null {
     const { $anchor } = editor.state.selection
     const node = $anchor.node(1)
-    return !!node ? editor.state.doc.childBefore($anchor.pos - node.nodeSize).node : null
+    return !!node ? editor.state.doc.childBefore($anchor.pos - 1).node : null
 }
 
 export function hasMatchingNode(
