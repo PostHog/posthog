@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './EditableField.scss'
 import { IconEdit } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -250,19 +250,19 @@ const AutosizeInput = ({
         return inputRef.current ? window.getComputedStyle(inputRef.current) : null
     }, [inputRef.current])
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (inputStyles && placeHolderSizerRef.current) {
             copyStyles(inputStyles, placeHolderSizerRef.current)
         }
     }, [placeHolderSizerRef, placeHolderSizerRef])
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (inputStyles && sizerRef.current) {
             copyStyles(inputStyles, sizerRef.current)
         }
     }, [inputStyles, sizerRef])
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!sizerRef.current || !placeHolderSizerRef.current) {
             return
         }
