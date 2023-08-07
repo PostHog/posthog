@@ -6,16 +6,16 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductKey } from '~/types'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 import { DataWarehouseTablesContainer } from './DataWarehouseTables'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
 
 export const scene: SceneExport = {
-    component: DataWarehouse,
-    logic: databaseSceneLogic,
+    component: DataWarehouseExternalScene,
+    logic: dataWarehouseSceneLogic,
 }
 
-export function DataWarehouse(): JSX.Element {
+export function DataWarehouseExternalScene(): JSX.Element {
     const { shouldShowEmptyState, shouldShowProductIntroduction } = useValues(dataWarehouseSceneLogic)
 
     return (
@@ -40,7 +40,7 @@ export function DataWarehouse(): JSX.Element {
                 }
                 caption={
                     <div>
-                        These are the database tables you can query under SQL insights with{' '}
+                        These are external data sources you can query under SQL insights with{' '}
                         <a href="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </a>
@@ -49,6 +49,7 @@ export function DataWarehouse(): JSX.Element {
                     </div>
                 }
             />
+            <DataWarehousePageTabs tab={DataWarehouseTab.External} />
             {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName={'Data Warehouse'}

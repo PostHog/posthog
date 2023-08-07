@@ -51,7 +51,7 @@ import Typography from 'antd/lib/typography'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
+import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -281,9 +281,8 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
-            <NotebookSideBar>
-                <div className="SideBar__content">{children}</div>
-            </NotebookSideBar>
+            <NotebookPopover />
+            <div className="SideBar__content">{children}</div>
             <ActivationSidebar />
         </div>
     )

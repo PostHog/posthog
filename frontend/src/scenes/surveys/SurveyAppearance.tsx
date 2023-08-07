@@ -96,14 +96,14 @@ export function SurveyAppearance({
                     )}
                     {(type === SurveyQuestionType.Open || type === SurveyQuestionType.Link) && (
                         <>
-                            <div className="mt-2">Submit button color</div>
+                            <div className="mt-2">Button color</div>
                             <LemonInput
                                 value={appearance?.submitButtonColor}
                                 onChange={(submitButtonColor) =>
                                     onAppearanceChange({ ...appearance, submitButtonColor })
                                 }
                             />
-                            <div className="mt-2">Submit button text</div>
+                            <div className="mt-2">Button text</div>
                             <LemonInput
                                 value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
                                 onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}

@@ -136,16 +136,16 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
-    RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
-    RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
+    RECORDING_DEBUGGING: 'recording-debugging', // owner #team-monitoring
+    RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-monitoring
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
-    NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
+    NOTEBOOKS: 'notebooks', // owner: #team-monitoring
     EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
-    RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
+    RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-monitoring
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
@@ -153,7 +153,8 @@ export const FEATURE_FLAGS = {
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
-    DATA_WAREHOUSE: 'data-warehouse', // owner: @timgl
+    DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
+    DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes

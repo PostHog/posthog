@@ -1,21 +1,11 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
-import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import { DataWarehouseTable, ProductKey } from '~/types'
-import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 import { userLogic } from 'scenes/userLogic'
 
-export interface DatabaseSceneRow {
-    name: string
-    columns: DatabaseSchemaQueryResponseField[]
-}
-
-export interface DataWarehouseSceneRow extends DatabaseSceneRow {
-    id: string
-    url_pattern: string
-    format: string
-}
+import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
+import { DataWarehouseSceneRow } from '../types'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSceneLogic']),
@@ -64,5 +54,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
     }),
-    afterMount(({ actions }) => actions.loadDataWarehouse()),
+    afterMount(({ actions }) => {
+        actions.loadDataWarehouse()
+    }),
 ])

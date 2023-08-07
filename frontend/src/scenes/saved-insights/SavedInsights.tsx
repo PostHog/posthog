@@ -57,7 +57,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -369,7 +368,7 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <DraggableToNotebook href={urls.insightView(insight.short_id)}>
+                    <>
                         <span className="row-name">
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
@@ -399,7 +398,7 @@ export function SavedInsights(): JSX.Element {
                         {hasDashboardCollaboration && insight.description && (
                             <span className="row-description">{insight.description}</span>
                         )}
-                    </DraggableToNotebook>
+                    </>
                 )
             },
         },

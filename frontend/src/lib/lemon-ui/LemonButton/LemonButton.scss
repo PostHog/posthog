@@ -138,6 +138,7 @@
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
             background: var(--primary-highlight);
+            color: inherit; // Avoid links being colored on hover
         }
 
         &.LemonButton--active {

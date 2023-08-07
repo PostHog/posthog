@@ -37,6 +37,15 @@
         align-self: center;
         min-width: 0;
     }
+    .EditableField__autosize__sizer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        visibility: hidden;
+        height: 0;
+        overflow: scroll;
+        white-space: pre;
+    }
     input,
     textarea {
         max-width: 100%;

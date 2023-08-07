@@ -19,6 +19,8 @@ import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessi
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { urls } from 'scenes/urls'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 function SessionPropertyMeta(props: {
     fullScreen: boolean
@@ -143,113 +145,115 @@ export function PlayerMeta(): JSX.Element {
     }
 
     return (
-        <div
-            ref={ref}
-            className={clsx('PlayerMeta', {
-                'PlayerMeta--fullscreen': isFullScreen,
-            })}
-        >
+        <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)}>
             <div
-                className={clsx(
-                    'PlayerMeta__top flex items-center gap-2 shrink-0 p-2',
-                    isFullScreen ? ' text-xs' : 'border-b'
-                )}
-            >
-                <div className="ph-no-capture">
-                    {!sessionPerson ? (
-                        <LemonSkeleton.Circle className="w-8 h-8" />
-                    ) : (
-                        <ProfilePicture name={asDisplay(sessionPerson)} />
-                    )}
-                </div>
-                <div className="overflow-hidden ph-no-capture flex-1">
-                    <div className="font-bold">
-                        {!sessionPerson || !startTime ? (
-                            <LemonSkeleton className="w-1/3 my-1" />
-                        ) : (
-                            <div className="flex gap-1">
-                                <span className="whitespace-nowrap truncate">
-                                    <PersonDisplay person={sessionPerson} withIcon={false} noEllipsis={true} />
-                                </span>
-                                {'·'}
-                                <TZLabel
-                                    time={dayjs(startTime)}
-                                    formatDate="MMMM DD, YYYY"
-                                    formatTime="h:mm A"
-                                    showPopover={false}
-                                />
-                            </div>
-                        )}
-                    </div>
-                    <div className="text-muted">
-                        {sessionPlayerMetaDataLoading ? (
-                            <LemonSkeleton className="w-1/4 my-1" />
-                        ) : sessionProperties ? (
-                            <SessionPropertyMeta
-                                fullScreen={isFullScreen}
-                                iconProperties={sessionProperties}
-                                predicate={(x) => !!x}
-                            />
-                        ) : null}
-                    </div>
-                </div>
-
-                {sessionRecordingId ? <PlayerMetaLinks /> : null}
-            </div>
-            <div
-                className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
-                    'p-2 h-10': !isFullScreen,
-                    'p-1 px-3 text-xs h-12': isFullScreen,
+                ref={ref}
+                className={clsx('PlayerMeta', {
+                    'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                {sessionPlayerMetaDataLoading ? (
-                    <LemonSkeleton className="w-1/3 my-1" />
-                ) : (
-                    <>
-                        <Tooltip
-                            title={
-                                <>
-                                    Window {currentWindowIndex + 1}.
-                                    <br />
-                                    Each recording window translates to a distinct browser tab or window.
-                                </>
-                            }
-                        >
-                            <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
-                        </Tooltip>
+                <div
+                    className={clsx(
+                        'PlayerMeta__top flex items-center gap-2 shrink-0 p-2',
+                        isFullScreen ? ' text-xs' : 'border-b'
+                    )}
+                >
+                    <div className="ph-no-capture">
+                        {!sessionPerson ? (
+                            <LemonSkeleton.Circle className="w-8 h-8" />
+                        ) : (
+                            <ProfilePicture name={asDisplay(sessionPerson)} />
+                        )}
+                    </div>
+                    <div className="overflow-hidden ph-no-capture flex-1">
+                        <div className="font-bold">
+                            {!sessionPerson || !startTime ? (
+                                <LemonSkeleton className="w-1/3 my-1" />
+                            ) : (
+                                <div className="flex gap-1">
+                                    <span className="whitespace-nowrap truncate">
+                                        <PersonDisplay person={sessionPerson} withIcon={false} noEllipsis={true} />
+                                    </span>
+                                    {'·'}
+                                    <TZLabel
+                                        time={dayjs(startTime)}
+                                        formatDate="MMMM DD, YYYY"
+                                        formatTime="h:mm A"
+                                        showPopover={false}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                        <div className="text-muted">
+                            {sessionPlayerMetaDataLoading ? (
+                                <LemonSkeleton className="w-1/4 my-1" />
+                            ) : sessionProperties ? (
+                                <SessionPropertyMeta
+                                    fullScreen={isFullScreen}
+                                    iconProperties={sessionProperties}
+                                    predicate={(x) => !!x}
+                                />
+                            ) : null}
+                        </div>
+                    </div>
 
-                        {lastUrl && (
-                            <span className="flex items-center gap-2 truncate">
-                                <span>·</span>
-                                <span className="flex items-center gap-1 truncate">
-                                    <Tooltip title="Click to open url">
-                                        <Link to={lastUrl} target="_blank" className="truncate">
-                                            {lastUrl}
-                                        </Link>
-                                    </Tooltip>
-                                    <span className="flex items-center">
-                                        <CopyToClipboardInline
-                                            description="current url"
-                                            explicitValue={lastUrl}
-                                            iconStyle={{ color: 'var(--muted-alt)' }}
-                                        />
+                    {sessionRecordingId && <PlayerMetaLinks />}
+                </div>
+                <div
+                    className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
+                        'p-2 h-10': !isFullScreen,
+                        'p-1 px-3 text-xs h-12': isFullScreen,
+                    })}
+                >
+                    {sessionPlayerMetaDataLoading ? (
+                        <LemonSkeleton className="w-1/3 my-1" />
+                    ) : (
+                        <>
+                            <Tooltip
+                                title={
+                                    <>
+                                        Window {currentWindowIndex + 1}.
+                                        <br />
+                                        Each recording window translates to a distinct browser tab or window.
+                                    </>
+                                }
+                            >
+                                <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                            </Tooltip>
+
+                            {lastUrl && (
+                                <span className="flex items-center gap-2 truncate">
+                                    <span>·</span>
+                                    <span className="flex items-center gap-1 truncate">
+                                        <Tooltip title="Click to open url">
+                                            <Link to={lastUrl} target="_blank" className="truncate">
+                                                {lastUrl}
+                                            </Link>
+                                        </Tooltip>
+                                        <span className="flex items-center">
+                                            <CopyToClipboardInline
+                                                description="current url"
+                                                explicitValue={lastUrl}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            />
+                                        </span>
                                     </span>
                                 </span>
-                            </span>
-                        )}
-                        {lastPageviewEvent?.properties?.['$screen_name'] && (
-                            <span className="flex items-center gap-2 truncate">
-                                <span>·</span>
-                                <span className="flex items-center gap-1 truncate">
-                                    {lastPageviewEvent?.properties['$screen_name']}
+                            )}
+                            {lastPageviewEvent?.properties?.['$screen_name'] && (
+                                <span className="flex items-center gap-2 truncate">
+                                    <span>·</span>
+                                    <span className="flex items-center gap-1 truncate">
+                                        {lastPageviewEvent?.properties['$screen_name']}
+                                    </span>
                                 </span>
-                            </span>
-                        )}
-                    </>
-                )}
-                <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
-                {resolutionView}
+                            )}
+                        </>
+                    )}
+                    <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
+                    {resolutionView}
+                </div>
             </div>
-        </div>
+        </DraggableToNotebook>
     )
 }
