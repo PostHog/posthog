@@ -10,18 +10,19 @@ export const NotebookSettings = (): JSX.Element | null => {
     const { selectedNodeLogic } = useValues(notebookLogic)
 
     return (
-        <div>
-            <div className="NotebookSettings space-y-2">
-                {selectedNodeLogic && selectedNodeLogic.values.hasSettings ? (
-                    <NotebookSettingsWidget id={selectedNodeLogic.props.nodeId} title={selectedNodeLogic.values.title}>
-                        <SelectedNodeSettingsWidget
-                            nodeType={selectedNodeLogic.props.nodeType}
-                            attributes={selectedNodeLogic.props.nodeAttributes}
-                            updateAttributes={selectedNodeLogic.actions.updateAttributes}
-                        />
-                    </NotebookSettingsWidget>
-                ) : null}
-            </div>
+        <div className="NotebookSettings space-y-2">
+            <NotebookSettingsWidget id="notebook" title="Notebook Settings">
+                <div>This is some child content</div>
+            </NotebookSettingsWidget>
+            {selectedNodeLogic && selectedNodeLogic.values.hasSettings ? (
+                <NotebookSettingsWidget id={selectedNodeLogic.props.nodeId} title={selectedNodeLogic.values.title}>
+                    <SelectedNodeSettingsWidget
+                        nodeType={selectedNodeLogic.props.nodeType}
+                        attributes={selectedNodeLogic.props.nodeAttributes}
+                        updateAttributes={selectedNodeLogic.actions.updateAttributes}
+                    />
+                </NotebookSettingsWidget>
+            ) : null}
         </div>
     )
 }

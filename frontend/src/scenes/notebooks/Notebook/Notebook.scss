@@ -1,10 +1,10 @@
 .Notebook {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
+    --notebook-settings-widget-width: 20rem;
+    --compact-notebook-max-width: 35rem;
 
     .NotebookEditor {
         flex: 1;
+        min-width: var(--compact-notebook-max-width);
 
         > h1,
         > h2,
@@ -93,10 +93,17 @@
     }
 
     &--compact {
-        max-width: 1000px;
-        width: 100%;
-        margin-left: auto;
-        margin-right: auto;
+        .NotebookEditor {
+            max-width: var(--compact-notebook-max-width);
+        }
+    }
+
+    .Notebook__spacer {
+        flex: 1;
+
+        @media (max-width: 75rem) {
+            max-width: var(--notebook-settings-widget-width);
+        }
     }
 
     &--editable {
@@ -110,7 +117,18 @@
         position: sticky;
         align-self: flex-start;
         top: 65px;
-        min-width: 20rem;
+        width: var(--notebook-settings-widget-width);
+        z-index: 1;
+
+        @media (max-width: 75rem) {
+            position: fixed;
+            left: 0;
+            right: 0;
+            top: inherit;
+            bottom: 0.5rem;
+            margin-left: auto;
+            margin-right: auto;
+        }
 
         .NotebookSettings__widget {
             background: var(--white);

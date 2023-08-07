@@ -171,7 +171,7 @@ export function Editor({
 
     return (
         <>
-            <EditorContent editor={_editor} className="flex flex-col flex-1 min-w-0" />
+            <EditorContent editor={_editor} className="flex flex-col items-center" />
             {_editor && <FloatingSuggestions editor={_editor} />}
         </>
     )
