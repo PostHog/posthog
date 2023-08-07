@@ -110,7 +110,7 @@ export function FunnelBarChart({
     }, [visibleStepsWithConversionMetrics, height])
 
     // negative margin-top so that the scrollable shadow is visible on the canvas label as well
-    const scrollableAdjustmentCanvasLabel = !inCardView && '-mt-12 pt-11'
+    const scrollableAdjustmentCanvasLabel = !inCardView && '-mt-12 pt-10'
 
     return (
         <div

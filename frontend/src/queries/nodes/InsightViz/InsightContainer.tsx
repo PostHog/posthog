@@ -211,7 +211,7 @@ export function InsightContainer({
                             {/* negative margin-top so that the border is only visible when the rows wrap */}
                             <div className="flex flex-wrap-reverse whitespace-nowrap gap-x-8 -mt-px">
                                 {(!disableLastComputation || !!samplingFactor) && (
-                                    <div className="flex grow insights-graph-header border-t">
+                                    <div className="flex grow items-center insights-graph-header border-t">
                                         <InsightResultMetadata
                                             disableLastComputation={disableLastComputation}
                                             disableLastComputationRefresh={disableLastComputationRefresh}
