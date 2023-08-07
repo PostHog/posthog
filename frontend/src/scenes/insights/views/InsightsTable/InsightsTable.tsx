@@ -77,13 +77,15 @@ export function InsightsTable({
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const hasCheckboxes =
+        isLegend && (!display || ![ChartDisplayType.BoldNumber, ChartDisplayType.WorldMap].includes(display))
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     columns.push({
         title: (
             <div className="flex items-center gap-4">
-                {isLegend && (
+                {hasCheckboxes && (
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
@@ -105,7 +107,7 @@ export function InsightsTable({
                     hasMultipleSeries={!isSingleSeries}
                 />
             )
-            return isLegend ? (
+            return hasCheckboxes ? (
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
