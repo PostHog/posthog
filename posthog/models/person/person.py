@@ -42,12 +42,16 @@ class Person(models.Model):
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
-    def split_person(self, main_distinct_id: Optional[str]):
+    def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int]):
         distinct_ids = Person.objects.get(pk=self.pk).distinct_ids
         if not main_distinct_id:
             self.properties = {}
             self.save()
             main_distinct_id = distinct_ids[0]
+
+        if max_splits is not None and len(distinct_ids) > max_splits:
+            # Split the last N distinct_ids of the list
+            distinct_ids = distinct_ids[-1 * max_splits :]
 
         for distinct_id in distinct_ids:
             if not distinct_id == main_distinct_id:

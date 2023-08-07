@@ -20,6 +20,9 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", default=None, type=int, help="Specify a team to fix data for.")
         parser.add_argument("--person-id", default=None, type=int, help="Specify the person ID to split.")
         parser.add_argument("--live-run", action="store_true", help="Run changes, default is dry-run")
+        parser.add_argument(
+            "--max-splits", default=None, type=int, help="Only split off a given number of distinct_ids and exit."
+        )
 
     def handle(self, *args, **options):
         run(options)
@@ -38,6 +41,7 @@ def run(options):
 
     team_id = options["team_id"]
     person_id = options["person_id"]
+    max_splits = options["max_splits"]
 
     person = Person.objects.get(pk=person_id)
     if person.team_id != team_id:
@@ -49,9 +53,14 @@ def run(options):
         logger.error(f"Specified person only has {distinct_id_count} IDs, cannot split")
         exit(1)
 
-    logger.info(f"Person has {distinct_id_count} distinct_ids to split")
+    if max_splits:
+        will_split = min(max_splits, distinct_id_count)
+        logger.info(f"Splitting {will_split} of the {distinct_id_count} distinct_ids")
+    else:
+        logger.info(f"Splitting all of the {distinct_id_count} distinct_ids")
+
     if live_run:
-        person.split_person(None)
+        person.split_person(None, max_splits)
         logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
         KafkaProducer().flush(5 * 60)
         logger.info("Kafka producer queue flushed.")
