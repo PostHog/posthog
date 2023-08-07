@@ -91,7 +91,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         command: async (chain) => {
             // Trigger upload followed by insert
             try {
-                const files = await selectFile({ contentType: 'image', multiple: false })
+                const files = await selectFile({ contentType: 'image/*', multiple: false })
 
                 if (files.length) {
                     return chain.insertContent({ type: NotebookNodeType.Image, attrs: { file: files[0] } })
