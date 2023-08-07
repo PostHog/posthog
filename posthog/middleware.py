@@ -205,7 +205,7 @@ class AutoProjectMiddleware:
                 self.switch_team(actual_item.team, request)
 
     def switch_team(self, new_team: Team, request: HttpRequest):
-        user = request.user
+        user = cast(User, request.user)
         # current_team = user.team
         user_permissions = UserPermissions(user)
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
@@ -216,7 +216,7 @@ class AutoProjectMiddleware:
             user.current_organization_id = new_team.organization_id
             user.save()
             # Information for POSTHOG_APP_CONTEXT
-            request.switched_team = new_team.id
+            request.switched_team = new_team.id  # type: ignore
 
 
 class CHQueries:
