@@ -90,7 +90,7 @@ export function Editor({
         ],
         content: initialContent,
         editorProps: {
-            attributes: { class: 'NotebookEditor flex flex-col flex-1 w-full' },
+            attributes: { class: 'NotebookEditor' },
             handleDrop: (view, event, _slice, moved) => {
                 const editor = editorRef.current
                 if (!editor) {
