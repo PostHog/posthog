@@ -6,7 +6,6 @@ import clsx from 'clsx'
 import { Row } from 'antd'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
-import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -15,6 +14,7 @@ import { useActions, useValues } from 'kea'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {
     const logic = cohortEditLogic(logicProps)
@@ -45,7 +45,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                             <Lettermark name={alphabet[groupIndex]} color={LettermarkColor.Gray} />
                                             <AndOrFilterSelect
                                                 prefix="Match persons against"
-                                                suffix="criteria"
+                                                suffix={['criterion', 'criteria']}
                                                 onChange={(value) => setInnerGroupType(value, groupIndex)}
                                                 value={group.type}
                                             />

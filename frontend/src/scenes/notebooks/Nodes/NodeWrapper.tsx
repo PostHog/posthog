@@ -7,9 +7,9 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useRef } from 'react'
 import clsx from 'clsx'
-import { IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -30,6 +30,7 @@ export interface NodeWrapperProps {
 
     // Sizing
     expandable?: boolean
+    startExpanded?: boolean
     resizeable?: boolean
     heightEstimate?: number | string
     minHeight?: number | string
@@ -43,6 +44,7 @@ export function NodeWrapper({
     href,
     heightEstimate = '4rem',
     resizeable = true,
+    startExpanded = false,
     minHeight,
     node,
     getPos,
@@ -52,6 +54,7 @@ export function NodeWrapper({
     const nodeId: string = node.attrs.nodeId
 
     const nodeLogicProps = {
+        node,
         nodeType,
         nodeAttributes: node.attrs,
         updateAttributes,
@@ -61,8 +64,15 @@ export function NodeWrapper({
         title: defaultTitle,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
+    const { isEditable } = useValues(mountedNotebookLogic)
     const { title, expanded } = useValues(nodeLogic)
-    const { setExpanded } = useActions(nodeLogic)
+    const { setExpanded, deleteNode } = useActions(nodeLogic)
+
+    useEffect(() => {
+        if (startExpanded) {
+            setExpanded(true)
+        }
+    }, [startExpanded])
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -98,7 +108,7 @@ export function NodeWrapper({
                     ref={ref}
                     as="div"
                     className={clsx(nodeType, 'NotebookNode', {
-                        'NotebookNode--selected': selected,
+                        'NotebookNode--selected': isEditable && selected,
                     })}
                 >
                     <ErrorBoundary>
@@ -129,12 +139,21 @@ export function NodeWrapper({
                                         size="small"
                                         icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     />
+
+                                    {isEditable && (
+                                        <LemonButton
+                                            onClick={() => deleteNode()}
+                                            size="small"
+                                            status="danger"
+                                            icon={<IconClose />}
+                                        />
+                                    )}
                                 </div>
                                 <div
                                     ref={contentRef}
                                     className={clsx(
                                         'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
-                                        expanded && resizeable && 'resize-y'
+                                        isEditable && expanded && resizeable && 'resize-y'
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={expanded && resizeable ? { height, minHeight } : {}}
@@ -154,7 +173,7 @@ export function NodeWrapper({
 
 export type CreatePostHogWidgetNodeOptions = NodeWrapperProps & {
     nodeType: NotebookNodeType
-    Component: (props: NodeViewProps) => JSX.Element
+    Component: (props: NodeViewProps) => JSX.Element | null
     pasteOptions?: {
         find: string
         getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
