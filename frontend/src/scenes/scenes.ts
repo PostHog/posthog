@@ -304,6 +304,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Notebook]: {
         projectBased: true,
         name: 'Notebook',
+        layout: 'app-raw',
     },
 }
 

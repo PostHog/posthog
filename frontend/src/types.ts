@@ -3015,11 +3015,13 @@ export enum NotebookNodeType {
 }
 
 export enum NotebookTarget {
-    Sidebar = 'sidebar',
+    Popover = 'popover',
     Auto = 'auto',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export interface DataWarehouseCredential {
     access_key: string

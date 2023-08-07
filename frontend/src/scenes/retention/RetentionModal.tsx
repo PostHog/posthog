@@ -4,8 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import './RetentionTable.scss'
 import { urls } from 'scenes/urls'
-import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { asDisplay } from 'scenes/persons/PersonHeader'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
@@ -16,6 +15,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from './retentionLogic'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
 import { retentionModalLogic } from './retentionModalLogic'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 export function RetentionModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

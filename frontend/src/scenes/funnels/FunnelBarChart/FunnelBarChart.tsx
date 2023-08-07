@@ -23,7 +23,7 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
-    const [scrollRef, scrollableClassNames] = useScrollable()
+    const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
@@ -107,7 +107,15 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
     }, [visibleStepsWithConversionMetrics, height])
 
     return (
-        <div className={clsx('FunnelBarChart', ...scrollableClassNames)} ref={vizRef} data-attr="funnel-bar-graph">
+        <div
+            className={clsx(
+                'FunnelBarChart scrollable',
+                isScrollableLeft && 'scrollable--left',
+                isScrollableRight && 'scrollable--right'
+            )}
+            ref={vizRef}
+            data-attr="funnel-bar-graph"
+        >
             <div className="scrollable__inner" ref={scrollRef}>
                 {table}
             </div>

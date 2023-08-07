@@ -79,7 +79,6 @@ export function RecordingsLists({
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
-        listingVersion,
         sessionRecordingsAPIErrored,
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
@@ -101,7 +100,7 @@ export function RecordingsLists({
         <>
             <div className="SessionRecordingsPlaylist__lists">
                 {/* Pinned recordings */}
-                {!!playlistShortId && !showFilters ? (
+                {!!playlistShortId ? (
                     <SessionRecordingsList
                         className={clsx({
                             'max-h-1/2 h-fit': !collapsed.other,
@@ -217,7 +216,6 @@ export function RecordingsLists({
                                 setFilters={setFilters}
                                 showPropertyFilters={!personUUID}
                                 onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                usesListingV3={listingVersion === '3'}
                             />
                         ) : null
                     }
@@ -315,8 +313,13 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState, sessionRecordingsResponseLoading } =
-        useValues(logic)
+    const {
+        activeSessionRecording,
+        nextSessionRecording,
+        shouldShowEmptyState,
+        sessionRecordingsResponseLoading,
+        matchingEventsMatchType,
+    } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { user } = useValues(userLogic)
@@ -392,6 +395,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                             playlistShortId={playlistShortId}
                             sessionRecordingId={activeSessionRecording?.id}
                             matching={activeSessionRecording?.matching_events}
+                            matchingEventsMatchType={matchingEventsMatchType}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                             nextSessionRecording={nextSessionRecording}
                         />

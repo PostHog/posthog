@@ -1,8 +1,10 @@
-import { kea, useActions } from 'kea'
+import { kea, useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import type { dataWarehouseTabsLogicType } from './DataWarehousePageTabsType'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum DataWarehouseTab {
     Posthog = 'posthog',
@@ -48,6 +50,7 @@ const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>({
 
 export function DataWarehousePageTabs({ tab }: { tab: DataWarehouseTab }): JSX.Element {
     const { setTab } = useActions(dataWarehouseTabsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -63,10 +66,14 @@ export function DataWarehousePageTabs({ tab }: { tab: DataWarehouseTab }): JSX.E
                         key: DataWarehouseTab.External,
                         label: <span data-attr="data-warehouse-external-tab">External</span>,
                     },
-                    {
-                        key: DataWarehouseTab.Views,
-                        label: <span data-attr="data-warehouse-views-tab">Views</span>,
-                    },
+                    ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS]
+                        ? [
+                              {
+                                  key: DataWarehouseTab.Views,
+                                  label: <span data-attr="data-warehouse-views-tab">Views</span>,
+                              },
+                          ]
+                        : []),
                 ]}
             />
         </>

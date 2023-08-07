@@ -9,6 +9,9 @@ import { useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
 import { ProductKey } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Error404 } from '~/layout/Error404'
 
 export const scene: SceneExport = {
     component: DataWarehouseSavedQueriesScene,
@@ -17,6 +20,12 @@ export const scene: SceneExport = {
 
 export function DataWarehouseSavedQueriesScene(): JSX.Element {
     const { shouldShowEmptyState, shouldShowProductIntroduction } = useValues(dataWarehouseSavedQueriesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS]) {
+        return <Error404 />
+    }
+
     return (
         <div>
             <PageHeader

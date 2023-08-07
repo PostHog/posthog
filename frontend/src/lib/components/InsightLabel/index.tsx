@@ -68,7 +68,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
                 <Tag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</Tag>
                 {mathProperty && (
                     <>
-                        <span className="pl-1 pr-0.5">of</span>
+                        <span>of</span>
                         <PropertyKeyInfo disableIcon value={mathProperty} />
                     </>
                 )}
