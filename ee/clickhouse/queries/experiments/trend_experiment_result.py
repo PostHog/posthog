@@ -91,10 +91,13 @@ class ClickhouseTrendExperimentResult:
             )
 
         count_per_user_aggregation = uses_count_per_user_aggregation(filter)
+        count_per_property_value_aggregation = uses_count_per_property_value_aggregation(filter)
 
         query_filter = filter.shallow_clone(
             {
-                "display": TRENDS_CUMULATIVE if not count_per_user_aggregation else TRENDS_LINEAR,
+                "display": TRENDS_CUMULATIVE
+                if not (count_per_user_aggregation or count_per_property_value_aggregation)
+                else TRENDS_LINEAR,
                 "date_from": start_date_in_project_timezone,
                 "date_to": end_date_in_project_timezone,
                 "explicit_date": True,
@@ -105,7 +108,7 @@ class ClickhouseTrendExperimentResult:
             }
         )
 
-        if count_per_user_aggregation:
+        if count_per_user_aggregation or count_per_property_value_aggregation:
             # A trend experiment can have only one metric, so take the first one to calculate exposure
             # We copy the entity to avoid mutating the original filter
             entity = query_filter.shallow_clone({}).entities[0]
@@ -211,7 +214,9 @@ class ClickhouseTrendExperimentResult:
         exposure_counts = {}
         exposure_ratios = {}
 
-        if uses_count_per_user_aggregation(self.query_filter):
+        if uses_count_per_user_aggregation(self.query_filter) or uses_count_per_property_value_aggregation(
+            self.query_filter
+        ):
             filtered_exposure_results = [
                 result for result in exposure_results if result["action"]["math"] == UNIQUE_USERS
             ]
