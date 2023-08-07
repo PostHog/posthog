@@ -101,7 +101,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 tooltip: `Go to ${team.name} settings`,
                 onClick: () => {
                     hideProjectSwitcher()
-                    updateCurrentTeam(team.id, '/project/settings')
+                    updateCurrentTeam(team.id, urls.projectSettings())
                 },
             }}
             title={`Switch to project ${team.name}`}

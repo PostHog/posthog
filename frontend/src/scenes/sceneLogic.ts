@@ -13,6 +13,7 @@ import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { appContextLogic } from './appContextLogic'
+import { removeProjectIdIfPresent } from '~/initKea'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -279,8 +280,8 @@ export const sceneLogic = kea<sceneLogicType>({
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.currentTeam.completed_snippet_onboarding &&
-                        !location.pathname.startsWith('/ingestion') &&
-                        !location.pathname.startsWith('/project/settings')
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.ingestion()) &&
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.projectSettings())
                     ) {
                         console.warn('Ingestion tutorial not completed, redirecting to it')
                         router.actions.replace(urls.ingestion())

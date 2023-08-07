@@ -67,17 +67,27 @@ export function pathsWithoutProjectId(path: string): boolean {
         path.match(/^\/instance\//) ||
         path.match(/^\/organization\//) ||
         path.match(/^\/preflight/) ||
+        path.match(/^\/login/) ||
         path.match(/^\/signup/)
     )
 }
 
-export function addProjectIdUnlessPresent(path: string): string {
-    if (path.match(/^\/project\/\d+/)) {
-        return path
+export function addProjectIdUnlessPresent(path: string, teamId?: number): string {
+    let prefix = ''
+    try {
+        if (teamId) {
+            prefix = `/project/${teamId}`
+        } else {
+            prefix = `/project/${getCurrentTeamId()}`
+        }
+        if (path == '/') {
+            return prefix
+        }
+    } catch (e) {
+        // Not logged in
     }
-    const prefix = `/project/${getCurrentTeamId()}`
-    if (path == '/') {
-        return prefix
+    if (path === prefix || path.startsWith(prefix + '/')) {
+        return path
     }
     return `${prefix}/${path.startsWith('/') ? path.slice(1) : path}`
 }
@@ -89,8 +99,8 @@ export function removeProjectIdIfPresent(path: string): string {
     return path
 }
 
-export function addProjectIdIfMissing(path: string): string {
-    return pathsWithoutProjectId(path) ? removeProjectIdIfPresent(path) : addProjectIdUnlessPresent(path)
+export function addProjectIdIfMissing(path: string, teamId?: number): string {
+    return pathsWithoutProjectId(path) ? removeProjectIdIfPresent(path) : addProjectIdUnlessPresent(path, teamId)
 }
 
 export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {

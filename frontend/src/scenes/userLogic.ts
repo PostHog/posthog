@@ -8,6 +8,7 @@ import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { addProjectIdIfMissing } from '~/initKea'
 
 export interface UserDetailsFormType {
     first_name: string
@@ -162,7 +163,7 @@ export const userLogic = kea<userLogicType>([
             }
             await breakpoint(10)
             await api.update('api/users/@me/', { set_current_team: teamId })
-            window.location.href = destination || '/'
+            window.location.href = addProjectIdIfMissing(destination || '/', teamId)
         },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
             if (values.user?.organization?.id === organizationId) {
