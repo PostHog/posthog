@@ -2,8 +2,8 @@ import { api } from '@posthog/apps-common'
 import { NodeViewProps } from '@tiptap/core'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lazyImageBlobReducer } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { ReactEventHandler, useEffect, useState } from 'react'
+import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { MediaUploadResponse, NotebookNodeType } from '~/types'
 
@@ -26,12 +26,16 @@ async function uploadFile(file: File): Promise<MediaUploadResponse> {
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { file, src, height } = props.node.attrs
-
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string>()
 
     useEffect(() => {
         if (file) {
+            if (!file.type) {
+                props.updateAttributes({ file: undefined })
+                return
+            }
+
             // Start uploading
             setUploading(true)
 
@@ -51,6 +55,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
         }
     }, [file])
 
+    const imageSource = useMemo(
+        () => (src ? src : file && file.type ? URL.createObjectURL(file) : undefined),
+        [src, file]
+    )
+
     useEffect(() => {
         if (!file && !src) {
             setError('Image not found')
@@ -66,19 +75,16 @@ const Component = (props: NodeViewProps): JSX.Element => {
         }
     }
 
-    if (uploading) {
-        return (
-            <div>
-                <Spinner />
-            </div>
-        )
-    }
-
     if (error) {
         return <LemonBanner type="error">{error}</LemonBanner>
     }
 
-    return <img src={src} onLoad={onImageLoad} />
+    return (
+        <>
+            <img src={imageSource} onLoad={onImageLoad} />
+            {uploading ? <SpinnerOverlay className="text-3xl" /> : null}
+        </>
+    )
 }
 
 export const NotebookNodeImage = createPostHogWidgetNode({
