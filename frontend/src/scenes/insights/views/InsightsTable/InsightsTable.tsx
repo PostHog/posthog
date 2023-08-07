@@ -21,6 +21,7 @@ import { AggregationColumnItem, AggregationColumnTitle } from './columns/Aggrega
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { getSeriesColor } from 'lib/colors'
 
 export interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -76,13 +77,15 @@ export function InsightsTable({
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const hasCheckboxes =
+        isLegend && (!display || ![ChartDisplayType.BoldNumber, ChartDisplayType.WorldMap].includes(display))
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     columns.push({
         title: (
             <div className="flex items-center gap-4">
-                {isLegend && (
+                {hasCheckboxes && (
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
@@ -104,12 +107,11 @@ export function InsightsTable({
                     hasMultipleSeries={!isSingleSeries}
                 />
             )
-            return isLegend ? (
+            return hasCheckboxes ? (
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     hiddenLegendKeys={hiddenLegendKeys}
-                    compare={compare}
                     toggleVisibility={toggleVisibility}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
@@ -230,6 +232,7 @@ export function InsightsTable({
             data-attr="insights-table-graph"
             className="insights-table"
             useURLForSorting={insightMode !== ItemMode.Edit}
+            rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, compare || false) : undefined}
             firstColumnSticky
         />
     )

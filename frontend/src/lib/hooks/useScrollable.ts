@@ -12,7 +12,7 @@ export function useScrollable(): [React.RefObject<HTMLDivElement>, [boolean, boo
 
     function updateIsScrollable(element: HTMLElement): void {
         const left = element.scrollLeft > 0
-        const right = element.scrollWidth > element.scrollLeft + element.clientWidth
+        const right = Math.floor(element.scrollWidth) > Math.ceil(element.scrollLeft + element.clientWidth)
         setIsScrollable([left, right])
     }
 
