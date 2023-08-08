@@ -388,9 +388,6 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             month_group_action_response["results"], month_group_grevent_response["results"], remove=[]
         )
 
-    def test_legacy_interval_rounding(self):
-        pass
-
     def _create_multiple_people(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
         _create_event(
@@ -882,60 +879,3 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
         people = self.client.get(f"/api/projects/{self.team.id}/persons/trends/", data=params).json()
         assert len(people["results"][0]["people"]) == 1
-
-    def _test_legacy_interval(self, date_from, interval, timestamps):
-        # Previously actors URLs for time series data points were sent with `date_from == date_to` and it was
-        # the persons/groups endpoint's responsibility to obtain `date_to` by offsetting `date_from` by `interval`.
-        # This is no longer the case, but retaining checks for backwards compatibility.
-        for index, ts in enumerate(timestamps):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{index}"])
-            _create_event(
-                team=self.team,
-                event="watched movie",
-                distinct_id=f"person{index}",
-                timestamp=ts,
-                properties={"event_prop": f"prop{index}"},
-            )
-
-        people = self.client.get(
-            f"/api/projects/{self.team.id}/persons/trends/",
-            data={
-                "interval": interval,
-                "date_from": date_from,
-                "date_to": date_from,
-                ENTITY_TYPE: "events",
-                ENTITY_ID: "watched movie",
-            },
-        ).json()
-
-        self.assertCountEqual(
-            [person["distinct_ids"][0] for person in people["results"][0]["people"]], ["person1", "person2"]
-        )
-
-    def test_legacy_interval_month(self):
-        self._test_legacy_interval(
-            date_from="2021-08-01T00:00:00Z",
-            interval="month",
-            timestamps=["2021-07-31T23:45:00Z", "2021-08-01T00:12:00Z", "2021-08-31T22:40:00Z", "2021-09-01T00:00:10Z"],
-        )
-
-    def test_legacy_interval_week(self):
-        self._test_legacy_interval(
-            date_from="2021-09-05T00:00:00Z",
-            interval="week",
-            timestamps=["2021-09-04T23:45:00Z", "2021-09-05T00:12:00Z", "2021-09-11T22:40:00Z", "2021-09-12T00:00:10Z"],
-        )
-
-    def test_legacy_interval_day(self):
-        self._test_legacy_interval(
-            date_from="2021-09-05T00:00:00Z",
-            interval="day",
-            timestamps=["2021-09-04T23:45:00Z", "2021-09-05T00:12:00Z", "2021-09-05T22:40:00Z", "2021-09-06T00:00:10Z"],
-        )
-
-    def test_legacy_interval_hour(self):
-        self._test_legacy_interval(
-            date_from="2021-09-05T16:00:00Z",
-            interval="hour",
-            timestamps=["2021-09-05T15:45:00Z", "2021-09-05T16:01:12Z", "2021-09-05T16:58:00Z", "2021-09-05T17:00:10Z"],
-        )

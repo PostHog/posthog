@@ -53,7 +53,7 @@ class Database(BaseModel):
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
 
     # clunky: keep table names in sync with above
-    _table_names: List[Table] = [
+    _table_names: List[str] = [
         "events",
         "groups",
         "person",
@@ -120,6 +120,7 @@ class _SerializedFieldBase(TypedDict):
         "datetime",
         "date",
         "boolean",
+        "array",
         "json",
         "lazy_table",
         "virtual_table",
