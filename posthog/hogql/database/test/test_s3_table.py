@@ -175,10 +175,12 @@ class TestS3Table(BaseTest):
     def test_s3_table_select_in(self):
         self._init_database()
 
-        hogql = self._select(query="SELECT * FROM events WHERE event IN (SELECT Date FROM aapl_stock)", dialect="hogql")
+        hogql = self._select(
+            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)", dialect="hogql"
+        )
         self.assertEqual(
             hogql,
-            "SELECT uuid, event, properties, timestamp, distinct_id, elements_chain, created_at FROM events WHERE globalIn(event, (SELECT Date FROM aapl_stock)) LIMIT 10000",
+            "SELECT uuid, event FROM events WHERE globalIn(event, (SELECT Date FROM aapl_stock)) LIMIT 10000",
         )
 
         clickhouse = self._select(
