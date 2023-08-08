@@ -74,7 +74,6 @@ export const defaultMocks: Mocks = {
         '/_preflight': require('./fixtures/_preflight.json'),
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
-        'https://update.posthog.com/': [{ version: '1.42.0', release_date: '2022-11-30' }],
         // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
         '/api/sentry_stats/': {
             error: 'Error fetching stats from sentry',
