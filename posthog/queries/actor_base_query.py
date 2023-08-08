@@ -126,15 +126,15 @@ class ActorBaseQuery:
         """
 
         # constrain by date range to help limit the work ClickHouse has to do scanning these tables
+        # always constrain by TTL and maybe constrain further
+        query += " AND timestamp >= now() - INTERVAL 21 DAY"
+        query += " AND timestamp <= now()"
+
         if date_from:
             query += " AND timestamp >= %(date_from)s"
-        else:
-            query += " AND timestamp >= now() - INTERVAL 1 YEAR"
 
         if date_to:
             query += " AND timestamp <= %(date_to)s"
-        else:
-            query += " AND timestamp <= now()"
 
         params = {
             "team_id": self._team.pk,
