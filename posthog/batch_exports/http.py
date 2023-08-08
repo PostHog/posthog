@@ -62,7 +62,8 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = BatchExportRun
         fields = "__all__"
-        read_only_fields = "__all__"
+        # TODO: Why aren't all these read only?
+        read_only_fields = ["batch_export"]
 
 
 class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
