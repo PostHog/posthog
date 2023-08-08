@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestClickhouseSessionRecordingsList.test_any_event_filter_with_properties
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -56,10 +57,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_any_event_filter_with_properties.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -116,10 +117,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_any_event_filter_with_properties_materialized
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -176,10 +177,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_any_event_filter_with_properties_materialized.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -236,10 +237,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -294,10 +295,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -352,30 +353,30 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.2
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -427,10 +428,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_hogql_properties
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -504,10 +505,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_hogql_properties.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -565,10 +566,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_hogql_properties_materialized
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -642,10 +643,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_hogql_properties_materialized.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -703,10 +704,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_matching_on_session_id
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -761,10 +762,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_matching_on_session_id.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -819,10 +820,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_person_properties
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -874,10 +875,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_properties
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -935,10 +936,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_properties.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -996,10 +997,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_properties_materialized
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -1057,10 +1058,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_properties_materialized.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -1118,10 +1119,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_multiple_event_filters
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -1182,10 +1183,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsList.test_multiple_event_filters.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -1246,10 +1247,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_any_event_filter_with_properties
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1308,10 +1309,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_any_event_filter_with_properties.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1370,10 +1371,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_any_event_filter_with_properties_materialized
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1432,10 +1433,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_any_event_filter_with_properties_materialized.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1494,10 +1495,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1555,10 +1556,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1616,30 +1617,30 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties.2
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -1691,10 +1692,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_matching_on_session_id
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1752,10 +1753,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_matching_on_session_id.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1813,10 +1814,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_person_properties
-  '
+  '''
   
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
@@ -1868,10 +1869,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_properties
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1931,10 +1932,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_properties.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -1994,10 +1995,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_properties_materialized
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -2057,10 +2058,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_properties_materialized.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -2120,10 +2121,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_multiple_event_filters
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -2189,10 +2190,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListV2.test_multiple_event_filters.1
-  '
+  '''
   
   SELECT session_recordings.session_id,
          start_time,
@@ -2258,5 +2259,5 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---

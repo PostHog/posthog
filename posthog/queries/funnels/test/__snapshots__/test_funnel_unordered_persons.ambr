@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelUnorderedStepsPersons.test_unordered_funnel_does_not_return_recordings
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          array() as matching_events
@@ -228,14 +229,14 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsPersons.test_unordered_funnel_does_not_return_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in []
-  '
----
+  '''
+# ---

@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFormula.test_aggregated_one_without_events
-  '
+  '''
   SELECT '' as date,
          arrayMap((A, B) -> B + A, [ifNull(sub_A.total, 0)], [ifNull(sub_B.total, 0)])
   FROM
@@ -16,10 +17,10 @@
        AND event = 'session error'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) as sub_B
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -34,10 +35,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown.1
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -52,10 +53,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown.2
-  '
+  '''
   SELECT sub_A.date,
          arrayMap((A, B) -> A - B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
          arrayFilter(x -> notEmpty(x), [replaceRegexpAll(sub_A.breakdown_value, '^"|"$', ''), replaceRegexpAll(sub_B.breakdown_value, '^"|"$', '')])[1] ,
@@ -144,10 +145,10 @@
                  day_start)
      GROUP BY breakdown_value
      ORDER BY breakdown_value) as sub_B ON sub_A.breakdown_value = sub_B.breakdown_value
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_aggregated
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -162,10 +163,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_aggregated.1
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -180,10 +181,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_aggregated.2
-  '
+  '''
   SELECT '' as date,
          arrayMap((A, B) -> A - B, [ifNull(sub_A.total, 0)], [ifNull(sub_B.total, 0)]) ,
          arrayFilter(x -> notEmpty(x), [replaceRegexpAll(sub_A.breakdown_value, '^"|"$', ''), replaceRegexpAll(sub_B.breakdown_value, '^"|"$', '')])[1]
@@ -209,10 +210,10 @@
        AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Paris'])
      GROUP BY breakdown_value
      ORDER BY breakdown_value) as sub_B ON sub_A.breakdown_value = sub_B.breakdown_value
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_cohort
-  '
+  '''
   SELECT sub_A.date,
          arrayMap((A, B) -> A + B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
          arrayFilter(x -> x != 0, [sub_A.breakdown_value, sub_B.breakdown_value])[1] ,
@@ -355,10 +356,10 @@
                  day_start)
      GROUP BY breakdown_value
      ORDER BY breakdown_value) as sub_B ON sub_A.breakdown_value = sub_B.breakdown_value
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_hogql
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -387,10 +388,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_hogql.1
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -419,10 +420,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_hogql.2
-  '
+  '''
   SELECT sub_A.date,
          arrayMap((A, B) -> A + B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
          arrayFilter(x -> notEmpty(x), [replaceRegexpAll(sub_A.breakdown_value, '^"|"$', ''), replaceRegexpAll(sub_B.breakdown_value, '^"|"$', '')])[1] ,
@@ -539,10 +540,10 @@
                  day_start)
      GROUP BY breakdown_value
      ORDER BY breakdown_value) as sub_B ON sub_A.breakdown_value = sub_B.breakdown_value
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -557,10 +558,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -575,10 +576,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.2
-  '
+  '''
   SELECT sub_A.date,
          arrayMap((A, B) -> A + B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
          arrayFilter(x -> notEmpty(x), [replaceRegexpAll(sub_A.breakdown_value, '^"|"$', ''), replaceRegexpAll(sub_B.breakdown_value, '^"|"$', '')])[1] ,
@@ -667,10 +668,10 @@
                  day_start)
      GROUP BY breakdown_value
      ORDER BY breakdown_value) as sub_B ON sub_A.breakdown_value = sub_B.breakdown_value
-  '
----
+  '''
+# ---
 # name: TestFormula.test_formula_with_unique_sessions
-  '
+  '''
   SELECT sub_A.date,
          arrayMap((A, B) -> A / B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
          arrayMax([length(sub_A.total), length(sub_B.total)]) as max_length
@@ -725,10 +726,10 @@
            GROUP BY date)
         GROUP BY day_start
         ORDER BY day_start)) as sub_B
-  '
----
+  '''
+# ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation
-  '
+  '''
   SELECT sub_A.date,
          arrayMap((A, B) -> A / B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
          arrayMax([length(sub_A.total), length(sub_B.total)]) as max_length
@@ -797,10 +798,10 @@
            GROUP BY date)
         GROUP BY day_start
         ORDER BY day_start)) as sub_B
-  '
----
+  '''
+# ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter
-  '
+  '''
   SELECT sub_A.date,
          arrayMap((A, B) -> A / B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
          arrayMax([length(sub_A.total), length(sub_B.total)]) as max_length
@@ -867,5 +868,5 @@
            GROUP BY date)
         GROUP BY day_start
         ORDER BY day_start)) as sub_B
-  '
----
+  '''
+# ---
