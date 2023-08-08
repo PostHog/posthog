@@ -6,7 +6,7 @@ import { Tooltip } from '../Tooltip'
 export interface LemonCheckboxProps {
     checked?: boolean | 'indeterminate'
     defaultChecked?: boolean
-    /** @deprecated Buttons should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
+    /** @deprecated Checkboxes should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
