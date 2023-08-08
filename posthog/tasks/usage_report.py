@@ -276,51 +276,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
 
 @app.task(ignore_result=True, autoretry_for=(Exception,), max_retries=3)
 def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
-    if not settings.EE_AVAILABLE:
-        return
-
-    from ee.billing.billing_manager import BillingManager, build_billing_token
-    from ee.billing.billing_types import BillingStatus
-    from ee.settings import BILLING_SERVICE_URL
-
-    try:
-        license = get_cached_instance_license()
-        if not license or not license.is_v2_license:
-            return
-
-        organization = Organization.objects.get(id=org_id)
-        if not organization:
-            return
-
-        token = build_billing_token(license, organization)
-        headers = {}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-
-        response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
-        if response.status_code != 200:
-            raise Exception(
-                f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
-            )
-
-        logger.info(f"UsageReport sent to Billing for organization: {organization.id}")
-
-        response_data: BillingStatus = response.json()
-        BillingManager(license).update_org_details(organization, response_data)
-        # TODO: remove the following after 2023-09-01
-        BillingManager(license).update_billing_distinct_ids(organization)
-
-    except Exception as err:
-        logger.error(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
-        capture_exception(err)
-        pha_client = Client("sTMFPsFhdP1Ssg")
-        capture_event(
-            pha_client,
-            f"organization usage report to billing service failure",
-            org_id,
-            {"err": str(err)},
-        )
-        raise err
+    return
 
 
 def capture_event(

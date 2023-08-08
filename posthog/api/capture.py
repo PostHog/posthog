@@ -261,36 +261,6 @@ def drop_performance_events(events: List[Any]) -> List[Any]:
     return cleaned_list
 
 
-def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
-    if not settings.EE_AVAILABLE:
-        return events
-
-    from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
-
-    results = []
-    limited_tokens_events = list_limited_team_attributes(QuotaResource.EVENTS)
-    limited_tokens_recordings = list_limited_team_attributes(QuotaResource.RECORDINGS)
-
-    for event in events:
-        if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
-            EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
-            if token in limited_tokens_recordings:
-                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
-                if settings.QUOTA_LIMITING_ENABLED:
-                    continue
-
-        else:
-            EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
-            if token in limited_tokens_events:
-                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
-                if settings.QUOTA_LIMITING_ENABLED:
-                    continue
-
-        results.append(event)
-
-    return results
-
-
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
 def get_event(request):
@@ -373,12 +343,6 @@ def get_event(request):
         try:
             events = drop_performance_events(events)
         except Exception as e:
-            capture_exception(e)
-
-        try:
-            events = drop_events_over_quota(token, events)
-        except Exception as e:
-            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
 
         try:
