@@ -31,7 +31,8 @@ export function Notebook({
     initialAutofocus = null,
 }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
+    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible, shouldCollapseSettings } =
+        useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
         useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -120,7 +121,7 @@ export function Notebook({
                             return ''
                         }}
                     />
-                    {editable && <div className="flex shrink Notebook__spacer" />}
+                    {editable && <div className={clsx('flex shrink', !shouldCollapseSettings && 'Notebook__spacer')} />}
                 </div>
             </div>
         </BindLogic>

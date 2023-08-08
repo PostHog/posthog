@@ -1,6 +1,4 @@
 .Notebook {
-    --notebook-settings-widget-width: 20rem;
-
     .NotebookEditor {
         flex: 1;
         width: 100%;
@@ -92,13 +90,16 @@
     }
 
     &--compact {
+        --notebook-fit-width: 800px;
+
         .NotebookEditor {
-            max-width: 800px;
+            max-width: var(--notebook-fit-width);
         }
 
-        @media (min-width: 1200px) {
+        // Must match --notebook-fit-width above but media queries don't work with vars
+        @media (min-width: 800px) {
             .Notebook__spacer {
-                width: var(--notebook-settings-widget-width);
+                width: 20rem;
             }
         }
     }

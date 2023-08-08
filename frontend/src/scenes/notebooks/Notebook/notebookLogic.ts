@@ -100,7 +100,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     }),
     windowValues({
-        shouldCollapseSettings: (window: Window) => window.innerWidth < 1250,
+        shouldCollapseSettings: (window: Window) => window.innerWidth < 1440,
     }),
     loaders(({ values, props, actions }) => ({
         notebook: [
