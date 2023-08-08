@@ -6,12 +6,13 @@ import { IconMarkdown, IconTools } from 'lib/lemon-ui/icons'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import posthog from 'posthog-js'
-import { LemonFileInput, useUploadFiles } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonTabs } from '../LemonTabs'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 
 export interface LemonTextAreaProps
     extends Pick<

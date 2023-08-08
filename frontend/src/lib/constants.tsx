@@ -161,6 +161,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
     SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
     SURVEYS_MULTIPLE_CHOICE: 'surveys-multiple-choice', // owner: @liyiy
+    CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
