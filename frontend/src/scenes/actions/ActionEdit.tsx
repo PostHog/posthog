@@ -277,12 +277,9 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     }
                                     label={
                                         <>
-                                            Post to webhook when this action is triggered.
+                                            <span>Post to webhook when this action is triggered.</span>
                                             {action.bytecode_error ? (
-                                                <>
-                                                    {' '}
-                                                    <IconWarning className="text-warning text-xl" />
-                                                </>
+                                                <IconWarning className="text-warning text-xl ml-1" />
                                             ) : null}
                                         </>
                                     }
