@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          step_0_matching_events as matching_events
@@ -121,19 +122,19 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s1']
-  '
----
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.2
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          step_1_matching_events as matching_events
@@ -255,19 +256,19 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.4
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          step_1_matching_events as matching_events
@@ -389,14 +390,14 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+  '''
+# ---

@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -16,10 +17,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 100
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -90,10 +91,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname
-  '
+  '''
   
   SELECT groupArray(value)
   FROM
@@ -110,10 +111,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 100
      OFFSET 0)
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -184,5 +185,5 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
