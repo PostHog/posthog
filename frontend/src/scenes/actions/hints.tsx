@@ -1,3 +1,5 @@
+import { Link } from '@posthog/lemon-ui'
+
 export const URL_MATCHING_HINTS = {
     exact: undefined,
     contains: (
@@ -6,15 +8,8 @@ export const URL_MATCHING_HINTS = {
         </>
     ),
     regex: (
-        <>
-            <a
-                href="https://www.postgresql.org/docs/current/functions-matching.html#FUNCTIONS-POSIX-REGEXP"
-                target="_blank"
-                rel="noreferrer"
-            >
-                PostgreSQL regular expression syntax
-            </a>{' '}
-            applies.
-        </>
+        <Link to="https://github.com/google/re2/wiki/Syntax" target="_blank">
+            RE2 syntax applies.
+        </Link>
     ),
 }
