@@ -226,8 +226,8 @@ class User(AbstractUser, UUIDClassicModel):
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
-            self.update_billing_distinct_ids(organization)
-            return membership
+        self.update_billing_distinct_ids(organization)
+        return membership
 
     @property
     def notification_settings(self) -> Notifications:
