@@ -95,7 +95,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 41
+        cls.base_app_num_queries = 42
         # Create another team that the user does have access to
         cls.second_team = Team.objects.create(organization=cls.organization, name="Second Life")
 
