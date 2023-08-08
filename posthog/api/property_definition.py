@@ -285,7 +285,6 @@ class QueryContext:
     def __property_name_aliases():
         """
         Generates a SQL CASE statement that aliases property names to their label.
-        @see frontend/src/lib/taxonomy.tsx
         """
         return (
             "CASE name "
@@ -294,6 +293,7 @@ class QueryContext:
         )
 
 
+# See frontend/src/lib/taxonomy.tsx for where this came from
 PROPERTY_NAME_ALIASES = {
     "$lib": "Library",
     "$lib_version": "Library Version",
