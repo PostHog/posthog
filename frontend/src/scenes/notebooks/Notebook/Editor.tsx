@@ -164,8 +164,6 @@ export function Editor({
                             .run()
 
                         return true
-
-                        // return uploadImage(file, view, event)
                     }
                 }
 
