@@ -17,8 +17,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
-from ee.models.license import License
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
@@ -254,8 +253,7 @@ class User(AbstractUser, UUIDClassicModel):
         from ee.billing.billing_manager import BillingManager  # avoid circular import
 
         if is_cloud():
-            license = License.objects.first_valid()
-            BillingManager(license).update_billing_distinct_ids(organization)
+            BillingManager(get_cached_instance_license()).update_billing_distinct_ids(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (

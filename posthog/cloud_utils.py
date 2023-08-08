@@ -1,10 +1,16 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.db.utils import ProgrammingError
 from sentry_sdk import capture_exception
 
+if TYPE_CHECKING:
+    from ee.models.license import License
+
 is_cloud_cached: Optional[bool] = None
+is_instance_licensed_cached: Optional[bool] = None
+instance_license_cached: Optional["License"] = None
+
 
 # NOTE: This is cached for the lifetime of the instance but this is not an issue as the value is not expected to change
 def is_cloud():
@@ -38,3 +44,37 @@ def is_cloud():
 def TEST_clear_cloud_cache(value: Optional[bool] = None):
     global is_cloud_cached
     is_cloud_cached = value
+
+
+def get_cached_instance_license() -> Optional["License"]:
+    """Returns the first valid license and caches the value for the lifetime of the instance, as it is not expected to change.
+    If there is no valid license, it returns None.
+    """
+    from ee.models.license import License
+
+    global instance_license_cached
+    global is_instance_licensed_cached
+
+    if isinstance(instance_license_cached, License):
+        return instance_license_cached
+
+    if is_instance_licensed_cached is False:
+        # This is an unlicensed instance
+        return None
+
+    if instance_license_cached is None and is_instance_licensed_cached is not False:
+        license = License.objects.first_valid()
+        if license:
+            instance_license_cached = license
+            is_instance_licensed_cached = True
+        else:
+            is_instance_licensed_cached = False
+    return instance_license_cached
+
+
+# NOTE: This is purely for testing purposes
+def TEST_clear_instance_license_cache(value: Optional[bool] = None):
+    global instance_license_cached
+    instance_license_cached = value
+    global is_instance_licensed_cached
+    is_instance_licensed_cached = value
