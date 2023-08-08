@@ -11,6 +11,7 @@ from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
 from posthog.models.organization import OrganizationUsageInfo
 
@@ -49,7 +50,7 @@ class BillingManager:
     license: Optional[License]
 
     def __init__(self, license):
-        self.license = license or License.objects.first_valid()
+        self.license = license or get_cached_instance_license()
 
     def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> Dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:

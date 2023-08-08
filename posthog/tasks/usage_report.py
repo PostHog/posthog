@@ -28,7 +28,7 @@ from sentry_sdk import capture_exception
 from posthog import version_requirement
 from posthog.celery import app
 from posthog.client import sync_execute
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import FlagRequestType
 from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
@@ -153,9 +153,7 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
     has_license = False
 
     if settings.EE_AVAILABLE:
-        from ee.models.license import License
-
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         has_license = license is not None
 
     period_start, period_end = period
@@ -246,11 +244,10 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
 
     from ee.billing.billing_manager import BillingManager, build_billing_token
     from ee.billing.billing_types import BillingStatus
-    from ee.models.license import License
     from ee.settings import BILLING_SERVICE_URL
 
     try:
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         if not license or not license.is_v2_license:
             return
 

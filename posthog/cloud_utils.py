@@ -50,8 +50,6 @@ def get_cached_instance_license() -> Optional["License"]:
     """Returns the first valid license and caches the value for the lifetime of the instance, as it is not expected to change.
     If there is no valid license, it returns None.
     """
-    from ee.models.license import License
-
     global instance_license_cached
     global is_instance_licensed_cached
 
@@ -63,12 +61,21 @@ def get_cached_instance_license() -> Optional["License"]:
         return None
 
     if instance_license_cached is None and is_instance_licensed_cached is not False:
-        license = License.objects.first_valid()
-        if license:
-            instance_license_cached = license
-            is_instance_licensed_cached = True
-        else:
-            is_instance_licensed_cached = False
+        try:
+            from ee.models.license import License
+
+            # TRICKY - The license table may not exist if a migration is running
+            license = License.objects.first_valid()
+            if license:
+                instance_license_cached = license
+                is_instance_licensed_cached = True
+            else:
+                is_instance_licensed_cached = False
+        except ProgrammingError:
+            # TRICKY - The license table may not exist if a migration is running
+            pass
+        except Exception as e:
+            print("ERROR: Unable to check license", e)  # noqa: T201
     return instance_license_cached
 
 
