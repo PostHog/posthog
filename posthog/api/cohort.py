@@ -132,7 +132,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
                     team_id=self.context["team_id"], active=True, deleted=False
                 )
-                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.cohort_ids]) > 0
+                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
 
                 for prop in parsed_filter.property_groups.flat:
                     if prop.type == "behavioral":
@@ -176,15 +176,20 @@ class CohortSerializer(serializers.ModelSerializer):
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             cohort.deleted = deleted_state
-            if cohort.deleted is True:
+            if deleted_state:
                 AsyncDeletion.objects.get_or_create(
                     deletion_type=DeletionType.Cohort_full,
                     team_id=cohort.team.pk,
                     key=f"{cohort.pk}_{cohort.version}",
                     created_by=user,
                 )
-
-        if not cohort.is_static and not is_deletion_change:
+            else:
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Cohort_full,
+                    team_id=cohort.team.pk,
+                    key=f"{cohort.pk}_{cohort.version}",
+                ).delete()
+        elif not cohort.is_static:
             cohort.is_calculating = True
 
         if will_create_loops(cohort):

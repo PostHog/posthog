@@ -186,7 +186,7 @@ export function SessionRecordingPlaylistItem({
     )
 
     return (
-        <DraggableToNotebook href={urls.replaySingle(recording.id)} alwaysDraggable noOverflow>
+        <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <li
                 key={recording.id}
                 className={clsx(

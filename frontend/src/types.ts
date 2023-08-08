@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext, HogQLQuery } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
@@ -102,6 +102,7 @@ export enum ProductKey {
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
     DATA_WAREHOUSE = 'data_warehouse',
+    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
@@ -2062,7 +2063,7 @@ export interface Survey {
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
-    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion)[]
+    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
     start_date: string | null
@@ -2112,7 +2113,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 }
 
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
-    type: SurveyQuestionType.MultipleChoiceSingle | SurveyQuestionType.MultipleChoiceMulti
+    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
 }
 
@@ -2120,8 +2121,8 @@ export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSu
 
 export enum SurveyQuestionType {
     Open = 'open',
-    MultipleChoiceSingle = 'multiple_single',
-    MultipleChoiceMulti = 'multiple_multi',
+    MultipleChoice = 'multiple_choice',
+    SingleChoice = 'single_choice',
     NPS = 'nps',
     Rating = 'rating',
     Link = 'link',
@@ -3028,11 +3029,13 @@ export enum NotebookNodeType {
 }
 
 export enum NotebookTarget {
-    Sidebar = 'sidebar',
+    Popover = 'popover',
     Auto = 'auto',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export interface DataWarehouseCredential {
     access_key: string
@@ -3049,3 +3052,11 @@ export interface DataWarehouseTable {
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
+
+export interface DataWarehouseSavedQuery {
+    /** UUID */
+    id: string
+    name: string
+    query: HogQLQuery
+    columns: DatabaseSchemaQueryResponseField[]
+}

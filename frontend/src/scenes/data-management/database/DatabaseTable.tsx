@@ -1,8 +1,8 @@
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { DatabaseSceneRow } from 'scenes/data-warehouse/types'
 import { urls } from 'scenes/urls'
-import { DatabaseSceneRow } from 'scenes/data-warehouse/dataWarehouseSceneLogic'
 
 interface DatabaseTableProps {
     table: string

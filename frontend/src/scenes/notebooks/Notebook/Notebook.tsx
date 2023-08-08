@@ -25,7 +25,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
-    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
+    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
@@ -37,11 +37,8 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
     }, [])
 
     useEffect(() => {
-        if (editor) {
-            editor.setEditable(editable)
-            editor.focus(initialAutofocus)
-        }
-    }, [editor, editable])
+        setEditable(editable)
+    }, [editable])
 
     useEffect(() => {
         if (editor) {
@@ -69,7 +66,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
                 {notebook.is_template && (
                     <LemonBanner
                         type="info"
