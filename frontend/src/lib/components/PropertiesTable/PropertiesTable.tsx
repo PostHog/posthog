@@ -141,7 +141,7 @@ function ValueDisplay({
     )
 }
 interface PropertiesTableType extends BasePropertyType {
-    properties: Record<string, unknown>
+    properties?: Record<string, any>
     sortProperties?: boolean
     searchable?: boolean
     filterable?: boolean
@@ -198,7 +198,7 @@ export function PropertiesTable({
     }
 
     const objectProperties = useMemo(() => {
-        if (!(properties instanceof Object)) {
+        if (!properties || !(properties instanceof Object)) {
             return []
         }
         let entries = Object.entries(properties)
