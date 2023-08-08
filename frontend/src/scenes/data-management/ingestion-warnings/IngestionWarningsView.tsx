@@ -69,7 +69,7 @@ const WARNING_TYPE_RENDERER = {
     },
     ignored_invalid_timestamp: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
-            uuid: string
+            eventUuid: string
             field: string
             value: string
             reason: string
@@ -78,7 +78,7 @@ const WARNING_TYPE_RENDERER = {
             <>
                 Used server timestamp when ingesting event due to invalid input:
                 <ul>
-                    {details.uuid ? <li>Event UUID: {details.uuid}</li> : ''}
+                    {details.eventUuid ? <li>Event UUID: {details.eventUuid}</li> : ''}
                     {details.field ? <li>Invalid field: {details.field}</li> : ''}
                     {details.value ? <li>Invalid value: {details.value}</li> : ''}
                     {details.reason ? <li>Error: {details.reason}</li> : ''}
@@ -88,7 +88,7 @@ const WARNING_TYPE_RENDERER = {
     },
     event_timestamp_in_future: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
-            uuid: string
+            eventUuid: string
             timestamp: string
             sentAt: string
             offset: string
@@ -100,7 +100,7 @@ const WARNING_TYPE_RENDERER = {
                 The event timestamp computed too far in the future, so the capture time was used instead. Event values:
                 <ul>
                     <li>Computed timestamp: {details.result}</li>
-                    {details.uuid ? <li>Event UUID: {details.uuid}</li> : ''}
+                    {details.eventUuid ? <li>Event UUID: {details.eventUuid}</li> : ''}
                     {details.timestamp ? <li>Client provided timestamp: {details.timestamp}</li> : ''}
                     {details.sentAt ? <li>Client provided sent_at: {details.sentAt}</li> : ''}
                     {details.offset ? <li>Client provided time offset: {details.offset}</li> : ''}

@@ -16,7 +16,7 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
         sentAt = DateTime.fromISO(data['sent_at']).toUTC()
         if (!sentAt.isValid) {
             callback?.('ignored_invalid_timestamp', {
-                uuid: data['uuid'] ?? '',
+                eventUuid: data['uuid'] ?? '',
                 field: 'sent_at',
                 value: data['sent_at'],
                 reason: sentAt.invalidExplanation || 'unknown error',
@@ -28,7 +28,7 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
     const parsedTs = handleTimestamp(data, now, sentAt, data.team_id, callback)
     if (!parsedTs.isValid) {
         callback?.('ignored_invalid_timestamp', {
-            uuid: data['uuid'] ?? '',
+            eventUuid: data['uuid'] ?? '',
             field: 'timestamp',
             value: data['timestamp'] ?? '',
             reason: parsedTs.invalidExplanation || 'unknown error',
@@ -95,7 +95,6 @@ function handleTimestamp(
     // We will also 'fix' the date to be now()
     if (nowDiff > FutureEventHoursCutoffMillis) {
         callback?.('event_timestamp_in_future', {
-            uuid: data['uuid'] ?? '',
             timestamp: data['timestamp'] ?? '',
             sentAt: data['sent_at'] ?? '',
             offset: data['offset'] ?? '',
