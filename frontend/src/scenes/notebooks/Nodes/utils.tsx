@@ -91,3 +91,29 @@ function markPasteRule(options: { internal: boolean; editor: TTEditor }): PasteR
         },
     })
 }
+
+export function selectFile(options: { contentType: string; multiple: boolean }): Promise<File[]> {
+    return new Promise((resolve, reject) => {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.multiple = options.multiple
+        input.accept = options.contentType
+
+        input.onchange = () => {
+            if (!input.files) {
+                return resolve([])
+            }
+            const files = Array.from(input.files)
+            resolve(files)
+        }
+
+        input.oncancel = () => {
+            resolve([])
+        }
+        input.onerror = () => {
+            reject(new Error('Error selecting file'))
+        }
+
+        input.click()
+    })
+}

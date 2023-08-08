@@ -109,7 +109,6 @@ export const userLogic = kea<userLogicType>([
                     posthog.people.set({
                         email: user.anonymize_data ? null : user.email,
                         realm: user.realm,
-                        posthog_version: user.posthog_version,
                     })
 
                     posthog.register({

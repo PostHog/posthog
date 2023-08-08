@@ -14,7 +14,6 @@ import {
     IconCopy,
     IconDelete,
     IconPlus,
-    IconPlusMini,
     IconSubArrowRight,
     IconErrorOutline,
     IconUnfoldLess,
@@ -1212,11 +1211,7 @@ export function FeatureFlagReleaseConditions({
                                 }`}
                                 propertyFilters={group?.properties}
                                 logicalRowDivider
-                                addButton={
-                                    <LemonButton icon={<IconPlusMini />} sideIcon={null} noPadding>
-                                        Add condition
-                                    </LemonButton>
-                                }
+                                addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 hasRowOperator={false}

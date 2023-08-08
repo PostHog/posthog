@@ -1,13 +1,13 @@
 import { IconJournal } from 'lib/lemon-ui/icons'
 import { useActions, useValues } from 'kea'
-import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
+import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
 import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export function NotebookButton(): JSX.Element {
-    const { notebookSideBarShown } = useValues(notebookSidebarLogic)
-    const { setNotebookSideBarShown } = useActions(notebookSidebarLogic)
+    const { visibility } = useValues(notebookPopoverLogic)
+    const { setVisibility } = useActions(notebookPopoverLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
@@ -20,8 +20,8 @@ export function NotebookButton(): JSX.Element {
     return (
         <LemonButton
             icon={<IconJournal />}
-            type={notebookSideBarShown ? 'primary' : 'tertiary'}
-            onClick={() => setNotebookSideBarShown(!notebookSideBarShown)}
+            type={visibility === 'visible' ? 'primary' : 'tertiary'}
+            onClick={() => setVisibility(visibility === 'visible' ? 'hidden' : 'visible')}
             status="primary-alt"
             {...overrides3000}
         >

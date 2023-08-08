@@ -60,7 +60,8 @@ export function PlayerMetaLinks(): JSX.Element {
             ])
         } else {
             const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
-            createNotebook(title, NotebookTarget.Sidebar, [
+
+            createNotebook(title, NotebookTarget.Popover, [
                 {
                     type: NotebookNodeType.Recording,
                     attrs: { id: sessionRecordingId },
