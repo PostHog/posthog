@@ -3,6 +3,7 @@ from unittest import mock
 from unittest.mock import patch, MagicMock
 from uuid import uuid4
 
+from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -11,8 +12,7 @@ from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FE
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
-from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
-from django.test import override_settings
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -151,14 +151,28 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
-        for session_id in [session_one, session_two]:
-            three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
-            produce_replay_summary(
-                team_id=self.team.id,
-                distinct_id="123",
-                first_timestamp=three_days_ago,
-                session_id=session_id,
-            )
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
+
+        # can't immediately switch playlists to replay table
+        create_session_recording_events(
+            team_id=self.team.id,
+            distinct_id="123",
+            timestamp=three_days_ago,
+            session_id=session_one,
+            window_id="1234",
+            use_recording_table=True,
+            use_replay_table=False,
+        )
+
+        create_session_recording_events(
+            team_id=self.team.id,
+            distinct_id="123",
+            timestamp=three_days_ago,
+            session_id=session_two,
+            window_id="1234",
+            use_recording_table=True,
+            use_replay_table=False,
+        )
 
         # Create playlist items
         self.client.post(
@@ -198,13 +212,18 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
-        for session_id in [session_one, session_two]:
-            three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
-            produce_replay_summary(
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
+
+        for id in [session_one, session_two]:
+            # can't immediately switch playlists to replay table
+            create_session_recording_events(
                 team_id=self.team.id,
                 distinct_id="123",
-                first_timestamp=three_days_ago,
-                session_id=session_id,
+                timestamp=three_days_ago,
+                session_id=id,
+                window_id="1234",
+                use_recording_table=True,
+                use_replay_table=False,
             )
 
         self.client.post(

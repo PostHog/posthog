@@ -38,7 +38,13 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
     def test_get_snapshots(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             create_snapshot(
-                has_full_snapshot=False, distinct_id="user", session_id="1", timestamp=now(), team_id=self.team.id
+                has_full_snapshot=False,
+                distinct_id="user",
+                session_id="1",
+                timestamp=now(),
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
                 has_full_snapshot=False,
@@ -46,6 +52,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 session_id="1",
                 timestamp=now() + relativedelta(seconds=10),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
                 has_full_snapshot=False,
@@ -53,6 +61,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 session_id="2",
                 timestamp=now() + relativedelta(seconds=20),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
                 has_full_snapshot=False,
@@ -60,6 +70,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 session_id="1",
                 timestamp=now() + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = create_recording_filter("1")
@@ -89,6 +101,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 timestamp=now() + relativedelta(seconds=10),
                 team_id=another_team.pk,
                 data={"source": "other team"},
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
                 has_full_snapshot=False,
@@ -97,6 +111,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 timestamp=now(),
                 team_id=self.team.id,
                 data={"source": 0},
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = create_recording_filter("1")
@@ -128,6 +144,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                     session_id=chunked_session_id,
                     timestamp=now(),
                     team_id=self.team.id,
+                    use_replay_table=False,
+                    use_recording_table=True,
                 )
 
             filter = create_recording_filter(chunked_session_id)
@@ -150,6 +168,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                     session_id=chunked_session_id,
                     timestamp=now() + relativedelta(minutes=index),
                     team_id=self.team.id,
+                    use_replay_table=False,
+                    use_recording_table=True,
                 )
 
             filter = create_recording_filter(chunked_session_id, limit, offset)
@@ -170,6 +190,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 session_id="1",
                 timestamp=now() - relativedelta(days=2),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             # This snapshot should appear
             create_snapshot(
@@ -178,6 +200,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 session_id="1",
                 timestamp=now(),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = create_recording_filter(

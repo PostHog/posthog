@@ -14,6 +14,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     columnGroups: LemonTableColumnGroup<T>[]
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
+    firstColumnSticky: boolean | undefined
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -26,11 +27,13 @@ function TableRowRaw<T extends Record<string, any>>({
     columnGroups,
     onRow,
     expandable,
+    firstColumnSticky,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record, recordIndex))
     )
+    const isRowExpansionToggleShown = !!expandable && rowExpandable >= 0
     const isRowExpanded =
         !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record, recordIndex) === -1
             ? isRowExpandedLocal
@@ -44,25 +47,23 @@ function TableRowRaw<T extends Record<string, any>>({
             ? expandable.expandedRowClassName(record, recordIndex)
             : expandable.expandedRowClassName)
 
+    const { className, style, ...extraProps } = onRow?.(record) || {}
+
     return (
         <>
             <tr
                 data-row-key={rowKeyDetermined}
-                {...onRow?.(record)}
                 className={clsx(
                     rowClassNameDetermined,
-                    rowStatusDetermined && `LemonTable__tr--status-${rowStatusDetermined}`
+                    rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`,
+                    className
                 )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ '--row-ribbon-color': rowRibbonColorDetermined || undefined, ...style } as React.CSSProperties}
+                {...extraProps}
             >
-                {rowRibbonColorDetermined !== undefined && (
-                    <td
-                        className="LemonTable__ribbon"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ backgroundColor: rowRibbonColorDetermined || 'transparent' }}
-                    />
-                )}
-                {!!expandable && rowExpandable >= 0 && (
-                    <td>
+                {isRowExpansionToggleShown && (
+                    <td className="LemonTable__toggle">
                         {!!rowExpandable && (
                             <LemonButton
                                 noPadding
@@ -89,21 +90,21 @@ function TableRowRaw<T extends Record<string, any>>({
                         // != is intentional to catch undefined too
                         const value = column.dataIndex != null ? record[column.dataIndex] : undefined
                         const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
-                        const areContentsCellRepresentations: boolean =
-                            !!contents && typeof contents === 'object' && !React.isValidElement(contents)
+                        const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
+                        const extraCellProps =
+                            isTableCellRepresentation(contents) && contents.props ? contents.props : {}
                         return (
                             <td
-                                key={`LemonTable-td-${columnGroupIndex}-${columnKeyOrIndex}`}
+                                key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
                                 className={clsx(
-                                    columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
+                                    columnIndex === 0 && 'LemonTable__boundary',
+                                    isSticky && 'LemonTable__cell--sticky',
                                     column.align && `text-${column.align}`,
                                     column.className
                                 )}
-                                {...(areContentsCellRepresentations ? (contents as TableCellRepresentation).props : {})}
+                                {...extraCellProps}
                             >
-                                {areContentsCellRepresentations
-                                    ? (contents as TableCellRepresentation).children
-                                    : contents}
+                                {isTableCellRepresentation(contents) ? contents.children : contents}
                             </td>
                         )
                     })
@@ -130,3 +131,7 @@ function TableRowRaw<T extends Record<string, any>>({
 // This was most jarring when scrolling thet table from the very left or the very right – the simple addition
 // of a class indicating that scrollability to `table` caused the component to lag due to unneded rerendering of rows.
 export const TableRow = React.memo(TableRowRaw) as typeof TableRowRaw
+
+function isTableCellRepresentation(contents: React.ReactNode): contents is TableCellRepresentation {
+    return !!contents && typeof contents === 'object' && !React.isValidElement(contents)
+}

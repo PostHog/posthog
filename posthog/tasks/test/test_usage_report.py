@@ -188,7 +188,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 )
 
             # recordings in period  - 5 sessions with 5 snapshots each
-            for i in range(0, 5):
+            for i in range(1, 6):
                 for _ in range(0, 5):
                     create_snapshot(
                         has_full_snapshot=True,
@@ -199,7 +199,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     )
 
             # recordings out of period  - 5 sessions with 5 snapshots each
-            for i in range(0, 10):
+            for i in range(1, 11):
                 for _ in range(0, 5):
                     create_snapshot(
                         has_full_snapshot=True,

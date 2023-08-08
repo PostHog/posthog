@@ -51,6 +51,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             "data": {"source": 0, "href": long_url},
         }
 
+        # can't immediately switch playlists to replay table
         create_session_recording_events(
             team_id=team_id,
             distinct_id="distinct_id_1",
@@ -58,6 +59,8 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id,
             window_id="window_1",
             snapshots=[snapshot],
+            use_recording_table=True,
+            use_replay_table=False,
         )
 
     def test_does_not_persist_too_recent_recording(self):

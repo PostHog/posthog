@@ -3,7 +3,7 @@ import { dateMapping, dateFilterToText, uuid } from 'lib/utils'
 import { DateMappingOption } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterLogic } from './dateFilterLogic'
+import { CUSTOM_OPTION_DESCRIPTION, CUSTOM_OPTION_KEY, CUSTOM_OPTION_VALUE, dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { useActions, useValues } from 'kea'
 import { LemonButtonWithDropdown, LemonDivider, LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
@@ -90,7 +90,7 @@ export function DateFilter({
         ) : (
             <div className="space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
                 {dateOptions.map(({ key, values, inactive }) => {
-                    if (key === 'Custom' && !showCustom) {
+                    if (key === CUSTOM_OPTION_KEY && !showCustom) {
                         return null
                     }
 
@@ -103,7 +103,7 @@ export function DateFilter({
                     const dateValue = dateFilterToText(
                         values[0],
                         values[1],
-                        'No date selected',
+                        CUSTOM_OPTION_DESCRIPTION,
                         dateOptions,
                         isDateFormatted
                     )
@@ -117,7 +117,7 @@ export function DateFilter({
                                 status="stealth"
                                 fullWidth
                             >
-                                {key}
+                                {key === CUSTOM_OPTION_KEY ? CUSTOM_OPTION_VALUE : key}
                             </LemonButton>
                         </Tooltip>
                     )

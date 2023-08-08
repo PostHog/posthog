@@ -58,24 +58,28 @@ def session_recording_list_test_factory(session_recording_list):
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=10),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
                 distinct_id="user",
                 session_id="2",
                 timestamp=self.base_time + relativedelta(seconds=20),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
             self.assertEqual(len(session_recordings), 2)
-            self.assertEqual(session_recordings[0]["start_time"], self.base_time + relativedelta(seconds=20))
             self.assertEqual(session_recordings[0]["session_id"], "2")
+            self.assertEqual(session_recordings[0]["start_time"], self.base_time + relativedelta(seconds=20))
             self.assertEqual(session_recordings[0]["distinct_id"], "user")
 
-            self.assertEqual(session_recordings[1]["start_time"], self.base_time)
             self.assertEqual(session_recordings[1]["session_id"], "1")
+            self.assertEqual(session_recordings[1]["start_time"], self.base_time + relativedelta(seconds=10))
             self.assertEqual(session_recordings[1]["distinct_id"], "user")
             self.assertEqual(more_recordings_available, False)
 
@@ -84,8 +88,22 @@ def session_recording_list_test_factory(session_recording_list):
             another_team = Team.objects.create(organization=self.organization)
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             Person.objects.create(team=another_team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=another_team.pk)
-            create_snapshot(distinct_id="user", session_id="2", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=another_team.pk,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
+            create_snapshot(
+                distinct_id="user",
+                session_id="2",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
 
             filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
@@ -98,12 +116,21 @@ def session_recording_list_test_factory(session_recording_list):
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_all_sessions_recording_object_keys(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             create_snapshot(
                 distinct_id="user",
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
@@ -119,13 +146,22 @@ def session_recording_list_test_factory(session_recording_list):
         @snapshot_clickhouse_queries
         def test_event_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             self.create_event("user", self.base_time, properties={"$session_id": "1", "$window_id": "1"})
             create_snapshot(
                 distinct_id="user",
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(
@@ -154,7 +190,14 @@ def session_recording_list_test_factory(session_recording_list):
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_event_filter_with_properties(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             self.create_event(
                 "user", self.base_time, properties={"$browser": "Chrome", "$session_id": "1", "$window_id": "1"}
             )
@@ -163,6 +206,8 @@ def session_recording_list_test_factory(session_recording_list):
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -214,7 +259,14 @@ def session_recording_list_test_factory(session_recording_list):
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_any_event_filter_with_properties(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
 
             pageview_uuid = self.create_event(
                 "user",
@@ -242,6 +294,8 @@ def session_recording_list_test_factory(session_recording_list):
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -297,7 +351,14 @@ def session_recording_list_test_factory(session_recording_list):
         @snapshot_clickhouse_queries
         def test_multiple_event_filters(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             self.create_event("user", self.base_time, properties={"$session_id": "1", "$window_id": "1"})
             self.create_event(
                 "user", self.base_time, properties={"$session_id": "1", "$window_id": "1"}, event_name="new-event"
@@ -307,6 +368,8 @@ def session_recording_list_test_factory(session_recording_list):
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(
@@ -362,7 +425,14 @@ def session_recording_list_test_factory(session_recording_list):
                 properties=[{"key": "$session_id", "value": "1"}, {"key": "$window_id", "value": "1"}],
             )
 
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             self.create_event(
                 "user",
                 self.base_time,
@@ -374,6 +444,8 @@ def session_recording_list_test_factory(session_recording_list):
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             # An action with properties
@@ -423,13 +495,22 @@ def session_recording_list_test_factory(session_recording_list):
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_all_sessions_recording_object_keys_with_entity_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             self.create_event("user", self.base_time, properties={"$session_id": "1", "$window_id": "1"})
             create_snapshot(
                 distinct_id="user",
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -451,20 +532,38 @@ def session_recording_list_test_factory(session_recording_list):
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_duration_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             create_snapshot(
                 distinct_id="user",
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
-            create_snapshot(distinct_id="user", session_id="2", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="2",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             create_snapshot(
                 distinct_id="user",
                 session_id="2",
                 timestamp=self.base_time + relativedelta(minutes=4),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -492,12 +591,16 @@ def session_recording_list_test_factory(session_recording_list):
                 session_id="1",
                 timestamp=self.base_time - relativedelta(days=3),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
                 distinct_id="user",
                 session_id="1",
                 timestamp=self.base_time - relativedelta(days=3) + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(team=self.team, data={"date_from": self.base_time.strftime("%Y-%m-%d")})
@@ -521,12 +624,16 @@ def session_recording_list_test_factory(session_recording_list):
                 session_id="1",
                 timestamp=self.base_time - relativedelta(days=3),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
                 distinct_id="user",
                 session_id="1",
                 timestamp=self.base_time - relativedelta(days=3) + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(
@@ -547,10 +654,20 @@ def session_recording_list_test_factory(session_recording_list):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             day_line = datetime(2021, 11, 5)
             create_snapshot(
-                distinct_id="user", session_id="1", timestamp=day_line - relativedelta(hours=3), team_id=self.team.id
+                distinct_id="user",
+                session_id="1",
+                timestamp=day_line - relativedelta(hours=3),
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
-                distinct_id="user", session_id="1", timestamp=day_line + relativedelta(hours=3), team_id=self.team.id
+                distinct_id="user",
+                session_id="1",
+                timestamp=day_line + relativedelta(hours=3),
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(
@@ -569,18 +686,29 @@ def session_recording_list_test_factory(session_recording_list):
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_person_id_filter(self):
             p = Person.objects.create(team=self.team, distinct_ids=["user", "user2"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             create_snapshot(
                 distinct_id="user2",
                 session_id="2",
                 timestamp=self.base_time + relativedelta(seconds=10),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
                 distinct_id="user3",
                 session_id="3",
                 timestamp=self.base_time + relativedelta(seconds=20),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
@@ -600,6 +728,8 @@ def session_recording_list_test_factory(session_recording_list):
                 session_id="1",
                 timestamp=self.base_time - relativedelta(days=3),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             self.create_event("user", self.base_time - relativedelta(days=3), properties={"$session_id": "1"})
             self.create_event(
@@ -613,6 +743,8 @@ def session_recording_list_test_factory(session_recording_list):
                 session_id="1",
                 timestamp=self.base_time - relativedelta(days=3) + relativedelta(hours=6),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(
@@ -634,18 +766,29 @@ def session_recording_list_test_factory(session_recording_list):
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_pagination(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             create_snapshot(
                 distinct_id="user",
                 session_id="2",
                 timestamp=self.base_time + relativedelta(seconds=10),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             create_snapshot(
                 distinct_id="user",
                 session_id="3",
                 timestamp=self.base_time + relativedelta(seconds=20),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(team=self.team, data={"limit": 2})
@@ -688,6 +831,8 @@ def session_recording_list_test_factory(session_recording_list):
                 timestamp=self.base_time,
                 has_full_snapshot=False,
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             filter = SessionRecordingsFilter(team=self.team, data={"no-filter": True})
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
@@ -699,13 +844,22 @@ def session_recording_list_test_factory(session_recording_list):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             another_team = Team.objects.create(organization=self.organization)
 
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             self.create_event(1, self.base_time + relativedelta(seconds=15), team=another_team)
             create_snapshot(
                 distinct_id="user",
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(
@@ -723,21 +877,39 @@ def session_recording_list_test_factory(session_recording_list):
         def test_event_filter_with_person_properties(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             self.create_event("user", self.base_time)
             create_snapshot(
                 distinct_id="user",
                 session_id="1",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
-            create_snapshot(distinct_id="user2", session_id="2", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(
+                distinct_id="user2",
+                session_id="2",
+                timestamp=self.base_time,
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
+            )
             self.create_event("user2", self.base_time)
             create_snapshot(
                 distinct_id="user2",
                 session_id="2",
                 timestamp=self.base_time + relativedelta(seconds=30),
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -764,21 +936,39 @@ def session_recording_list_test_factory(session_recording_list):
                     )
                     cohort.calculate_people_ch(pending_version=0)
 
-                    create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+                    create_snapshot(
+                        distinct_id="user",
+                        session_id="1",
+                        timestamp=self.base_time,
+                        team_id=self.team.id,
+                        use_replay_table=False,
+                        use_recording_table=True,
+                    )
                     self.create_event("user", self.base_time, team=self.team)
                     create_snapshot(
                         distinct_id="user",
                         session_id="1",
                         timestamp=self.base_time + relativedelta(seconds=30),
                         team_id=self.team.id,
+                        use_replay_table=False,
+                        use_recording_table=True,
                     )
-                    create_snapshot(distinct_id="user2", session_id="2", timestamp=self.base_time, team_id=self.team.id)
+                    create_snapshot(
+                        distinct_id="user2",
+                        session_id="2",
+                        timestamp=self.base_time,
+                        team_id=self.team.id,
+                        use_replay_table=False,
+                        use_recording_table=True,
+                    )
                     self.create_event("user2", self.base_time, team=self.team)
                     create_snapshot(
                         distinct_id="user2",
                         session_id="2",
                         timestamp=self.base_time + relativedelta(seconds=30),
                         team_id=self.team.id,
+                        use_replay_table=False,
+                        use_recording_table=True,
                     )
                     filter = SessionRecordingsFilter(
                         team=self.team,
@@ -795,7 +985,13 @@ def session_recording_list_test_factory(session_recording_list):
         def test_event_filter_with_matching_on_session_id(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(
-                distinct_id="user", session_id="1", timestamp=self.base_time, window_id="1", team_id=self.team.id
+                distinct_id="user",
+                session_id="1",
+                timestamp=self.base_time,
+                window_id="1",
+                team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             self.create_event("user", self.base_time, properties={"$session_id": "1"})
             self.create_event("user", self.base_time, event_name="$autocapture", properties={"$session_id": "2"})
@@ -805,6 +1001,8 @@ def session_recording_list_test_factory(session_recording_list):
                 timestamp=self.base_time + relativedelta(seconds=30),
                 window_id="1",
                 team_id=self.team.id,
+                use_replay_table=False,
+                use_recording_table=True,
             )
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -838,6 +1036,8 @@ def session_recording_list_test_factory(session_recording_list):
                 window_id="1",
                 has_full_snapshot=True,
                 source=3,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             # Creates 10 click events at 1 second intervals
@@ -850,6 +1050,8 @@ def session_recording_list_test_factory(session_recording_list):
                 window_id="1",
                 has_full_snapshot=False,
                 source=2,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             # Creates 10 input events at 1 second intervals
@@ -862,6 +1064,8 @@ def session_recording_list_test_factory(session_recording_list):
                 window_id="1",
                 has_full_snapshot=False,
                 source=5,
+                use_replay_table=False,
+                use_recording_table=True,
             )
 
             filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
@@ -892,6 +1096,8 @@ class TestClickhouseSessionRecordingsList(session_recording_list_test_factory(Se
             session_id="1",
             timestamp=self.base_time + relativedelta(seconds=30),
             team_id=self.team.id,
+            use_replay_table=False,
+            use_recording_table=True,
         )
         filter = SessionRecordingsFilter(
             team=self.team,

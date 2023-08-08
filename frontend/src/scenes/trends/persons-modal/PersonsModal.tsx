@@ -267,14 +267,14 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
 
                 <div className="flex-1 overflow-hidden">
                     {isGroupType(actor) ? (
-                        <strong>
+                        <div className="font-bold">
                             <GroupActorDisplay actor={actor} />
-                        </strong>
+                        </div>
                     ) : (
                         <>
-                            <strong>
+                            <div className="font-bold flex items-start">
                                 <PersonDisplay person={actor} withIcon={false} />
-                            </strong>
+                            </div>
                             <CopyToClipboardInline
                                 explicitValue={actor.distinct_ids[0]}
                                 iconStyle={{ color: 'var(--primary)' }}
