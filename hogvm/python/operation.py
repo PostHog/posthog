@@ -6,7 +6,7 @@ HOGQL_BYTECODE_IDENTIFIER = "_h"
 SUPPORTED_FUNCTIONS = ("concat", "match", "toString", "toInt", "toFloat", "toUUID")
 
 
-class Operation(str, Enum):
+class Operation(int, Enum):
     FIELD = 1
     CALL = 2
     AND = 3
