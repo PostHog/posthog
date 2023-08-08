@@ -1,12 +1,13 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { batchExportsListLogic } from './batchExportsListLogic'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { useEffect } from 'react'
+import { BatchExportTag } from './components'
 
 export const scene: SceneExport = {
     component: BatchExportsScene,
@@ -83,11 +84,7 @@ export function BatchExportsScene(): JSX.Element {
                         key: 'status',
                         width: 0,
                         render: function RenderStatus(_, batchExport) {
-                            return (
-                                <LemonTag type={batchExport.paused ? 'default' : 'primary'} className="uppercase">
-                                    {batchExport.paused ? 'Paused' : 'Active'}
-                                </LemonTag>
-                            )
+                            return <BatchExportTag batchExportConfig={batchExport} />
                         },
                     },
 

@@ -1,10 +1,14 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonTable } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
+import { BatchExportTag } from './components'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { IconEdit } from 'lib/lemon-ui/icons'
+import { identifierToHuman } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -15,17 +19,28 @@ export const scene: SceneExport = {
 }
 
 export function BatchExportScene(): JSX.Element {
-    const { batchExportConfig, batchExportConfigLoading } = useValues(batchExportLogic)
-    const { loadBatchExportConfig } = useActions(batchExportLogic)
+    const {
+        batchExportConfig,
+        batchExportConfigLoading,
+        batchExportRuns,
+        batchExportRunsLoading,
+        batchExportRunsPagination,
+    } = useValues(batchExportLogic)
+    const { loadBatchExportConfig, loadBatchExportRuns } = useActions(batchExportLogic)
 
     useEffect(() => {
         loadBatchExportConfig()
+        loadBatchExportRuns()
     }, [])
 
     return (
         <>
             <PageHeader
-                title={batchExportConfig?.name ?? (batchExportConfigLoading ? 'Loading...' : 'Missing')}
+                title={
+                    <span className="flex items-center gap-2">
+                        {batchExportConfig?.name ?? (batchExportConfigLoading ? 'Loading...' : 'Missing')}
+                    </span>
+                }
                 buttons={
                     batchExportConfig ? (
                         <>
@@ -37,90 +52,81 @@ export function BatchExportScene(): JSX.Element {
                 }
             />
 
-            {/* <LemonTable
-                dataSource={batchExportConfigs}
-                loading={batchExportConfigsLoading}
-                columns={[
-                    {
-                        title: 'Name',
-                        key: 'name',
-                        render: function RenderName(_, batchExport) {
-                            return (
-                                <Link className="font-semibold" to={urls.batchExport(batchExport.id)}>
-                                    {batchExport.name}
-                                </Link>
-                            )
-                        },
-                    },
-                    {
-                        title: 'Runs',
-                        key: 'runs',
-                        render: function RenderStatus(_, batchExport) {
-                            return (
-                                <div className="flex gap-2">
-                                    {batchExport.runs?.map((run) => (
-                                        <div key={run.id} className="flex gap-1" title={run.status}>
-                                            <span>{run.status === 'Failed' ? '🔴' : '🟢'}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )
-                        },
-                    },
+            <div className="flex items-center gap-2">
+                {batchExportConfig ? (
+                    <>
+                        <BatchExportTag batchExportConfig={batchExportConfig} />
+                    </>
+                ) : (
+                    <LemonSkeleton className="w-10" />
+                )}
+            </div>
 
-                    {
-                        title: 'Destination',
-                        key: 'destination',
-                        render: function RenderType(_, batchExport) {
-                            return <>{batchExport.destination.type}</>
-                        },
-                    },
+            {batchExportConfig ? (
+                <div className="flex items-start mt-4 gap-4 flex-wrap">
+                    <div className="shrink-0 min-w-60 border rounded p-3">
+                        <div className="flex justify-between items-center">
+                            <LemonLabel>Configuration</LemonLabel>
 
-                    {
-                        title: 'Frequency',
-                        key: 'frequency',
-                        dataIndex: 'interval',
-                    },
-                    {
-                        title: 'Status',
-                        key: 'status',
-                        width: 0,
-                        render: function RenderStatus(_, batchExport) {
-                            return (
-                                <LemonTag type={batchExport.paused ? 'default' : 'primary'} className="uppercase">
-                                    {batchExport.paused ? 'Paused' : 'Active'}
-                                </LemonTag>
-                            )
-                        },
-                    },
+                            <LemonButton
+                                icon={<IconEdit />}
+                                size="small"
+                                to={urls.batchExportEdit(batchExportConfig.id)}
+                            >
+                                Edit
+                            </LemonButton>
+                        </div>
 
-                    {
-                        width: 0,
-                        render: function Render(_, batchExport) {
-                            const menuItems: LemonMenuItems = [
+                        <ul>
+                            <li className="flex items-center justify-between gap-2">
+                                <span>Destination:</span>
+                                <span className="font-semibold">{batchExportConfig.destination.type}</span>
+                            </li>
+
+                            {Object.keys(batchExportConfig.destination.config).map((x) => (
+                                <li key={x} className="flex items-center justify-between gap-2">
+                                    <span>{identifierToHuman(x)}:</span>
+                                    <span className="font-semibold">{batchExportConfig.destination.config[x]}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    <div className="flex-1">
+                        <LemonTable
+                            dataSource={batchExportRuns?.results ?? []}
+                            loading={batchExportRunsLoading}
+                            loadingSkeletonRows={5}
+                            pagination={batchExportRunPagination}
+                            columns={[
                                 {
-                                    label: 'View',
-                                    to: urls.batchExport(batchExport.id),
+                                    title: 'Status',
+                                    key: 'status',
+                                    render: function RenderStatus(_, run) {
+                                        return 'wat'
+                                    },
                                 },
                                 {
-                                    label: 'Edit',
-                                    to: urls.batchExportEdit(batchExport.id),
+                                    title: 'ID',
+                                    key: 'runId',
+                                    render: function RenderStatus(_, run) {
+                                        return <>{run.id}</>
+                                    },
                                 },
                                 {
-                                    label: batchExport.paused ? 'Resume' : 'Pause',
-                                    status: batchExport.paused ? 'primary' : 'danger',
-                                    onClick: () => {},
+                                    title: 'Run start',
+                                    key: 'runStart',
+                                    tooltip: 'Date and time when this BatchExport run started',
+                                    render: function RenderName(_, run) {
+                                        return 'wat'
+                                        // return <>{dayjs(run.created_at).format('YYYY-MM-DD HH:mm:ss z')}</>
+                                    },
                                 },
-                            ]
-                            return (
-                                <LemonMenu items={menuItems} placement="left">
-                                    <LemonButton size="small" status="stealth" noPadding icon={<IconEllipsis />} />
-                                </LemonMenu>
-                            )
-                        },
-                    },
-                ]}
-            /> */}
+                            ]}
+                        />
+                    </div>
+                </div>
+            ) : null}
         </>
     )
 }
