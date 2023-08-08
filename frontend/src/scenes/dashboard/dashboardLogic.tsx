@@ -192,7 +192,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     loaders(({ actions, props, values }) => ({
-        // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         dashboard: [
             null as DashboardType | null,
             {

@@ -26,6 +26,8 @@ export function ActionsLineGraph({
         interval,
         shownAs,
         showValueOnSeries,
+        showPercentStackView,
+        supportsPercentStackView,
         trendsFilter,
         isLifecycle,
         isStickiness,
@@ -46,6 +48,8 @@ export function ActionsLineGraph({
             trendsFilter={trendsFilter}
             formula={formula}
             showValueOnSeries={showValueOnSeries}
+            showPercentStackView={showPercentStackView}
+            supportsPercentStackView={supportsPercentStackView}
             tooltip={
                 isLifecycle
                     ? {

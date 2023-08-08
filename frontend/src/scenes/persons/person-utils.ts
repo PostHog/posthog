@@ -1,21 +1,20 @@
-import './PersonHeader.scss'
-import { Link } from 'lib/lemon-ui/Link'
+import './PersonDisplay.scss'
 import { urls } from 'scenes/urls'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { midEllipsis } from 'lib/utils'
-import clsx from 'clsx'
 
 type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
     | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
 
-export interface PersonHeaderProps {
+export interface PersonDisplayProps {
     person?: PersonPropType | null
-    withIcon?: boolean
+    withIcon?: boolean | ProfilePictureProps['size']
     noLink?: boolean
     noEllipsis?: boolean
+    noPopover?: boolean
 }
 
 /** Very permissive email format. */
@@ -65,30 +64,3 @@ export const asLink = (person?: PersonPropType | null): string | undefined =>
         : person?.distinct_ids?.length
         ? urls.person(person.distinct_ids[0])
         : undefined
-
-export function PersonHeader(props: PersonHeaderProps): JSX.Element {
-    const href = asLink(props.person)
-    const display = asDisplay(props.person)
-
-    const content = (
-        <div className="flex items-center">
-            {props.withIcon && <ProfilePicture name={display} size="md" />}
-            <span className={clsx('ph-no-capture', !props.noEllipsis && 'text-ellipsis')}>{display}</span>
-        </div>
-    )
-
-    return (
-        <div className="person-header">
-            {props.noLink || !href ? (
-                content
-            ) : (
-                <Link
-                    to={href}
-                    data-attr={`goto-person-email-${props.person?.distinct_id || props.person?.distinct_ids?.[0]}`}
-                >
-                    {content}
-                </Link>
-            )}
-        </div>
-    )
-}

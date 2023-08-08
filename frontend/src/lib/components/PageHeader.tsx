@@ -24,11 +24,17 @@ export function PageHeader({
     delimited,
     notebookProps,
 }: PageHeaderProps): JSX.Element {
-    const content = (
+    return (
         <>
             <div className="page-title-row flex justify-between" style={style}>
-                <div>
-                    <h1 className="page-title">{title}</h1>
+                <div className="min-w-0">
+                    {notebookProps ? (
+                        <DraggableToNotebook {...notebookProps}>
+                            <h1 className="page-title">{title}</h1>
+                        </DraggableToNotebook>
+                    ) : (
+                        <h1 className="page-title">{title}</h1>
+                    )}
                     <span className="page-description">{description}</span>
                 </div>
                 <div className="page-buttons">{buttons}</div>
@@ -38,8 +44,6 @@ export function PageHeader({
             {delimited && <LemonDivider className="my-4" />}
         </>
     )
-
-    return notebookProps ? <DraggableToNotebook {...notebookProps}>{content}</DraggableToNotebook> : <>{content}</>
 }
 
 interface SubtitleProps {

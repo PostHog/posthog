@@ -1126,6 +1126,9 @@
                 "isValid": {
                     "type": "boolean"
                 },
+                "isValidView": {
+                    "type": "boolean"
+                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -2018,6 +2021,9 @@
                     "type": "array"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_percent_stack_view": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {

@@ -126,7 +126,7 @@ export function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placehold
             if (unmountResult && div.parentNode) {
                 div.parentNode.removeChild(div)
             }
-            if (value !== undefined) {
+            if (typeof value === 'string') {
                 resolve(value)
             } else {
                 reject(value)

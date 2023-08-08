@@ -4,7 +4,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
+import { IconComment, IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -55,13 +55,13 @@ export function PlayerMetaLinks(): JSX.Element {
     const onComment = (): void => {
         const currentPlayerTime = getCurrentPlayerTime() * 1000
         if (nodeLogic) {
-            nodeLogic.actions.insertAfterLastNodeOfType(
-                NotebookNodeType.ReplayTimestamp,
-                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
-            )
+            nodeLogic.actions.insertAfterLastNodeOfType(NotebookNodeType.ReplayTimestamp, [
+                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
+            ])
         } else {
             const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
-            createNotebook(title, NotebookTarget.Sidebar, [
+
+            createNotebook(title, NotebookTarget.Popover, [
                 {
                     type: NotebookNodeType.Recording,
                     attrs: { id: sessionRecordingId },
@@ -79,10 +79,10 @@ export function PlayerMetaLinks(): JSX.Element {
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
-            {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
+            {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
                     {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                        <LemonButton icon={<IconLink />} onClick={onComment} {...commonProps}>
+                        <LemonButton icon={<IconComment />} onClick={onComment} {...commonProps}>
                             <span>Comment</span>
                         </LemonButton>
                     )}

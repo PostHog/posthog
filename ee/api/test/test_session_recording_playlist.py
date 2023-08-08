@@ -140,12 +140,15 @@ class TestSessionRecordingPlaylist(APILicensedTest):
     def test_get_pinned_recordings_for_playlist(self):
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
 
+        # can't immediately switch playlists to replay table
         create_session_recording_events(
             team_id=self.team.id,
             distinct_id="123",
             timestamp=datetime.utcnow(),
             session_id="session1",
             window_id="1234",
+            use_recording_table=True,
+            use_replay_table=False,
         )
 
         create_session_recording_events(
@@ -154,6 +157,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             timestamp=datetime.utcnow(),
             session_id="session2",
             window_id="1234",
+            use_recording_table=True,
+            use_replay_table=False,
         )
 
         # Create playlist items
@@ -188,12 +193,15 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         )
 
         for id in ["session1", "session2"]:
+            # can't immediately switch playlists to replay table
             create_session_recording_events(
                 team_id=self.team.id,
                 distinct_id="123",
                 timestamp=datetime.utcnow(),
                 session_id=id,
                 window_id="1234",
+                use_recording_table=True,
+                use_replay_table=False,
             )
 
         self.client.post(

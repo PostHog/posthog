@@ -1,6 +1,7 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { ComponentMeta, ComponentStory, Story } from '@storybook/react'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonButton } from '../LemonButton'
+import { useEffect } from 'react'
 
 export default {
     title: 'Lemon UI/Lemon Table',
@@ -227,3 +228,73 @@ WithHighlightedRows.args = {
 
 export const WithMandatorySorting = BasicTemplate.bind({})
 WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true }
+
+export const WithStickyFirstColumn: Story = () => {
+    useEffect(() => {
+        const scrollableInner = document.querySelector(
+            '#story--lemon-ui-lemon-table--with-sticky-first-column .scrollable__inner'
+        )
+        if (scrollableInner) {
+            scrollableInner.scrollLeft = 20
+        }
+    }, [])
+
+    return (
+        <LemonTable
+            className="max-w-100"
+            firstColumnSticky
+            columns={[
+                {
+                    title: 'Name',
+                    dataIndex: 'name',
+                    sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
+                },
+                {
+                    title: 'Occupation',
+                    dataIndex: 'occupation',
+                    tooltip: 'What they are primarily working on.',
+                    sorter: (a, b) => a.occupation.localeCompare(b.occupation),
+                },
+                {
+                    title: 'Age',
+                    key: 'age',
+                    render: (_, person) => `${person.name.length * 12} years`,
+                },
+                {
+                    title: 'Zodiac sign',
+                    key: 'zodiac',
+                    render: () => 'Gemini',
+                },
+                {
+                    title: 'Favorite color',
+                    key: 'color',
+                    render: (_, person) => (person.occupation === 'Engineer' ? 'Blue' : 'Red'),
+                },
+            ]}
+            dataSource={
+                [
+                    {
+                        name: 'Werner C.',
+                        occupation: 'Engineer',
+                    },
+                    {
+                        name: 'Ursula Z.',
+                        occupation: 'Retired',
+                    },
+                    {
+                        name: 'Ludwig A.',
+                        occupation: 'Painter',
+                    },
+                    {
+                        name: 'Arnold S.',
+                        occupation: 'Body-builder',
+                    },
+                    {
+                        name: 'Franz B.',
+                        occupation: 'Teacher',
+                    },
+                ] as MockPerson[]
+            }
+        />
+    )
+}

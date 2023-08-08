@@ -1,5 +1,4 @@
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { getSeriesColor } from 'lib/colors'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 type SeriesCheckColumnTitleProps = {
@@ -39,23 +38,23 @@ type SeriesCheckColumnItemProps = {
     item: IndexedTrendResult
     canCheckUncheckSeries: boolean
     hiddenLegendKeys: Record<string, boolean | undefined>
-    compare?: boolean | null
     toggleVisibility: (id: number) => void
+    label?: JSX.Element
 }
 
 export function SeriesCheckColumnItem({
     item,
     canCheckUncheckSeries,
     hiddenLegendKeys,
-    compare,
     toggleVisibility,
+    label,
 }: SeriesCheckColumnItemProps): JSX.Element {
     return (
         <LemonCheckbox
-            color={getSeriesColor(item.seriesIndex, compare || false)}
             checked={!hiddenLegendKeys[item.id]}
             onChange={() => toggleVisibility(item.id)}
             disabled={!canCheckUncheckSeries}
+            label={label}
         />
     )
 }

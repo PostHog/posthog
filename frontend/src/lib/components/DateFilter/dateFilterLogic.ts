@@ -5,6 +5,10 @@ import { isDate, dateFilterToText, dateStringToDayJs, formatDateRange, formatDat
 import { DateMappingOption } from '~/types'
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
+export const CUSTOM_OPTION_KEY = 'Custom'
+export const CUSTOM_OPTION_VALUE = 'No date range override'
+export const CUSTOM_OPTION_DESCRIPTION = 'Use the original date ranges of insights'
+
 export const dateFilterLogic = kea<dateFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'DateFilterLogic']),
     props({} as DateFilterLogicProps),
@@ -90,7 +94,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                     ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
                     ? `${formatDate(dayjs(dateFrom))} to now`
-                    : dateFilterToText(dateFrom, dateTo, 'Custom', dateOptions, false),
+                    : dateFilterToText(dateFrom, dateTo, CUSTOM_OPTION_VALUE, dateOptions, false),
         ],
     }),
     listeners(({ actions, values, props }) => ({

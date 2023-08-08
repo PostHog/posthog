@@ -17,7 +17,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import posthog from 'posthog-js'
@@ -28,6 +27,22 @@ interface Params {
     filters?: RecordingFilters
     sessionRecordingId?: SessionRecordingId
 }
+
+interface NoEventsToMatch {
+    matchType: 'none'
+}
+
+interface SimpleEventsMatching {
+    matchType: 'simple'
+    eventNames: string[]
+}
+
+interface BackendEventsMatching {
+    matchType: 'backend'
+    filters: RecordingFilters
+}
+
+export type MatchingEventsMatchType = NoEventsToMatch | SimpleEventsMatching | BackendEventsMatching
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
@@ -185,7 +200,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
-                        version: values.listingVersion,
+                        version: '3',
                     }
 
                     if (direction === 'older') {
@@ -205,7 +220,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs, values.listingVersion)
+                    actions.reportRecordingsListFetched(loadTimeMs)
 
                     breakpoint()
 
@@ -409,14 +424,39 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             },
         ],
 
-        listingVersion: [
-            (s) => [s.featureFlags],
-            (featureFlags): '1' | '2' | '3' => {
-                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SUMMARY_LISTING]
-                    ? '3'
-                    : featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2]
-                    ? '2'
-                    : '1'
+        matchingEventsMatchType: [
+            (s) => [s.filters],
+            (filters: RecordingFilters | undefined): MatchingEventsMatchType => {
+                if (!filters) {
+                    return { matchType: 'none' }
+                }
+
+                const hasActions = !!filters.actions?.length
+                const hasEvents = !!filters.events?.length
+                const simpleEvents = (filters.events || [])
+                    .filter((e) => !e.properties || !e.properties.length)
+                    .map((e) => e.name.toString())
+                const hasSimpleEvents = !!simpleEvents.length
+
+                if (hasActions) {
+                    return { matchType: 'backend', filters }
+                } else {
+                    if (!hasEvents) {
+                        return { matchType: 'none' }
+                    }
+
+                    if (hasEvents && hasSimpleEvents && simpleEvents.length === filters.events?.length) {
+                        return {
+                            matchType: 'simple',
+                            eventNames: simpleEvents,
+                        }
+                    } else {
+                        return {
+                            matchType: 'backend',
+                            filters,
+                        }
+                    }
+                }
             },
         ],
         activeSessionRecording: [

@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext, HogQLQuery } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -101,6 +101,7 @@ export enum ProductKey {
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
     DATA_WAREHOUSE = 'data_warehouse',
+    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
@@ -163,7 +164,6 @@ export interface UserType extends UserBaseType {
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
     realm?: Realm
-    posthog_version?: string
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean
@@ -1655,6 +1655,7 @@ export interface TrendsFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    show_percent_stack_view?: boolean
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
@@ -2049,7 +2050,7 @@ export interface Survey {
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
-    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion)[]
+    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
     start_date: string | null
@@ -2099,7 +2100,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 }
 
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
-    type: SurveyQuestionType.MultipleChoiceSingle | SurveyQuestionType.MultipleChoiceMulti
+    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
 }
 
@@ -2107,8 +2108,8 @@ export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSu
 
 export enum SurveyQuestionType {
     Open = 'open',
-    MultipleChoiceSingle = 'multiple_single',
-    MultipleChoiceMulti = 'multiple_multi',
+    MultipleChoice = 'multiple_choice',
+    SingleChoice = 'single_choice',
     NPS = 'nps',
     Rating = 'rating',
     Link = 'link',
@@ -2251,7 +2252,6 @@ export interface PreflightStatus {
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
-    posthog_version?: string
     email_service_available: boolean
     slack_service: {
         available: boolean
@@ -2585,11 +2585,6 @@ export enum HelpType {
     Docs = 'docs',
     Updates = 'updates',
     SupportForm = 'support_form',
-}
-
-export interface VersionType {
-    version: string
-    release_date?: string
 }
 
 export interface DateMappingOption {
@@ -3010,14 +3005,17 @@ export enum NotebookNodeType {
     Link = 'ph-link',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
+    Image = 'ph-image',
 }
 
 export enum NotebookTarget {
-    Sidebar = 'sidebar',
+    Popover = 'popover',
     Auto = 'auto',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export interface DataWarehouseCredential {
     access_key: string
@@ -3034,3 +3032,11 @@ export interface DataWarehouseTable {
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
+
+export interface DataWarehouseSavedQuery {
+    /** UUID */
+    id: string
+    name: string
+    query: HogQLQuery
+    columns: DatabaseSchemaQueryResponseField[]
+}

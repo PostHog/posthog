@@ -19,6 +19,14 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.BoldNumber,
 ]
+
+/** Display types for which a percent stack view is available. */
+export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsAreaGraph,
+]
+
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
@@ -128,32 +136,31 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
-    RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
-    RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
+    RECORDING_DEBUGGING: 'recording-debugging', // owner #team-monitoring
+    RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-monitoring
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
-    RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
-    NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
+    NOTEBOOKS: 'notebooks', // owner: #team-monitoring
     EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
-    RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
+    RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-monitoring
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
-    SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
-    SURVEYS_RATING_TYPE: 'surveys-rating-type', // owner: @liyiy
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
-    DATA_WAREHOUSE: 'data-warehouse', // owner: @timgl
+    DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
+    DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     REFERRAL_SOURCE_SELECT: 'referral-source-select', // owner: @raquelmsmith
     SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
     SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
+    SURVEYS_MULTIPLE_CHOICE: 'surveys-multiple-choice', // owner: @liyiy
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
