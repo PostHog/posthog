@@ -6,7 +6,6 @@ import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/Project
 import {
     IconApps,
     IconBarChart,
-    IconCoffee,
     IconCohort,
     IconComment,
     IconDatabase,
@@ -52,7 +51,7 @@ import Typography from 'antd/lib/typography'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
+import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -164,13 +163,6 @@ function Pages(): JSX.Element {
                         }}
                     />
                     <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
-                    {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
-                        <PageButton
-                            icon={<IconCoffee />}
-                            identifier={Scene.WebPerformance}
-                            to={urls.webPerformance()}
-                        />
-                    )}
 
                     {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
                         <div className="SideBar__heading">Feature Management</div>
@@ -289,9 +281,8 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
-            <NotebookSideBar>
-                <div className="SideBar__content">{children}</div>
-            </NotebookSideBar>
+            <NotebookPopover />
+            <div className="SideBar__content">{children}</div>
             <ActivationSidebar />
         </div>
     )

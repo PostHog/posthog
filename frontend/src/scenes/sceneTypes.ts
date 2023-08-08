@@ -41,6 +41,9 @@ export enum Scene {
     Surveys = 'Surveys',
     Survey = 'Survey',
     DataWarehouse = 'DataWarehouse',
+    DataWarehousePosthog = 'DataWarehousePosthog',
+    DataWarehouseExternal = 'DataWarehouseExternal',
+    DataWarehouseSavedQueries = 'DataWarehouseSavedQueries',
     DataWarehouseTable = 'DataWarehouseTable',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
@@ -59,7 +62,6 @@ export enum Scene {
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     Site = 'Site',
-    WebPerformance = 'WebPerformance',
     IntegrationsRedirect = 'IntegrationsRedirect',
     // Authentication, onboarding & initialization routes
     Login = 'Login',

@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import json
 import tempfile
+import posixpath
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
 
@@ -26,6 +27,35 @@ from posthog.temporal.workflows.clickhouse import get_client
 
 if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import CompletedPartTypeDef
+
+
+def get_allowed_template_variables(inputs) -> dict[str, str]:
+    """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
+    export_datetime = dt.datetime.fromisoformat(inputs.data_interval_end)
+    return {
+        "second": f"{export_datetime:%S}",
+        "minute": f"{export_datetime:%M}",
+        "hour": f"{export_datetime:%H}",
+        "day": f"{export_datetime:%d}",
+        "month": f"{export_datetime:%m}",
+        "year": f"{export_datetime:%Y}",
+        "data_interval_start": inputs.data_interval_start,
+        "data_interval_end": inputs.data_interval_end,
+        "table": "events",
+    }
+
+
+def get_s3_key(inputs) -> str:
+    """Return an S3 key given S3InsertInputs."""
+    template_variables = get_allowed_template_variables(inputs)
+    key_prefix = inputs.prefix.format(**template_variables)
+    key = posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl")
+
+    if posixpath.isabs(key):
+        # Keys are relative to root dir, so this would add an extra "/"
+        key = posixpath.relpath(key, "/")
+
+    return key
 
 
 @dataclass
@@ -82,13 +112,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         # Create a multipart upload to S3
-        key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
+        key = get_s3_key(inputs)
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
         )
+
         details = activity.info().heartbeat_details
 
         parts: List[CompletedPartTypeDef] = []
@@ -132,8 +163,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         with tempfile.NamedTemporaryFile() as local_results_file:
             while True:
                 try:
-                    result = await results_iterator.__anext__()
-                except StopAsyncIteration:
+                    result = results_iterator.__next__()
+                except StopIteration:
                     break
                 except json.JSONDecodeError:
                     # This is raised by aiochclient as we try to decode an error message from ClickHouse.
@@ -248,10 +279,11 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         run_id = await workflow.execute_activity(
             create_export_run,
             create_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
-            schedule_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
-                maximum_attempts=3,
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
@@ -274,10 +306,12 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(
-                    maximum_attempts=6,
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=120),
+                    maximum_attempts=10,
                     non_retryable_error_types=[
-                        # Validation failed, and will keep failing.
-                        "ValueError",
+                        # S3 parameter validation failed.
+                        "ParamValidationError",
                     ],
                 ),
             )
@@ -291,9 +325,13 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 update_export_run_status,
                 update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
             )
 
 

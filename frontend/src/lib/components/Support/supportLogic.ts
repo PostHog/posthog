@@ -54,6 +54,7 @@ export const TARGET_AREA_TO_NAME = {
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
+    surveys: 'User Surveys',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -81,6 +82,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     app: 'apps',
     toolbar: 'analytics',
     warehouse: 'data_warehouse',
+    surveys: 'surveys',
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
@@ -112,7 +114,7 @@ export const supportLogic = kea<supportLogicType>([
             name: string,
             email: string,
             kind: SupportTicketKind | null,
-            target_area: SupportTicketTargetArea | null,
+            target_area: string | null,
             message: string
         ) => ({
             name,
@@ -200,7 +202,7 @@ export const supportLogic = kea<supportLogicType>([
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
                 ': ' +
-                (target_area ? TARGET_AREA_TO_NAME[target_area] : 'General') +
+                (target_area ? TARGET_AREA_TO_NAME[target_area] ?? `${target_area} (feature preview)` : 'General') +
                 ' (' +
                 zendesk_ticket_uuid +
                 ')'
@@ -249,7 +251,6 @@ export const supportLogic = kea<supportLogicType>([
                 })
                 .catch((err) => {
                     captureException(err)
-                    console.log(err)
                     lemonToast.error(`There was an error sending the message.`)
                 })
         },

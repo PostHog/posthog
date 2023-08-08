@@ -8,6 +8,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataWarehouseTable,
+    DataWarehouseSavedQuery,
     EarlyAccessFeatureType,
     EventDefinition,
     EventDefinitionType,
@@ -23,14 +24,12 @@ import {
     NotebookType,
     OrganizationResourcePermissionType,
     OrganizationType,
-    PerformanceEvent,
     PersonListParams,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
     PropertyDefinitionType,
     RawAnnotationType,
-    RecentPerformancePageView,
     RoleMemberType,
     RolesListParams,
     RoleType,
@@ -55,7 +54,6 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/prop
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
 import { decompressSync, strFromU8 } from 'fflate'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -443,6 +441,14 @@ class ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
     }
 
+    // # Warehouse view
+    public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_query')
+    }
+    public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('subscriptions')
@@ -480,18 +486,6 @@ class ApiRequest {
         id: FeatureFlagAssociatedRoleType['id']
     ): ApiRequest {
         return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
-    }
-
-    // Performance events
-    public performanceEvents(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('performance_events')
-    }
-
-    public recentPageViewPerformanceEvents(dateFrom: string, dateTo: string, teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('performance_events')
-            .addPathComponent('recent_pageviews')
-            .withQueryString(toParams({ date_from: dateFrom, date_to: dateTo }))
     }
 
     // # Queries
@@ -1156,6 +1150,17 @@ const api = {
                 .withAction('snapshots')
                 .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
                 .getResponse()
+
+            try {
+                const textLines = await response.text()
+
+                if (textLines) {
+                    return textLines.split('\n')
+                }
+            } catch (e) {
+                // Must be gzipped
+            }
+
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
@@ -1298,6 +1303,27 @@ const api = {
         },
     },
 
+    dataWarehouseSavedQueries: {
+        async list(): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
+            return await new ApiRequest().dataWarehouseSavedQueries().get()
+        },
+        async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()
+        },
+        async create(data: Partial<DataWarehouseSavedQuery>): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQueries().create({ data })
+        },
+        async delete(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQuery(viewId).delete()
+        },
+        async update(
+            viewId: DataWarehouseSavedQuery['id'],
+            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+        ): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
+        },
+    },
+
     subscriptions: {
         async get(subscriptionId: SubscriptionType['id']): Promise<SubscriptionType> {
             return await new ApiRequest().subscription(subscriptionId).get()
@@ -1366,37 +1392,6 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
-        },
-    },
-
-    performanceEvents: {
-        async list(
-            params: any,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<PerformanceEvent>> {
-            return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
-        },
-        recentPageViewsURL(teamId: TeamType['id'] = getCurrentTeamId(), dateFrom?: string, dateTo?: string): string {
-            return new ApiRequest()
-                .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
-                    dateTo || dayjs().toISOString(),
-                    teamId
-                )
-                .assembleEndpointUrl()
-        },
-        async recentPageViews(
-            teamId: TeamType['id'] = getCurrentTeamId(),
-            dateFrom?: string,
-            dateTo?: string
-        ): Promise<PaginatedResponse<RecentPerformancePageView>> {
-            return new ApiRequest()
-                .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
-                    dateTo || dayjs().toISOString(),
-                    teamId
-                )
-                .get()
         },
     },
 

@@ -63,9 +63,6 @@ export enum NodeKind {
     TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
     TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
 
-    /** Performance */
-    RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
-
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
@@ -95,9 +92,6 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-
-    // Performance
-    | RecentPerformancePageViewNode
 
     // Misc
     | TimeToSeeDataSessionsQuery
@@ -148,6 +142,7 @@ export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
     isValid?: boolean
+    isValidView?: boolean
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -266,13 +261,7 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source:
-        | EventsNode
-        | EventsQuery
-        | PersonsNode
-        | RecentPerformancePageViewNode
-        | HogQLQuery
-        | TimeToSeeDataSessionsQuery
+    source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -518,11 +507,6 @@ export interface TimeToSeeDataWaterfallNode {
 }
 
 export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
-
-export interface RecentPerformancePageViewNode extends DataNode {
-    kind: NodeKind.RecentPerformancePageViewNode
-    dateRange: DateRange
-}
 
 export type HogQLExpression = string
 

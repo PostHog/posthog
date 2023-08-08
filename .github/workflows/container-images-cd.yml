@@ -28,10 +28,10 @@ jobs:
             packages: write # allow push to ghcr.io
 
         steps:
-            - name: Checkout code
+            - name: Check out
               uses: actions/checkout@v3
               with:
-                fetch-depth: 2
+                  fetch-depth: 2
 
             - name: Update git SHA
               run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
@@ -66,10 +66,7 @@ jobs:
               id: build
               uses: depot/build-push-action@v1
               with:
-                  project: x19jffd9zf # posthog
                   buildx-fallback: false # the fallback is so slow it's better to just fail
-                  cache-from: type=gha # always pull the layers from GHA
-                  cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
                   tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
                   platforms: linux/arm64,linux/amd64
@@ -99,7 +96,7 @@ jobs:
             - name: Check for changes in plugins directory
               id: check_changes_plugins
               run: |
-                echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)"
+                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)"
 
             - name: Trigger Ingestion Cloud deployment
               if: steps.check_changes_plugins.outputs.changed != ''

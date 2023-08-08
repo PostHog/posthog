@@ -7,7 +7,7 @@ import { Breadcrumb, Group, PropertyFilterType, PropertyOperator } from '~/types
 import type { groupLogicType } from './groupLogicType'
 import { urls } from 'scenes/urls'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { isDataTableNode } from '~/queries/utils'
