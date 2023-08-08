@@ -1,8 +1,8 @@
 from typing import Dict, List, Optional
 
 import structlog
-from django.db.models import QuerySet
 from django.db import transaction
+from django.db.models import QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
@@ -171,6 +171,19 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
+            elif key == "has_recording":
+                has_recording = request.GET["has_recording"]
+                # content is a JSONB field that has an array of objects under the key "content"
+                # each of those (should) have a "type" field
+                # and for recordings that type is "ph-recording"
+                # each of those objects can have attrs which is a dict with id for the recording
+                if has_recording == "true":
+                    queryset = queryset.filter(content__content__contains=[{"type": "ph-recording"}])
+                elif has_recording == "false":
+                    queryset = queryset.exclude(content__content__contains=[{"type": "ph-recording"}])
+                else:
+                    # it could be a recording id
+                    queryset = queryset.filter(content__content__contains=[{"attrs": {"id": has_recording}}])
 
         return queryset
 
