@@ -44,7 +44,6 @@
         "$user_id",
         "$anon_distinct_id",
         "token",
-        "posthog_version",
         "has_slack_webhook",
         "$event_type",
         "$ce_version",

@@ -34,6 +34,7 @@ import {
     QueryContext,
 } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -155,6 +156,15 @@ export interface UserBasicType extends UserBaseType {
     id: number
 }
 
+/**
+ * A user can have scene dashboard choices for multiple teams
+ * TODO does this only have the current team's choices?
+ */
+export interface SceneDashboardChoice {
+    scene: DashboardCompatibleScenes
+    dashboard: number | DashboardBasicType
+}
+
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
@@ -170,12 +180,12 @@ export interface UserType extends UserBaseType {
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
     realm?: Realm
-    posthog_version?: string
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
+    scene_personalisation?: SceneDashboardChoice[]
 }
 
 export interface NotificationSettings {
@@ -928,6 +938,7 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+    DASHBOARD = 'dashboard',
 }
 
 export enum LayoutView {
@@ -2261,7 +2272,6 @@ export interface PreflightStatus {
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
-    posthog_version?: string
     email_service_available: boolean
     slack_service: {
         available: boolean
@@ -2290,6 +2300,8 @@ export enum DashboardPlacement {
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
+    Person = 'person', // When the dashboard is being viewed on a person page
+    Group = 'group', // When the dashboard is being viewed on a group page
 }
 
 export enum DashboardMode { // Default mode is null
@@ -2595,11 +2607,6 @@ export enum HelpType {
     Docs = 'docs',
     Updates = 'updates',
     SupportForm = 'support_form',
-}
-
-export interface VersionType {
-    version: string
-    release_date?: string
 }
 
 export interface DateMappingOption {
@@ -3020,6 +3027,7 @@ export enum NotebookNodeType {
     Link = 'ph-link',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
+    Image = 'ph-image',
 }
 
 export enum NotebookTarget {

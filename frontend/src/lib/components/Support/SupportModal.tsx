@@ -8,9 +8,10 @@ import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonS
 import { Field } from 'lib/forms/Field'
 import { IconBugReport, IconFeedback, IconSupport } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { LemonFileInput, useUploadFiles } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { useRef } from 'react'
 import { LemonInput, lemonToast } from '@posthog/lemon-ui'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 
 const SUPPORT_TICKET_OPTIONS: LemonSelectOptions<SupportTicketKind> = [
     {
