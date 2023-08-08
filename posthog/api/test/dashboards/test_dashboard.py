@@ -830,7 +830,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(
             response["tiles"][0]["insight"]["filters"],
-            {"events": [{"id": "$pageview"}], "insight": "TRENDS", "date_from": "-7d"},
+            {"events": [{"id": "$pageview"}], "insight": "TRENDS", "date_from": "-7d", "date_to": None},
         )
 
     def test_retrieve_dashboard_different_team(self):

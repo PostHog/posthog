@@ -1,5 +1,5 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import { AutoplayDirection, SessionRecordingPlayerTab } from '~/types'
+import { AutoplayDirection, DurationType, SessionRecordingPlayerTab } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -178,8 +178,26 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSyncScroll: (enabled: boolean) => ({ enabled }),
+        setDurationTypeToShow: (type: DurationType) => ({ type }),
+        setShowFilters: (showFilters: boolean) => ({ showFilters }),
     }),
     reducers(({}) => ({
+        showFilters: [
+            true,
+            {
+                persist: true,
+            },
+            {
+                setShowFilters: (_, { showFilters }) => showFilters,
+            },
+        ],
+        durationTypeToShow: [
+            'duration' as DurationType,
+            { persist: true },
+            {
+                setDurationTypeToShow: (_, { type }) => type,
+            },
+        ],
         speed: [
             1,
             { persist: true },

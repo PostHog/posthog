@@ -1,5 +1,7 @@
 // draw a beam around an element
-export function FocusRect({ rect }: { rect: DOMRect }): JSX.Element {
+import { ElementRect } from '~/toolbar/types'
+
+export function FocusRect({ rect }: { rect: ElementRect }): JSX.Element {
     const widths = [0, rect.left + window.pageXOffset, rect.left + window.pageXOffset + rect.width, window.innerWidth]
     const heights = [
         0,

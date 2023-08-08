@@ -11,7 +11,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { IconMagnifier, IconPause, IconPlay, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
@@ -29,10 +29,33 @@ import { router } from 'kea-router'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
 )
+
+function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX.Element {
+    // TODO add docs on how to enrich custom events with session_id and link to it from here
+    return (
+        <LemonBanner type="warning">
+            <p>Cannot use these events to filter for session recordings:</p>
+            <li className={'my-1'}>
+                {props.unusableEventsInFilter.map((event) => (
+                    <span key={event}>"{event}"</span>
+                ))}
+            </li>
+            <p>
+                Events have to have a <PropertyKeyInfo value={'$session_id'} /> to be used to filter recordings. This is
+                added automatically by{' '}
+                <Link to={'https://posthog.com/docs/libraries/js'} target={'_blank'}>
+                    the Web SDK
+                </Link>
+            </p>
+        </LemonBanner>
+    )
+}
 
 export function RecordingsLists({
     playlistShortId,
@@ -53,16 +76,16 @@ export function RecordingsLists({
         sessionRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecording,
-        showFilters,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
-        listingVersion,
+        sessionRecordingsAPIErrored,
+        pinnedRecordingsAPIErrored,
+        unusableEventsInFilter,
     } = useValues(logic)
-    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
-        useActions(logic)
-    const { autoplayDirection } = useValues(playerSettingsLogic)
-    const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
+    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, resetFilters } = useActions(logic)
+    const { autoplayDirection, showFilters } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection, setShowFilters } = useActions(playerSettingsLogic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -77,7 +100,7 @@ export function RecordingsLists({
         <>
             <div className="SessionRecordingsPlaylist__lists">
                 {/* Pinned recordings */}
-                {!!playlistShortId && !showFilters ? (
+                {!!playlistShortId ? (
                     <SessionRecordingsList
                         className={clsx({
                             'max-h-1/2 h-fit': !collapsed.other,
@@ -103,6 +126,13 @@ export function RecordingsLists({
                             </>
                         }
                         activeRecordingId={activeSessionRecording?.id}
+                        empty={
+                            pinnedRecordingsAPIErrored ? (
+                                <LemonBanner type="error">Error while trying to load pinned recordings.</LemonBanner>
+                            ) : !!unusableEventsInFilter.length ? (
+                                <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+                            ) : undefined
+                        }
                     />
                 ) : null}
 
@@ -153,7 +183,7 @@ export function RecordingsLists({
                                                 className={clsx(
                                                     'transition-all flex items-center',
                                                     !autoplayDirection && 'text-border text-sm',
-                                                    !!autoplayDirection && 'text-primary-highlight text-xs pl-px',
+                                                    !!autoplayDirection && 'text-white text-xs pl-px',
                                                     autoplayDirection === 'newer' && 'rotate-180'
                                                 )}
                                             >
@@ -186,7 +216,6 @@ export function RecordingsLists({
                                 setFilters={setFilters}
                                 showPropertyFilters={!personUUID}
                                 onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                usesListingV3={listingVersion === '3'}
                             />
                         ) : null
                     }
@@ -200,24 +229,32 @@ export function RecordingsLists({
                     loading={sessionRecordingsResponseLoading}
                     loadingSkeletonCount={RECORDINGS_LIMIT}
                     empty={
-                        <div className={'flex flex-col items-center space-y-2'}>
-                            <span>No matching recordings found</span>
-                            {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
-                                <>
-                                    <LemonButton
-                                        type={'secondary'}
-                                        data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
-                                        onClick={() => {
-                                            setFilters({
-                                                date_from: '-21d',
-                                            })
-                                        }}
-                                    >
-                                        Search over the last 21 days
-                                    </LemonButton>
-                                </>
-                            )}
-                        </div>
+                        sessionRecordingsAPIErrored ? (
+                            <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+                        ) : !!unusableEventsInFilter.length ? (
+                            <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+                        ) : (
+                            <div className={'flex flex-col items-center space-y-2'}>
+                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
+                                    <>
+                                        <span>No matching recordings found</span>
+                                        <LemonButton
+                                            type={'secondary'}
+                                            data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
+                                            onClick={() => {
+                                                setFilters({
+                                                    date_from: '-21d',
+                                                })
+                                            }}
+                                        >
+                                            Search over the last 21 days
+                                        </LemonButton>
+                                    </>
+                                ) : (
+                                    <SessionRecordingsPlaylistTroubleshooting />
+                                )}
+                            </div>
+                        )
                     }
                     activeRecordingId={activeSessionRecording?.id}
                     onScrollToEnd={() => maybeLoadSessionRecordings('older')}
@@ -228,7 +265,7 @@ export function RecordingsLists({
                             <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
                                 {sessionRecordingsResponseLoading ? (
                                     <>
-                                        <Spinner monocolor /> Loading older recordings
+                                        <Spinner textColored /> Loading older recordings
                                     </>
                                 ) : hasNext ? (
                                     <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
@@ -276,8 +313,13 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState, sessionRecordingsResponseLoading } =
-        useValues(logic)
+    const {
+        activeSessionRecording,
+        nextSessionRecording,
+        shouldShowEmptyState,
+        sessionRecordingsResponseLoading,
+        matchingEventsMatchType,
+    } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { user } = useValues(userLogic)
@@ -353,6 +395,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                             playlistShortId={playlistShortId}
                             sessionRecordingId={activeSessionRecording?.id}
                             matching={activeSessionRecording?.matching_events}
+                            matchingEventsMatchType={matchingEventsMatchType}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                             nextSessionRecording={nextSessionRecording}
                         />

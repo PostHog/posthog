@@ -1,40 +1,72 @@
-import { SessionRecordingType } from '~/types'
+import { DurationType, SessionRecordingType } from '~/types'
 import { colonDelimitedDuration } from 'lib/utils'
 import clsx from 'clsx'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { asDisplay } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urls } from 'scenes/urls'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { useValues } from 'kea'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 export interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType
     recordingProperties?: Record<string, any> // Loaded and rendered later
     recordingPropertiesLoading: boolean
+    onPropertyClick: (property: string, value?: string) => void
     isActive: boolean
     onClick: () => void
-    onPropertyClick: (property: string, value?: string) => void
 }
 
-export function SessionRecordingPlaylistItem({
+function RecordingDuration({
+    iconClassNames,
+    recordingDuration,
+}: {
+    iconClassNames: string
+    recordingDuration: number | undefined
+}): JSX.Element {
+    if (recordingDuration === undefined) {
+        return <div className="flex items-center flex-1 justify-end font-semibold">-</div>
+    }
+
+    const formattedDuration = colonDelimitedDuration(recordingDuration)
+    const [hours, minutes, seconds] = formattedDuration.split(':')
+
+    return (
+        <div className="flex items-center flex-1 justify-end font-semibold">
+            <IconSchedule className={iconClassNames} />
+            <span>
+                <span className={clsx(hours === '00' && 'opacity-50 font-normal')}>{hours}:</span>
+                <span
+                    className={clsx({
+                        'opacity-50 font-normal': hours === '00' && minutes === '00',
+                    })}
+                >
+                    {minutes}:
+                </span>
+                {seconds}
+            </span>
+        </div>
+    )
+}
+
+function ActivityIndicators({
     recording,
-    isActive,
-    onClick,
-    onPropertyClick,
     recordingProperties,
     recordingPropertiesLoading,
-}: SessionRecordingPlaylistItemProps): JSX.Element {
-    const formattedDuration = colonDelimitedDuration(recording.recording_duration)
-    const durationParts = formattedDuration.split(':')
-
-    const iconClassnames = clsx(
-        'SessionRecordingsPlaylist__list-item__property-icon text-base text-muted-alt',
-        !isActive && 'opacity-75'
-    )
+    onPropertyClick,
+    iconClassnames,
+}: {
+    recording: SessionRecordingType
+    recordingProperties?: Record<string, any> // Loaded and rendered later
+    recordingPropertiesLoading: boolean
+    onPropertyClick: (property: string, value?: string) => void
+    iconClassnames: string
+}): JSX.Element {
     const iconPropertyKeys = ['$browser', '$device_type', '$os', '$geoip_country_code']
     const iconProperties =
         recordingProperties && Object.keys(recordingProperties).length > 0
@@ -78,10 +110,83 @@ export function SessionRecordingPlaylistItem({
         </div>
     )
 
-    const firstPath = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
+    return (
+        <div className="flex iems-center gap-2 text-xs text-muted-alt">
+            {propertyIcons}
+
+            <span
+                title={`Click count: ${recording.click_count}`}
+                className="flex items-center gap-1  overflow-hidden shrink-0"
+            >
+                <IconAutocapture />
+                {recording.click_count}
+            </span>
+
+            <span
+                title={`Keyboard inputs: ${recording.keypress_count}`}
+                className="flex items-center gap-1  overflow-hidden shrink-0"
+            >
+                <IconKeyboard />
+                {recording.keypress_count}
+            </span>
+        </div>
+    )
+}
+
+function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
+    const firstPath = props.startUrl?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
+    return (
+        <div className="flex items-center justify-between gap-4 w-2/3">
+            <span className="flex items-center gap-1 overflow-hidden text-muted text-xs">
+                <span title={`First URL: ${props.startUrl}`} className="truncate">
+                    {firstPath}
+                </span>
+            </span>
+        </div>
+    )
+}
+
+function PinnedIndicator(props: { pinnedCount: number | undefined }): JSX.Element | null {
+    return (props.pinnedCount ?? 0) > 0 ? (
+        <Tooltip placement="topRight" title={`This recording is pinned on ${props.pinnedCount} playlists`}>
+            <IconPinFilled className="text-sm text-orange shrink-0" />
+        </Tooltip>
+    ) : null
+}
+
+function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
+    return !props.viewed ? (
+        <Tooltip title={'Indicates the recording has not been watched yet'}>
+            <div className="w-2 h-2 mt-2 rounded-full bg-primary-light" aria-label="unwatched-recording-label" />
+        </Tooltip>
+    ) : null
+}
+
+function durationToShow(recording: SessionRecordingType, durationType: DurationType | undefined): number | undefined {
+    return {
+        duration: recording.recording_duration,
+        active_seconds: recording.active_seconds,
+        inactive_seconds: recording.inactive_seconds,
+    }[durationType || 'duration']
+}
+
+export function SessionRecordingPlaylistItem({
+    recording,
+    isActive,
+    onClick,
+    onPropertyClick,
+    recordingProperties,
+    recordingPropertiesLoading,
+}: SessionRecordingPlaylistItemProps): JSX.Element {
+    const { durationTypeToShow } = useValues(playerSettingsLogic)
+
+    const iconClassnames = clsx(
+        'SessionRecordingsPlaylist__list-item__property-icon text-base text-muted-alt',
+        !isActive && 'opacity-75'
+    )
 
     return (
-        <DraggableToNotebook href={urls.replaySingle(recording.id)} alwaysDraggable noOverflow>
+        <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <li
                 key={recording.id}
                 className={clsx(
@@ -92,80 +197,36 @@ export function SessionRecordingPlaylistItem({
                 onClick={() => onClick()}
             >
                 <div className="w-2 h-2 mx-2">
-                    {!recording.viewed ? (
-                        <Tooltip title={'Indicates the recording has not been watched yet'}>
-                            <div
-                                className="w-2 h-2 mt-2 rounded-full bg-primary-light"
-                                aria-label="unwatched-recording-label"
-                            />
-                        </Tooltip>
-                    ) : null}
+                    <ViewedIndicator viewed={recording.viewed} />
                 </div>
                 <div className="grow overflow-hidden space-y-px">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">
-                            {(recording.pinned_count ?? 0) > 0 && (
-                                <Tooltip
-                                    placement="topRight"
-                                    title={`This recording is pinned on ${recording.pinned_count} playlists`}
-                                >
-                                    <IconPinFilled className="text-sm text-orange shrink-0" />
-                                </Tooltip>
-                            )}
+                            <PinnedIndicator pinnedCount={recording.pinned_count} />
                             <div className="truncate font-medium text-primary ph-no-capture">
                                 {asDisplay(recording.person)}
                             </div>
                         </div>
                         <div className="flex-1" />
-                        <div className="flex items-center flex-1 justify-end font-semibold">
-                            <IconSchedule className={iconClassnames} />
-                            <span>
-                                <span className={clsx(durationParts[0] === '00' && 'opacity-50 font-normal')}>
-                                    {durationParts[0]}:
-                                </span>
-                                <span
-                                    className={clsx({
-                                        'opacity-50 font-normal':
-                                            durationParts[0] === '00' && durationParts[1] === '00',
-                                    })}
-                                >
-                                    {durationParts[1]}:
-                                </span>
-                                {durationParts[2]}
-                            </span>
-                        </div>
+
+                        <RecordingDuration
+                            iconClassNames={iconClassnames}
+                            recordingDuration={durationToShow(recording, durationTypeToShow)}
+                        />
                     </div>
 
                     <div className="flex items-center justify-between gap-2">
-                        <div className="flex iems-center gap-2 text-xs text-muted-alt">
-                            {propertyIcons}
-
-                            <span
-                                title={`Click count: ${recording.click_count}`}
-                                className="flex items-center gap-1  overflow-hidden shrink-0"
-                            >
-                                <IconAutocapture />
-                                {recording.click_count}
-                            </span>
-
-                            <span
-                                title={`Keyboard inputs: ${recording.keypress_count}`}
-                                className="flex items-center gap-1  overflow-hidden shrink-0"
-                            >
-                                <IconKeyboard />
-                                {recording.keypress_count}
-                            </span>
-                        </div>
+                        <ActivityIndicators
+                            onPropertyClick={onPropertyClick}
+                            recording={recording}
+                            recordingProperties={recordingProperties}
+                            recordingPropertiesLoading={recordingPropertiesLoading}
+                            iconClassnames={iconClassnames}
+                        />
                         <TZLabel className="overflow-hidden text-ellipsis text-xs" time={recording.start_time} />
                     </div>
 
-                    <div className="flex items-center justify-between gap-4 w-2/3">
-                        <span className="flex items-center gap-1 overflow-hidden text-muted text-xs">
-                            <span title={`First URL: ${recording.start_url}`} className="truncate">
-                                {firstPath}
-                            </span>
-                        </span>
-                    </div>
+                    <FirstURL startUrl={recording.start_url} />
                 </div>
 
                 <RecordingDebugInfo recording={recording} className="absolute right-0 bottom-0 m-2" />

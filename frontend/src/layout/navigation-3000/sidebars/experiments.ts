@@ -33,7 +33,7 @@ export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
             (relevantExperiments, experimentsLoading) => [
                 {
                     key: 'experiments',
-                    title: 'Experiments',
+                    noun: 'experiment',
                     loading: experimentsLoading,
                     items: relevantExperiments.map(([experiment, matches]) => {
                         const experimentStatus = getExperimentStatus(experiment)
@@ -72,14 +72,15 @@ export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
                             ],
                         } as ExtendedListItem
                     }),
+                    onAdd: urls.experiment('new'),
                 } as SidebarCategory,
             ],
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
+            (activeScene, sceneParams): [string, number] | null => {
                 return activeScene === Scene.Experiment && sceneParams.params.id
-                    ? parseInt(sceneParams.params.id)
+                    ? ['experiments', parseInt(sceneParams.params.id)]
                     : null
             },
         ],

@@ -23,7 +23,6 @@ import {
     isLifecycleQuery,
     isPathsQuery,
     isPersonsNode,
-    isRecentPerformancePageViewNode,
     isRetentionQuery,
     isStickinessQuery,
     isTimeToSeeDataSessionsNode,
@@ -38,6 +37,7 @@ import {
     getDisplayNameFromEntityNode,
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, context: SummaryContext): string | null {
     const { breakdown_type, breakdown, breakdown_group_type_index } = filters
@@ -286,8 +286,22 @@ function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext)
     }
 }
 
-function summariseQuery(query: Node): string {
+function summarizeQuery(query: Node): string {
+    if (isHogQLQuery(query)) {
+        return 'SQL query'
+    }
+
+    if (isTimeToSeeDataSessionsNode(query)) {
+        return `Time to see data in ${
+            query.source.sessionId ? `session ${query.source.sessionId}` : 'the current session'
+        }`
+    }
+
     if (isDataTableNode(query)) {
+        if (isHogQLQuery(query.source)) {
+            return summarizeQuery(query.source)
+        }
+
         let selected: string[] = []
         let source = ''
 
@@ -297,38 +311,24 @@ function summariseQuery(query: Node): string {
         } else if (isPersonsNode(query.source)) {
             selected = []
             source = 'persons'
-        } else if (isHogQLQuery(query.source)) {
-            selected = []
-            source = 'HogQL'
         } else if (isTimeToSeeDataSessionsQuery(query.source)) {
             selected = ['sessions']
-            source = 'Time to See Data'
+            source = 'time to see data stats'
         }
 
-        if (!!query.columns) {
-            selected = [...query.columns]
+        if (query.columns) {
+            selected = query.columns.slice()
         }
-        if (!source && !query.columns?.length) {
-            return ''
+
+        if (selected.length > 0) {
+            return `${selected
+                .map(extractExpressionComment)
+                .filter((c) => !query.hiddenColumns?.includes(c))
+                .join(', ')}${source ? ` from ${source}` : ''}`
         }
-        return `${selected.filter((c) => !(query.hiddenColumns || []).includes(c)).join(', ')}${
-            source ? ` from ${source}` : ''
-        } into a data table.`
     }
 
-    if (isTimeToSeeDataSessionsNode(query)) {
-        return `Waterfall chart for time to see session ${query.source.sessionId}.`
-    }
-
-    if (isHogQLQuery(query)) {
-        return 'HogQL data table.'
-    }
-
-    if (isRecentPerformancePageViewNode(query)) {
-        return 'Recent page views with performance data.'
-    }
-
-    return `QueryKind: ${query?.kind}`
+    return `${query?.kind} query`
 }
 
 export interface SummaryContext {
@@ -346,7 +346,7 @@ export function summarizeInsight(
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
         : !!query && !isInsightVizNode(query)
-        ? summariseQuery(query)
+        ? summarizeQuery(query)
         : hasFilters
         ? summarizeInsightFilters(filters, context)
         : ''

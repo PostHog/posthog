@@ -20,7 +20,7 @@
         gap: 0.5rem;
         min-height: 1.5rem;
 
-        > svg {
+        > .LemonCheckbox__box {
             width: 1rem;
             height: 1rem;
             transition: border 200ms ease, background 200ms ease;
@@ -59,7 +59,7 @@
         label {
             --box-color: var(--primary-light);
 
-            svg {
+            .LemonCheckbox__box {
                 border-color: var(--box-color);
                 border-color: var(--box-color);
             }
@@ -76,7 +76,7 @@
 
     &.LemonCheckbox--checked {
         label {
-            svg {
+            .LemonCheckbox__box {
                 background: var(--box-color);
                 border-color: transparent;
 

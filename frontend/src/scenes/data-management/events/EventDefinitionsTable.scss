@@ -33,6 +33,8 @@
                 display: flex;
                 flex-direction: column;
                 position: relative;
+                min-height: 32px;
+                justify-content: center;
 
                 .definition-column-name-content-title {
                     font-weight: 600;
@@ -49,12 +51,6 @@
                         right: -50px;
                         height: 22px;
                     }
-                }
-
-                .definition-column-name-content-description {
-                    font-size: 13px;
-                    color: var(--muted);
-                    text-overflow: ellipsis;
                 }
             }
         }

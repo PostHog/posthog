@@ -6,7 +6,7 @@ interface AndOrFilterSelectProps {
     value: FilterLogicalOperator
     topLevelFilter?: boolean
     prefix?: React.ReactNode
-    suffix?: React.ReactNode
+    suffix?: [singular: string, plural: string]
 }
 
 export function AndOrFilterSelect({
@@ -14,7 +14,7 @@ export function AndOrFilterSelect({
     value,
     topLevelFilter,
     prefix = 'Match',
-    suffix = 'filters in this group',
+    suffix = ['filter in this group', 'filters in this group'],
 }: AndOrFilterSelectProps): JSX.Element {
     return (
         <div className="flex items-center font-medium">
@@ -51,8 +51,9 @@ export function AndOrFilterSelect({
                     },
                 ]}
                 optionTooltipPlacement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}
+                dropdownMatchSelectWidth={false}
             />
-            {suffix}
+            {value === FilterLogicalOperator.Or ? suffix[0] : suffix[1]}
         </div>
     )
 }
@@ -65,7 +66,7 @@ type SelectOptionProps = {
 }
 
 const SelectOption = ({ title, description, value, selectedValue }: SelectOptionProps): JSX.Element => (
-    <div className="flex p-2 items-center">
+    <div className="flex p-1 items-center">
         <div
             className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
                 value === selectedValue ? 'bg-primary text-white' : 'bg-mid text-primary-alt'
@@ -73,7 +74,7 @@ const SelectOption = ({ title, description, value, selectedValue }: SelectOption
         >
             {value}
         </div>
-        <div className="w-32">
+        <div>
             <div className="font-bold">{title}</div>
             <div className="font-normal">{description}</div>
         </div>

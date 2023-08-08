@@ -1,6 +1,6 @@
 import { Client, Pool } from 'pg'
 
-import { Action, ActionStep, Hook, PluginServerCapabilities, RawAction, Team } from '../../types'
+import { Action, ActionStep, Hook, RawAction, Team } from '../../types'
 import { postgresQuery } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
 
@@ -11,12 +11,10 @@ export class ActionManager {
     private ready: boolean
     private postgres: Client | Pool
     private actionCache: ActionCache
-    private capabilities: PluginServerCapabilities
 
-    constructor(postgres: Client | Pool, capabilities: PluginServerCapabilities) {
+    constructor(postgres: Client | Pool) {
         this.ready = false
         this.postgres = postgres
-        this.capabilities = capabilities
         this.actionCache = {}
     }
 
@@ -33,17 +31,11 @@ export class ActionManager {
     }
 
     public async reloadAllActions(): Promise<void> {
-        if (this.capabilities.processAsyncHandlers || this.capabilities.processAsyncWebhooksHandlers) {
-            this.actionCache = await fetchAllActionsGroupedByTeam(this.postgres)
-            status.info('🍿', 'Fetched all actions from DB anew')
-        }
+        this.actionCache = await fetchAllActionsGroupedByTeam(this.postgres)
+        status.info('🍿', 'Fetched all actions from DB anew')
     }
 
     public async reloadAction(teamId: Team['id'], actionId: Action['id']): Promise<void> {
-        if (!this.capabilities.processAsyncHandlers && !this.capabilities.processAsyncWebhooksHandlers) {
-            return
-        }
-
         const refetchedAction = await fetchAction(this.postgres, actionId)
 
         let wasCachedAlready = true
@@ -68,10 +60,6 @@ export class ActionManager {
     }
 
     public dropAction(teamId: Team['id'], actionId: Action['id']): void {
-        if (!this.capabilities.processAsyncHandlers && !this.capabilities.processAsyncWebhooksHandlers) {
-            return
-        }
-
         const wasCachedAlready = !!this.actionCache?.[teamId]?.[actionId]
 
         if (wasCachedAlready) {

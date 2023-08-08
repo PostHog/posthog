@@ -57,8 +57,6 @@ export const mockEventDefinitions: EventDefinition[] = [
     id: `uuid-${index}-foobar`,
     name: name || `misc-${index}-generated`,
     description: `${name || 'name generation'} is the best!`,
-    query_usage_30_day: index * 3 + 1,
-    volume_30_day: index * 13 + 2,
     tags: [],
 }))
 
@@ -70,8 +68,6 @@ export const mockEventPropertyDefinition = {
     is_numerical: false,
     updated_at: '2022-01-24T21:32:38.359756Z',
     updated_by: null,
-    volume_30_day: 2,
-    query_usage_30_day: 1,
     is_seen_on_filtered_events: true,
     property_type: undefined,
 }

@@ -6,18 +6,15 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
-import { humanFriendlyNumber } from 'lib/utils'
 import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     propertyDefinitionsTableLogic,
 } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { UsageDisabledWarning } from 'scenes/data-management/UsageDisabledWarning'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: PropertyDefinitionsTable,
@@ -26,11 +23,10 @@ export const scene: SceneExport = {
 }
 
 export function PropertyDefinitionsTable(): JSX.Element {
-    const { preflight } = useValues(preflightLogic)
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
-    const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
+    const { hasDashboardCollaboration } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -73,23 +69,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
                   } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
               ]
             : []),
-        ...(hasIngestionTaxonomy && filters.type === 'event'
-            ? [
-                  {
-                      title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
-                      key: 'query_usage_30_day',
-                      align: 'right',
-                      render: function Render(_, definition: PropertyDefinition) {
-                          return definition.query_usage_30_day ? (
-                              humanFriendlyNumber(definition.query_usage_30_day)
-                          ) : (
-                              <span className="text-muted">—</span>
-                          )
-                      },
-                      sorter: (a, b) => (a?.query_usage_30_day ?? 0) - (b?.query_usage_30_day ?? 0),
-                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
-              ]
-            : []),
     ]
 
     return (
@@ -99,20 +78,21 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
             />
-            {preflight && !preflight?.is_event_property_usage_enabled ? (
-                <UsageDisabledWarning />
-            ) : (
-                propertyDefinitions.results?.[0]?.query_usage_30_day === null &&
-                filters.type === 'event' &&
-                !propertyDefinitionsLoading && (
-                    <div className="mb-4">
-                        <LemonBanner type="warning">
-                            We haven't been able to get usage and volume data yet. Please check back later.
-                        </LemonBanner>
-                    </div>
-                )
-            )}
             <DataManagementPageTabs tab={DataManagementTab.PropertyDefinitions} />
+            <LemonBanner className="mb-4" type="info">
+                Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
+                <Link
+                    to={urls.insightNewHogQL(
+                        'SELECT arrayJoin(JSONExtractKeys(properties)) AS property_key, count()\n' +
+                            (filters.type === 'person' ? 'FROM persons\n' : 'FROM events\n') +
+                            (filters.type === 'person' ? '' : 'WHERE timestamp > now() - interval 1 month\n') +
+                            'GROUP BY property_key\n' +
+                            'ORDER BY count() DESC'
+                    )}
+                >
+                    Click here!
+                </Link>
+            </LemonBanner>
             <div className="flex justify-between mb-4">
                 <LemonInput
                     type="search"
@@ -126,7 +106,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     onSelect={setPropertyType}
                 />
             </div>
-
             <LemonTable
                 columns={columns}
                 className="event-properties-definition-table"

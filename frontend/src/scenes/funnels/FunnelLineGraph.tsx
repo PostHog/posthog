@@ -1,5 +1,5 @@
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { ChartParams, GraphType, GraphDataset, EntityTypes } from '~/types'
+import { ChartParams, GraphType, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
@@ -10,6 +10,7 @@ import { useValues } from 'kea'
 import { funnelDataLogic } from './funnelDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { isInsightQueryNode } from '~/queries/utils'
+import { TrendsFilter } from '~/queries/schema'
 
 export function FunnelLineGraph({
     inSharedMode,
@@ -51,7 +52,7 @@ export function FunnelLineGraph({
                     return `${count}%`
                 },
             }}
-            filters={{ aggregation_axis_format: 'percentage' }}
+            trendsFilter={{ aggregation_axis_format: 'percentage' } as TrendsFilter}
             labelGroupType={aggregationGroupTypeIndex ?? 'people'}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
@@ -66,18 +67,14 @@ export function FunnelLineGraph({
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
                           const filters = queryNodeToFilter(querySource) // for persons modal
-                          const props = {
-                              action: { id: index, name: label ?? null, properties: [], type: EntityTypes.ACTIONS },
-                              date_from: day ?? '',
-                              date_to: day ?? '',
+                          const personsUrl = buildPeopleUrl({
                               filters,
-                          }
-
-                          const url = buildPeopleUrl(props)
-
-                          if (url) {
+                              date_from: day ?? '',
+                              response: insightData,
+                          })
+                          if (personsUrl) {
                               openPersonsModal({
-                                  url,
+                                  url: personsUrl,
                                   title: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${dayjs(
                                       label
                                   ).format('MMMM Do YYYY')}`,

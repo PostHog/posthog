@@ -8,6 +8,7 @@ from ee.models.session_recording_extensions import load_persisted_recording, per
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.session_recording_playlist_item.session_recording_playlist_item import SessionRecordingPlaylistItem
+from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -25,6 +26,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             "data": {"source": 0, "href": long_url},
         }
 
+        # can't immediately switch playlists to replay table
         create_session_recording_events(
             team_id=team_id,
             distinct_id="distinct_id_1",
@@ -32,6 +34,8 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id,
             window_id="window_1",
             snapshots=[snapshot],
+            use_recording_table=True,
+            use_replay_table=False,
         )
 
     def test_does_not_persist_too_recent_recording(self):
@@ -45,8 +49,18 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
     def test_persists_recording(self):
         with freeze_time("2022-01-01T12:00:00Z"):
             recording = SessionRecording.objects.create(team=self.team, session_id="s1")
+
             self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))
             self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=46))
+
+            produce_replay_summary(
+                session_id=recording.session_id,
+                team_id=self.team.pk,
+                first_timestamp=(recording.created_at - timedelta(hours=48)).isoformat(),
+                last_timestamp=(recording.created_at - timedelta(hours=46)).isoformat(),
+                distinct_id="distinct_id_1",
+                first_url="https://app.posthog.com/my-url",
+            )
 
         persist_recording(recording.session_id, recording.team_id)
         recording.refresh_from_db()
@@ -92,6 +106,15 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))
             self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=46))
 
+            produce_replay_summary(
+                session_id=recording.session_id,
+                team_id=self.team.pk,
+                first_timestamp=(recording.created_at - timedelta(hours=48)).isoformat(),
+                last_timestamp=(recording.created_at - timedelta(hours=46)).isoformat(),
+                distinct_id="distinct_id_1",
+                first_url="https://app.posthog.com/my-url",
+            )
+
         persist_recording(recording.session_id, recording.team_id)
 
         assert mock_capture.call_args_list[0][0][0] == recording.team
@@ -104,5 +127,4 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             "content_size_in_bytes",
             "compressed_size_in_bytes",
         ]:
-            print(x)  # noqa T201
             assert mock_capture.call_args_list[0][0][2][x] > 0

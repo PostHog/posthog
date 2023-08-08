@@ -13,12 +13,14 @@ class EventDefinition(UUIDModel):
     name: models.CharField = models.CharField(max_length=400)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, null=True)
     last_seen_at: models.DateTimeField = models.DateTimeField(default=None, null=True)
-    volume_30_day: models.IntegerField = models.IntegerField(
-        default=None, null=True
-    )  # Volume of events in the last 30 rolling days (computed asynchronously)
-    query_usage_30_day: models.IntegerField = models.IntegerField(
-        default=None, null=True
-    )  # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously)
+
+    # DEPRECATED
+    # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously every other blue moon)
+    query_usage_30_day: models.IntegerField = models.IntegerField(default=None, null=True)
+
+    # DEPRECATED
+    # Volume of events in the last 30 rolling days (computed asynchronously)
+    volume_30_day: models.IntegerField = models.IntegerField(default=None, null=True)
 
     class Meta:
         unique_together = ("team", "name")

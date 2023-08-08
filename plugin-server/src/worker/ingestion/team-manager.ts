@@ -192,3 +192,21 @@ export async function fetchTeamByToken(client: Client | Pool, token: string): Pr
     )
     return selectResult.rows[0] ?? null
 }
+
+export async function fetchTeamTokensWithRecordings(client: Client | Pool): Promise<Record<string, TeamId>> {
+    const selectResult = await postgresQuery<Pick<Team, 'id' | 'api_token'>>(
+        client,
+        `
+            SELECT id, api_token
+            FROM posthog_team
+            WHERE session_recording_opt_in = true
+        `,
+        [],
+        'fetchTeamTokensWithRecordings'
+    )
+
+    return selectResult.rows.reduce((acc, row) => {
+        acc[row.api_token] = row.id
+        return acc
+    }, {} as Record<string, TeamId>)
+}

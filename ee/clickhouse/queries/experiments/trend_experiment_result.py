@@ -69,6 +69,7 @@ class ClickhouseTrendExperimentResult:
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
         trend_class: Type[Trends] = Trends,
+        custom_exposure_filter: Optional[Filter] = None,
     ):
 
         breakdown_key = f"$feature/{feature_flag.key}"
@@ -129,30 +130,45 @@ class ClickhouseTrendExperimentResult:
             )
 
         else:
-            exposure_filter = filter.shallow_clone(
-                {
-                    "display": TRENDS_CUMULATIVE,
-                    "date_from": experiment_start_date,
-                    "date_to": experiment_end_date,
-                    "explicit_date": True,
-                    ACTIONS: [],
-                    EVENTS: [
-                        {
-                            "id": "$feature_flag_called",
-                            "name": "$feature_flag_called",
-                            "order": 0,
-                            "type": "events",
-                            "math": "dau",
-                        }
-                    ],
-                    "breakdown_type": "event",
-                    "breakdown": "$feature_flag_response",
-                    "properties": [
-                        {"key": "$feature_flag_response", "value": variants, "operator": "exact", "type": "event"},
-                        {"key": "$feature_flag", "value": [feature_flag.key], "operator": "exact", "type": "event"},
-                    ],
-                }
-            )
+            # TODO: Exposure doesn't need to compute daily values, so instead of
+            # using TRENDS_CUMULATIVE, we can use TRENDS_TABLE to just get the total.
+            if custom_exposure_filter:
+                exposure_filter = custom_exposure_filter.shallow_clone(
+                    {
+                        "display": TRENDS_CUMULATIVE,
+                        "date_from": experiment_start_date,
+                        "date_to": experiment_end_date,
+                        "explicit_date": True,
+                        "breakdown": breakdown_key,
+                        "breakdown_type": "event",
+                        "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
+                    }
+                )
+            else:
+                exposure_filter = filter.shallow_clone(
+                    {
+                        "display": TRENDS_CUMULATIVE,
+                        "date_from": experiment_start_date,
+                        "date_to": experiment_end_date,
+                        "explicit_date": True,
+                        ACTIONS: [],
+                        EVENTS: [
+                            {
+                                "id": "$feature_flag_called",
+                                "name": "$feature_flag_called",
+                                "order": 0,
+                                "type": "events",
+                                "math": "dau",
+                            }
+                        ],
+                        "breakdown_type": "event",
+                        "breakdown": "$feature_flag_response",
+                        "properties": [
+                            {"key": "$feature_flag_response", "value": variants, "operator": "exact", "type": "event"},
+                            {"key": "$feature_flag", "value": [feature_flag.key], "operator": "exact", "type": "event"},
+                        ],
+                    }
+                )
 
         self.query_filter = query_filter
         self.exposure_filter = exposure_filter

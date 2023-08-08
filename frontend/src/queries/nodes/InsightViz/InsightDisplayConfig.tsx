@@ -1,5 +1,5 @@
 import { PropsWithChildren, ReactNode } from 'react'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
@@ -16,19 +16,21 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { PercentStackView } from 'scenes/insights/EditorFilters/PercentStackView'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
 }
 
 export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps): JSX.Element {
-    const { insightProps, filters } = useValues(insightLogic)
-    const { setFilters } = useActions(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         showDateRange,
         disableDateRange,
         showCompare,
         showValueOnSeries,
+        showPercentStackView,
         showUnit,
         showChart,
         showInterval,
@@ -38,6 +40,8 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showFunnelDisplayLayout,
         showFunnelBins,
     } = useValues(insightDisplayConfigLogic(insightProps))
+
+    const { showPercentStackView: isPercentStackViewOn } = useValues(trendsDataLogic(insightProps))
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
@@ -84,17 +88,23 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                         <ValueOnSeriesFilter />
                     </ConfigFilter>
                 )}
+
+                {showPercentStackView && (
+                    <ConfigFilter>
+                        <PercentStackView />
+                    </ConfigFilter>
+                )}
             </div>
             <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
-                {showUnit && (
+                {!isPercentStackViewOn && showUnit && (
                     <ConfigFilter>
-                        <UnitPicker filters={filters} setFilters={setFilters} />
+                        <UnitPicker />
                     </ConfigFilter>
                 )}
 
                 {showChart && (
                     <ConfigFilter>
-                        <ChartFilter filters={filters} />
+                        <ChartFilter />
                     </ConfigFilter>
                 )}
 

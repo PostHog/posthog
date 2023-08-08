@@ -59,6 +59,37 @@
             border-radius: var(--radius);
             padding: 0.2rem;
         }
+
+        .Backlink__label {
+            padding: 0.125rem 0.25rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background-color: var(--white);
+
+            &:hover {
+                background-color: var(--side);
+            }
+
+            &.Backlink--selected {
+                outline-style: solid;
+                outline-color: var(--primary-bg-active);
+            }
+
+            &.Backlink--active {
+                border: 1px solid var(--brand-blue);
+                background: var(--brand-blue);
+                color: var(--white);
+
+                & .Backlink__label,
+                & svg {
+                    color: var(--white);
+                }
+            }
+
+            & .Backlink__label {
+                color: var(--black);
+            }
+        }
     }
 
     &--compact {
@@ -68,17 +99,26 @@
         margin-right: auto;
     }
 
+    &--editable {
+        .NotebookEditor {
+            // Add some padding to help clicking below the last element
+            padding-bottom: 10rem;
+        }
+    }
+
     .LemonTable__content > table > thead {
         position: sticky;
         top: 0;
         z-index: 1;
     }
-}
 
-.NotebookFloatingButton {
-    .LemonButton {
-        border-radius: 1rem;
-        min-height: 0.25rem;
-        padding: 0.25rem !important; // NOTE - yuck
+    .NotebookRecordingTimestamp {
+        display: inline-flex;
+    }
+
+    // overriding ::selection is necessary here because
+    // antd makes it invisible otherwise
+    span::selection {
+        color: var(--primary);
     }
 }

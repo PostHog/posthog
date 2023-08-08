@@ -104,12 +104,13 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         completion_tokens_total += completion_tokens_last
         if content.startswith(UNCLEAR_PREFIX):
             error = content.removeprefix(UNCLEAR_PREFIX).strip()
-            continue
+            break
         candidate_sql = content
         try:
             print_ast(parse_select(candidate_sql), context=context, dialect="clickhouse")
-        except HogQLException:
-            continue
+        except HogQLException as e:
+            messages.append({"role": "assistant", "content": candidate_sql})
+            messages.append({"role": "user", "content": f"That query has this problem: {e}. Return fixed query."})
         else:
             generated_valid_hogql = True
             break
@@ -119,14 +120,15 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         "generated HogQL with AI",
         {
             "prompt": prompt,
-            "result": "valid_hogql"
-            if generated_valid_hogql
-            else ("invalid_hogql" if candidate_sql else "prompt_unclear"),
+            "response": candidate_sql or error,
+            "result": ("valid_hogql" if generated_valid_hogql else "invalid_hogql")
+            if candidate_sql
+            else "prompt_unclear",
             "attempt_count": attempt_count,
             "prompt_tokens_last": prompt_tokens_last,
             "completion_tokens_last": completion_tokens_last,
             "prompt_tokens_total": prompt_tokens_total,
-            "completion_tokens_otal": completion_tokens_total,
+            "completion_tokens_total": completion_tokens_total,
         },
     )
 

@@ -9,7 +9,6 @@ from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationInvite
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from posthog.version import VERSION
 
 
 class TestPreflight(APIBaseTest, QueryMatchingTest):
@@ -43,9 +42,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def preflight_authenticated_dict(self, options={}):
         preflight = {
             "opt_out_capture": False,
-            "posthog_version": VERSION,
             "is_debug": False,
-            "is_event_property_usage_enabled": True,
             "licensed_users_available": None,
             "site_url": "http://localhost:8000",
             "can_create_org": False,

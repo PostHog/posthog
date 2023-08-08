@@ -52,6 +52,14 @@ describe('sessionRecordingsListLogic', () => {
                     .toDispatchActionsInAnyOrder(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({ shouldShowEmptyState: true })
             })
+
+            it('is false after API call error', async () => {
+                await expectLogic(logic, () => {
+                    // load is called on mount
+                    // logic.actions.loadSessionRecordings()
+                    logic.actions.loadSessionRecordingsFailure('abc')
+                }).toMatchValues({ shouldShowEmptyState: false })
+            })
         })
     })
 

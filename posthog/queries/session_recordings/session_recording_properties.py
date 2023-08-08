@@ -41,8 +41,8 @@ class SessionRecordingProperties(EventQuery):
     # having to return all events.
     _core_single_pageview_event_query = """
          SELECT
-            $session_id as session_id,
-            any(properties) as properties
+            "$session_id" AS session_id,
+            any(properties) AS properties
          FROM events
          PREWHERE
              team_id = %(team_id)s

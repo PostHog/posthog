@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, InputNumber, Popconfirm, Select, Tabs, Skeleton, Card } from 'antd'
+import { Row, Col, Radio, InputNumber, Popconfirm, Select, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -14,7 +14,6 @@ import {
     IconCopy,
     IconDelete,
     IconPlus,
-    IconPlusMini,
     IconSubArrowRight,
     IconErrorOutline,
     IconUnfoldLess,
@@ -79,6 +78,8 @@ import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { PostHogFeature } from 'posthog-js/react'
+import { concatWithPunctuation } from 'scenes/insights/utils'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -127,6 +128,91 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             // TODO: This should be skeleton loaders
             <SpinnerOverlay sceneLevel />
         )
+    }
+
+    const tabs = [
+        {
+            label: 'Overview',
+            key: FeatureFlagsTab.OVERVIEW,
+            content: (
+                <>
+                    <Row>
+                        <Col span={13}>
+                            <FeatureFlagRollout readOnly />
+                            {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
+                            <FeatureFlagReleaseConditions readOnly />
+                            {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                <FeatureFlagAutoRollback readOnly />
+                            )}
+                        </Col>
+                        <Col span={11} className="pl-4">
+                            <RecentFeatureFlagInsights />
+                            <div className="my-4" />
+                        </Col>
+                    </Row>
+                    <LemonDivider className="mb-4" />
+                    <FeatureFlagCodeExample featureFlag={featureFlag} />
+                </>
+            ),
+        },
+    ] as LemonTab<FeatureFlagsTab>[]
+
+    if (featureFlag.key && id) {
+        tabs.push({
+            label: 'Usage',
+            key: FeatureFlagsTab.USAGE,
+            content: <UsageTab id={id} featureFlag={featureFlag} />,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
+        tabs.push({
+            label: (
+                <div className="flex flex-row">
+                    <div>Analysis</div>
+                    <LemonTag className="ml-1 float-right uppercase" type="warning">
+                        {' '}
+                        Beta
+                    </LemonTag>
+                </div>
+            ),
+            key: FeatureFlagsTab.Analysis,
+            content: (
+                <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
+                    <AnalysisTab id={id} featureFlag={featureFlag} />
+                </PostHogFeature>
+            ),
+        })
+    }
+
+    if (featureFlag.id) {
+        tabs.push({
+            label: 'History',
+            key: FeatureFlagsTab.HISTORY,
+            content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit) {
+        tabs.push({
+            label: 'Permissions',
+            key: FeatureFlagsTab.PERMISSIONS,
+            content: (
+                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                    <ResourcePermission
+                        resourceType={Resource.FEATURE_FLAGS}
+                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                        rolesToAdd={rolesToAdd}
+                        addableRoles={addableRoles}
+                        addableRolesLoading={unfilteredAddableRolesLoading}
+                        onAdd={() => addAssociatedRoles()}
+                        roles={derivedRoles}
+                        deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                        canEdit={featureFlag.can_edit}
+                    />
+                </PayGateMini>
+            ),
+        })
     }
 
     return (
@@ -496,79 +582,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </>
                                     }
                                 />
-                                <Tabs
-                                    activeKey={activeTab}
-                                    destroyInactiveTabPane
-                                    onChange={(t) => setActiveTab(t as FeatureFlagsTab)}
-                                >
-                                    <Tabs.TabPane tab="Overview" key="overview">
-                                        <Row>
-                                            <Col span={13}>
-                                                <FeatureFlagRollout readOnly />
-                                                {featureFlag.filters.super_groups && (
-                                                    <FeatureFlagReleaseConditions readOnly isSuper />
-                                                )}
-                                                <FeatureFlagReleaseConditions readOnly />
-                                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                                    <FeatureFlagAutoRollback readOnly />
-                                                )}
-                                            </Col>
-                                            <Col span={11} className="pl-4">
-                                                <RecentFeatureFlagInsights />
-                                                <div className="my-4" />
-                                            </Col>
-                                        </Row>
-                                        <LemonDivider className="mb-4" />
-                                        <FeatureFlagCodeExample featureFlag={featureFlag} />
-                                    </Tabs.TabPane>
-                                    {featureFlag.key && id && (
-                                        <Tabs.TabPane tab={<div>Usage</div>} key="usage">
-                                            <UsageTab id={id} featureFlag={featureFlag} />
-                                        </Tabs.TabPane>
-                                    )}
-
-                                    {featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id && (
-                                        <Tabs.TabPane
-                                            tab={
-                                                <div className="flex flex-row">
-                                                    <div>Analysis</div>
-                                                    <LemonTag className="ml-1 float-right uppercase" type="warning">
-                                                        {' '}
-                                                        Beta
-                                                    </LemonTag>
-                                                </div>
-                                            }
-                                            key="analysis"
-                                        >
-                                            <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
-                                                <AnalysisTab id={id} featureFlag={featureFlag} />
-                                            </PostHogFeature>
-                                        </Tabs.TabPane>
-                                    )}
-
-                                    {featureFlag.id && (
-                                        <Tabs.TabPane tab="History" key="history">
-                                            <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
-                                        </Tabs.TabPane>
-                                    )}
-                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit && (
-                                        <Tabs.TabPane tab="Permissions" key="permissions">
-                                            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                <ResourcePermission
-                                                    resourceType={Resource.FEATURE_FLAGS}
-                                                    onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                    rolesToAdd={rolesToAdd}
-                                                    addableRoles={addableRoles}
-                                                    addableRolesLoading={unfilteredAddableRolesLoading}
-                                                    onAdd={() => addAssociatedRoles()}
-                                                    roles={derivedRoles}
-                                                    deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-                                                    canEdit={featureFlag.can_edit}
-                                                />
-                                            </PayGateMini>
-                                        </Tabs.TabPane>
-                                    )}
-                                </Tabs>
+                                <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
                             </>
                         )}
                     </>
@@ -639,9 +653,18 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     )
 }
 
+function variantConcatWithPunctuation(phrases: string[]): string {
+    if (phrases === null || phrases.length < 3) {
+        return concatWithPunctuation(phrases)
+    } else {
+        return `${phrases[0]} and ${phrases.length - 1} more sets`
+    }
+}
+
 interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
     isSuper?: boolean
+    excludeTitle?: boolean
 }
 
 function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
@@ -660,6 +683,8 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature } = useValues(userLogic)
     const { upgradeLink } = useValues(billingLogic)
+
+    const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
     return (
         <>
@@ -872,10 +897,10 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 </LemonButton>
                             </Col>
                         </Row>
-                        {variants.map((_, index) => (
+                        {variants.map((variant, index) => (
                             <Group key={index} name="filters">
-                                <Row gutter={8} align="middle">
-                                    <Col span={1}>
+                                <Row gutter={8} align="top">
+                                    <Col span={1} style={{ paddingTop: 8 }}>
                                         <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                                     </Col>
                                     <Col span={4}>
@@ -923,24 +948,50 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     <Col span={3}>
                                         <Field name={['multivariate', 'variants', index, 'rollout_percentage']}>
                                             {({ value, onChange }) => (
-                                                <LemonInput
-                                                    type="number"
-                                                    min={0}
-                                                    max={100}
-                                                    value={value}
-                                                    onChange={(changedValue) => {
-                                                        if (changedValue !== null && changedValue !== undefined) {
-                                                            const valueInt = parseInt(changedValue.toString())
-                                                            if (!isNaN(valueInt)) {
-                                                                onChange(valueInt)
+                                                <div>
+                                                    <LemonInput
+                                                        type="number"
+                                                        min={0}
+                                                        max={100}
+                                                        value={value}
+                                                        onChange={(changedValue) => {
+                                                            if (changedValue !== null && changedValue !== undefined) {
+                                                                const valueInt = parseInt(changedValue.toString())
+                                                                if (!isNaN(valueInt)) {
+                                                                    onChange(valueInt)
+                                                                }
                                                             }
-                                                        }
-                                                    }}
-                                                />
+                                                        }}
+                                                    />
+                                                    {filterGroups.filter((group) => group.variant === variant.key)
+                                                        .length > 0 && (
+                                                        <span style={{ fontSize: 11 }} className="text-muted">
+                                                            Overridden by{' '}
+                                                            <strong>
+                                                                {variantConcatWithPunctuation(
+                                                                    filterGroups
+                                                                        .filter(
+                                                                            (group) =>
+                                                                                group.variant != null &&
+                                                                                group.variant === variant.key
+                                                                        )
+                                                                        .map(
+                                                                            (variant) =>
+                                                                                'Set ' +
+                                                                                (filterGroups.findIndex(
+                                                                                    (group) => group === variant
+                                                                                ) +
+                                                                                    1)
+                                                                        )
+                                                                )}
+                                                            </strong>
+                                                        </span>
+                                                    )}
+                                                </div>
                                             )}
                                         </Field>
                                     </Col>
-                                    <Col span={2}>
+                                    <Col span={2} style={{ paddingTop: 8 }}>
                                         <Row>
                                             {variants.length > 1 && (
                                                 <LemonButton
@@ -994,7 +1045,11 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     )
 }
 
-function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JSX.Element {
+export function FeatureFlagReleaseConditions({
+    readOnly,
+    isSuper,
+    excludeTitle,
+}: FeatureFlagReadOnlyProps): JSX.Element {
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const {
         aggregationTargetName,
@@ -1017,7 +1072,7 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
     const { cohortsById } = useValues(cohortsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
-    const _filter_groups: FeatureFlagGroupType[] = isSuper
+    const filterGroups: FeatureFlagGroupType[] = isSuper
         ? featureFlag.filters.super_groups || []
         : featureFlag.filters.groups
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
@@ -1038,7 +1093,7 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
-            <Col span={24} md={24} key={`${index}-${_filter_groups.length}`}>
+            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
                     <Row align="middle" justify="space-between">
@@ -1072,7 +1127,7 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
                                     noPadding
                                     onClick={() => duplicateConditionSet(index)}
                                 />
-                                {!isEarlyAccessFeatureCondition(group) && _filter_groups.length > 1 && (
+                                {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
                                     <LemonButton
                                         icon={<IconDelete />}
                                         status="muted"
@@ -1151,16 +1206,12 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
                         <div>
                             <PropertyFilters
                                 orFiltering={true}
-                                pageKey={`feature-flag-${featureFlag.id}-${index}-${_filter_groups.length}-${
+                                pageKey={`feature-flag-${featureFlag.id}-${index}-${filterGroups.length}-${
                                     featureFlag.filters.aggregation_group_type_index ?? ''
                                 }`}
                                 propertyFilters={group?.properties}
                                 logicalRowDivider
-                                addButton={
-                                    <LemonButton icon={<IconPlusMini />} sideIcon={null} noPadding>
-                                        Add condition
-                                    </LemonButton>
-                                }
+                                addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 hasRowOperator={false}
@@ -1188,7 +1239,7 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
                     {readOnly ? (
                         <LemonTag
                             type={
-                                _filter_groups.length == 1
+                                filterGroups.length == 1
                                     ? group.rollout_percentage == null || group.rollout_percentage == 100
                                         ? 'highlight'
                                         : group.rollout_percentage == 0
@@ -1295,7 +1346,7 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
         }
 
         return (
-            <Col span={24} md={24} key={`${index}-${_filter_groups.length}`}>
+            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
                     <Row align="middle" justify="space-between">
@@ -1356,19 +1407,35 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
 
     return (
         <>
-            <div className="feature-flag-form-row">
+            <div className={`feature-flag-form-row ${excludeTitle && 'mb-2'}`}>
                 <div data-attr="feature-flag-release-conditions">
                     {readOnly ? (
-                        <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
+                        excludeTitle ? null : (
+                            <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
+                        )
                     ) : (
                         <>
-                            <h3 className="l3">Release conditions</h3>
-                            <div className="text-muted mb-4">
-                                Specify the {aggregationTargetName} to which you want to release this flag. Note that
-                                condition sets are rolled out independently of each other.
-                            </div>
+                            {!excludeTitle && (
+                                <>
+                                    <h3 className="l3">Release conditions</h3>
+                                    <div className="text-muted mb-4">
+                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
+                                        that condition sets are rolled out independently of each other.
+                                    </div>
+                                </>
+                            )}
                         </>
                     )}
+                    {!readOnly &&
+                        !filterGroups.every(
+                            (group) =>
+                                filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2
+                        ) && (
+                            <LemonBanner type="info" className="mt-3 mb-3">
+                                Multiple variant overrides detected. We use the variant override for the first condition
+                                set that matches.
+                            </LemonBanner>
+                        )}
                 </div>
                 {!readOnly && showGroupsOptions && (
                     <div className="centered">
@@ -1405,12 +1472,12 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
                 )}
             </div>
             <Row className="FeatureConditionCard" gutter={16}>
-                {_filter_groups.map((group, index) =>
+                {filterGroups.map((group, index) =>
                     isSuper ? renderSuperReleaseConditionGroup(group, index) : renderReleaseConditionGroup(group, index)
                 )}
             </Row>
             {!readOnly && (
-                <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
+                <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                     Add condition set
                 </LemonButton>
             )}

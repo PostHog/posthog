@@ -1,4 +1,3 @@
-import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -6,7 +5,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { VersionType } from '~/types'
 import type { navigationLogicType } from './navigationLogicType'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -120,7 +118,10 @@ export const navigationLogic = kea<navigationLogicType>({
     }),
     selectors: {
         /** `bareNav` whether the current scene should display a sidebar at all */
-        bareNav: [(s) => [s.fullscreen, s.sceneConfig], (fullscreen, sceneConfig) => fullscreen || sceneConfig?.plain],
+        bareNav: [
+            (s) => [s.fullscreen, s.sceneConfig],
+            (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
+        ],
         isSideBarShown: [
             (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
             (mobileLayout, isSideBarShownBase, isSideBarShownMobile, bareNav) =>
@@ -148,40 +149,6 @@ export const navigationLogic = kea<navigationLogicType>({
             },
         ],
         asyncMigrationsOk: [(s) => [s.navigationStatus], (status) => status.async_migrations_ok],
-        anyUpdateAvailable: [
-            (selectors) => [
-                selectors.latestVersion,
-                selectors.latestVersionLoading,
-                preflightLogic.selectors.preflight,
-            ],
-            (latestVersion, latestVersionLoading, preflight) => {
-                // Always latest version in multitenancy
-                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
-                    return false
-                }
-                const [latestMajor, latestMinor, latestPatch] = latestVersion.split('.').map((n) => parseInt(n))
-                const [currentMajor, currentMinor, currentPatch] = preflight.posthog_version
-                    .split('.')
-                    .map((n) => parseInt(n))
-                return latestMajor > currentMajor || latestMinor > currentMinor || latestPatch > currentPatch
-            },
-        ],
-        minorUpdateAvailable: [
-            (selectors) => [
-                selectors.latestVersion,
-                selectors.latestVersionLoading,
-                preflightLogic.selectors.preflight,
-            ],
-            (latestVersion, latestVersionLoading, preflight): boolean => {
-                // Always latest version in multitenancy
-                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
-                    return false
-                }
-                const [latestMajor, latestMinor] = latestVersion.split('.').map((n) => parseInt(n))
-                const [currentMajor, currentMinor] = preflight.posthog_version.split('.').map((n) => parseInt(n))
-                return latestMajor > currentMajor || latestMinor > currentMinor
-            },
-        ],
         projectNoticeVariantWithClosability: [
             (s) => [
                 organizationLogic.selectors.currentOrganization,
@@ -228,30 +195,6 @@ export const navigationLogic = kea<navigationLogicType>({
         ],
     },
     loaders: {
-        latestVersion: [
-            null as string | null,
-            {
-                loadLatestVersion: async () => {
-                    const versions = (await api.get('https://update.posthog.com')) as VersionType[]
-                    for (const version of versions) {
-                        if (
-                            version?.release_date &&
-                            dayjs
-                                .utc(version.release_date)
-                                .set('hour', 0)
-                                .set('minute', 0)
-                                .set('second', 0)
-                                .set('millisecond', 0) > dayjs()
-                        ) {
-                            // Release date is in the future
-                            continue
-                        }
-                        return version.version
-                    }
-                    return null
-                },
-            },
-        ],
         navigationStatus: [
             { system_status_ok: true, async_migrations_ok: true } as {
                 system_status_ok: boolean
@@ -274,11 +217,6 @@ export const navigationLogic = kea<navigationLogicType>({
             } else {
                 actions.showActivationSideBar()
             }
-        },
-    }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadLatestVersion()
         },
     }),
 })

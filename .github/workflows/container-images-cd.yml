@@ -13,6 +13,7 @@ on:
     push:
         branches:
             - master
+    workflow_dispatch:
 
 concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
 
@@ -27,8 +28,10 @@ jobs:
             packages: write # allow push to ghcr.io
 
         steps:
-            - name: Checkout code
+            - name: Check out
               uses: actions/checkout@v3
+              with:
+                  fetch-depth: 2
 
             - name: Update git SHA
               run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
@@ -59,78 +62,14 @@ jobs:
               id: aws-ecr
               uses: aws-actions/amazon-ecr-login@v1
 
-            - name: Build and push container images
+            - name: Build and push container image
               id: build
               uses: depot/build-push-action@v1
               with:
-                  project: x19jffd9zf # posthog
                   buildx-fallback: false # the fallback is so slow it's better to just fail
-                  cache-from: type=gha # always pull the layers from GHA
-                  cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
                   tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
-                  platforms: linux/amd64,linux/arm64
-
-    posthog_cloud_build:
-        name: Build and push PostHog Cloud
-        if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-latest
-        permissions:
-            id-token: write # allow issuing OIDC tokens for this workflow run
-            contents: read # allow at least reading the repo contents, add other permissions if necessary
-            packages: read # allow pull from ghcr.io
-        needs: [posthog_build]
-
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v3
-
-            - name: Update git SHA
-              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v2
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
-
-            - name: Checkout PostHog Cloud code
-              run: |
-                  mkdir cloud/
-                  cd cloud/
-                  curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
-
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@v1
-              with:
-                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-                  aws-region: us-east-1
-
-            - name: Login to Amazon ECR
-              id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@v1
-
-            - name: Build container images
-              id: build
-              uses: depot/build-push-action@v1
-              with:
-                  project: 1stsk4xt19 # posthog-cloud
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
-                  cache-from: type=gha # always pull the layers from GHA
-                  cache-to: type=gha,mode=max # always push the layers to GHA
-                  push: true
-                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:latest
-                  platforms: linux/amd64,linux/arm64
-                  file: Dockerfile.cloud
-                  context: cloud
-                  # Use the non-cloud image as base image and extend it with
-                  # the posthog-cloud code we've checked out.
-                  build-args: |
-                      BASE_IMAGE=posthog/posthog:latest
+                  platforms: linux/arm64,linux/amd64
 
             - name: get deployer token
               id: deployer
@@ -148,10 +87,26 @@ jobs:
                   repo: posthog-cloud-infra
                   owner: PostHog
                   event_type: posthog_cloud_build
-                  # TODO: switch image_tag to a SHA. We currently use 'latest'
-                  # to avoid checksum mismatch on multiple platforms.
                   message: |
                       {
-                        "image_tag": "master",
+                        "image_tag": "${{ steps.build.outputs.digest }}",
                         "context": ${{ toJson(github) }}
+                      }
+
+            - name: Check for changes in plugins directory
+              id: check_changes_plugins
+              run: |
+                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)"
+
+            - name: Trigger Ingestion Cloud deployment
+              if: steps.check_changes_plugins.outputs.changed != ''
+              uses: mvasigh/dispatch-action@main
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repo: charts
+                  owner: PostHog
+                  event_type: ingestion_deploy
+                  message: |
+                      {
+                        "image_tag": "${{ steps.build.outputs.digest }}"
                       }

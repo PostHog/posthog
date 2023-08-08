@@ -33,7 +33,7 @@ export function Breadcrumbs(): JSX.Element | null {
             {/* TODO: These buttons below are hardcoded right now, scene-based system coming in the next PR */}
             <LemonButton className="Breadcrumbs3000__more" icon={<IconEllipsisVertical />} size="small" />
             <div className="Breadcrumbs3000__actions">
-                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match={true}>
+                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
                     <NotebookButton />
                 </FlaggedFeature>
                 <NewInsightButton dataAttr="project-home-new-insight" />

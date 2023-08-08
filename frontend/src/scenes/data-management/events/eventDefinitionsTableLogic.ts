@@ -33,7 +33,7 @@ function cleanFilters(filter: Partial<Filters>): Filters {
         event: '',
         properties: [],
         event_type: EventDefinitionType.Event,
-        ordering: '-volume_30_day',
+        ordering: 'event',
         ...filter,
     }
 }

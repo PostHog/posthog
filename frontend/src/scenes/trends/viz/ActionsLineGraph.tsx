@@ -1,48 +1,57 @@
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ChartDisplayType, ChartParams, GraphType, InsightType } from '~/types'
+import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { isFilterWithDisplay, isLifecycleFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { trendsDataLogic } from '../trendsDataLogic'
 
 export function ActionsLineGraph({
     inSharedMode = false,
     showPersonsModal = true,
     context,
 }: ChartParams): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(
-        trendsLogic(insightProps)
-    )
-    const compare = isTrendsFilter(filters) && !!filters.compare
-    const formula = isTrendsFilter(filters) ? filters.formula : undefined
+    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const {
+        indexedResults,
+        labelGroupType,
+        incompletenessOffsetFromEnd,
+        formula,
+        compare,
+        display,
+        interval,
+        shownAs,
+        showValueOnSeries,
+        showPercentStackView,
+        supportsPercentStackView,
+        trendsFilter,
+        isLifecycle,
+        isStickiness,
+    } = useValues(trendsDataLogic(insightProps))
 
     return indexedResults &&
         indexedResults[0]?.data &&
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
         <LineGraph
             data-attr="trend-line-graph"
-            type={
-                (isFilterWithDisplay(filters) && filters.display === ChartDisplayType.ActionsBar) ||
-                isLifecycleFilter(filters)
-                    ? GraphType.Bar
-                    : GraphType.Line
-            }
+            type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
             hiddenLegendKeys={hiddenLegendKeys}
             datasets={indexedResults}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
-            filters={filters}
+            trendsFilter={trendsFilter}
+            formula={formula}
+            showValueOnSeries={showValueOnSeries}
+            showPercentStackView={showPercentStackView}
+            supportsPercentStackView={supportsPercentStackView}
             tooltip={
-                filters.insight === InsightType.LIFECYCLE
+                isLifecycle
                     ? {
                           altTitle: 'Users',
                           altRightTitle: (_, date) => {
@@ -54,9 +63,9 @@ export function ActionsLineGraph({
                       }
                     : undefined
             }
-            isCompare={compare}
-            isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
-            isArea={isFilterWithDisplay(filters) && filters.display === ChartDisplayType.ActionsAreaGraph}
+            compare={compare}
+            isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
+            isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula)
@@ -76,7 +85,7 @@ export function ActionsLineGraph({
 
                           if (urls?.length) {
                               const title =
-                                  filters.shown_as === 'Stickiness' ? (
+                                  shownAs === 'Stickiness' ? (
                                       <>
                                           <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
                                       </>
@@ -84,10 +93,7 @@ export function ActionsLineGraph({
                                       (label: string) => (
                                           <>
                                               {label} on{' '}
-                                              <DateDisplay
-                                                  interval={filters.interval || 'day'}
-                                                  date={day?.toString() || ''}
-                                              />
+                                              <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
                                           </>
                                       )
                                   )

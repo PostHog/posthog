@@ -463,9 +463,7 @@
         "UTC": 0.0
     },
     "opt_out_capture": false,
-    "posthog_version": "1.33.0",
     "is_debug": true,
-    "is_event_property_usage_enabled": true,
     "licensed_users_available": 21311,
     "site_url": "http://localhost:6006",
     "instance_preferences": {

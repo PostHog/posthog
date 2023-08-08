@@ -67,6 +67,7 @@ export function Experiment(): JSX.Element {
         variants,
         experimentResults,
         countDataForVariant,
+        exposureCountDataForVariant,
         editingExistingExperiment,
         experimentInsightType,
         experimentResultsLoading,
@@ -81,6 +82,9 @@ export function Experiment(): JSX.Element {
         flagImplementationWarning,
         props,
         sortedExperimentResultVariants,
+        aggregationLabel,
+        groupTypes,
+        experimentCountPerUserMath,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -96,6 +100,7 @@ export function Experiment(): JSX.Element {
         loadExperimentResults,
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
+        setExperiment,
     } = useActions(experimentLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -343,15 +348,13 @@ export function Experiment(): JSX.Element {
                                 </div>
                                 <Row className="person-selection">
                                     <Col span={12}>
-                                        <div className="mb-2">
+                                        <div>
                                             <strong>Select participants</strong>
                                         </div>
                                         <div className="text-muted mb-4">
                                             Experiments use feature flags to target users. By default, 100% of
-                                            participants will be targeted.
-                                            <br />
-                                            For any advanced options like changing the rollout percentage, and targeting
-                                            by groups, you can{' '}
+                                            participants will be targeted. For any advanced options like changing the
+                                            rollout percentage, and targeting by groups, you can{' '}
                                             {experimentId === 'new' ? (
                                                 'change settings on the feature flag after saving this experiment.'
                                             ) : (
@@ -366,6 +369,49 @@ export function Experiment(): JSX.Element {
                                                 </Link>
                                             )}
                                         </div>
+                                        {experimentId === 'new' && (
+                                            <>
+                                                <div className="mt-4">
+                                                    <strong>Default participant type</strong>
+                                                </div>
+                                                <div className="text-muted mb-4">
+                                                    This sets default aggregation type for all metrics and feature
+                                                    flags. You can change this at any time by updating the metric or
+                                                    feature flag.
+                                                </div>
+                                                <LemonSelect
+                                                    value={
+                                                        experiment.parameters.aggregation_group_type_index != undefined
+                                                            ? experiment.parameters.aggregation_group_type_index
+                                                            : -1
+                                                    }
+                                                    data-attr="participant-aggregation-filter"
+                                                    dropdownMatchSelectWidth={false}
+                                                    onChange={(rawGroupTypeIndex) => {
+                                                        const groupTypeIndex =
+                                                            rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
+
+                                                        setExperiment({
+                                                            parameters: {
+                                                                ...experiment.parameters,
+                                                                aggregation_group_type_index:
+                                                                    groupTypeIndex ?? undefined,
+                                                            },
+                                                        })
+                                                        setNewExperimentInsight()
+                                                    }}
+                                                    options={[
+                                                        { value: -1, label: 'Persons' },
+                                                        ...groupTypes.map((groupType) => ({
+                                                            value: groupType.group_type_index,
+                                                            label: capitalizeFirstLetter(
+                                                                aggregationLabel(groupType.group_type_index).plural
+                                                            ),
+                                                        })),
+                                                    ]}
+                                                />
+                                            </>
+                                        )}
                                     </Col>
                                 </Row>
 
@@ -446,6 +492,9 @@ export function Experiment(): JSX.Element {
                                                     onMetricsChange={onChange}
                                                     initialMetrics={value}
                                                     experimentId={experiment.id}
+                                                    defaultAggregationType={
+                                                        experiment.parameters?.aggregation_group_type_index
+                                                    }
                                                 />
                                             </div>
                                         </Row>
@@ -495,123 +544,134 @@ export function Experiment(): JSX.Element {
             ) : experiment ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
-                        <Row justify="space-between" align="middle" className="w-full pb-4">
+                        <Row justify="space-between" align="middle" className="w-full" wrap={false}>
                             <Col>
-                                <Row>
-                                    <PageHeader
-                                        style={{ paddingRight: 8 }}
-                                        title={`${experiment?.name}`}
-                                        buttons={
-                                            <>
-                                                <CopyToClipboardInline
-                                                    explicitValue={experiment.feature_flag?.key}
-                                                    iconStyle={{ color: 'var(--muted-alt)' }}
+                                <PageHeader
+                                    style={{ paddingRight: 8 }}
+                                    title={`${experiment?.name}`}
+                                    buttons={
+                                        <>
+                                            <CopyToClipboardInline
+                                                explicitValue={experiment.feature_flag?.key}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            >
+                                                <span className="text-muted">{experiment.feature_flag?.key}</span>
+                                            </CopyToClipboardInline>
+                                            <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+                                                <b className="uppercase">{status()}</b>
+                                            </Tag>
+                                            {experimentResults && experiment.end_date && (
+                                                <Tag
+                                                    style={{ alignSelf: 'center' }}
+                                                    color={areResultsSignificant ? 'green' : 'geekblue'}
                                                 >
-                                                    <span className="text-muted">{experiment.feature_flag?.key}</span>
-                                                </CopyToClipboardInline>
-                                                <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
-                                                    <b className="uppercase">{status()}</b>
+                                                    <b className="uppercase">
+                                                        {areResultsSignificant
+                                                            ? 'Significant Results'
+                                                            : 'Results not significant'}
+                                                    </b>
                                                 </Tag>
-                                                {experimentResults && experiment.end_date && (
-                                                    <Tag
-                                                        style={{ alignSelf: 'center' }}
-                                                        color={areResultsSignificant ? 'green' : 'geekblue'}
-                                                    >
-                                                        <b className="uppercase">
-                                                            {areResultsSignificant
-                                                                ? 'Significant Results'
-                                                                : 'Results not significant'}
-                                                        </b>
-                                                    </Tag>
-                                                )}
-                                            </>
-                                        }
-                                    />
-                                </Row>
-                                <span className="exp-description">
-                                    {isExperimentRunning ? (
-                                        <EditableField
-                                            multiline
-                                            name="description"
-                                            value={experiment.description || ''}
-                                            placeholder="Description (optional)"
-                                            onSave={(value) => updateExperiment({ description: value })}
-                                            maxLength={400} // Sync with Experiment model
-                                            data-attr="experiment-description"
-                                            compactButtons
-                                        />
-                                    ) : (
-                                        <>{experiment.description || 'There is no description for this experiment.'}</>
-                                    )}
-                                </span>
+                                            )}
+                                        </>
+                                    }
+                                />
                             </Col>
-                            {experiment && !isExperimentRunning && (
-                                <div className="flex items-center">
-                                    <LemonButton
-                                        type="secondary"
-                                        className="mr-2"
-                                        onClick={() => setEditExperiment(true)}
-                                    >
-                                        Edit
-                                    </LemonButton>
-                                    <LemonButton type="primary" onClick={() => launchExperiment()}>
-                                        Launch
-                                    </LemonButton>
-                                </div>
-                            )}
-                            {experiment && isExperimentRunning && (
-                                <div className="flex flex-row gap-2">
-                                    <>
-                                        <More
-                                            overlay={
-                                                <>
-                                                    <LemonButton
-                                                        status="stealth"
-                                                        onClick={() => loadExperimentResults(true)}
-                                                        fullWidth
-                                                        data-attr="refresh-experiment"
-                                                    >
-                                                        Refresh experiment results
-                                                    </LemonButton>
-                                                </>
-                                            }
-                                        />
-                                        <LemonDivider vertical />
-                                    </>
-                                    <Popconfirm
-                                        placement="topLeft"
-                                        title={
-                                            <div>
-                                                Reset this experiment and go back to draft mode?
-                                                <div className="text-sm text-muted">
-                                                    All collected data so far will be discarded.
+                            <Col className="page-title-row">
+                                {experiment && !isExperimentRunning && (
+                                    <div className="flex items-center">
+                                        <LemonButton
+                                            type="secondary"
+                                            className="mr-2"
+                                            onClick={() => setEditExperiment(true)}
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                        <LemonButton type="primary" onClick={() => launchExperiment()}>
+                                            Launch
+                                        </LemonButton>
+                                    </div>
+                                )}
+                                {experiment && isExperimentRunning && (
+                                    <div className="flex flex-row gap-2">
+                                        <>
+                                            <More
+                                                overlay={
+                                                    <>
+                                                        <LemonButton
+                                                            status="stealth"
+                                                            onClick={() => loadExperimentResults(true)}
+                                                            fullWidth
+                                                            data-attr="refresh-experiment"
+                                                        >
+                                                            Refresh experiment results
+                                                        </LemonButton>
+                                                    </>
+                                                }
+                                            />
+                                            <LemonDivider vertical />
+                                        </>
+                                        <Popconfirm
+                                            placement="bottomLeft"
+                                            title={
+                                                <div>
+                                                    Reset this experiment and go back to draft mode?
+                                                    <div className="text-sm text-muted">
+                                                        All collected data so far will be discarded.
+                                                    </div>
+                                                    {experiment.archived && (
+                                                        <div className="text-sm text-muted">
+                                                            Resetting will also unarchive the experiment.
+                                                        </div>
+                                                    )}
                                                 </div>
-                                            </div>
-                                        }
-                                        onConfirm={() => resetRunningExperiment()}
-                                    >
-                                        <LemonButton type="secondary" status="primary">
-                                            Reset
-                                        </LemonButton>
-                                    </Popconfirm>
-                                    {!experiment.end_date && (
-                                        <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                            Stop
-                                        </LemonButton>
-                                    )}
-                                    {experiment?.end_date &&
-                                        dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                        !experiment.archived && (
+                                            }
+                                            onConfirm={() => resetRunningExperiment()}
+                                        >
+                                            <LemonButton type="secondary" status="primary">
+                                                Reset
+                                            </LemonButton>
+                                        </Popconfirm>
+                                        {!experiment.end_date && (
                                             <LemonButton
                                                 type="secondary"
                                                 status="danger"
-                                                onClick={() => archiveExperiment()}
+                                                onClick={() => endExperiment()}
                                             >
-                                                <b>Archive</b>
+                                                Stop
                                             </LemonButton>
                                         )}
-                                </div>
-                            )}
+                                        {experiment?.end_date &&
+                                            dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                            !experiment.archived && (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    status="danger"
+                                                    onClick={() => archiveExperiment()}
+                                                >
+                                                    <b>Archive</b>
+                                                </LemonButton>
+                                            )}
+                                    </div>
+                                )}
+                            </Col>
+                        </Row>
+                        <Row className="w-full pb-4">
+                            <span className="exp-description">
+                                {isExperimentRunning ? (
+                                    <EditableField
+                                        multiline
+                                        name="description"
+                                        value={experiment.description || ''}
+                                        placeholder="Description (optional)"
+                                        onSave={(value) => updateExperiment({ description: value })}
+                                        maxLength={400} // Sync with Experiment model
+                                        data-attr="experiment-description"
+                                        compactButtons
+                                    />
+                                ) : (
+                                    <>{experiment.description || 'There is no description for this experiment.'}</>
+                                )}
+                            </span>
                         </Row>
                     </Row>
                     <Row>
@@ -785,6 +845,9 @@ export function Experiment(): JSX.Element {
                                                         updateExperimentSecondaryMetrics(metrics)
                                                     }
                                                     initialMetrics={experiment.secondary_metrics}
+                                                    defaultAggregationType={
+                                                        experiment.parameters?.aggregation_group_type_index
+                                                    }
                                                 />
                                             </Col>
                                         </Row>
@@ -881,27 +944,40 @@ export function Experiment(): JSX.Element {
                                                         <b>{capitalizeFirstLetter(variant)}</b>
                                                     </div>
                                                     {experimentInsightType === InsightType.TRENDS ? (
-                                                        <Row>
-                                                            <b className="pr-1">
-                                                                <Row>
-                                                                    {'action' in experimentResults.insight[0] && (
-                                                                        <EntityFilterInfo
-                                                                            filter={experimentResults.insight[0].action}
-                                                                        />
-                                                                    )}
-                                                                    <span className="pl-1">count:</span>
-                                                                </Row>
-                                                            </b>{' '}
-                                                            {countDataForVariant(variant)}{' '}
-                                                            {areTrendResultsConfusing && idx === 0 && (
-                                                                <Tooltip
-                                                                    placement="right"
-                                                                    title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
-                                                                >
-                                                                    <InfoCircleOutlined className="py-1 px-0.5" />
-                                                                </Tooltip>
-                                                            )}
-                                                        </Row>
+                                                        <>
+                                                            <Row>
+                                                                <b className="pr-1">
+                                                                    <Row>
+                                                                        {'action' in experimentResults.insight[0] && (
+                                                                            <EntityFilterInfo
+                                                                                filter={
+                                                                                    experimentResults.insight[0].action
+                                                                                }
+                                                                            />
+                                                                        )}
+                                                                        <span className="pl-1">
+                                                                            {experimentCountPerUserMath
+                                                                                ? 'metric'
+                                                                                : 'count'}
+                                                                            :
+                                                                        </span>
+                                                                    </Row>
+                                                                </b>{' '}
+                                                                {countDataForVariant(variant)}{' '}
+                                                                {areTrendResultsConfusing && idx === 0 && (
+                                                                    <Tooltip
+                                                                        placement="right"
+                                                                        title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
+                                                                    >
+                                                                        <InfoCircleOutlined className="py-1 px-0.5" />
+                                                                    </Tooltip>
+                                                                )}
+                                                            </Row>
+                                                            <div className="flex">
+                                                                <b className="pr-1">Exposure:</b>{' '}
+                                                                {exposureCountDataForVariant(variant)}
+                                                            </div>
+                                                        </>
                                                     ) : (
                                                         <Row>
                                                             <b className="pr-1">Conversion rate:</b>{' '}
@@ -945,6 +1021,7 @@ export function Experiment(): JSX.Element {
                                         showTable: true,
                                         showLegendButton: false,
                                         showLastComputation: true,
+                                        showLastComputationRefresh: false,
                                     }}
                                     context={{
                                         insightProps: {

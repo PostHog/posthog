@@ -18,6 +18,8 @@ export interface LemonMenuItemBase
         'icon' | 'sideIcon' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
     > {
     label: string | JSX.Element
+    /** True if the item is a custom element. */
+    custom?: boolean
 }
 export interface LemonMenuItemNode extends LemonMenuItemBase {
     items: (LemonMenuItemLeaf | false | null)[]
@@ -48,6 +50,8 @@ export interface LemonMenuItemCustom {
     active?: never
     items?: never
     keyboardShortcut?: never
+    /** True if the item is a custom element. */
+    custom?: boolean
 }
 export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode
 
@@ -69,8 +73,10 @@ export interface LemonMenuProps
             | 'maxContentWidth'
             | 'visible'
             | 'onVisibilityChange'
+            | 'closeOnClickInside'
             | 'closeParentPopoverOnClickInside'
             | 'className'
+            | 'onClickOutside'
         >,
         LemonMenuOverlayProps {
     /** Must support `ref` and `onKeyDown` for keyboard navigation. */
@@ -233,7 +239,10 @@ interface LemonMenuItemButtonProps {
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
     React.forwardRef(
-        ({ item: { label, items, keyboardShortcut, ...buttonProps }, size, tooltipPlacement }, ref): JSX.Element => {
+        (
+            { item: { label, items, keyboardShortcut, custom, ...buttonProps }, size, tooltipPlacement },
+            ref
+        ): JSX.Element => {
             const Label = typeof label === 'function' ? label : null
             const button = Label ? (
                 <Label key="x" />
@@ -263,7 +272,8 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     tooltipPlacement={tooltipPlacement}
                     placement="right-start"
                     actionable
-                    closeParentPopoverOnClickInside
+                    closeOnClickInside={custom ? false : true}
+                    closeParentPopoverOnClickInside={custom ? false : true}
                 >
                     {button}
                 </LemonMenu>

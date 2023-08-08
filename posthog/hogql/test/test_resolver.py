@@ -18,6 +18,8 @@ from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):
+    maxDiff = None
+
     def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(ast.SelectQuery, clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True))
 
@@ -337,7 +339,7 @@ class TestResolver(BaseTest):
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
         expr = resolve_types(expr, self.context)
-        pdi_table_type = ast.TableType(table=self.database.person_distinct_ids)
+        pdi_table_type = ast.LazyTableType(table=self.database.person_distinct_ids)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
@@ -817,12 +819,12 @@ class TestResolver(BaseTest):
         node = resolve_types(node, self.context)
         select_subquery_type = ast.SelectQueryType(
             aliases={
-                "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
-                "b": ast.FieldAliasType(alias="b", type=ast.ConstantType(data_type="int")),
+                "a": ast.FieldAliasType(alias="a", type=ast.IntegerType()),
+                "b": ast.FieldAliasType(alias="b", type=ast.IntegerType()),
             },
             columns={
-                "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
-                "b": ast.FieldAliasType(alias="b", type=ast.ConstantType(data_type="int")),
+                "a": ast.FieldAliasType(alias="a", type=ast.IntegerType()),
+                "b": ast.FieldAliasType(alias="b", type=ast.IntegerType()),
             },
             tables={},
             anonymous_tables=[],
@@ -842,12 +844,12 @@ class TestResolver(BaseTest):
             alias="x",
             select_query_type=ast.SelectQueryType(
                 aliases={
-                    "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
-                    "b": ast.FieldAliasType(alias="b", type=ast.ConstantType(data_type="int")),
+                    "a": ast.FieldAliasType(alias="a", type=ast.IntegerType()),
+                    "b": ast.FieldAliasType(alias="b", type=ast.IntegerType()),
                 },
                 columns={
-                    "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
-                    "b": ast.FieldAliasType(alias="b", type=ast.ConstantType(data_type="int")),
+                    "a": ast.FieldAliasType(alias="a", type=ast.IntegerType()),
+                    "b": ast.FieldAliasType(alias="b", type=ast.IntegerType()),
                 },
                 tables={},
                 anonymous_tables=[],

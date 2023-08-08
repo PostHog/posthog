@@ -1,11 +1,11 @@
-import { Editor as TTEditor, Extension } from '@tiptap/core'
+import { Extension } from '@tiptap/core'
 import Suggestion from '@tiptap/suggestion'
 
-import { FloatingMenu, ReactRenderer } from '@tiptap/react'
-import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
-import { IconCohort, IconPlus, IconQueryEditor, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
+import { ReactRenderer } from '@tiptap/react'
+import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { IconCohort, IconQueryEditor, IconRecording, IconTableChart, IconUploadFile } from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { EditorCommands, EditorRange, isCurrentNodeEmpty } from './utils'
+import { EditorCommands, EditorRange } from './utils'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -13,6 +13,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
+import { selectFile } from '../Nodes/utils'
 
 type SlashCommandsProps = {
     mode: 'slash' | 'add'
@@ -29,7 +30,7 @@ type SlashCommandsItem = {
     title: string
     search?: string
     icon?: JSX.Element
-    command: (chain: EditorCommands) => EditorCommands
+    command: (chain: EditorCommands) => EditorCommands | Promise<EditorCommands>
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
@@ -51,7 +52,7 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
     },
     {
         title: 'I',
-        command: (chain) => chain.toggleBold(),
+        command: (chain) => chain.toggleItalic(),
     },
 ]
 
@@ -83,9 +84,28 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         icon: <IconRecording />,
         command: (chain) => chain.insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
+    {
+        title: 'Image',
+        search: 'picture',
+        icon: <IconUploadFile />,
+        command: async (chain) => {
+            // Trigger upload followed by insert
+            try {
+                const files = await selectFile({ contentType: 'image/*', multiple: false })
+
+                if (files.length) {
+                    return chain.insertContent({ type: NotebookNodeType.Image, attrs: { file: files[0] } })
+                }
+            } catch (e) {
+                lemonToast.error('Something went wrong when trying to select a file.')
+            }
+
+            return chain
+        },
+    },
 ]
 
-const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
+export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
     { mode, range = { from: 0, to: 0 }, query },
     ref
 ): JSX.Element | null {
@@ -120,14 +140,15 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const onPressEnter = (): void => {
+    const onPressEnter = async (): Promise<void> => {
         if (!!editor) {
             const command =
                 selectedIndex === -1
                     ? TEXT_CONTROLS[selectedHorizontalIndex].command
                     : filteredSlashCommands[selectedIndex].command
 
-            command(editor.deleteRange(range)).run()
+            const partialCommand = await command(editor.deleteRange(range))
+            partialCommand.run()
         }
     }
     const onPressUp = (): void => {
@@ -172,10 +193,8 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
             return
         }
 
-        console.log('Listening')
         // If not opened from a slash command, we want to add our own keyboard listeners
         const keyDownListener = (event: KeyboardEvent): void => {
-            console.log('keydown', event)
             const preventDefault = onKeyDown(event)
             if (preventDefault) {
                 event.preventDefault()
@@ -200,7 +219,7 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
                         status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
-                        onClick={() => item.command(editor.deleteRange(range)).run()}
+                        onClick={async () => (await item.command(editor.deleteRange(range))).run()}
                     >
                         {item.title}
                     </LemonButton>
@@ -216,7 +235,7 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
                     status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={() => item.command(editor.deleteRange(range)).run()}
+                    onClick={async () => (await item.command(editor.deleteRange(range))).run()}
                 >
                     {item.title}
                 </LemonButton>
@@ -252,40 +271,6 @@ const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         />
     )
 })
-
-export function FloatingSlashCommands({ editor }: { editor: TTEditor }): JSX.Element | null {
-    const shouldShow = useCallback((): boolean => {
-        if (!editor) {
-            return false
-        }
-        if (editor.view.hasFocus() && editor.isEditable && editor.isActive('paragraph') && isCurrentNodeEmpty(editor)) {
-            return true
-        }
-
-        return false
-    }, [editor])
-
-    return editor ? (
-        <FloatingMenu
-            editor={editor}
-            tippyOptions={{ duration: 100, placement: 'left' }}
-            className="NotebookFloatingButton"
-            shouldShow={shouldShow}
-        >
-            <LemonButtonWithDropdown
-                size="small"
-                icon={<IconPlus />}
-                dropdown={{
-                    overlay: <SlashCommands mode="add" range={undefined} />,
-                    placement: 'right-start',
-                    fallbackPlacements: ['left-start'],
-                    actionable: true,
-                    closeParentPopoverOnClickInside: true,
-                }}
-            />
-        </FloatingMenu>
-    ) : null
-}
 
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',

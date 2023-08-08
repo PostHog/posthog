@@ -3,8 +3,10 @@ from datetime import datetime, timedelta
 import json
 from typing import Any, List, Type, cast
 
+import posthoganalytics
 from dateutil import parser
 import requests
+from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse, HttpResponse
 from loginas.utils import is_impersonated_session
@@ -19,7 +21,7 @@ from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import Filter
+from posthog.models import Filter, User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.session_recording.session_recording import SessionRecording
@@ -68,12 +70,17 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "distinct_id",
             "viewed",
             "recording_duration",
+            "active_seconds",
+            "inactive_seconds",
             "start_time",
             "end_time",
             "click_count",
             "keypress_count",
+            "mouse_activity_count",
+            "console_log_count",
+            "console_warn_count",
+            "console_error_count",
             "start_url",
-            "matching_events",
             "person",
             "storage",
             "pinned_count",
@@ -84,12 +91,17 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "distinct_id",
             "viewed",
             "recording_duration",
+            "active_seconds",
+            "inactive_seconds",
             "start_time",
             "end_time",
             "click_count",
             "keypress_count",
+            "mouse_activity_count",
+            "console_log_count",
+            "console_warn_count",
+            "console_error_count",
             "start_url",
-            "matching_events",
             "storage",
             "pinned_count",
         ]
@@ -204,9 +216,17 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def _snapshots_v2(self, request: request.Request):
         """
-        This will eventually replaced the snapshots endpoint below.
+        This will eventually replace the snapshots endpoint below.
         This path only supports loading from S3 or Redis based on query params
         """
+
+        event_properties = {"team_id": self.team.pk}
+        if request.headers.get("X-POSTHOG-SESSION-ID"):
+            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
+        )
+
         recording = self.get_object()
         response_data = {}
         source = request.GET.get("source")
@@ -255,6 +275,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         elif source == "realtime":
             snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id) or []
+
+            event_properties["source"] = "realtime"
+            event_properties["snapshots_length"] = len(snapshots)
+            posthoganalytics.capture(
+                self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
+            )
+
             response_data["snapshots"] = snapshots
 
         elif source == "blob":
@@ -267,6 +294,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
+
+            event_properties["source"] = "blob"
+            event_properties["blob_key"] = blob_key
+            posthoganalytics.capture(
+                self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
+            )
 
             with requests.get(url=url, stream=True) as r:
                 r.raise_for_status()
@@ -291,6 +324,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         if request.GET.get("version") == "2":
             return self._snapshots_v2(request)
+
+        event_properties = {"team_id": self.team.pk}
+        if request.headers.get("X-POSTHOG-SESSION-ID"):
+            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request), "v1 session recording snapshots viewed", event_properties
+        )
 
         recording = self.get_object()
 
@@ -329,6 +369,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         }
 
         return snapshots_response(res)
+
+    @staticmethod
+    def _distinct_id_from_request(request):
+        if isinstance(request.user, AnonymousUser):
+            return request.GET.get("sharing_access_token") or "anonymous"
+        elif isinstance(request.user, User):
+            return str(request.user.distinct_id)
+        else:
+            return "anonymous"
 
     # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)
@@ -372,8 +421,8 @@ def list_recordings(
     all_session_ids = filter.session_ids
     recordings: List[SessionRecording] = []
     more_recordings_available = False
-    can_use_v2 = v2 and not any(entity.has_hogql_property for entity in filter.entities)
-    can_use_v3 = v3 and not any(entity.has_hogql_property for entity in filter.entities)
+    can_use_v2 = False
+    can_use_v3 = v3
     team = context["get_team"]()
 
     if all_session_ids:

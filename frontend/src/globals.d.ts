@@ -19,5 +19,6 @@ declare global {
             featureFlags: Record<string, boolean | string>
         }
         IMPERSONATED_SESSION?: boolean
+        POSTHOG_JS_UUID_VERSION?: string
     }
 }

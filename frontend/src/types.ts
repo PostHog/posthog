@@ -26,8 +26,9 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext, HogQLQuery } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -101,6 +102,7 @@ export enum ProductKey {
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
     DATA_WAREHOUSE = 'data_warehouse',
+    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
@@ -148,6 +150,15 @@ export interface UserBasicType extends UserBaseType {
     id: number
 }
 
+/**
+ * A user can have scene dashboard choices for multiple teams
+ * TODO does this only have the current team's choices?
+ */
+export interface SceneDashboardChoice {
+    scene: DashboardCompatibleScenes
+    dashboard: number | DashboardBasicType
+}
+
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
@@ -163,12 +174,12 @@ export interface UserType extends UserBaseType {
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
     realm?: Realm
-    posthog_version?: string
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
+    scene_personalisation?: SceneDashboardChoice[]
 }
 
 export interface NotificationSettings {
@@ -326,7 +337,6 @@ export interface TeamType extends TeamBasicType {
     capture_performance_opt_in: boolean
     autocapture_exceptions_opt_in: boolean
     autocapture_exceptions_errors_to_ignore: string[]
-    session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: PathCleaningFilter[]
@@ -717,7 +727,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
+export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'log' | 'warn' | 'error'
 export interface RecordingFilters {
@@ -727,8 +737,9 @@ export interface RecordingFilters {
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
-    duration_type_filter?: DurationTypeFilter
+    duration_type_filter?: DurationType
     console_logs?: FilterableLogLevel[]
+    filter_test_accounts?: boolean
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -921,6 +932,7 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+    DASHBOARD = 'dashboard',
 }
 
 export enum LayoutView {
@@ -991,6 +1003,8 @@ export interface SessionRecordingType {
     viewed: boolean
     /** Length of recording in seconds. */
     recording_duration: number
+    active_seconds?: number
+    inactive_seconds?: number
     /** When the recording starts in ISO format. */
     start_time: string
     /** When the recording ends in ISO format. */
@@ -1002,9 +1016,14 @@ export interface SessionRecordingType {
     person?: PersonType
     click_count?: number
     keypress_count?: number
+    /** count of all mouse activity in the recording, not just clicks */
+    mouse_activity_count?: number
     start_url?: string
     /** Count of number of playlists this recording is pinned to. **/
     pinned_count?: number
+    console_log_count?: number
+    console_warn_count?: number
+    console_error_count?: number
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
 }
@@ -1648,6 +1667,7 @@ export interface TrendsFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    show_percent_stack_view?: boolean
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
@@ -2034,15 +2054,15 @@ export interface Survey {
     /** UUID */
     id: string
     name: string
-    description: string
     type: SurveyType
+    description: string
     linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
-    questions: SurveyQuestion[]
+    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
     start_date: string | null
@@ -2055,6 +2075,7 @@ export enum SurveyType {
     Button = 'button',
     FullScreen = 'full_screen',
     Email = 'email',
+    API = 'api',
 }
 
 export interface SurveyAppearance {
@@ -2063,21 +2084,44 @@ export interface SurveyAppearance {
     textColor?: string
     submitButtonText?: string
     descriptionTextColor?: string
+    ratingButtonColor?: string
+    ratingButtonHoverColor?: string
 }
 
-export interface SurveyQuestion {
-    type: SurveyQuestionType
+interface SurveyQuestionBase {
     question: string
     description?: string | null
     required?: boolean
-    link: string | null
-    choices?: string[] | null
 }
+
+export interface BasicSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Open | SurveyQuestionType.NPS
+}
+
+export interface LinkSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Link
+    link: string | null
+}
+
+export interface RatingSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Rating
+    display: 'number' | 'emoji'
+    scale: number
+    lowerBoundLabel: string
+    upperBoundLabel: string
+}
+
+export interface MultipleSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
+    choices: string[]
+}
+
+export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
 
 export enum SurveyQuestionType {
     Open = 'open',
-    MultipleChoiceSingle = 'multiple_single',
-    MultipleChoiceMulti = 'multiple_multi',
+    MultipleChoice = 'multiple_choice',
+    SingleChoice = 'single_choice',
     NPS = 'nps',
     Rating = 'rating',
     Link = 'link',
@@ -2220,7 +2264,6 @@ export interface PreflightStatus {
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
-    posthog_version?: string
     email_service_available: boolean
     slack_service: {
         available: boolean
@@ -2228,7 +2271,6 @@ export interface PreflightStatus {
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
-    is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
     site_url?: string
@@ -2250,6 +2292,8 @@ export enum DashboardPlacement {
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
+    Person = 'person', // When the dashboard is being viewed on a person page
+    Group = 'group', // When the dashboard is being viewed on a group page
 }
 
 export enum DashboardMode { // Default mode is null
@@ -2302,8 +2346,6 @@ export interface EventDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null
-    query_usage_30_day?: number | null
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
@@ -2337,8 +2379,6 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null // TODO: Deprecated, replace or remove
-    query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
@@ -2397,6 +2437,8 @@ export interface Experiment {
         recommended_running_time?: number
         recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
+        custom_exposure_filter?: FilterType
+        aggregation_group_type_index?: number
     }
     start_date?: string | null
     end_date?: string | null
@@ -2497,7 +2539,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 export interface KeyMapping {
     label: string
     description?: string | JSX.Element
-    examples?: string[]
+    examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
 }
@@ -2557,11 +2599,6 @@ export enum HelpType {
     Docs = 'docs',
     Updates = 'updates',
     SupportForm = 'support_form',
-}
-
-export interface VersionType {
-    version: string
-    release_date?: string
 }
 
 export interface DateMappingOption {
@@ -2924,7 +2961,6 @@ export interface RecordingReportLoadTimes {
     metadata: RecordingReportLoadTimeRow
     snapshots: RecordingReportLoadTimeRow
     events: RecordingReportLoadTimeRow
-    performanceEvents: RecordingReportLoadTimeRow
     firstPaint: RecordingReportLoadTimeRow
 }
 
@@ -2981,9 +3017,19 @@ export enum NotebookNodeType {
     FeatureFlag = 'ph-feature-flag',
     Person = 'ph-person',
     Link = 'ph-link',
+    Backlink = 'ph-backlink',
+    ReplayTimestamp = 'ph-replay-timestamp',
+    Image = 'ph-image',
+}
+
+export enum NotebookTarget {
+    Popover = 'popover',
+    Auto = 'auto',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export interface DataWarehouseCredential {
     access_key: string
@@ -3000,3 +3046,11 @@ export interface DataWarehouseTable {
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
+
+export interface DataWarehouseSavedQuery {
+    /** UUID */
+    id: string
+    name: string
+    query: HogQLQuery
+    columns: DatabaseSchemaQueryResponseField[]
+}

@@ -21,19 +21,21 @@ import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/util
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import clsx from 'clsx'
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import equal from 'fast-deep-equal'
+import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export interface DataNodeLogicProps {
     key: string
     query: DataNode
-    /* Cached Results are provided when shared or exported,
-    the data node logic becomes read only implicitly */
+    /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
     cachedResults?: AnyResponseType
+    /** Disabled data fetching and only allow cached results. */
+    doNotLoad?: boolean
 }
 
 const AUTOLOAD_INTERVAL = 30000
@@ -43,19 +45,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     connect({
         values: [userLogic, ['user'], teamLogic, ['currentTeamId']],
     }),
-    props({} as DataNodeLogicProps),
+    props({ query: {} } as DataNodeLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props, values }, oldProps) => {
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (props.query?.kind && !objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
+        if (
+            props.query?.kind &&
+            !objectsEqual(props.query, oldProps.query) &&
+            (!props.cachedResults ||
+                (isInsightQueryNode(props.query) &&
+                    (props.cachedResults['result'] === null || props.cachedResults['result'] === undefined)))
+        ) {
             actions.loadData()
         }
-        if (
-            props.cachedResults &&
-            (!values.response || (oldProps.cachedResults && !equal(props.cachedResults, oldProps.cachedResults)))
-        ) {
+        if (props.cachedResults && !values.response) {
             actions.setResponse(props.cachedResults)
         }
     }),
@@ -79,6 +84,23 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh, queryId }, breakpoint) => {
+                    if (props.doNotLoad) {
+                        return props.cachedResults
+                    }
+                    if (
+                        isInsightQueryNode(props.query) &&
+                        props.cachedResults &&
+                        props.cachedResults['id'] &&
+                        props.cachedResults['filters'] &&
+                        equal(props.query, filtersToQueryNode(props.cachedResults['filters']))
+                    ) {
+                        const url = `api/projects/${values.currentTeamId}/insights/${props.cachedResults['id']}?refresh=true`
+                        const fetchResponse = await api.getResponse(url)
+                        const data = await getJSONOrThrow(fetchResponse)
+                        breakpoint()
+                        return data
+                    }
+
                     if (props.cachedResults && !refresh) {
                         return props.cachedResults
                     }
@@ -88,7 +110,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    if (Object.keys(props.query).length === 0) {
+                    if (props.query === undefined || Object.keys(props.query).length === 0) {
                         // no need to try and load a query before properly initialized
                         return null
                     }
@@ -213,7 +235,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // store the 'autoload toggle' state in localstorage, separately for each data node kind
             {
                 persist: true,
-                storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query.kind, {
+                storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query?.kind, {
                     action: isEventsQuery(props.query) && props.query.actionId,
                     person: isEventsQuery(props.query) && props.query.personId,
                 }),
@@ -343,7 +365,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
                 }
-                if (isPersonsNode(query) && response && !responseError) {
+                if (isPersonsNode(query) && response && !responseError && response.next) {
                     const personsResults = (response as PersonsNode['response'])?.results
                     const nextQuery: PersonsNode = {
                         ...query,
@@ -372,8 +394,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         nextAllowedRefresh: [
             (s, p) => [p.query, s.response],
             (query, response): string | null => {
-                return isInsightQueryNode(query) && response && 'next_allowed_refresh' in response
-                    ? response.next_allowed_refresh
+                return isInsightQueryNode(query) && response && 'next_allowed_client_refresh' in response
+                    ? response.next_allowed_client_refresh
                     : null
             },
         ],
@@ -436,8 +458,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadData()
+    afterMount(({ actions, props }) => {
+        if (Object.keys(props.query || {}).length > 0) {
+            actions.loadData()
+        }
     }),
     beforeUnmount(({ actions, values }) => {
         if (values.autoLoadRunning) {

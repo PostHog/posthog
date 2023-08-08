@@ -125,12 +125,12 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
         const action = await createAction(
             {
                 team_id: teamId,
-                name: 'slack',
-                description: 'slack',
+                name: 'zapier',
+                description: 'zapier',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 deleted: false,
-                post_to_slack: true,
+                post_to_slack: false,
                 slack_message_format:
                     '[event.name] with [event.properties.name] was triggered by [person.properties.email]',
                 created_by_id: user.id,
@@ -139,7 +139,7 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
             },
             [
                 {
-                    name: 'slack',
+                    name: 'zapier',
                     tag_name: 'div',
                     text: 'text',
                     href: null,

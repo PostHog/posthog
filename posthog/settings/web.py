@@ -30,6 +30,18 @@ DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
+# Decide regular request analytics
+# Takes 3 possible formats, all separated by commas:
+# A number: "2"
+# A range: "2:5" -- represents team IDs 2, 3, 4, 5
+# The string "all" -- represents all team IDs
+DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
+
+# Decide skip hash key overrides
+DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
+    "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
+)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -216,6 +228,7 @@ LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
 CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
+X_FRAME_OPTIONS = "SAMEORIGIN"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -225,7 +238,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
@@ -236,6 +249,7 @@ REST_FRAMEWORK = {
         "posthog.rate_limit.BurstRateThrottle",
         "posthog.rate_limit.SustainedRateThrottle",
     ],
+    # The default STRICT_JSON fails the whole request if the data can't be strictly JSON-serialized
     "STRICT_JSON": False,
 }
 if DEBUG:
@@ -319,3 +333,7 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1] + [float("inf")]
 
 SALT_KEY = os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz")
+
+# temporary flag to control new UUID version setting in posthog-js
+# is set to v7 to test new generation but can be set to "og" to revert
+POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")

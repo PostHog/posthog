@@ -10,16 +10,16 @@ import {
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonBadge, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
-import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SaveCohortModal } from './SaveCohortModal'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Skeleton, Tabs } from 'antd'
+import { Skeleton } from 'antd'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -29,6 +29,10 @@ import { LemonModalProps } from '@posthog/lemon-ui'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { teamLogic } from 'scenes/teamLogic'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+
+import './PersonsModal.scss'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
@@ -195,14 +199,16 @@ export function PersonsModal({
                     <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
-                    <LemonButton
-                        onClick={() => setIsCohortModalOpen(true)}
-                        type="primary"
-                        data-attr="person-modal-save-as-cohort"
-                        disabled={!actors.length}
-                    >
-                        Save as cohort
-                    </LemonButton>
+                    {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                        <LemonButton
+                            onClick={() => setIsCohortModalOpen(true)}
+                            type="primary"
+                            data-attr="person-modal-save-as-cohort"
+                            disabled={!actors.length}
+                        >
+                            Save as cohort
+                        </LemonButton>
+                    )}
                 </LemonModal.Footer>
             </LemonModal>
             <SaveCohortModal
@@ -261,14 +267,14 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
 
                 <div className="flex-1 overflow-hidden">
                     {isGroupType(actor) ? (
-                        <strong>
-                            <GroupActorHeader actor={actor} />
-                        </strong>
+                        <div className="font-bold">
+                            <GroupActorDisplay actor={actor} />
+                        </div>
                     ) : (
                         <>
-                            <strong>
-                                <PersonHeader person={actor} withIcon={false} />
-                            </strong>
+                            <div className="font-bold flex items-start">
+                                <PersonDisplay person={actor} withIcon={false} />
+                            </div>
                             <CopyToClipboardInline
                                 explicitValue={actor.distinct_ids[0]}
                                 iconStyle={{ color: 'var(--primary)' }}
@@ -296,63 +302,73 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
             </div>
 
             {expanded ? (
-                <div className="bg-side border-t rounded-b">
-                    <Tabs defaultActiveKey={tab} onChange={setTab} tabBarStyle={{ paddingLeft: 16, marginBottom: 0 }}>
-                        <Tabs.TabPane tab="Properties" key="properties">
-                            {propertiesTimelineFilter ? (
-                                <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
-                            ) : (
-                                <PropertiesTable
-                                    type={actor.type /* "person" or "group" */ as PropertyDefinitionType}
-                                    properties={actor.properties}
-                                />
-                            )}
-                        </Tabs.TabPane>
-                        <Tabs.TabPane tab="Recordings" key="recordings">
-                            <div className="p-2 space-y-2 font-medium mt-1">
-                                <div className="flex justify-between items-center px-2">
-                                    <span>{pluralize(matchedRecordings.length, 'matched recording')}</span>
-                                </div>
-                                <ul className="space-y-px">
-                                    {matchedRecordings?.length
-                                        ? matchedRecordings.map((recording, i) => (
-                                              <>
-                                                  <LemonDivider className="my-0" />
-                                                  <li key={i}>
-                                                      <LemonButton
-                                                          key={i}
-                                                          fullWidth
-                                                          onClick={() => {
-                                                              recording.session_id &&
-                                                                  onOpenRecording({
-                                                                      id: recording.session_id,
-                                                                      matching_events: [
-                                                                          {
-                                                                              events: recording.events,
-                                                                              session_id: recording.session_id,
-                                                                          },
-                                                                      ],
-                                                                  })
-                                                          }}
-                                                      >
-                                                          <div className="flex flex-1 justify-between gap-2 items-center">
-                                                              <span>View recording {i + 1}</span>
-                                                              <IconPlayCircle className="text-xl text-muted" />
-                                                          </div>
-                                                      </LemonButton>
-                                                  </li>
-                                              </>
-                                          ))
-                                        : null}
-                                </ul>
-                            </div>
-                        </Tabs.TabPane>
-                    </Tabs>
+                <div className="PersonsModal__tabs bg-side border-t rounded-b">
+                    <LemonTabs
+                        activeKey={tab}
+                        onChange={setTab}
+                        tabs={[
+                            {
+                                key: 'properties',
+                                label: 'Properties',
+                                content: propertiesTimelineFilter ? (
+                                    <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
+                                ) : (
+                                    <PropertiesTable
+                                        type={actor.type /* "person" or "group" */ as PropertyDefinitionType}
+                                        properties={actor.properties}
+                                    />
+                                ),
+                            },
+                            {
+                                key: 'recordings',
+                                label: 'Recordings',
+                                content: (
+                                    <div className="p-2 space-y-2 font-medium mt-1">
+                                        <div className="flex justify-between items-center px-2">
+                                            <span>{pluralize(matchedRecordings.length, 'matched recording')}</span>
+                                        </div>
+                                        <ul className="space-y-px">
+                                            {matchedRecordings?.length
+                                                ? matchedRecordings.map((recording, i) => (
+                                                      <>
+                                                          <LemonDivider className="my-0" />
+                                                          <li key={i}>
+                                                              <LemonButton
+                                                                  key={i}
+                                                                  fullWidth
+                                                                  onClick={() => {
+                                                                      recording.session_id &&
+                                                                          onOpenRecording({
+                                                                              id: recording.session_id,
+                                                                              matching_events: [
+                                                                                  {
+                                                                                      events: recording.events,
+                                                                                      session_id: recording.session_id,
+                                                                                  },
+                                                                              ],
+                                                                          })
+                                                                  }}
+                                                              >
+                                                                  <div className="flex flex-1 justify-between gap-2 items-center">
+                                                                      <span>View recording {i + 1}</span>
+                                                                      <IconPlayCircle className="text-xl text-muted" />
+                                                                  </div>
+                                                              </LemonButton>
+                                                          </li>
+                                                      </>
+                                                  ))
+                                                : null}
+                                        </ul>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
                 </div>
             ) : null}
 
             {actor.value_at_data_point !== null && (
-                <Tooltip title={`${name}'s value for this data point.`}>
+                <Tooltip title={`${name}'s value for this data point.`}>
                     <LemonBadge.Number
                         count={actor.value_at_data_point}
                         maxDigits={Infinity}

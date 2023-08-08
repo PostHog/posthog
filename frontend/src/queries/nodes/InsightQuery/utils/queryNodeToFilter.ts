@@ -15,6 +15,23 @@ import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter 
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
+export const seriesNodeToFilter = (node: EventsNode | ActionsNode, index?: number): ActionFilter => {
+    const entity: ActionFilter = objectClean({
+        type: isActionsNode(node) ? EntityTypes.ACTIONS : EntityTypes.EVENTS,
+        id: (!isActionsNode(node) ? node.event : node.id) || null,
+        order: index,
+        name: node.name,
+        custom_name: node.custom_name,
+        // TODO: math is not supported by funnel and lifecycle queries
+        math: node.math,
+        math_property: node.math_property,
+        math_hogql: node.math_hogql,
+        math_group_type_index: node.math_group_type_index,
+        properties: node.properties as any, // TODO,
+    })
+    return entity
+}
+
 export const seriesToActionsAndEvents = (
     series: (EventsNode | ActionsNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
@@ -22,20 +39,7 @@ export const seriesToActionsAndEvents = (
     const events: ActionFilter[] = []
     const new_entity: ActionFilter[] = []
     series.forEach((node, index) => {
-        const entity: ActionFilter = objectClean({
-            type: isActionsNode(node) ? EntityTypes.ACTIONS : EntityTypes.EVENTS,
-            id: (!isActionsNode(node) ? node.event : node.id) || null,
-            order: index,
-            name: node.name,
-            custom_name: node.custom_name,
-            // TODO: math is not supported by funnel and lifecycle queries
-            math: node.math,
-            math_property: node.math_property,
-            math_hogql: node.math_hogql,
-            math_group_type_index: node.math_group_type_index,
-            properties: node.properties as any, // TODO,
-        })
-
+        const entity = seriesNodeToFilter(node, index)
         if (isEventsNode(node)) {
             events.push(entity)
         } else if (isActionsNode(node)) {

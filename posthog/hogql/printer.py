@@ -1,9 +1,9 @@
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date
 from difflib import get_close_matches
 from typing import List, Literal, Optional, Union, cast
-
+from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -16,11 +16,10 @@ from posthog.hogql.functions import (
     HOGQL_CLICKHOUSE_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
     HOGQL_AGGREGATIONS,
-    ADD_TIMEZONE_TO_FUNCTIONS,
     HOGQL_POSTHOG_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table, FunctionCallTable
+from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.errors import HogQLException
@@ -36,6 +35,7 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.utils import UUIDT
 from posthog.utils import PersonOnEventsMode
 
 
@@ -69,14 +69,12 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> ast.Expr:
-
     context.database = context.database or create_hogql_database(context.team_id)
 
     node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
-
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
 
@@ -96,7 +94,7 @@ def print_prepared_ast(
 class JoinExprResponse:
     printed_sql: str
     where: Optional[ast.Expr] = None
-    ctes: Optional[List[str]] = None
+    cte: Optional[str] = None
 
 
 class _Printer(Visitor):
@@ -167,7 +165,8 @@ class _Printer(Visitor):
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
-            ctes.extend(visited_join.ctes or [])
+            if visited_join.cte:
+                ctes.append(visited_join.cte)
 
             # This is an expression we must add to the SELECT's WHERE clause to limit results, like the team ID guard.
             extra_where = visited_join.where
@@ -244,7 +243,7 @@ class _Printer(Visitor):
         extra_where: Optional[ast.Expr] = None
 
         join_strings = []
-        ctes = []
+        cte = None
 
         if node.join_type is not None:
             join_strings.append(node.join_type)
@@ -254,19 +253,27 @@ class _Printer(Visitor):
             while isinstance(table_type, ast.TableAliasType):
                 table_type = table_type.table_type
 
-            if not isinstance(table_type, ast.TableType):
+            if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise HogQLException(f"Invalid table type {type(table_type).__name__} in join_expr")
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
             # Skip function call tables like numbers(), s3(), etc.
-            if self.dialect == "clickhouse" and not isinstance(table_type.table, FunctionCallTable):
+            if (
+                self.dialect == "clickhouse"
+                and not isinstance(table_type.table, FunctionCallTable)
+                and not isinstance(table_type.table, SavedQuery)
+            ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
+
+                # Always put S3 Tables in a CTE so joins can work when queried
                 if isinstance(table_type.table, S3Table):
-                    ctes.append(f"{node.alias} AS (SELECT * FROM {sql})")
-                    sql = table_type.table.to_printed_hogql()
+                    cte = f"{self._print_identifier(node.alias)} AS (SELECT * FROM {sql})"
+
+                    # The table is captured in a CTE so just print the table name in the final select
+                    sql = self._print_identifier(node.alias or table_type.table.name)
             else:
                 sql = table_type.table.to_printed_hogql()
             join_strings.append(sql)
@@ -305,7 +312,7 @@ class _Printer(Visitor):
         if node.constraint is not None:
             join_strings.append(f"ON {self.visit(node.constraint)}")
 
-        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where, ctes=ctes if ctes else None)
+        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where, cte=cte)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
@@ -369,76 +376,158 @@ class _Printer(Visitor):
         nullable_right = self._is_nullable(node.right)
         not_nullable = not nullable_left and not nullable_right
 
-        if node.op == ast.CompareOperationOp.Eq:
-            if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
-                return "1" if node.left.value == node.right.value else "0"
-            elif in_join_constraint or self.dialect == "hogql" or not_nullable:
-                return f"equals({left}, {right})"
-            elif isinstance(node.right, ast.Constant):
-                if node.right.value is None:
-                    return f"isNull({left})"
-                return f"ifNull(equals({left}, {right}), 0)"
-            elif isinstance(node.left, ast.Constant):
-                if node.left.value is None:
-                    return f"isNull({right})"
-                return f"ifNull(equals({left}, {right}), 0)"
-            else:
-                return f"ifNull(equals({left}, {right}), isNull({left}) and isNull({right}))"
-        elif node.op == ast.CompareOperationOp.NotEq:
-            if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
-                return "1" if node.left.value != node.right.value else "0"
-            elif in_join_constraint or self.dialect == "hogql" or not_nullable:
-                return f"notEquals({left}, {right})"
-            elif isinstance(node.right, ast.Constant):
-                if node.right.value is None:
-                    return f"isNotNull({left})"
-                return f"ifNull(notEquals({left}, {right}), 1)"
-            elif isinstance(node.left, ast.Constant):
-                if node.left.value is None:
-                    return f"isNotNull({right})"
-                return f"ifNull(notEquals({left}, {right}), 1)"
-            else:
-                return f"ifNull(notEquals({left}, {right}), isNotNull({left}) or isNotNull({right}))"
+        constant_lambda = None
+        value_if_one_side_is_null = False
+        value_if_both_sides_are_null = False
 
-        elif node.op == ast.CompareOperationOp.Gt:
-            return f"greater({left}, {right})"
-        elif node.op == ast.CompareOperationOp.GtEq:
-            return f"greaterOrEquals({left}, {right})"
-        elif node.op == ast.CompareOperationOp.Lt:
-            return f"less({left}, {right})"
-        elif node.op == ast.CompareOperationOp.LtEq:
-            return f"lessOrEquals({left}, {right})"
+        if node.op == ast.CompareOperationOp.Eq:
+            op = f"equals({left}, {right})"
+            constant_lambda = lambda left_op, right_op: left_op == right_op
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotEq:
+            op = f"notEquals({left}, {right})"
+            constant_lambda = lambda left_op, right_op: left_op != right_op
+            value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.Like:
-            return f"like({left}, {right})"
+            op = f"like({left}, {right})"
+            value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotLike:
-            return f"notLike({left}, {right})"
+            op = f"notLike({left}, {right})"
+            value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.ILike:
-            return f"ilike({left}, {right})"
+            op = f"ilike({left}, {right})"
+            value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotILike:
-            return f"notILike({left}, {right})"
+            op = f"notILike({left}, {right})"
+            value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.In:
-            return f"in({left}, {right})"
+            op = f"in({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotIn:
-            return f"notIn({left}, {right})"
+            op = f"notIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.Regex:
-            return f"match({left}, {right})"
+            op = f"match({left}, {right})"
+            value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotRegex:
-            return f"not(match({left}, {right}))"
+            op = f"not(match({left}, {right}))"
+            value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.IRegex:
-            return f"match({left}, concat('(?i)', {right}))"
+            op = f"match({left}, concat('(?i)', {right}))"
+            value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotIRegex:
-            return f"not(match({left}, concat('(?i)', {right})))"
+            op = f"not(match({left}, concat('(?i)', {right})))"
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.Gt:
+            op = f"greater({left}, {right})"
+            constant_lambda = (
+                lambda left_op, right_op: left_op > right_op if left_op is not None and right_op is not None else False
+            )
+        elif node.op == ast.CompareOperationOp.GtEq:
+            op = f"greaterOrEquals({left}, {right})"
+            constant_lambda = (
+                lambda left_op, right_op: left_op >= right_op if left_op is not None and right_op is not None else False
+            )
+        elif node.op == ast.CompareOperationOp.Lt:
+            op = f"less({left}, {right})"
+            constant_lambda = (
+                lambda left_op, right_op: left_op < right_op if left_op is not None and right_op is not None else False
+            )
+        elif node.op == ast.CompareOperationOp.LtEq:
+            op = f"lessOrEquals({left}, {right})"
+            constant_lambda = (
+                lambda left_op, right_op: left_op <= right_op if left_op is not None and right_op is not None else False
+            )
         else:
             raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
 
-    def visit_constant(self, node: ast.Constant):
-        if self.dialect == "clickhouse" and (
-            isinstance(node.value, str) or isinstance(node.value, list) or isinstance(node.value, tuple)
-        ):
-            # inline the string in hogql, but use %(hogql_val_0)s in clickhouse
-            return self.context.add_value(node.value)
+        # Try to see if we can take shortcuts
+
+        # Can we compare constants?
+        if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant) and constant_lambda is not None:
+            return "1" if constant_lambda(node.left.value, node.right.value) else "0"
+
+        # Special cases when we should not add any null checks
+        if in_join_constraint or self.dialect == "hogql" or not_nullable:
+            return op
+
+        # Special optimization for "Eq" operator
+        if node.op == ast.CompareOperationOp.Eq:
+            if isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNull({left})"
+                return f"ifNull({op}, 0)"
+            elif isinstance(node.left, ast.Constant):
+                if node.left.value is None:
+                    return f"isNull({right})"
+                return f"ifNull({op}, 0)"
+            return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
+
+        # Special optimization for "NotEq" operator
+        if node.op == ast.CompareOperationOp.NotEq:
+            if isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNotNull({left})"
+                return f"ifNull({op}, 1)"
+            elif isinstance(node.left, ast.Constant):
+                if node.left.value is None:
+                    return f"isNotNull({right})"
+                return f"ifNull({op}, 1)"
+            return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"  # Worse case performance, but accurate
+
+        # Return false if one, but only one of the two sides is a null constant
+        if isinstance(node.right, ast.Constant) and node.right.value is None:
+            # Both are a constant null
+            if isinstance(node.left, ast.Constant) and node.left.value is None:
+                return "1" if value_if_both_sides_are_null is True else "0"
+
+            # Only the right side is null. Return a value only if the left side doesn't matter.
+            if value_if_both_sides_are_null == value_if_one_side_is_null:
+                return "1" if value_if_one_side_is_null is True else "0"
+        elif isinstance(node.left, ast.Constant) and node.left.value is None:
+            # Only the left side is null. Return a value only if the right side doesn't matter.
+            if value_if_both_sides_are_null == value_if_one_side_is_null:
+                return "1" if value_if_one_side_is_null is True else "0"
+
+        # "in" and "not in" return 0/1 when the right operator is null, so optimize if the left operand is not nullable
+        if node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn:
+            if not nullable_left or (isinstance(node.left, ast.Constant) and node.left.value is not None):
+                return op
+
+        # No constants, so check for nulls in SQL
+        if value_if_one_side_is_null is True and value_if_both_sides_are_null is True:
+            return f"ifNull({op}, 1)"
+        elif value_if_one_side_is_null is True and value_if_both_sides_are_null is False:
+            return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"
+        elif value_if_one_side_is_null is False and value_if_both_sides_are_null is True:
+            return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
+        elif value_if_one_side_is_null is False and value_if_both_sides_are_null is False:
+            return f"ifNull({op}, 0)"
         else:
+            raise HogQLException("Impossible")
+
+    def visit_constant(self, node: ast.Constant):
+        if self.dialect == "hogql":
+            # Inline everything in HogQL
             return self._print_escaped_string(node.value)
+        elif (
+            node.value is None
+            or isinstance(node.value, bool)
+            or isinstance(node.value, int)
+            or isinstance(node.value, float)
+            or isinstance(node.value, UUID)
+            or isinstance(node.value, UUIDT)
+            or isinstance(node.value, datetime)
+            or isinstance(node.value, date)
+        ):
+            # Inline some permitted types in ClickHouse
+            value = self._print_escaped_string(node.value)
+            if "%" in value:
+                # We don't know if this will be passed on as part of a legacy ClickHouse query or not.
+                # Ban % to be on the safe side. Who knows how it can end up in a UUID or datetime for example.
+                raise HogQLException(f"Invalid character '%' in constant: {value}")
+            return value
+        else:
+            # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
+            return self.context.add_value(node.value)
 
     def visit_field(self, node: ast.Field):
         if node.type is None:
@@ -537,20 +626,32 @@ class _Printer(Visitor):
                 else:
                     args = [self.visit(arg) for arg in node.args]
 
-                if (func_meta.clickhouse_name == "now64" and len(node.args) == 0) or (
-                    func_meta.clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
-                ):
-                    # must add precision if adding timezone in the next step
-                    args.append("6")
+                relevant_clickhouse_name = func_meta.clickhouse_name
+                if func_meta.overloads:
+                    first_arg_constant_type = (
+                        node.args[0].type.resolve_constant_type()
+                        if len(node.args) > 0 and node.args[0].type is not None
+                        else None
+                    )
 
-                if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
+                    if first_arg_constant_type is not None:
+                        for overload_types, overload_clickhouse_name in func_meta.overloads:
+                            if isinstance(first_arg_constant_type, overload_types):
+                                relevant_clickhouse_name = overload_clickhouse_name
+                                break  # Found an overload matching the first function org
+
+                if func_meta.tz_aware:
+                    if (relevant_clickhouse_name == "now64" and len(node.args) == 0) or (
+                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
+                    ):
+                        args.append("6")  # These two CH functions require the precision argument before timezone
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
 
                 params_part = f"({', '.join(params)})" if params is not None else ""
                 args_part = f"({', '.join(args)})"
-                return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+                return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif node.name in HOGQL_POSTHOG_FUNCTIONS:
@@ -572,8 +673,6 @@ class _Printer(Visitor):
         if isinstance(node.expr, ast.Alias):
             inside = f"({inside})"
         alias = self._print_identifier(node.alias)
-        if "%" in alias:
-            raise HogQLException(f"Alias \"{node.alias}\" contains unsupported character '%'")
         return f"{inside} AS {alias}"
 
     def visit_table_type(self, type: ast.TableType):
@@ -808,12 +907,12 @@ class _Printer(Visitor):
         return escape_hogql_identifier(name)
 
     def _print_hogql_identifier_or_index(self, name: str | int) -> str:
-        # Regular identifiers can't start with a number. Print digit strings as-is for unesacped tuple access.
+        # Regular identifiers can't start with a number. Print digit strings as-is for unescaped tuple access.
         if isinstance(name, int) and str(name).isdigit():
             return str(name)
         return escape_hogql_identifier(name)
 
-    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime) -> str:
+    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime | date) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())

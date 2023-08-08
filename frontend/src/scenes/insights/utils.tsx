@@ -29,7 +29,12 @@ import { urls } from 'scenes/urls'
 import { examples } from '~/queries/examples'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
-    return filter !== null && filter.type === EntityTypes.EVENTS && filter.id === null && !filter.name
+    return (
+        filter !== null &&
+        filter.type === EntityTypes.EVENTS &&
+        filter.id === null &&
+        (!filter.name || filter.name === 'All events')
+    )
 }
 
 export const getDisplayNameFromEntityFilter = (
@@ -277,4 +282,17 @@ export const insightTypeURL: Record<InsightType, string> = {
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
     JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
     SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
+}
+
+/** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
+export function concatWithPunctuation(phrases: string[]): string {
+    if (phrases === null || phrases.length === 0) {
+        return ''
+    } else if (phrases.length === 1) {
+        return phrases[0]
+    } else if (phrases.length === 2) {
+        return `${phrases[0]} and ${phrases[1]}`
+    } else {
+        return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
+    }
 }

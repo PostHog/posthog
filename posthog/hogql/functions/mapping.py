@@ -1,6 +1,7 @@
-import ast
 from dataclasses import dataclass
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple, Type
+from posthog.hogql import ast
+from posthog.hogql.base import ConstantType
 from posthog.hogql.errors import HogQLException
 
 
@@ -29,6 +30,9 @@ def validate_function_args(
         )
 
 
+Overload = Tuple[Tuple[Type[ConstantType], ...] | Type[ConstantType], str]
+
+
 @dataclass()
 class HogQLFunctionMeta:
     clickhouse_name: str
@@ -37,6 +41,10 @@ class HogQLFunctionMeta:
     min_params: int = 0
     max_params: Optional[int] = 0
     aggregate: bool = False
+    overloads: Optional[List[Overload]] = None
+    """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
+    tz_aware: bool = False
+    """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
 
 
 HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
@@ -133,13 +141,21 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "toInt": HogQLFunctionMeta("toInt64OrNull", 1, 1),
     "toFloat": HogQLFunctionMeta("toFloat64OrNull", 1, 1),
     "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 1, 1),
-    "toDate": HogQLFunctionMeta("toDateOrNull", 1, 1),
-    "toDateTime": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 1),
+    "toDate": HogQLFunctionMeta(
+        "toDateOrNull", 1, 1, overloads=[((ast.DateTimeType, ast.DateType), "toDate")], tz_aware=True
+    ),
+    "toDateTime": HogQLFunctionMeta(
+        "parseDateTime64BestEffortOrNull",
+        1,
+        1,
+        overloads=[((ast.DateTimeType, ast.DateType), "toDateTime")],
+        tz_aware=True,
+    ),
     "toUUID": HogQLFunctionMeta("toUUIDOrNull", 1, 1),
     "toString": HogQLFunctionMeta("toString", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
-    "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 2),
-    "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 1),
+    "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 2, tz_aware=True),
+    "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 1, tz_aware=True),
     # dates and times
     "toTimeZone": HogQLFunctionMeta("toTimeZone", 2, 2),
     "timeZoneOf": HogQLFunctionMeta("timeZoneOf", 1, 1),
@@ -181,8 +197,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "dateSub": HogQLFunctionMeta("dateSub", 3, 3),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
-    "now": HogQLFunctionMeta("now64"),
-    "NOW": HogQLFunctionMeta("now64"),
+    "now": HogQLFunctionMeta("now64", tz_aware=True),
+    "NOW": HogQLFunctionMeta("now64", tz_aware=True),
     "nowInBlock": HogQLFunctionMeta("nowInBlock", 1, 1),
     "today": HogQLFunctionMeta("today"),
     "yesterday": HogQLFunctionMeta("yesterday"),
@@ -465,6 +481,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "greatCircleAngle": HogQLFunctionMeta("greatCircleAngle", 4, 4),
     "pointInEllipses": HogQLFunctionMeta("pointInEllipses", 6, None),
     "pointInPolygon": HogQLFunctionMeta("pointInPolygon", 2, None),
+    "geohashEncode": HogQLFunctionMeta("geohashEncode", 2, 3),
+    "geohashDecode": HogQLFunctionMeta("geohashDecode", 1, 1),
+    "geohashesInBox": HogQLFunctionMeta("geohashesInBox", 5, 5),
     # nullable
     "isNull": HogQLFunctionMeta("isNull", 1, 1),
     "isNotNull": HogQLFunctionMeta("isNotNull", 1, 1),
@@ -705,7 +724,6 @@ HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
 }
 
 # TODO: Make the below details part of function meta
-ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime", "parseDateTime", "parseDateTimeBestEffort")
 # Functions where we use a -OrNull variant by default
 ADD_OR_NULL_DATETIME_FUNCTIONS = ("toDateTime", "parseDateTime", "parseDateTimeBestEffort")
 # Functions where the first argument needs to be DateTime and not DateTime64

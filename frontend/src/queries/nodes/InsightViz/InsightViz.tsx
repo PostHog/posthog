@@ -36,6 +36,7 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
         query: query.source,
         key: insightVizDataNodeKey(insightProps),
         cachedResults: getCachedResults(insightProps.cachedInsight, query.source),
+        doNotLoad: insightProps.doNotLoad,
     }
 
     const { insightMode } = useValues(insightSceneLogic)
@@ -52,6 +53,9 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
     const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
     const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
     const disableLegendButton = query.showLegendButton ? !query.showLegendButton : !showIfFull
+    const disableLastComputationRefresh = query.showLastComputationRefresh
+        ? !query.showLastComputationRefresh
+        : !showIfFull
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -77,6 +81,7 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
                             disableTable={disableTable}
                             disableCorrelationTable={disableCorrelationTable}
                             disableLastComputation={disableLastComputation}
+                            disableLastComputationRefresh={disableLastComputationRefresh}
                             disableLegendButton={disableLegendButton}
                         />
                     </div>

@@ -27,7 +27,6 @@ import {
     GroupKey,
     GroupTypeIndex,
     GroupTypeToColumnIndex,
-    Hook,
     OrganizationMembershipLevel,
     Person,
     PersonDistinctId,
@@ -1215,10 +1214,6 @@ export class DB {
     }
 
     // Hook (EE)
-
-    public async deleteRestHook(hookId: Hook['id']): Promise<void> {
-        await this.postgresQuery(`DELETE FROM ee_hook WHERE id = $1`, [hookId], 'deleteRestHook')
-    }
 
     public async createUser({
         uuid,

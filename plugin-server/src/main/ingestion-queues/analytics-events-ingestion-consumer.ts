@@ -130,7 +130,7 @@ const startLegacyAnalyticsEventsIngestionConsumer = async ({
     // Subscribe to the heatbeat event to track when the consumer has last
     // successfully consumed a message. This is used to determine if the
     // consumer is healthy.
-    const isHealthy = makeHealthCheck(queue)
+    const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
 
     return { queue, isHealthy }
 }

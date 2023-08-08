@@ -369,9 +369,6 @@
                             "$ref": "#/definitions/PersonsNode"
                         },
                         {
-                            "$ref": "#/definitions/RecentPerformancePageViewNode"
-                        },
-                        {
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
@@ -1129,6 +1126,9 @@
                 "isValid": {
                     "type": "boolean"
                 },
+                "isValidView": {
+                    "type": "boolean"
+                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -1272,6 +1272,9 @@
                     "type": "boolean"
                 },
                 "showLastComputation": {
+                    "type": "boolean"
+                },
+                "showLastComputationRefresh": {
                     "type": "boolean"
                 },
                 "showLegendButton": {
@@ -1700,34 +1703,12 @@
                     "$ref": "#/definitions/LifecycleQuery"
                 },
                 {
-                    "$ref": "#/definitions/RecentPerformancePageViewNode"
-                },
-                {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
-        },
-        "RecentPerformancePageViewNode": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "kind": {
-                    "const": "RecentPerformancePageViewNode",
-                    "description": "Performance",
-                    "type": "string"
-                },
-                "response": {
-                    "description": "Cached query response",
-                    "type": "object"
-                }
-            },
-            "required": ["dateRange", "kind"],
-            "type": "object"
         },
         "RecordingDurationFilter": {
             "additionalProperties": false,
@@ -2040,6 +2021,9 @@
                     "type": "array"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_percent_stack_view": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {

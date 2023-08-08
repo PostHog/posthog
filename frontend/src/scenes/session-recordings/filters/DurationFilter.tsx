@@ -1,4 +1,4 @@
-import { DurationTypeFilter, PropertyOperator, RecordingDurationFilter } from '~/types'
+import { DurationType, PropertyOperator, RecordingDurationFilter } from '~/types'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { DurationPicker, convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
@@ -8,14 +8,12 @@ import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTy
 
 interface Props {
     recordingDurationFilter: RecordingDurationFilter
-    durationTypeFilter: DurationTypeFilter
-    onChange: (recordingDurationFilter: RecordingDurationFilter, durationType: DurationTypeFilter) => void
+    durationTypeFilter: DurationType
+    onChange: (recordingDurationFilter: RecordingDurationFilter, durationType: DurationType) => void
     pageKey: string
-    // TODO this can be removed when replay summary is the default
-    usesListingV3?: boolean
 }
 
-const durationTypeMapping: Record<DurationTypeFilter, string> = {
+const durationTypeMapping: Record<DurationType, string> = {
     duration: '',
     active_seconds: 'active ',
     inactive_seconds: 'inactive ',
@@ -23,7 +21,7 @@ const durationTypeMapping: Record<DurationTypeFilter, string> = {
 
 export const humanFriendlyDurationFilter = (
     recordingDurationFilter: RecordingDurationFilter,
-    durationTypeFilter: DurationTypeFilter
+    durationTypeFilter: DurationType
 ): string => {
     const operator = recordingDurationFilter.operator === PropertyOperator.GreaterThan ? '>' : '<'
     const duration = convertSecondsToDuration(recordingDurationFilter.value || 0)
@@ -32,12 +30,7 @@ export const humanFriendlyDurationFilter = (
     return `${operator} ${duration.timeValue || 0} ${durationDescription}${unit}`
 }
 
-export function DurationFilter({
-    recordingDurationFilter,
-    durationTypeFilter,
-    onChange,
-    usesListingV3,
-}: Props): JSX.Element {
+export function DurationFilter({ recordingDurationFilter, durationTypeFilter, onChange }: Props): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const durationString = useMemo(
         () => humanFriendlyDurationFilter(recordingDurationFilter, durationTypeFilter),
@@ -66,12 +59,11 @@ export function DurationFilter({
                         }
                         value={recordingDurationFilter.value || undefined}
                     />
-                    {usesListingV3 ? (
-                        <DurationTypeSelect
-                            onChange={(v) => onChange(recordingDurationFilter, v)}
-                            value={durationTypeFilter}
-                        />
-                    ) : null}
+
+                    <DurationTypeSelect
+                        onChange={(v) => onChange(recordingDurationFilter, v)}
+                        value={durationTypeFilter}
+                    />
                 </div>
             }
         >

@@ -21,7 +21,17 @@ import {
     RawClickHouseEvent,
 } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
+import { ActionManager } from '../../../src/worker/ingestion/action-manager'
+import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
+import { HookCommander } from '../../../src/worker/ingestion/hooks'
 
+jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
+    const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
+    return {
+        ...originalModule,
+        processWebhooksStep: jest.fn(originalModule.processWebhooksStep),
+    }
+})
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
 
@@ -172,14 +182,34 @@ describe('eachBatchX', () => {
 
     describe('eachBatchWebhooksHandlers', () => {
         it('calls runWebhooksHandlersEventPipeline', async () => {
-            await eachBatchWebhooksHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+            const actionManager = new ActionManager(queue.pluginsServer.postgres)
+            const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
+            const hookCannon = new HookCommander(
+                queue.pluginsServer.postgres,
+                queue.pluginsServer.teamManager,
+                queue.pluginsServer.organizationManager
+            )
+            const matchSpy = jest.spyOn(actionMatcher, 'match')
+            await eachBatchWebhooksHandlers(
+                createKafkaJSBatch(clickhouseEvent),
+                actionMatcher,
+                hookCannon,
+                queue.pluginsServer.statsd,
+                10
+            )
 
-            expect(queue.workerMethods.runWebhooksHandlersEventPipeline).toHaveBeenCalledWith({
-                ...event,
-                properties: {
-                    $ip: '127.0.0.1',
+            // NOTE: really it would be nice to verify that fire has been called
+            // on hookCannon, but that would require a little more setup, and it
+            // is at the least testing a little bit more than we were before.
+            expect(matchSpy).toHaveBeenCalledWith(
+                {
+                    ...event,
+                    properties: {
+                        $ip: '127.0.0.1',
+                    },
                 },
-            })
+                []
+            )
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_async_handlers_webhooks',
                 expect.any(Date)

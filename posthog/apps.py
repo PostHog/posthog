@@ -8,7 +8,6 @@ from posthoganalytics.client import Client
 
 from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
 from posthog.utils import get_git_branch, get_git_commit, get_machine_id, get_self_capture_api_token
-from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
 
@@ -22,7 +21,10 @@ class PostHogConfig(AppConfig):
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90
 
-        if settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
+        if settings.E2E_TESTING:
+            posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+            posthoganalytics.personal_api_key = None
+        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
         elif settings.DEBUG:
             # log development server launch to posthog
@@ -38,7 +40,7 @@ class PostHogConfig(AppConfig):
                 phcloud_client.capture(
                     get_machine_id(),
                     "development server launched",
-                    {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch()},
+                    {"git_rev": get_git_commit(), "git_branch": get_git_branch()},
                 )
 
             local_api_key = get_self_capture_api_token(None)
@@ -51,15 +53,6 @@ class PostHogConfig(AppConfig):
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.default_client.load_feature_flags()
-
-        if not settings.SKIP_SERVICE_VERSION_REQUIREMENTS:
-            for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:
-                in_range, version = service_version_requirement.is_service_in_accepted_version()
-                if not in_range:
-                    print(
-                        f"\033[91mService {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. To continue anyway, add SKIP_SERVICE_VERSION_REQUIREMENTS=1 as an environment variable\033[0m"
-                    )
-                    exit(1)
 
         from posthog.async_migrations.setup import setup_async_migrations
 

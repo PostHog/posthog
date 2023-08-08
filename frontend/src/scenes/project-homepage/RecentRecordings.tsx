@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import './ProjectHomepage.scss'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { asDisplay } from 'scenes/persons/PersonHeader'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
@@ -15,6 +14,7 @@ import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/Sessi
 import { teamLogic } from 'scenes/teamLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
