@@ -6,7 +6,7 @@ from posthog.warehouse.models import DataWarehouseViewLink
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 
-from posthog.models import User, PropertyDefinition
+from posthog.models import User
 from typing import Optional
 
 
@@ -30,13 +30,6 @@ class ViewLinkSerializer(serializers.ModelSerializer):
 
         view_link = DataWarehouseViewLink.objects.create(**validated_data)
 
-        columns = view_link.saved_query.get_columns()
-
-        # TODO: table to number
-        for name, _ in columns.items():
-            PropertyDefinition.objects.create(
-                team_id=validated_data["team_id"], type=table, name=name, view_link=view_link
-            )
         return view_link
 
     def _validate_join_key(self, join_key: Optional[str], table: Optional[int]) -> None:
@@ -46,7 +39,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if not table:
             raise serializers.ValidationError("View column must have a table.")
 
-        # TODO: validate join key against the
+        # TODO: validate join key against the existing tables
 
         return
 

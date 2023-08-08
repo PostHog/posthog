@@ -51,11 +51,4 @@ class Migration(migrations.Migration):
                 "abstract": False,
             },
         ),
-        migrations.AddField(
-            model_name="propertydefinition",
-            name="view_link",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.datawarehouseviewlink"
-            ),
-        ),
     ]
