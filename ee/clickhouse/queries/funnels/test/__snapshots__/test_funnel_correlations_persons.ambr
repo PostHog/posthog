@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -125,19 +126,19 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -331,19 +332,19 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.3
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -463,19 +464,19 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -593,19 +594,19 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -723,14 +724,14 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.3
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s3']
-  '
----
+  '''
+# ---
