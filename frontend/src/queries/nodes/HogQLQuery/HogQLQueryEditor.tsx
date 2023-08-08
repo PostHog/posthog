@@ -29,8 +29,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const [monaco, editor] = monacoAndEditor ?? []
     const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
-    const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
-    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt } = useActions(logic)
+    const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading, isValidView } =
+        useValues(logic)
+    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -200,22 +201,38 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         loading={<Spinner />}
                     />
                 </div>
-                <LemonButton
-                    onClick={saveQuery}
-                    type="primary"
-                    disabledReason={
-                        !props.setQuery
-                            ? 'No permission to update'
-                            : hasErrors
-                            ? error ?? 'Query has errors'
-                            : undefined
-                    }
-                    fullWidth
-                    center
-                    data-attr="hogql-query-editor-save"
-                >
-                    {!props.setQuery ? 'No permission to update' : 'Update and run'}
-                </LemonButton>
+                <div className="flex flex-row">
+                    <div className="flex-1">
+                        <LemonButton
+                            onClick={saveQuery}
+                            type="primary"
+                            disabledReason={
+                                !props.setQuery
+                                    ? 'No permission to update'
+                                    : hasErrors
+                                    ? error ?? 'Query has errors'
+                                    : undefined
+                            }
+                            center
+                            fullWidth
+                            data-attr="hogql-query-editor-save"
+                        >
+                            {!props.setQuery ? 'No permission to update' : 'Update and run'}
+                        </LemonButton>
+                    </div>
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] ? (
+                        <LemonButton
+                            className="ml-2"
+                            onClick={saveAsView}
+                            type="primary"
+                            center
+                            disabledReason={!isValidView && 'All fields must have an alias'}
+                            data-attr="hogql-query-editor-save-as-view"
+                        >
+                            {'Save as View'}
+                        </LemonButton>
+                    ) : null}
+                </div>
             </div>
         </div>
     )

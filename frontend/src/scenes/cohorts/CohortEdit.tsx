@@ -17,7 +17,6 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import Dragger from 'antd/lib/upload/Dragger'
 import { UploadFile } from 'antd/es/upload/interface'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
-import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -26,6 +25,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { Query } from '~/queries/Query/Query'
 import { pluralize } from 'lib/utils'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
@@ -196,7 +196,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     setOuterGroupsType(value)
                                 }}
                                 topLevelFilter={true}
-                                suffix="criteria"
+                                suffix={['criterion', 'criteria']}
                             />
                         </div>
                         <CohortCriteriaGroups id={logicProps.id} />
