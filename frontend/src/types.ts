@@ -28,6 +28,7 @@ import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import {
     DatabaseSchemaQueryResponseField,
+    HogQLQuery,
     InsightQueryNode,
     InsightVizNode,
     Node,
