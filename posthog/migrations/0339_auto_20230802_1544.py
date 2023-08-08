@@ -13,13 +13,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name="propertydefinition",
-            name="type",
-            field=models.PositiveSmallIntegerField(
-                choices=[(1, "event"), (2, "person"), (3, "group"), (4, "event_view"), (5, "person_view")], default=1
-            ),
-        ),
         migrations.CreateModel(
             name="DataWarehouseViewLink",
             fields=[
