@@ -160,8 +160,6 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             timestamp=three_days_ago,
             session_id=session_one,
             window_id="1234",
-            use_recording_table=True,
-            use_replay_table=False,
         )
 
         create_session_recording_events(
@@ -170,8 +168,6 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             timestamp=three_days_ago,
             session_id=session_two,
             window_id="1234",
-            use_recording_table=True,
-            use_replay_table=False,
         )
 
         # Create playlist items
@@ -222,8 +218,6 @@ class TestSessionRecordingPlaylist(APILicensedTest):
                 timestamp=three_days_ago,
                 session_id=id,
                 window_id="1234",
-                use_recording_table=True,
-                use_replay_table=False,
             )
 
         self.client.post(
