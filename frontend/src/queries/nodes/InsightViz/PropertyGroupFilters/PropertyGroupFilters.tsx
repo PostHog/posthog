@@ -57,7 +57,7 @@ export function PropertyGroupFilters({
                                         value={propertyGroupFilter.type}
                                         onChange={(value) => setOuterPropertyGroupsType(value)}
                                         topLevelFilter={true}
-                                        suffix="groups"
+                                        suffix={['group', 'groups']}
                                     />
                                 )}
                             </div>
@@ -95,16 +95,7 @@ export function PropertyGroupFilters({
                                                     </div>
                                                 </div>
                                                 <PropertyFilters
-                                                    addButton={
-                                                        <LemonButton
-                                                            type="tertiary"
-                                                            noPadding
-                                                            icon={<IconPlusMini />}
-                                                            sideIcon={null}
-                                                        >
-                                                            Add filter
-                                                        </LemonButton>
-                                                    }
+                                                    addText="Add filter"
                                                     propertyFilters={
                                                         isPropertyGroupFilterLike(group)
                                                             ? (group.values as AnyPropertyFilter[])

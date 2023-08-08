@@ -5,7 +5,7 @@ import { useCallback, useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, Node } from './utils'
+import { EditorRange, EditorFocusPosition, Node } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -24,6 +24,9 @@ import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestam
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { useActions } from 'kea'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
+import { lemonToast } from '@posthog/lemon-ui'
+import { NotebookNodeType } from '~/types'
+import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -83,6 +86,7 @@ export function Editor({
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
+            NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
         ],
@@ -126,12 +130,38 @@ export function Editor({
                         return true
                     }
 
-                    if (event.dataTransfer.files && event.dataTransfer.files[0]) {
+                    if (!moved && event.dataTransfer.files && event.dataTransfer.files[0]) {
                         // if dropping external files
                         const file = event.dataTransfer.files[0] // the dropped file
 
-                        console.warn('TODO: Dropped file!', file)
-                        // TODO: Detect if it is an image and add image upload handler
+                        posthog.capture('notebook file dropped', { file_type: file.type })
+
+                        if (!file.type.startsWith('image/')) {
+                            lemonToast.warning('Only images can be added to Notebooks at this time.')
+                            return true
+                        }
+
+                        const coordinates = view.posAtCoords({
+                            left: event.clientX,
+                            top: event.clientY,
+                        })
+
+                        if (!coordinates) {
+                            // TODO: Seek to end of document instead
+                            return true
+                        }
+
+                        editor
+                            .chain()
+                            .focus()
+                            .setTextSelection(coordinates.pos)
+                            .insertContent({
+                                type: NotebookNodeType.Image,
+                                attrs: {
+                                    file,
+                                },
+                            })
+                            .run()
 
                         return true
                     }
@@ -140,13 +170,14 @@ export function Editor({
                 return false
             },
         },
-        autofocus: 'end',
         onCreate: ({ editor }) => {
             editorRef.current = editor
             onCreate({
                 getJSON: () => editor.getJSON(),
-                setEditable: (editable: boolean) => editor.setEditable(editable, false),
-                setContent: (content: JSONContent) => editor.commands.setContent(content, false),
+                setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
+                setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
+                focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                destroy: () => editor.destroy(),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
@@ -237,7 +268,7 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
 function getPreviousNode(editor: TTEditor): Node | null {
     const { $anchor } = editor.state.selection
     const node = $anchor.node(1)
-    return !!node ? editor.state.doc.childBefore($anchor.pos - node.nodeSize).node : null
+    return !!node ? editor.state.doc.childBefore($anchor.pos - 1).node : null
 }
 
 export function hasMatchingNode(

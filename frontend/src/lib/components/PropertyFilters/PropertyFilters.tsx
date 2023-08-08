@@ -22,7 +22,7 @@ interface PropertyFiltersProps {
     logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
-    addButton?: JSX.Element | null
+    addText?: string | null
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
     allowNew?: boolean
@@ -42,7 +42,7 @@ export function PropertyFilters({
     orFiltering = false,
     logicalRowDivider = false,
     propertyGroupType = null,
-    addButton = null,
+    addText = null,
     hasRowOperator = true,
     sendAllKeyUpdates = false,
     allowNew = true,
@@ -91,7 +91,7 @@ export function PropertyFilters({
                                             eventNames={eventNames}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}
-                                            addButton={addButton}
+                                            addText={addText}
                                             hasRowOperator={hasRowOperator}
                                             selectProps={{
                                                 delayBeforeAutoOpen: 150,

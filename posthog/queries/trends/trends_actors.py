@@ -1,6 +1,5 @@
-import datetime
 import json
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
@@ -15,7 +14,6 @@ from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import (
     PROPERTY_MATH_FUNCTIONS,
     is_series_group_based,
-    offset_time_series_date_by_interval,
     process_math,
 )
 from posthog.utils import PersonOnEventsMode
@@ -30,21 +28,7 @@ class TrendsActors(ActorBaseQuery):
 
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
-            raise ValueError("Entity is required")
-        if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
-            # Before 2023, actors modal URLs for non-cumulative time-series insight data points had `date_to`
-            # (`filter._date_to`) equal to `date_from` (`filter._date_from`). To obtain the actual `date_to`,
-            # we always had to calculate it here by adding a `filter.interval` unit to `date_from`.
-            # This was annoying and only made it harder to reason about the API, so it's no longer how actors modal
-            # URLs behave. Now we only do this handling at this level for backwards compatibility (cached results)
-            # via the `date_from == date_to` check - all new requests have a "fully qualified" date range.
-            filter = filter.shallow_clone(
-                {
-                    "date_to": offset_time_series_date_by_interval(
-                        cast(datetime.datetime, filter.date_from), filter=filter, team=team
-                    )
-                }
-            )
+            raise ValueError("Entity is required for TrendsActors")
         super().__init__(team, filter, entity, **kwargs)
 
     @cached_property

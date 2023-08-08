@@ -16,16 +16,18 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
         return (
             <>
                 <h2 id="snippet" className="subtitle">
-                    Event Ingestion
+                    Event ingestion
                 </h2>
                 <p>
                     PostHog can ingest events from almost anywhere - JavaScript, Android, iOS, React Native, Node.js,
                     Ruby, Go, and more.
                 </p>
                 <p>
-                    Demo projects like this one can't ingest any more events, but you can{' '}
-                    <Link to="https://posthog.com/docs/integrations">read about ingestion in our Docs</Link> and use a
-                    non-demo project to ingest your own events.
+                    Demo projects like this one can't ingest events, but you can{' '}
+                    <Link to="https://posthog.com/docs/integrations" target="_blank">
+                        read about ingestion in our Docs
+                    </Link>{' '}
+                    and use a non-demo project to ingest your own events.
                 </p>
             </>
         )

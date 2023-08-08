@@ -142,6 +142,7 @@ export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
     isValid?: boolean
+    isValidView?: boolean
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]

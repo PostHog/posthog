@@ -1,9 +1,11 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import * as Sentry from '@sentry/node'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { PoolClient } from 'pg'
+import { Counter } from 'prom-client'
 
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
@@ -29,6 +31,11 @@ const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
     'true',
     'false',
 ])
+
+export const mergeFinalFailuresCounter = new Counter({
+    name: 'person_merge_final_failure_total',
+    help: 'Number of person merge final failures.',
+})
 
 const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined'])
 
@@ -57,8 +64,8 @@ export class PersonState {
         distinctId: string,
         timestamp: DateTime,
         db: DB,
-        statsd: StatsD | undefined,
-        poEEmbraceJoin: boolean,
+        statsd: StatsD | undefined = undefined,
+        poEEmbraceJoin = false,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
@@ -247,7 +254,16 @@ export class PersonState {
                 )
             }
         } catch (e) {
-            // TODO: should we throw
+            Sentry.captureException(e, {
+                tags: { team_id: this.teamId, pipeline_step: 'processPersonsStep' },
+                extra: {
+                    location: 'handleIdentifyOrAlias',
+                    distinctId: this.distinctId,
+                    anonId: String(this.eventProperties['$anon_distinct_id']),
+                    alias: String(this.eventProperties['alias']),
+                },
+            })
+            mergeFinalFailuresCounter.inc()
             console.error('handleIdentifyOrAlias failed', e, this.event)
         } finally {
             clearTimeout(timeout)
