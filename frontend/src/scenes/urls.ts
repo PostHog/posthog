@@ -53,8 +53,8 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     batchExports: (): string => '/batch_exports',
     batchExportNew: (): string => `/batch_exports/new`,
-    batchExport: (id: string | number): string => `/batch_exports/${id}`,
-    batchExportEdit: (id: string | number): string => `/batch_exports/${id}/edit`,
+    batchExport: (id: string): string => `/batch_exports/${id}`,
+    batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {

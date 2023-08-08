@@ -3083,13 +3083,15 @@ export type BatchExportConfiguration = {
     interval: 'hour' | 'day'
     start_at: string | null
     end_at: string | null
+    paused: boolean
+    runs?: BatchExportRun[]
 }
 
 export type BatchExportRun = {
     id: string
-    team_id: number
-    status: 'RUNNING' | 'FAILED' | 'COMPLETED' | 'PAUSED'
+    status: 'Running' | 'Failed' | 'Completed' | 'Paused'
     created_at: string
+    data_interval_start: string
+    data_interval_end: string
     last_updated_at: string
-    paused: boolean
 }

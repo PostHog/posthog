@@ -1,40 +1,43 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
-import { batchExportsListLogic } from './batchExportsListLogic'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { useEffect } from 'react'
+import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
 
 export const scene: SceneExport = {
-    component: BatchExportsScene,
+    component: BatchExportScene,
+    logic: batchExportLogic,
+    paramsToProps: ({ params: { id } }: { params: { id?: string } }): BatchExportLogicProps => ({
+        id: id ?? 'missing',
+    }),
 }
 
-export function BatchExportsScene(): JSX.Element {
-    const { batchExportConfigs, batchExportConfigsLoading } = useValues(batchExportsListLogic)
-    const { loadBatchExports } = useActions(batchExportsListLogic)
+export function BatchExportScene(): JSX.Element {
+    const { batchExportConfig, batchExportConfigLoading } = useValues(batchExportLogic)
+    const { loadBatchExportConfig } = useActions(batchExportLogic)
 
     useEffect(() => {
-        loadBatchExports()
+        loadBatchExportConfig()
     }, [])
 
     return (
         <>
             <PageHeader
-                title="Batch Exports"
+                title={batchExportConfig?.name ?? (batchExportConfigLoading ? 'Loading...' : 'Missing')}
                 buttons={
-                    <>
-                        <LemonButton type="primary" to={urls.batchExportNew()}>
-                            Create export workflow
-                        </LemonButton>
-                    </>
+                    batchExportConfig ? (
+                        <>
+                            <LemonButton type="primary" to={urls.batchExportEdit(batchExportConfig?.id)}>
+                                Edit
+                            </LemonButton>
+                        </>
+                    ) : undefined
                 }
             />
-            <p>Batch exports allow you to export your data to a destination of your choice.</p>
 
-            <LemonTable
+            {/* <LemonTable
                 dataSource={batchExportConfigs}
                 loading={batchExportConfigsLoading}
                 columns={[
@@ -117,7 +120,7 @@ export function BatchExportsScene(): JSX.Element {
                         },
                     },
                 ]}
-            />
+            /> */}
         </>
     )
 }

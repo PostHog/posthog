@@ -1,11 +1,11 @@
-import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
-import { loaders } from 'kea-loaders'
 import {
     BatchExportConfiguration,
     BatchExportDestination,
     BatchExportDestinationS3,
     BatchExportDestinationSnowflake,
+    Breadcrumb,
 } from '~/types'
 
 import api from 'lib/api'
@@ -15,7 +15,7 @@ import { beforeUnload, router } from 'kea-router'
 
 import type { batchExportsEditLogicType } from './batchExportEditLogicType'
 import { dayjs, Dayjs } from 'lib/dayjs'
-import { subscriptions } from 'kea-subscriptions'
+import { batchExportLogic } from './batchExportLogic'
 
 export type BatchExportsEditLogicProps = {
     id: string | 'new'
@@ -70,29 +70,18 @@ const formFields = ({
 export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
     props({} as BatchExportsEditLogicProps),
     key(({ id }) => id),
-
     path((key) => ['scenes', 'batch_exports', 'batchExportsEditLogic', key]),
+    connect((props: BatchExportsEditLogicProps) => ({
+        values: [batchExportLogic(props), ['batchExportConfig', 'batchExportConfigLoading']],
+        actions: [batchExportLogic(props), ['loadBatchExportConfig', 'loadBatchExportConfigSuccess']],
+    })),
+
     actions({
         cancelEditing: true,
     }),
 
-    loaders(({ props }) => ({
-        existingBatchExportConfig: [
-            null as BatchExportConfiguration | null,
-            {
-                loadBatchExportConfig: async () => {
-                    if (props.id === 'new') {
-                        return null
-                    }
-                    const res = await api.batchExports.get(props.id)
-                    return res
-                },
-            },
-        ],
-    })),
-
     forms(({ props }) => ({
-        batchExportConfig: {
+        batchExportConfigForm: {
             defaults: {
                 name: '',
             } as BatchExportConfigurationFrom,
@@ -109,7 +98,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               config: config,
                           }
 
-                const data: Omit<BatchExportConfiguration, 'id'> = {
+                const data: Omit<BatchExportConfiguration, 'id' | 'paused'> = {
                     name,
                     interval,
                     start_at,
@@ -140,18 +129,19 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             }
         },
 
-        loadBatchExportConfigSuccess: ({ existingBatchExportConfig }) => {
-            if (!existingBatchExportConfig) {
+        loadBatchExportConfigSuccess: ({ batchExportConfig }) => {
+            if (!batchExportConfig) {
                 return
             }
-            const destination = existingBatchExportConfig.destination.type
+
+            const destination = batchExportConfig.destination.type
 
             const transformedConfig: BatchExportConfigurationFrom = {
-                ...existingBatchExportConfig,
+                ...batchExportConfig,
                 destination,
-                start_at: existingBatchExportConfig.start_at ? dayjs(existingBatchExportConfig.start_at) : null,
-                end_at: existingBatchExportConfig.end_at ? dayjs(existingBatchExportConfig.end_at) : null,
-                ...existingBatchExportConfig.destination.config,
+                start_at: batchExportConfig.start_at ? dayjs(batchExportConfig.start_at) : null,
+                end_at: batchExportConfig.end_at ? dayjs(batchExportConfig.end_at) : null,
+                ...batchExportConfig.destination.config,
             }
 
             // Filter out any values that aren't part of our from
@@ -164,38 +154,51 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                 }
             })
 
-            actions.setBatchExportConfigValues(transformedConfig)
-        },
-    })),
-
-    subscriptions(({ path, values }) => ({
-        batchExportConfig: (config) => {
-            const copiedConfig = { ...config }
-
-            // NOTE: Do we want to store things...
-            if (values.batchExportConfigChanged) {
-                sessionStorage.setItem([...path, 'cachedForm'].join('.'), JSON.stringify(copiedConfig))
-            }
+            actions.setBatchExportConfigFormValues(transformedConfig)
         },
     })),
 
     selectors({
         isNew: [() => [(_, props) => props], (props): boolean => props.id === 'new'],
+        breadcrumbs: [
+            (s) => [s.batchExportConfig, s.isNew],
+            (config, isNew): Breadcrumb[] => [
+                {
+                    name: 'Batch Exports',
+                    path: urls.batchExports(),
+                },
+                ...(isNew
+                    ? [
+                          {
+                              name: 'New',
+                          },
+                      ]
+                    : [
+                          {
+                              name: config?.name ?? 'Loading',
+                              path: config?.id ? urls.batchExport(config.id) : undefined,
+                          },
+
+                          {
+                              name: 'Edit',
+                          },
+                      ]),
+            ],
+        ],
     }),
 
-    afterMount(({ values, path, actions }) => {
-        if (values.isNew) {
-            try {
-                const cachedConfig = JSON.parse(sessionStorage.getItem([...path, 'cachedForm'].join('.')) ?? '')
-                actions.setBatchExportConfigValues(cachedConfig)
-            } catch (e) {}
-        } else {
-            actions.loadBatchExportConfig()
+    afterMount(({ values, actions }) => {
+        if (!values.isNew) {
+            if (values.batchExportConfig) {
+                actions.loadBatchExportConfigSuccess(values.batchExportConfig)
+            } else {
+                actions.loadBatchExportConfig()
+            }
         }
     }),
 
     beforeUnload(({ values }) => ({
-        enabled: () => values.batchExportConfigChanged,
+        enabled: () => values.batchExportConfigFormChanged,
         message: `Leave?\nChanges you made will be discarded.`,
     })),
 ])

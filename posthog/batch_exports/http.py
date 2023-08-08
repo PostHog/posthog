@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any
 
+from django.db.models import Prefetch
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated, NotFound, ValidationError
@@ -152,6 +153,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
     destination = BatchExportDestinationSerializer()
+    runs = BatchExportRunSerializer(many=True, read_only=True)
     trigger_immediately = serializers.BooleanField(default=False)
 
     class Meta:
@@ -168,13 +170,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "start_at",
             "end_at",
             "trigger_immediately",
+            "runs",
         ]
-        read_only_fields = [
-            "id",
-            "paused",
-            "created_at",
-            "last_updated_at",
-        ]
+        read_only_fields = ["id", "paused", "created_at", "last_updated_at", "runs"]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -223,7 +221,14 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
             raise NotAuthenticated()
 
-        return self.queryset.filter(team_id=self.team_id).exclude(deleted=True).prefetch_related("destination")
+        return (
+            self.queryset.filter(team_id=self.team_id)
+            .exclude(deleted=True)
+            .prefetch_related("destination")
+            .prefetch_related(
+                Prefetch("batchexportrun_set", queryset=BatchExportRun.objects.order_by("-created_at"), to_attr="runs")
+            )
+        )
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:

@@ -379,6 +379,7 @@ def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple
     else:
         data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
 
-    data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
+    # TODO Fix this hard coded value
+    data_interval_start = data_interval_end - dt.timedelta(seconds=3600)
 
     return (data_interval_start, data_interval_end)
