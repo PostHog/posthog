@@ -1,356 +1,6 @@
-# name: TestBlastRadius.test_user_blast_radius
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-       AND id IN
-         (SELECT id
-          FROM person
-          WHERE team_id = 2
-            AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', ''))) )
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))))
-  '
----
-# name: TestBlastRadius.test_user_blast_radius.1
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0)
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_groups
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key
-     HAVING 1=1
-     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_groups.1
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(DISTINCT group_key)
-  FROM groups
-  WHERE team_id = 2
-    AND group_type_index = 0
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key
-     HAVING 1=1
-     AND ((has(['0', '1', '2', '3', '4'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-          AND (has(['2', '3', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))))
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(DISTINCT group_key)
-  FROM groups
-  WHERE team_id = 2
-    AND group_type_index = 0
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = NULL
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.1
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = 0
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = NULL
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = 0
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.4
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-       AND id in
-         (SELECT DISTINCT person_id
-          FROM cohortpeople
-          WHERE team_id = 2
-            AND cohort_id = 2
-            AND version = 0 )
-       AND id in
-         (SELECT DISTINCT person_id
-          FROM cohortpeople
-          WHERE team_id = 2
-            AND cohort_id = 2
-            AND version = 0 )
-     GROUP BY id
-     HAVING max(is_deleted) = 0)
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.5
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0)
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM person_static_cohort
-  WHERE team_id = 2
-    AND cohort_id = 2
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-       AND id IN
-         (SELECT id
-          FROM person
-          INNER JOIN
-            (SELECT person_id
-             FROM person_static_cohort
-             WHERE team_id = 2
-               AND cohort_id = 2
-             GROUP BY person_id,
-                      cohort_id,
-                      team_id) cohort_persons ON cohort_persons.person_id = person.id
-          WHERE team_id = 2
-            AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', '')))) )
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))))
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0)
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = NULL
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = 0
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = NULL
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = 0
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.7
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-       AND id in
-         (SELECT person_id as id
-          FROM person_static_cohort
-          WHERE cohort_id = 2
-            AND team_id = 2)
-       AND id in
-         (SELECT DISTINCT person_id
-          FROM cohortpeople
-          WHERE team_id = 2
-            AND cohort_id = 2
-            AND version = 0 )
-     GROUP BY id
-     HAVING max(is_deleted) = 0)
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-       AND id IN
-         (SELECT id
-          FROM person
-          WHERE team_id = 2
-            AND ((has(['none'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', ''))
-                  OR has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', '')))) )
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND ((has(['none'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))
-           OR has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))))
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0)
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = NULL
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = 0
-  '
----
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     INNER JOIN
-       (SELECT DISTINCT person_id
-        FROM cohortpeople
-        WHERE team_id = 2
-          AND cohort_id = 2
-          AND version = 0
-        ORDER BY person_id) cohort_persons ON cohort_persons.person_id = person.id
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0)
-  '
----
-# name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db
-  '
-  SELECT pg_sleep(1);
-  
-  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'
-          AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
-         (true) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
-         AND "posthog_persondistinctid"."team_id" = 2
-         AND "posthog_person"."team_id" = 2)
-  '
----
+# serializer version: 1
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db
-  '
+  '''
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
@@ -377,10 +27,10 @@
     AND key NOT IN
       (SELECT feature_flag_key
        FROM existing_overrides)
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.1
-  '
+  '''
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
@@ -420,20 +70,20 @@
        FROM posthog_person
        WHERE id = person_id
          AND team_id = 2) ON CONFLICT DO NOTHING
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.2
-  '
+  '''
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id',
                                                       'random')
          AND "posthog_persondistinctid"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.3
-  '
+  '''
   SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
          "posthog_featureflaghashkeyoverride"."hash_key",
          "posthog_featureflaghashkeyoverride"."person_id"
@@ -444,10 +94,10 @@
                                                               4,
                                                               5 /* ... */)
          AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.4
-  '
+  '''
   SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'
           AND "posthog_person"."properties" ? 'email'
           AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
@@ -457,10 +107,10 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
-  '
+  '''
   SELECT pg_sleep(1);
   
   WITH target_person_ids AS
@@ -489,10 +139,10 @@
     AND key NOT IN
       (SELECT feature_flag_key
        FROM existing_overrides)
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.6
-  '
+  '''
   SELECT pg_sleep(1);
   
   SELECT "posthog_persondistinctid"."person_id",
@@ -501,10 +151,10 @@
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id',
                                                       'random')
          AND "posthog_persondistinctid"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.7
-  '
+  '''
   SELECT pg_sleep(1);
   
   SELECT "posthog_persondistinctid"."person_id",
@@ -512,10 +162,10 @@
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('random')
          AND "posthog_persondistinctid"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db
-  '
+  '''
   SELECT pg_sleep(1);
   
   SELECT "posthog_grouptypemapping"."id",
@@ -526,10 +176,10 @@
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.1
-  '
+  '''
   SELECT pg_sleep(1);
   
   SELECT "posthog_grouptypemapping"."id",
@@ -540,10 +190,10 @@
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.2
-  '
+  '''
   SELECT pg_sleep(1);
   
   SELECT "posthog_grouptypemapping"."id",
@@ -554,10 +204,10 @@
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
-  '
----
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again
-  '
+  '''
   SELECT pg_sleep(1);
   
   SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'
@@ -572,5 +222,5 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '
----
+  '''
+# ---
