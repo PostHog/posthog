@@ -510,10 +510,9 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             return response
 
         if request.path.startswith("/logout"):
-            # clears the cookies that were previously set
+            # clears the cookies that were previously set, except for ph_current_instance as that is used for the website login button
             response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
-            response.delete_cookie("ph_current_instance", domain=default_cookie_options["domain"])
         if request.user and request.user.is_authenticated and request.user.team:
             response.set_cookie(
                 key="ph_current_project_token",
@@ -538,7 +537,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             )
 
             response.set_cookie(
-                key="ph_current_instance",  # clarify which project is active (orgs can have multiple projects)
+                key="ph_current_instance",
                 value=SITE_URL,
                 max_age=365 * 24 * 60 * 60,
                 expires=default_cookie_options["expires"],
