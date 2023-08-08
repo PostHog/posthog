@@ -138,6 +138,10 @@
         .NotebookSettings__widget {
             background: var(--white);
 
+            &--selected {
+                border: 1px solid var(--primary-3000);
+            }
+
             .NotebookSettings__widget__header {
                 display: flex;
                 align-items: center;

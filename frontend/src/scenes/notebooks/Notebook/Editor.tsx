@@ -143,6 +143,7 @@ export function Editor({
         },
         onCreate: ({ editor }) => {
             editorRef.current = editor
+
             onCreate({
                 getJSON: () => editor.getJSON(),
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
@@ -162,6 +163,11 @@ export function Editor({
                 findNode: (position: number) => findNode(editor, position),
                 nextNode: (position: number) => nextNode(editor, position),
                 hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
+                scrollToSelection: () => {
+                    const position = editor.state.selection.$anchor.pos
+                    const domEl = editor.view.nodeDOM(position) as HTMLElement
+                    domEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+                },
             })
         },
         onUpdate: onUpdate,
