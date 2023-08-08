@@ -115,7 +115,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
+        self.assertContains(response_app, f"\\u0022switched_team\\u0022: {self.team.id}")
         self.assertEqual(response_users_api.status_code, 200)
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_dashboards_api.status_code, 200)

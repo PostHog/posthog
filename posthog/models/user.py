@@ -213,16 +213,19 @@ class User(AbstractUser, UUIDClassicModel):
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
+            self.organization = self.current_organization  # Update cached property
             if (
                 AvailableFeature.PROJECT_BASED_PERMISSIONING not in organization.available_features
                 or level >= OrganizationMembership.Level.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case
                 self.current_team = organization.teams.order_by("access_control", "id").first()
+                self.team = self.current_team  # Update cached property
             else:
                 # If project access control IS applicable, make sure the user is assigned a project they have access to
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
+                self.team = self.current_team  # Update cached property
             self.save()
             return membership
 
@@ -244,6 +247,7 @@ class User(AbstractUser, UUIDClassicModel):
                 self.current_team = (
                     None if self.current_organization is None else self.current_organization.teams.first()
                 )
+                self.team = self.current_team  # Update cached property
                 self.save()
 
     def get_analytics_metadata(self):
