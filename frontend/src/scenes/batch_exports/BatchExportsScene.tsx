@@ -7,7 +7,7 @@ import { batchExportsListLogic } from './batchExportsListLogic'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { useEffect } from 'react'
-import { BatchExportTag } from './components'
+import { BatchExportRunIcon, BatchExportTag } from './components'
 
 export const scene: SceneExport = {
     component: BatchExportsScene,
@@ -42,24 +42,32 @@ export function BatchExportsScene(): JSX.Element {
                     {
                         title: 'Name',
                         key: 'name',
+                        width: 0,
                         render: function RenderName(_, batchExport) {
                             return (
-                                <Link className="font-semibold" to={urls.batchExport(batchExport.id)}>
+                                <Link className="font-semibold truncate" to={urls.batchExport(batchExport.id)}>
                                     {batchExport.name}
                                 </Link>
                             )
                         },
                     },
                     {
-                        title: 'Runs',
+                        title: 'Latest runs',
                         key: 'runs',
                         render: function RenderStatus(_, batchExport) {
                             return (
                                 <div className="flex gap-2">
-                                    {batchExport.runs?.map((run) => (
-                                        <div key={run.id} className="flex gap-1" title={run.status}>
-                                            <span>{run.status === 'Failed' ? '🔴' : '🟢'}</span>
-                                        </div>
+                                    {[...(batchExport.runs || [])].reverse()?.map((run) => (
+                                        // TODO: Link to run details
+                                        <LemonButton
+                                            to={urls.batchExport(batchExport.id)}
+                                            key={run.id}
+                                            status="stealth"
+                                            className="flex gap-1"
+                                            noPadding
+                                        >
+                                            <BatchExportRunIcon batchExportRun={run} />
+                                        </LemonButton>
                                     ))}
                                 </div>
                             )

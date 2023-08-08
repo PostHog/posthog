@@ -224,6 +224,7 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return (
             self.queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
+            .order_by("-created_at")
             .prefetch_related("destination")
             .prefetch_related(
                 Prefetch("batchexportrun_set", queryset=BatchExportRun.objects.order_by("-created_at"), to_attr="runs")

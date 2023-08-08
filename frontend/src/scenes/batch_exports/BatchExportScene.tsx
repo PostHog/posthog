@@ -1,14 +1,15 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonLabel, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
-import { BatchExportTag } from './components'
+import { BatchExportRunStatus, BatchExportTag } from './components'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconEdit } from 'lib/lemon-ui/icons'
 import { identifierToHuman } from 'lib/utils'
+import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -26,7 +27,7 @@ export function BatchExportScene(): JSX.Element {
         batchExportRunsLoading,
         batchExportRunsPagination,
     } = useValues(batchExportLogic)
-    const { loadBatchExportConfig, loadBatchExportRuns } = useActions(batchExportLogic)
+    const { loadBatchExportConfig, loadBatchExportRuns, openBackfillModal } = useActions(batchExportLogic)
 
     useEffect(() => {
         loadBatchExportConfig()
@@ -44,6 +45,10 @@ export function BatchExportScene(): JSX.Element {
                 buttons={
                     batchExportConfig ? (
                         <>
+                            <LemonButton type="secondary" onClick={() => openBackfillModal()}>
+                                Schedule historic runs
+                            </LemonButton>
+
                             <LemonButton type="primary" to={urls.batchExportEdit(batchExportConfig?.id)}>
                                 Edit
                             </LemonButton>
@@ -63,21 +68,11 @@ export function BatchExportScene(): JSX.Element {
             </div>
 
             {batchExportConfig ? (
-                <div className="flex items-start mt-4 gap-4 flex-wrap">
-                    <div className="shrink-0 min-w-60 border rounded p-3">
-                        <div className="flex justify-between items-center">
-                            <LemonLabel>Configuration</LemonLabel>
+                <div className="flex items-start mt-4 gap-8 flex-wrap">
+                    <div className="shrink-0 min-w-60">
+                        <h2>Configuration</h2>
 
-                            <LemonButton
-                                icon={<IconEdit />}
-                                size="small"
-                                to={urls.batchExportEdit(batchExportConfig.id)}
-                            >
-                                Edit
-                            </LemonButton>
-                        </div>
-
-                        <ul>
+                        <ul className="mb-4">
                             <li className="flex items-center justify-between gap-2">
                                 <span>Destination:</span>
                                 <span className="font-semibold">{batchExportConfig.destination.type}</span>
@@ -90,20 +85,29 @@ export function BatchExportScene(): JSX.Element {
                                 </li>
                             ))}
                         </ul>
+
+                        <LemonButton
+                            icon={<IconEdit />}
+                            type="secondary"
+                            to={urls.batchExportEdit(batchExportConfig.id)}
+                        >
+                            Edit
+                        </LemonButton>
                     </div>
 
                     <div className="flex-1">
+                        <h2>Latest Runs</h2>
                         <LemonTable
                             dataSource={batchExportRuns?.results ?? []}
                             loading={batchExportRunsLoading}
                             loadingSkeletonRows={5}
-                            pagination={batchExportRunPagination}
+                            pagination={batchExportRunsPagination}
                             columns={[
                                 {
                                     title: 'Status',
                                     key: 'status',
                                     render: function RenderStatus(_, run) {
-                                        return 'wat'
+                                        return <BatchExportRunStatus batchExportRun={run} />
                                     },
                                 },
                                 {
@@ -127,6 +131,8 @@ export function BatchExportScene(): JSX.Element {
                     </div>
                 </div>
             ) : null}
+
+            <BatchExportBackfillModal />
         </>
     )
 }

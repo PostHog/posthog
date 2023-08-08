@@ -1285,6 +1285,12 @@ const api = {
         ): Promise<CountedPaginatedResponse<BatchExportRun>> {
             return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
         },
+        async createRun(
+            id: BatchExportConfiguration['id'],
+            data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
+        ): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExportRuns(id).create({ data })
+        },
     },
 
     earlyAccessFeatures: {

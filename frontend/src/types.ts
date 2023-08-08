@@ -3089,7 +3089,7 @@ export type BatchExportConfiguration = {
 
 export type BatchExportRun = {
     id: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Paused'
+    status: 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut' | 'Running' | 'Starting'
     created_at: string
     data_interval_start: string
     data_interval_end: string

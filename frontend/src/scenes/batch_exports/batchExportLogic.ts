@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, selectors } from 'kea'
+import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
 import { BatchExportConfiguration, BatchExportRun, Breadcrumb } from '~/types'
@@ -8,12 +8,15 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import type { batchExportLogicType } from './batchExportLogicType'
 import { urls } from 'scenes/urls'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { forms } from 'kea-forms'
+import { Dayjs } from 'lib/dayjs'
+import { router } from 'kea-router'
 
 export type BatchExportLogicProps = {
     id: string
 }
 
-const RUNS_PAGE_SIZE = 30
+const RUNS_PAGE_SIZE = 100
 
 export const batchExportLogic = kea<batchExportLogicType>([
     props({} as BatchExportLogicProps),
@@ -22,6 +25,18 @@ export const batchExportLogic = kea<batchExportLogicType>([
 
     actions({
         loadBatchExportRuns: (offset?: number) => ({ offset }),
+        openBackfillModal: true,
+        closeBackfillModal: true,
+    }),
+
+    reducers({
+        isBackfillModalOpen: [
+            false,
+            {
+                openBackfillModal: () => true,
+                closeBackfillModal: () => false,
+            },
+        ],
     }),
 
     loaders(({ props }) => ({
@@ -38,7 +53,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
         batchExportRuns: [
             null as CountedPaginatedResponse<BatchExportRun> | null,
             {
-                loadBatchExportRuns: async () => {
+                loadBatchExportRuns: async ({ offset }) => {
                     const res = await api.batchExports.listRuns(props.id, {
                         limit: RUNS_PAGE_SIZE,
                     })
@@ -47,6 +62,30 @@ export const batchExportLogic = kea<batchExportLogicType>([
                 },
             },
         ],
+    })),
+
+    forms(({ props, actions }) => ({
+        backfillForm: {
+            defaults: {} as {
+                start_at?: Dayjs
+                end_at?: Dayjs
+            },
+            errors: ({ start_at }) => ({
+                start_at: !start_at ? 'Start date is required' : undefined,
+                end_at: '',
+            }),
+            submit: async ({ start_at, end_at }) => {
+                await new Promise((resolve) => setTimeout(resolve, 1000))
+                await api.batchExports.createRun(props.id, {
+                    start_at: start_at?.toISOString() ?? null,
+                    end_at: end_at?.toISOString() ?? null,
+                })
+
+                actions.closeBackfillModal()
+
+                return
+            },
+        },
     })),
 
     selectors(({ actions }) => ({
