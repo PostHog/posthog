@@ -1,14 +1,9 @@
 .Notebook {
     --notebook-settings-widget-width: 20rem;
-    --compact-notebook-min-width: 50rem;
 
     .NotebookEditor {
         flex: 1;
         width: 100%;
-
-        @media (min-width: 1200px) {
-            min-width: var(--compact-notebook-min-width);
-        }
 
         > h1,
         > h2,
@@ -101,11 +96,9 @@
             max-width: 800px;
         }
 
-        .Notebook__spacer {
-            width: var(--notebook-settings-widget-width);
-
-            @media (max-width: 1200px) {
-                width: 0px;
+        @media (min-width: 1200px) {
+            .Notebook__spacer {
+                width: var(--notebook-settings-widget-width);
             }
         }
     }
@@ -121,36 +114,8 @@
         position: sticky;
         align-self: flex-start;
         top: 65px;
-        width: var(--notebook-settings-widget-width);
-        min-width: var(--notebook-settings-widget-width);
         z-index: 1;
-
-        @media (max-width: 1000px) {
-            position: fixed;
-            left: 0;
-            right: 0;
-            top: inherit;
-            bottom: 0.5rem;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .NotebookSettings__widget {
-            background: var(--white);
-
-            &--selected {
-                border: 1px solid var(--primary-3000);
-            }
-
-            .NotebookSettings__widget__header {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                font-size: 0.75rem;
-                font-weight: 700;
-                padding: 0.25rem;
-            }
-        }
+        margin-top: 0.5rem;
     }
 
     .LemonTable__content > table > thead {

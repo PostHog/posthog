@@ -1,0 +1,30 @@
+.LemonWidget {
+    --width: 20rem;
+
+    background: var(--white);
+    width: var(--width);
+    min-width: var(--width);
+    border-radius: var(--radius);
+
+    .LemonWidget__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-weight: 500;
+        padding: 0.25rem;
+        color: var(--primary-alt, var(--primary));
+        font-size: 0.875rem;
+    }
+
+    &--selected {
+        box-shadow: 0px 0 5px 0px var(--primary);
+    }
+}
+
+.LemonWidget__popover > .Popover__box {
+    padding: 0px;
+
+    .LemonWidget__header {
+        padding: 0.25rem 0.75rem;
+    }
+}
