@@ -8,4 +8,8 @@
         overflow-y: auto;
         padding: 0 1rem;
     }
+
+    .ProseMirror > .react-renderer {
+        scroll-margin-top: 65px;
+    }
 }

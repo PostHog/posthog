@@ -26,7 +26,7 @@ export function LemonWidget({
     return collapsed ? (
         <Popover
             visible={visible}
-            placement="right"
+            placement="right-start"
             className="LemonWidget__popover"
             onClickOutside={() => setVisible(false)}
             overlay={

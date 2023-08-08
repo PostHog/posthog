@@ -166,7 +166,7 @@ export function Editor({
                 scrollToSelection: () => {
                     const position = editor.state.selection.$anchor.pos
                     const domEl = editor.view.nodeDOM(position) as HTMLElement
-                    domEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+                    domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
                 },
             })
         },
