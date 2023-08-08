@@ -1,28 +1,12 @@
-import { api } from '@posthog/apps-common'
 import { NodeViewProps } from '@tiptap/core'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { lazyImageBlobReducer } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { MediaUploadResponse, NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '~/types'
+import { uploadFile } from 'lib/hooks/useUploadFiles'
 
 const MAX_DEFAULT_HEIGHT = 1000
-
-async function uploadFile(file: File): Promise<MediaUploadResponse> {
-    if (!file.type.startsWith('image/')) {
-        throw new Error('File is not an image')
-    }
-
-    const compressedBlob = await lazyImageBlobReducer(file)
-    const fileToUpload = new File([compressedBlob], file.name, { type: compressedBlob.type })
-
-    const formData = new FormData()
-    formData.append('image', fileToUpload)
-    const media = await api.media.upload(formData)
-
-    return media
-}
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { file, src, height } = props.node.attrs
@@ -80,7 +64,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     return (
         <>
-            <img src={imageSource} onLoad={onImageLoad} />
+            <img src={imageSource} onLoad={onImageLoad} alt={'user uploaded file'} />
             {uploading ? <SpinnerOverlay className="text-3xl" /> : null}
         </>
     )
