@@ -8,9 +8,9 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
 import clsx from 'clsx'
-import { findPositionOfClosestNodeMatchingAttrs, hasMatchingNode } from '../Notebook/Editor'
+import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { openNotebook } from '../Notebook/notebooksListLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
@@ -18,18 +18,18 @@ import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import { useMemo } from 'react'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const { shortId, content } = useValues(notebookLogic)
+    const { shortId, findNodeLogic } = useValues(notebookLogic)
     const sessionRecordingId: string = props.node.attrs.sessionRecordingId
     const playbackTime: number = props.node.attrs.playbackTime
 
     const recordingNodeInNotebook = useMemo(() => {
-        return hasMatchingNode(content.content, {
-            type: NotebookNodeType.Recording,
-            attrs: { id: sessionRecordingId },
-        })
-    }, [content])
+        return findNodeLogic(NotebookNodeType.Recording, { id: sessionRecordingId })
+    }, [findNodeLogic])
 
     const handlePlayInNotebook = (): void => {
+        recordingNodeInNotebook?.actions.setExpanded(true)
+
+        // TODO: Move all of the above into the logic / Node context for the recording node
         const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)
         const logic = sessionRecordingPlayerLogic(logicProps)
 
@@ -47,18 +47,24 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeViewWrapper
             as="span"
-            class={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
+            className={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
         >
-            {recordingNodeInNotebook ? (
-                <span onClick={handlePlayInNotebook}>{formatTimestamp(playbackTime)}</span>
-            ) : (
-                <Link
-                    to={urls.replaySingle(sessionRecordingId) + `?t=${playbackTime / 1000}`}
-                    onClick={() => openNotebook(shortId, NotebookTarget.Sidebar)}
-                >
-                    {formatTimestamp(playbackTime)}
-                </Link>
-            )}
+            <LemonButton
+                size="small"
+                noPadding
+                type="secondary"
+                status="primary-alt"
+                onClick={
+                    recordingNodeInNotebook ? handlePlayInNotebook : () => openNotebook(shortId, NotebookTarget.Popover)
+                }
+                to={
+                    !recordingNodeInNotebook
+                        ? urls.replaySingle(sessionRecordingId) + `?t=${playbackTime / 1000}`
+                        : undefined
+                }
+            >
+                <span className="p-1">{formatTimestamp(playbackTime)}</span>
+            </LemonButton>
         </NodeViewWrapper>
     )
 }
@@ -97,16 +103,14 @@ export function buildTimestampCommentContent(
     currentPlayerTime: number | null,
     sessionRecordingId: string
 ): JSONContent {
-    return [
-        {
-            type: 'paragraph',
-            content: [
-                {
-                    type: NotebookNodeType.ReplayTimestamp,
-                    attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
-                },
-                { type: 'text', text: ' ' },
-            ],
-        },
-    ]
+    return {
+        type: 'paragraph',
+        content: [
+            {
+                type: NotebookNodeType.ReplayTimestamp,
+                attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
+            },
+            { type: 'text', text: ' ' },
+        ],
+    }
 }

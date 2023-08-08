@@ -1,6 +1,9 @@
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Link } from 'lib/lemon-ui/Link'
 import './NotFound.scss'
+import { useActions, useValues } from 'kea'
+import { supportLogic } from '../Support/supportLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 interface NotFoundProps {
     object: string // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)
@@ -8,6 +11,9 @@ interface NotFoundProps {
 }
 
 export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
+    const { openSupportForm } = useActions(supportLogic)
+
     return (
         <div className="NotFoundComponent space-y-2">
             <div className="NotFoundComponent__graphic" />
@@ -19,14 +25,14 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
                 {caption || (
                     <>
                         It's possible this {object} may have been deleted or its sharing settings changed. Please check
-                        with the person who sent you here, or{' '}
-                        <Link
-                            to={`https://posthog.com/support?utm_medium=in-product&utm_campaign=${object}-not-found`}
-                            target="_blank"
-                        >
-                            contact support
-                        </Link>{' '}
-                        if you think this is a mistake.
+                        with the person who sent you here
+                        {preflight?.cloud ? (
+                            <>
+                                , or <Link onClick={() => openSupportForm('support')}>contact support</Link> if you
+                                think this is a mistake
+                            </>
+                        ) : null}
+                        .
                     </>
                 )}
             </p>

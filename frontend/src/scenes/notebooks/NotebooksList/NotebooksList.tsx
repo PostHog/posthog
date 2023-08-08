@@ -10,14 +10,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
-import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
+import { notebookPopoverLogic } from '../Notebook/notebookPopoverLogic'
 
 export function NotebooksTable(): JSX.Element {
     const { notebooks, notebooksLoading, fuse, notebookTemplates } = useValues(notebooksListLogic)
     const { loadNotebooks } = useActions(notebooksListLogic)
     const [searchTerm, setSearchTerm] = useState('')
 
-    const { setNotebookSideBarShown, selectNotebook } = useActions(notebookSidebarLogic)
+    const { setVisibility, selectNotebook } = useActions(notebookPopoverLogic)
 
     const filteredNotebooks = useMemo(
         () => (searchTerm ? fuse.search(searchTerm).map(({ item }) => item) : [...notebooks, ...notebookTemplates]),
@@ -93,7 +93,7 @@ export function NotebooksTable(): JSX.Element {
                 action={{
                     onClick: () => {
                         selectNotebook(notebookTemplates[0].short_id)
-                        setNotebookSideBarShown(true)
+                        setVisibility('visible')
                     },
                     children: 'Get started',
                 }}

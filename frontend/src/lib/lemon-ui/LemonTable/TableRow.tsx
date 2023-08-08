@@ -14,6 +14,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     columnGroups: LemonTableColumnGroup<T>[]
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
+    firstColumnSticky: boolean | undefined
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -26,6 +27,7 @@ function TableRowRaw<T extends Record<string, any>>({
     columnGroups,
     onRow,
     expandable,
+    firstColumnSticky,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -62,7 +64,7 @@ function TableRowRaw<T extends Record<string, any>>({
                     />
                 )}
                 {!!expandable && rowExpandable >= 0 && (
-                    <td>
+                    <td className="LemonTable__toggle">
                         {!!rowExpandable && (
                             <LemonButton
                                 noPadding
@@ -91,11 +93,13 @@ function TableRowRaw<T extends Record<string, any>>({
                         const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
                         const areContentsCellRepresentations: boolean =
                             !!contents && typeof contents === 'object' && !React.isValidElement(contents)
+                        const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
                         return (
                             <td
-                                key={`LemonTable-td-${columnGroupIndex}-${columnKeyOrIndex}`}
+                                key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
                                 className={clsx(
-                                    columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
+                                    columnIndex === 0 && 'LemonTable__boundary',
+                                    isSticky && 'LemonTable__cell--sticky',
                                     column.align && `text-${column.align}`,
                                     column.className
                                 )}

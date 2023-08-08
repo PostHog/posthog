@@ -1,5 +1,6 @@
 import dataclasses
 import datetime
+import re
 from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 from typing import Literal
@@ -136,7 +137,23 @@ class SessionIdEventsQuery(EventQuery):
         pass
 
     def _determine_should_join_events(self):
-        return self._filter.entities and len(self._filter.entities) > 0
+        filters_by_event_or_action = self._filter.entities and len(self._filter.entities) > 0
+        # for e.g. test account filters might have event properties without having an event or action filter
+        has_event_property_filters = (
+            len(
+                [
+                    pg
+                    for pg in self._filter.property_groups.flat
+                    # match when it is an event property filter
+                    # or if its hogql and the key contains "properties." but not "person.properties."
+                    # it's ok to match if there's both "properties." and "person.properties." in the key
+                    # but not when its only "person.properties."
+                    if pg.type == "event" or pg.type == "hogql" and re.search(r"(?<!person\.)properties\.", pg.key)
+                ]
+            )
+            > 0
+        )
+        return filters_by_event_or_action or has_event_property_filters
 
     def __init__(
         self,

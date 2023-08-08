@@ -1,5 +1,5 @@
 import { ActivityLogItem, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -45,7 +45,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                         }
                         listParts={logItem.detail.merge.source.flatMap((di) => (
                             <span className={'highlighted-activity'}>
-                                <PersonHeader person={di} />
+                                <PersonDisplay person={di} />
                             </span>
                         ))}
                         suffix="into this person"
