@@ -58,10 +58,9 @@ export function parsePropertiesForFiltersCache(
     input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, any> | null | undefined
 ): FilterOperatorCache[] {
     const properties = parseProperties(input)
-    // Old style dict properties
     const filtersOperators: FilterOperatorCache[] = []
     properties.forEach((property) => {
-        const operator = property.operator as PropertyOperator
+        const operator = (property as EventPropertyFilter | PersonPropertyFilter | GroupPropertyFilter).operator
         if (operator) {
             filtersOperators.push({
                 [operator]: property,
