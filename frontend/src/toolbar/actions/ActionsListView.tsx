@@ -19,16 +19,18 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                         title={
                             <Space>
                                 <span
+                                    className="inline-block text-right mr-1"
+                                    // eslint-disable-next-line react/forbid-dom-props
                                     style={{
-                                        display: 'inline-block',
                                         width: Math.floor(Math.log10(actions.length) + 1) * 12 + 6,
-                                        textAlign: 'right',
-                                        marginRight: 4,
                                     }}
                                 >
                                     {index + 1}.
                                 </span>
-                                {action.name || <span style={{ color: '#888' }}>Untitled</span>}
+                                {
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    action.name || <span style={{ color: '#888' }}>Untitled</span>
+                                }
                             </Space>
                         }
                     />

@@ -201,16 +201,14 @@ export function ToolbarButton(): JSX.Element {
                             opacity: inspectExtensionPercentage > 0.8 ? (inspectExtensionPercentage - 0.8) / 0.2 : 0,
                         }}
                         content={
-                            <div style={{ position: 'relative' }}>
+                            <div className="relative">
                                 <Magnifier style={{ height: 34, paddingTop: 2 }} engaged={inspectEnabled} />
                                 {inspectEnabled && selectedElement ? (
                                     <div
+                                        className="absolute top-2 left-2.25 text-white"
+                                        // eslint-disable-next-line react/forbid-dom-props
                                         style={{
-                                            position: 'absolute',
-                                            top: 8,
-                                            left: 9,
                                             fontSize: 13,
-                                            color: 'white',
                                         }}
                                     >
                                         <Close style={{ width: 10, height: 10 }} />
@@ -270,7 +268,7 @@ export function ToolbarButton(): JSX.Element {
                                         placement={side === 'left' ? 'right' : 'left'}
                                         getPopupContainer={getShadowRootPopoverContainer}
                                     >
-                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
+                                        <div className="whitespace-nowrap text-center">{elementCount}</div>
                                     </Tooltip>
                                 }
                                 zIndex={4}
@@ -331,7 +329,7 @@ export function ToolbarButton(): JSX.Element {
                                         placement={side === 'left' ? 'right' : 'left'}
                                         getPopupContainer={getShadowRootPopoverContainer}
                                     >
-                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
+                                        <div className="whitespace-nowrap text-center">{actionCount}</div>
                                     </Tooltip>
                                 }
                                 zIndex={4}

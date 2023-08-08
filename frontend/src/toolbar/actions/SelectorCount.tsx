@@ -20,7 +20,8 @@ export function SelectorCount({ selector }: SelectorCountProps): JSX.Element {
     }, [selector])
 
     return (
-        <small style={{ float: 'right', color: selectorError ? 'red' : '' }}>
+        // eslint-disable-next-line react/forbid-dom-props
+        <small className="float-right" style={{ color: selectorError ? 'red' : '' }}>
             {selectorError ? 'Invalid selector' : `Matches ${matches} element${matches === 1 ? '' : 's'}`}
         </small>
     )
