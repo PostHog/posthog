@@ -832,6 +832,31 @@ email@example.org,
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
+    def test_deletion_of_cohort_cancels_async_deletion(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+        )
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "deleted": True,
+            },
+        )
+
+        self.assertEqual(len(AsyncDeletion.objects.all()), 1)
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "deleted": False,
+            },
+        )
+
+        self.assertEqual(len(AsyncDeletion.objects.all()), 0)
+
     @patch("posthog.api.cohort.report_user_action")
     def test_async_deletion_of_cohort_with_race_condition_multiple_updates(self, patch_capture):
         _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})

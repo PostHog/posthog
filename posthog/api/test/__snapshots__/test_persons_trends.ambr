@@ -39,9 +39,8 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in []
     AND timestamp >= '2020-01-08 00:00:00'
     AND timestamp <= '2020-01-12 23:59:59'
@@ -98,9 +97,8 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in []
     AND timestamp >= '2020-01-08 00:00:00'
     AND timestamp <= '2020-01-12 23:59:59'
@@ -147,9 +145,8 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1']
     AND timestamp >= '2020-01-08 00:00:00'
     AND timestamp <= '2020-01-12 23:59:59'

@@ -5636,9 +5636,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1', 's3', 's5']
     AND timestamp >= '2012-01-01 00:00:00'
     AND timestamp <= '2012-01-02 00:00:00'
@@ -5758,9 +5757,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in []
     AND timestamp >= '2012-01-01 00:00:00'
     AND timestamp <= '2012-01-02 00:00:00'
@@ -5880,9 +5878,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1']
     AND timestamp >= '2012-01-01 00:00:00'
     AND timestamp <= '2012-01-02 00:00:00'
@@ -6001,9 +5998,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in []
     AND timestamp >= '2012-01-01 00:00:00'
     AND timestamp <= '2012-01-02 00:00:00'
@@ -6131,9 +6127,8 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1']
     AND timestamp >= '2012-01-01 00:00:00'
     AND timestamp <= '2012-01-02 00:00:00'

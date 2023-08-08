@@ -102,6 +102,14 @@ module.exports = {
                         message: 'use flex or space utility classes instead',
                     },
                     {
+                        element: 'Divider',
+                        message: 'use <LemonDivider> instead',
+                    },
+                    {
+                        element: 'Typography',
+                        message: 'use utility classes instead',
+                    },
+                    {
                         element: 'Card',
                         message: 'use utility classes instead',
                     },
@@ -122,8 +130,12 @@ module.exports = {
                         message: 'use <LemonSkeleton> instead',
                     },
                     {
-                        element: 'Tabs',
-                        message: 'use <LemonTabs> instead',
+                        element: 'Modal',
+                        message: 'use <LemonModal> or `<LemonDialog> instead',
+                    },
+                    {
+                        element: 'Select',
+                        message: 'use <LemonSelect> instead',
                     },
                     {
                         element: 'a',
@@ -139,6 +151,10 @@ module.exports = {
                     {
                         element: 'Layout',
                         message: 'use utility classes instead',
+                    },
+                    {
+                        element: 'Tabs',
+                        message: 'use <LemonTabs> instead',
                     },
                     {
                         element: 'Spin',

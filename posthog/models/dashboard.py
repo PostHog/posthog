@@ -2,6 +2,7 @@ from typing import Any, Dict
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from posthog.models.utils import sane_repr
 
 from posthog.utils import absolute_uri
 
@@ -57,6 +58,11 @@ class Dashboard(models.Model):
     share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     # DEPRECATED: using the new "is_sharing_enabled" relation instead
     is_shared: models.BooleanField = models.BooleanField(default=False)
+
+    __repr__ = sane_repr("team_id", "id", "name")
+
+    def __str__(self):
+        return self.name or self.id
 
     @property
     def is_sharing_enabled(self):

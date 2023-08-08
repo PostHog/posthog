@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
+from posthog.models.utils import sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
@@ -79,6 +80,11 @@ class Insight(models.Model):
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
+
+    __repr__ = sane_repr("team_id", "id", "short_id", "name")
+
+    def __str__(self):
+        return self.name or self.derived_name or self.short_id
 
     @property
     def is_sharing_enabled(self):

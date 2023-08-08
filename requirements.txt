@@ -137,7 +137,7 @@ django-ipware==3.0.2
     # via
     #   django-axes
     #   django-structlog
-django-loginas==0.3.9
+django-loginas==0.3.11
     # via -r requirements.in
 django-otp==1.1.4
     # via django-two-factor-auth

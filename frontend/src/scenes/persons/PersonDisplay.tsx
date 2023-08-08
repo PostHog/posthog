@@ -44,7 +44,7 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
             onClick={
                 !noPopover
                     ? () => {
-                          if (visible && href) {
+                          if (visible && href && !noLink) {
                               router.actions.push(href)
                           } else {
                               setVisible(true)
