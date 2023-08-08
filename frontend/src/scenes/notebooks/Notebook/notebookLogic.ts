@@ -322,9 +322,12 @@ export const notebookLogic = kea<notebookLogicType>([
             const node = values.editor?.getSelectedNode()
             actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
             // We need to wait for the node to expand before scrolling to get the correct position
-            setTimeout(() => {
-                values.editor?.scrollToSelection()
-            }, 10)
+
+            if (node?.attrs.nodeId) {
+                setTimeout(() => {
+                    values.editor?.scrollToSelection()
+                }, 10)
+            }
         },
     })),
 ])

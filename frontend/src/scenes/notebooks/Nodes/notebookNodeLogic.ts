@@ -41,7 +41,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Record<string, any>) => ({ attributes }),
         deleteNode: true,
-        scrollToNode: true,
         // TODO: Implement this
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
     }),
@@ -107,8 +106,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
         },
-
-        scrollToNode: () => props.notebookLogic.values.editor?.scrollToSelection(),
     })),
 
     afterMount((logic) => {
