@@ -14,6 +14,7 @@ import {
     Element,
     ElementPropertyFilter,
     EventPropertyFilter,
+    HogQLMatchingEvent,
     PersonPropertyFilter,
     PostIngestionEvent,
     PropertyFilter,
@@ -158,26 +159,63 @@ export class ActionMatcher {
     /** Get all actions matched to the event. */
     public matchBytecode(event: PostIngestionEvent, elements?: Element[]): (Action | undefined)[] {
         const matchingStart = performance.now()
-        const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        if (!elements) {
-            const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
-            elements = rawElements ? sanitizeElements(rawElements) : []
+        // Replicate the fields available in a HogQL query
+        const hogQLEvent: HogQLMatchingEvent = {
+            event: event.event,
+            properties: event.properties,
+            uuid: event.eventUuid,
+            team_id: event.teamId,
+            distinct_id: event.distinctId,
+            person_id: String(event.person_id),
+            timestamp: event.timestamp,
+            elements_chain: null,
+            person: {
+                id: String(event.person_id),
+                created_at: event.person_created_at,
+                properties: event.person_properties,
+            },
         }
-        const teamActionsMatching: (boolean | undefined)[] = teamActions.map((action) =>
-            this.checkActionBytecode(event, elements, action)
-        )
+        // Compute elements_chain only when requested
+        Object.defineProperty(hogQLEvent, 'elements_chain', {
+            get: () =>
+                elements
+                    ? elementsToString(elements)
+                    : event.elementsList
+                    ? elementsToString(event.elementsList)
+                    : event.properties?.['$elements']
+                    ? elementsToString(sanitizeElements(event.properties['$elements']))
+                    : null,
+        })
 
-        const matches: Action[] = []
-        for (let i = 0; i < teamActionsMatching.length; i++) {
-            if (teamActionsMatching[i]) {
-                matches.push(teamActions[i])
-            }
-        }
+        const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
+        const matches: Action[] = teamActions.filter((action) => this.checkActionBytecode(hogQLEvent, action))
+
         this.statsd?.timing('action_matching_for_event_hogvm', performance.now() - matchingStart)
         this.statsd?.increment('action_matches_found_hogvm', matches.length)
         return matches
     }
 
+    /**
+     * Base level of action matching (HogVM version).
+     *
+     * Return whether the event is a match for the action.
+     * The event is considered a match if any of the action's steps (match groups) is a match.
+     */
+    public checkActionBytecode(event: HogQLMatchingEvent, action: Action): boolean | undefined {
+        try {
+            if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
+                return Boolean(executeHogQLBytecode(action.bytecode, event))
+            }
+        } catch (error) {
+            console.error(error)
+            captureException(error, {
+                tags: { team_id: action.team_id },
+                extra: { event, action },
+            })
+        }
+    }
+
+    /** Get all actions matched to the event. */
     public async matchLegacy(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
         const matchingStart = performance.now()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
@@ -197,45 +235,6 @@ export class ActionMatcher {
         this.statsd?.timing('action_matching_for_event', performance.now() - matchingStart)
         this.statsd?.increment('action_matches_found', matches.length)
         return matches
-    }
-
-    /**
-     * Base level of action matching (HogVM version).
-     *
-     * Return whether the event is a match for the action.
-     * The event is considered a match if any of the action's steps (match groups) is a match.
-     */
-    public checkActionBytecode(
-        event: PostIngestionEvent,
-        elements: Element[] | undefined,
-        action: Action
-    ): boolean | undefined {
-        try {
-            if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
-                const eventProxy = new Proxy(event, {
-                    get: (target, prop) => {
-                        return prop === 'person'
-                            ? {
-                                  properties: target['person_properties'],
-                                  id: target['person_id'],
-                                  created_at: target['person_created_at'],
-                              }
-                            : prop === 'elements_chain'
-                            ? target.elementsList?.length
-                                ? elementsToString(target.elementsList)
-                                : ''
-                            : (target as any)[prop]
-                    },
-                })
-                return Boolean(executeHogQLBytecode(action.bytecode, eventProxy))
-            }
-        } catch (error) {
-            console.error(error)
-            captureException(error, {
-                tags: { team_id: action.team_id },
-                extra: { event, elements, action },
-            })
-        }
     }
 
     /**

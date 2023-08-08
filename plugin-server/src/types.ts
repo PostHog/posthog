@@ -643,6 +643,18 @@ export interface PostIngestionEvent extends BaseIngestionEvent {
     person_properties: Properties
 }
 
+/** Event that replicates the HogQL fields and columns available for action matching */
+export interface HogQLMatchingEvent extends BaseEvent {
+    properties: Properties
+    timestamp: ISOTimestamp
+    elements_chain: string | null
+    person: {
+        id: string
+        created_at: ISOTimestamp | null
+        properties: Record<string, any>
+    }
+}
+
 export interface DeadLetterQueueEvent {
     id: string
     event_uuid: string
