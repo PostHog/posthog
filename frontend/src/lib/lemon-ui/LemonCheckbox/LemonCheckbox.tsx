@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
 import './LemonCheckbox.scss'
+import { Tooltip } from '../Tooltip'
 
 export interface LemonCheckboxProps {
     checked?: boolean | 'indeterminate'
@@ -65,45 +66,47 @@ export function LemonCheckbox({
     }, [checked, indeterminate])
 
     return (
-        <span
-            className={clsx(
-                'LemonCheckbox',
-                localChecked && 'LemonCheckbox--checked',
-                wasIndeterminateLast && 'LemonCheckbox--indeterminate',
-                bordered && 'LemonCheckbox--bordered',
-                disabled && 'LemonCheckbox--disabled',
-                fullWidth && 'LemonCheckbox--full-width',
-                size && `LemonCheckbox--${size}`,
-                className
-            )}
-        >
-            <input
-                className="LemonCheckbox__input"
-                type="checkbox"
-                checked={localChecked}
-                defaultChecked={defaultChecked}
-                onChange={(e) => {
-                    // NOTE: We only want to setLocalChecked if the component is not controlled externally
-                    checked === undefined && setLocalChecked(e.target.checked)
-                    onChange?.(e.target.checked)
-                }}
-                id={id}
-                disabled={disabled}
-            />
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <label htmlFor={id} style={color ? ({ '--box-color': color } as BoxCSSProperties) : {}}>
-                <svg
-                    className="LemonCheckbox__box"
-                    fill="none"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    width="16"
-                    xmlns="http://www.w3.org/2000/svg"
-                >
-                    <path d={!wasIndeterminateLast ? 'm3.5 8 3 3 6-6' : 'm3.5 8h9'} strokeWidth="2" />
-                </svg>
-                {label && <span className="LemonCheckbox__label">{label}</span>}
-            </label>
-        </span>
+        <Tooltip title={disabledReason ? <i>{disabledReason}</i> : null} placement="topLeft">
+            <span
+                className={clsx(
+                    'LemonCheckbox',
+                    localChecked && 'LemonCheckbox--checked',
+                    wasIndeterminateLast && 'LemonCheckbox--indeterminate',
+                    bordered && 'LemonCheckbox--bordered',
+                    disabled && 'LemonCheckbox--disabled',
+                    fullWidth && 'LemonCheckbox--full-width',
+                    size && `LemonCheckbox--${size}`,
+                    className
+                )}
+            >
+                <input
+                    className="LemonCheckbox__input"
+                    type="checkbox"
+                    checked={localChecked}
+                    defaultChecked={defaultChecked}
+                    onChange={(e) => {
+                        // NOTE: We only want to setLocalChecked if the component is not controlled externally
+                        checked === undefined && setLocalChecked(e.target.checked)
+                        onChange?.(e.target.checked)
+                    }}
+                    id={id}
+                    disabled={disabled}
+                />
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <label htmlFor={id} style={color ? ({ '--box-color': color } as BoxCSSProperties) : {}}>
+                    <svg
+                        className='className="LemonCheckbox__box"'
+                        fill="none"
+                        height="16"
+                        viewBox="0 0 16 16"
+                        width="16"
+                        xmlns="http://www.w3.org/2000/svg"
+                    >
+                        <path d={!wasIndeterminateLast ? 'm3.5 8 3 3 6-6' : 'm3.5 8h9'} strokeWidth="2" />
+                    </svg>
+                    {label && <span className="LemonCheckbox__label">{label}</span>}
+                </label>
+            </span>
+        </Tooltip>
     )
 }
