@@ -16,6 +16,7 @@ from ee.billing.billing_manager import build_billing_token
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.clickhouse.client import sync_execute
+from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Organization, Plugin, Team
 from posthog.models.dashboard import Dashboard
@@ -1028,6 +1029,7 @@ class SendUsageNoLicenseTest(APIBaseTest):
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
     def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+        TEST_clear_instance_license_cache()
         # Same test, we just don't include the LicensedTestMixin so no license
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")

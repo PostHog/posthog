@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 from django.db.utils import ProgrammingError
@@ -53,35 +53,36 @@ def get_cached_instance_license() -> Optional["License"]:
     global instance_license_cached
     global is_instance_licensed_cached
 
-    if isinstance(instance_license_cached, License):
+    try:
+        from ee.models.license import License
+
+        if isinstance(instance_license_cached, License):
+            return instance_license_cached
+
+        if is_instance_licensed_cached is False:
+            # This is an unlicensed instance
+            return None
+
+        # TRICKY - The license table may not exist if a migration is running
+        license = License.objects.first_valid()
+        if license:
+            instance_license_cached = license
+            is_instance_licensed_cached = True
         return instance_license_cached
 
-    if is_instance_licensed_cached is False:
-        # This is an unlicensed instance
-        return None
-
-    if instance_license_cached is None and is_instance_licensed_cached is not False:
-        try:
-            from ee.models.license import License
-
-            # TRICKY - The license table may not exist if a migration is running
-            license = License.objects.first_valid()
-            if license:
-                instance_license_cached = license
-                is_instance_licensed_cached = True
-            else:
-                is_instance_licensed_cached = False
-        except ProgrammingError:
-            # TRICKY - The license table may not exist if a migration is running
-            pass
-        except Exception as e:
-            print("ERROR: Unable to check license", e)  # noqa: T201
-    return instance_license_cached
+    except ProgrammingError:
+        # TRICKY - The license table may not exist if a migration is running
+        pass
+    except Exception as e:
+        print("ERROR: Unable to check license", e)  # noqa: T201
+    return None
 
 
 # NOTE: This is purely for testing purposes
-def TEST_clear_instance_license_cache(value: Optional[bool] = None):
+def TEST_clear_instance_license_cache(
+    is_instance_licensed: Optional[bool] = None, instance_license: Optional[Any] = None
+):
     global instance_license_cached
-    instance_license_cached = value
+    instance_license_cached = instance_license
     global is_instance_licensed_cached
-    is_instance_licensed_cached = value
+    is_instance_licensed_cached = is_instance_licensed
