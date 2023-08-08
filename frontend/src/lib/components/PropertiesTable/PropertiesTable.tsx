@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 
-import { keyMappingKeys } from 'lib/taxonomy'
+import { KEY_MAPPING, keyMappingKeys } from 'lib/taxonomy'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
@@ -141,7 +141,7 @@ function ValueDisplay({
     )
 }
 interface PropertiesTableType extends BasePropertyType {
-    properties: any
+    properties: Record<string, unknown>
     sortProperties?: boolean
     searchable?: boolean
     filterable?: boolean
@@ -204,11 +204,14 @@ export function PropertiesTable({
         let entries = Object.entries(properties)
         if (searchTerm) {
             const normalizedSearchTerm = searchTerm.toLowerCase()
-            entries = entries.filter(
-                ([key, value]) =>
+            entries = entries.filter(([key, value]) => {
+                const label = KEY_MAPPING.event[key]?.label?.toLowerCase()
+                return (
                     key.toLowerCase().includes(normalizedSearchTerm) ||
+                    (label && label.includes(normalizedSearchTerm)) ||
                     JSON.stringify(value).toLowerCase().includes(normalizedSearchTerm)
-            )
+                )
+            })
         }
 
         if (filterable && filtered) {
