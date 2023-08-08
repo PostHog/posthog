@@ -104,7 +104,8 @@ export function chainToElements(chain: string, teamId: number, options: { throwO
     return elements
 }
 
-export function extractElements(elements: Array<Record<string, any>>): Element[] {
+/** Clean up a user provided elements list, so it could be inserted into the database */
+export function sanitizeElements(elements: Array<Record<string, any>>): Element[] {
     return elements.map((el) => ({
         text: el['$el_text']?.slice(0, 400),
         tag_name: el['tag_name'],

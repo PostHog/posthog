@@ -21,7 +21,7 @@ import {
     PropertyOperator,
     StringMatching,
 } from '../../types'
-import { elementsToString, extractElements } from '../../utils/db/elements-chain'
+import { elementsToString, sanitizeElements } from '../../utils/db/elements-chain'
 import { postgresQuery } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
@@ -161,7 +161,7 @@ export class ActionMatcher {
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
             const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
-            elements = rawElements ? extractElements(rawElements) : []
+            elements = rawElements ? sanitizeElements(rawElements) : []
         }
         const teamActionsMatching: (boolean | undefined)[] = teamActions.map((action) =>
             this.checkActionBytecode(event, elements, action)
@@ -183,7 +183,7 @@ export class ActionMatcher {
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
             const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
-            elements = rawElements ? extractElements(rawElements) : []
+            elements = rawElements ? sanitizeElements(rawElements) : []
         }
         const teamActionsMatching: boolean[] = await Promise.all(
             teamActions.map((action) => this.checkActionLegacy(event, elements, action))
