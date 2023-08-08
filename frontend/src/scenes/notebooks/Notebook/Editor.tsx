@@ -24,6 +24,9 @@ import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestam
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { useActions } from 'kea'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
+import { lemonToast } from '@posthog/lemon-ui'
+import { NotebookNodeType } from '~/types'
+import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -85,6 +88,7 @@ export function Editor({
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
+            NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
         ],
@@ -127,12 +131,38 @@ export function Editor({
                         return true
                     }
 
-                    if (event.dataTransfer.files && event.dataTransfer.files[0]) {
+                    if (!moved && event.dataTransfer.files && event.dataTransfer.files[0]) {
                         // if dropping external files
                         const file = event.dataTransfer.files[0] // the dropped file
 
-                        console.warn('TODO: Dropped file!', file)
-                        // TODO: Detect if it is an image and add image upload handler
+                        posthog.capture('notebook file dropped', { file_type: file.type })
+
+                        if (!file.type.startsWith('image/')) {
+                            lemonToast.warning('Only images can be added to Notebooks at this time.')
+                            return true
+                        }
+
+                        const coordinates = view.posAtCoords({
+                            left: event.clientX,
+                            top: event.clientY,
+                        })
+
+                        if (!coordinates) {
+                            // TODO: Seek to end of document instead
+                            return true
+                        }
+
+                        editor
+                            .chain()
+                            .focus()
+                            .setTextSelection(coordinates.pos)
+                            .insertContent({
+                                type: NotebookNodeType.Image,
+                                attrs: {
+                                    file,
+                                },
+                            })
+                            .run()
 
                         return true
                     }

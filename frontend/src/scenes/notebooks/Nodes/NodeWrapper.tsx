@@ -34,6 +34,8 @@ export interface NodeWrapperProps {
     resizeable?: boolean
     heightEstimate?: number | string
     minHeight?: number | string
+    /** If true the metadata area will only show when hovered if in editing mode */
+    autoHideMetadata?: boolean
 }
 
 export function NodeWrapper({
@@ -45,6 +47,8 @@ export function NodeWrapper({
     heightEstimate = '4rem',
     resizeable = true,
     startExpanded = false,
+    expandable = true,
+    autoHideMetadata = false,
     minHeight,
     node,
     getPos,
@@ -78,7 +82,7 @@ export function NodeWrapper({
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
-    const height = node.attrs.height
+    const height = node.attrs.height ?? heightEstimate
 
     const onResizeStart = useCallback((): void => {
         if (!resizeable) {
@@ -101,6 +105,9 @@ export function NodeWrapper({
 
     const parsedHref = typeof href === 'function' ? href(node.attrs) : href
 
+    // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
+    const isResizeable = resizeable && (!expandable || expanded)
+
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={nodeLogicProps}>
@@ -109,6 +116,7 @@ export function NodeWrapper({
                     as="div"
                     className={clsx(nodeType, 'NotebookNode', {
                         'NotebookNode--selected': isEditable && selected,
+                        'NotebookNode--auto-hide-metadata': autoHideMetadata,
                     })}
                 >
                     <ErrorBoundary>
@@ -127,18 +135,24 @@ export function NodeWrapper({
                                         size="small"
                                         status="primary-alt"
                                         className="flex-1"
-                                        icon={<IconDragHandle className="cursor-move text-base shrink-0" />}
+                                        icon={
+                                            isEditable ? (
+                                                <IconDragHandle className="cursor-move text-base shrink-0" />
+                                            ) : undefined
+                                        }
                                     >
                                         <span className="flex-1 cursor-pointer">{title}</span>
                                     </LemonButton>
 
                                     {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
 
-                                    <LemonButton
-                                        onClick={() => setExpanded(!expanded)}
-                                        size="small"
-                                        icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                    />
+                                    {expandable && (
+                                        <LemonButton
+                                            onClick={() => setExpanded(!expanded)}
+                                            size="small"
+                                            icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                        />
+                                    )}
 
                                     {isEditable && (
                                         <LemonButton
@@ -153,10 +167,10 @@ export function NodeWrapper({
                                     ref={contentRef}
                                     className={clsx(
                                         'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
-                                        isEditable && expanded && resizeable && 'resize-y'
+                                        isEditable && isResizeable && 'resize-y'
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={expanded && resizeable ? { height, minHeight } : {}}
+                                    style={isResizeable ? { height, minHeight } : {}}
                                     onClick={!expanded ? () => setExpanded(true) : undefined}
                                     onMouseDown={onResizeStart}
                                 >
@@ -204,9 +218,7 @@ export const createPostHogWidgetNode = ({
 
         addAttributes() {
             return {
-                height: {
-                    default: wrapperProps.heightEstimate,
-                },
+                height: {},
                 nodeId: {
                     default: uuid,
                 },

@@ -3005,6 +3005,7 @@ export enum NotebookNodeType {
     Link = 'ph-link',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
+    Image = 'ph-image',
 }
 
 export type NotebookNodeWidgetSettings = {

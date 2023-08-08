@@ -205,7 +205,7 @@ export const LemonFileInput = ({
     )
 }
 
-const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
+export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
     const blobReducer = (await import('image-blob-reduce')).default()
     return blobReducer.toBlob(blob, { max: 2000 })
 }
