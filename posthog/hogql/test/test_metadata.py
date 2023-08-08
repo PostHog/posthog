@@ -158,6 +158,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_metadata_property_type_notice(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "number")
+
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
         PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")
         metadata = self._expr("properties.string || properties.number")
@@ -170,13 +178,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": None,
                 "notices": [
                     {
-                        "message": "Property 'string' is of type 'String'",
+                        "message": "Event property 'string' is of type 'String'",
                         "start": 11,
                         "end": 17,
                         "fix": None,
                     },
                     {
-                        "message": "Property 'number' is of type 'Float'",
+                        "message": "⚡️Event property 'number' is of type 'Float'",
                         "start": 32,
                         "end": 38,
                         "fix": None,

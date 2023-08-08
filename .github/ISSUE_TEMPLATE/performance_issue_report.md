@@ -17,7 +17,7 @@ labels: performance
 ## Environment
 
 - [ ] PostHog Cloud
-- [ ] self-hosted PostHog, version/commit: _please provide_
+- [ ] PostHog self-hosted with Kubernetes (deprecated, see ["Sunsetting Kubernetes support"](https://posthog.com/blog/sunsetting-helm-support-posthog)), version/commit: [please provide]
 
 ## Additional context
 

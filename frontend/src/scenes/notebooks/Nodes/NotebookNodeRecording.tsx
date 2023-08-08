@@ -1,78 +1,80 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
+import { NodeViewProps } from '@tiptap/core'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { NotebookNodeType, SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
-import { posthogNodePasteRule } from './utils'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { useActions, useValues } from 'kea'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { useEffect } from 'react'
+import {
+    SessionRecordingPreview,
+    SessionRecordingPreviewSkeleton,
+} from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 const HEIGHT = 500
+const MIN_HEIGHT = 400
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
+
     const recordingLogicProps: SessionRecordingPlayerProps = {
-        sessionRecordingId: id,
-        playerKey: `notebook-${id}`,
+        ...sessionRecordingPlayerProps(id),
         autoPlay: false,
+        mode: SessionRecordingPlayerMode.Notebook,
+        noBorder: true,
     }
 
-    return (
-        <NodeWrapper
-            {...props}
-            nodeType={NotebookNodeType.Recording}
-            title="Recording"
-            href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
-            heightEstimate={HEIGHT}
-        >
-            <div style={{ height: HEIGHT }}>
-                <SessionRecordingPlayer {...recordingLogicProps} />
-            </div>
-        </NodeWrapper>
+    const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
+    const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
+    const { expanded } = useValues(notebookNodeLogic)
+
+    useEffect(() => {
+        loadRecordingMeta()
+    }, [])
+    // TODO Only load data when in view...
+
+    return !expanded ? (
+        <div>
+            {sessionPlayerMetaData ? (
+                <SessionRecordingPreview recording={sessionPlayerMetaData} recordingPropertiesLoading={false} />
+            ) : (
+                <SessionRecordingPreviewSkeleton />
+            )}
+        </div>
+    ) : (
+        <SessionRecordingPlayer {...recordingLogicProps} />
     )
 }
 
-export const NotebookNodeRecording = Node.create({
-    name: NotebookNodeType.Recording,
-    group: 'block',
-    atom: true,
-    draggable: true,
-
-    addAttributes() {
-        return {
-            id: {
-                default: null,
-            },
-        }
+export const NotebookNodeRecording = createPostHogWidgetNode({
+    nodeType: NotebookNodeType.Recording,
+    title: 'Session Replay',
+    Component,
+    heightEstimate: HEIGHT,
+    minHeight: MIN_HEIGHT,
+    href: (attrs) => urls.replaySingle(attrs.id),
+    resizeable: true,
+    attributes: {
+        id: {
+            default: null,
+        },
     },
-
-    parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Recording,
-            },
-        ]
-    },
-
-    renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.Recording, mergeAttributes(HTMLAttributes)]
-    },
-
-    addNodeView() {
-        return ReactNodeViewRenderer(Component)
-    },
-
-    addPasteRules() {
-        return [
-            posthogNodePasteRule({
-                find: urls.replaySingle('') + '(.+)',
-                type: this.type,
-                getAttributes: (match) => {
-                    return { id: match[1] }
-                },
-            }),
-        ]
+    pasteOptions: {
+        find: urls.replaySingle('') + '(.+)',
+        getAttributes: (match) => {
+            return { id: match[1] }
+        },
     },
 })
+
+export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {
+    return {
+        sessionRecordingId: id,
+        playerKey: `notebook-${id}`,
+    }
+}

@@ -18,7 +18,6 @@ import {
     Node,
     NodeKind,
     PersonsNode,
-    RecentPerformancePageViewNode,
     TimeToSeeDataNode,
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
@@ -170,10 +169,6 @@ export function isTimeToSeeDataSessionsNode(node?: Node | null): node is TimeToS
     )
 }
 
-export function isRecentPerformancePageViewNode(node?: Node | null): node is RecentPerformancePageViewNode {
-    return node?.kind === NodeKind.RecentPerformancePageViewNode
-}
-
 export function dateRangeFor(node?: Node): DateRange | undefined {
     if (isInsightQueryNode(node)) {
         return node.dateRange
@@ -182,8 +177,6 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
             date_from: node.sessionStart,
             date_to: node.sessionEnd,
         }
-    } else if (isRecentPerformancePageViewNode(node)) {
-        return undefined // convert from number of days to date range
     } else if (isTimeToSeeDataSessionsQuery(node)) {
         return node.dateRange
     } else if (isActionsNode(node)) {

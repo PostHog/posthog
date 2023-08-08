@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { ExportedData, ExportType } from '~/exporter/types'
 import { DashboardPlacement } from '~/types'
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
-import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import { Logo } from '~/toolbar/assets/Logo'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { Link } from 'lib/lemon-ui/Link'
@@ -46,7 +46,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                             to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                             target="_blank"
                         >
-                            <FriendlyLogo className="text-lg" />
+                            <Logo className="text-lg" />
                         </Link>
                         <div className="SharedDashboard-header-title">
                             <h1 className="mb-2" data-attr="dashboard-item-title">
@@ -58,7 +58,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     </div>
                 ) : type === ExportType.Embed ? (
                     <Link to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard" target="_blank">
-                        <FriendlyLogo className="text-lg" />
+                        <Logo className="text-lg" />
                     </Link>
                 ) : type === ExportType.Image ? (
                     <>
@@ -88,7 +88,7 @@ export function Exporter(props: ExportedData): JSX.Element {
             )}
             {!whitelabel && dashboard && (
                 <div className="text-center pb-4">
-                    {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}
+                    {type === ExportType.Image ? <Logo className="text-lg" /> : null}
                     <div>
                         Made with{' '}
                         <Link

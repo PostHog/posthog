@@ -10,7 +10,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events_query'
-import recordingPerformanceEventsJson from '../__mocks__/recording_performance_events.json'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { teamLogic } from 'scenes/teamLogic'
@@ -42,7 +41,6 @@ describe('sessionRecordingDataLogic', () => {
             get: {
                 '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
-                '/api/projects/:team/performance_events': { results: recordingPerformanceEventsJson },
             },
             post: {
                 '/api/projects/:team/query': recordingEventsJson,
@@ -207,57 +205,6 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
-    describe('loading session performance events', () => {
-        it('loads performance events', async () => {
-            logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
-            logic.mount()
-            logic.actions.loadRecordingMeta()
-            await expectLogic(logic).toFinishAllListeners()
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
-            })
-                .toDispatchActions(['loadPerformanceEvents', 'loadPerformanceEventsSuccess'])
-                .toMatchValues({
-                    performanceEvents: expect.arrayContaining([
-                        expect.objectContaining({
-                            entry_type: 'navigation',
-                        }),
-                    ]),
-                })
-        })
-
-        describe("don't call performance endpoint", () => {
-            beforeEach(async () => {
-                useAvailableFeatures([])
-                initKeaTests()
-                logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
-                logic.mount()
-                logic.actions.loadRecordingMeta()
-                await expectLogic(logic).toFinishAllListeners()
-                api.get.mockClear()
-            })
-
-            it("user doesn't have the performance feature", async () => {
-                api.get.mockClear()
-                await expectLogic(logic, async () => {
-                    logic.actions.loadRecordingSnapshots()
-                })
-                    .toDispatchActionsInAnyOrder([
-                        'loadEvents',
-                        'loadEventsSuccess',
-                        'loadPerformanceEvents',
-                        'loadPerformanceEventsSuccess',
-                    ])
-                    .toMatchValues({
-                        performanceEvents: [],
-                    })
-
-                // data, but not performance events
-                expect(api.get).toBeCalledTimes(1)
-            })
-        })
-    })
-
     describe('loading session snapshots', () => {
         beforeEach(async () => {
             await expectLogic(logic).toDispatchActions(['loadRecordingMetaSuccess'])
@@ -340,7 +287,7 @@ describe('sessionRecordingDataLogic', () => {
                     next: undefined,
                 },
             })
-            expect(api.get).toBeCalledTimes(3) // 2 calls to loadRecordingSnapshots + 1 call to loadPerformanceEvents
+            expect(api.get).toBeCalledTimes(2) // 2 calls to loadRecordingSnapshots
         })
 
         it('server error mid-way through recording', async () => {
@@ -411,8 +358,6 @@ describe('sessionRecordingDataLogic', () => {
                     'loadRecordingSnapshotsV1Success',
                     'loadEvents',
                     'loadEventsSuccess',
-                    'loadPerformanceEvents',
-                    'loadPerformanceEventsSuccess',
                 ])
                 .toDispatchActions([eventUsageLogic.actionTypes.reportRecording])
         })

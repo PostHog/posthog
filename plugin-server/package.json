@@ -55,6 +55,7 @@
         "@sentry/tracing": "^7.17.4",
         "@sentry/utils": "^7.17.4",
         "@types/lru-cache": "^5.1.0",
+        "@types/tail": "^2.2.1",
         "asn1.js": "^5.4.1",
         "aws-sdk": "^2.927.0",
         "escape-string-regexp": "^4.0.0",
@@ -81,6 +82,7 @@
         "re2": "^1.17.7",
         "safe-stable-stringify": "^2.4.0",
         "snowflake-sdk": "^1.6.10",
+        "tail": "^2.2.6",
         "uuid": "^8.3.2",
         "vm2": "3.9.18"
     },

@@ -92,9 +92,13 @@ export function Login(): JSX.Element {
                 <h2>Log in</h2>
                 {generalError && (
                     <LemonBanner type="error">
-                        {generalError.detail ||
-                            ERROR_MESSAGES[generalError.code] ||
-                            'Could not complete your login. Please try again.'}
+                        {generalError.detail || ERROR_MESSAGES[generalError.code] || (
+                            <>
+                                Could not complete your login.
+                                <br />
+                                Please try again.
+                            </>
+                        )}
                     </LemonBanner>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
@@ -107,8 +111,12 @@ export function Login(): JSX.Element {
                             placeholder="email@yourcompany.com"
                             type="email"
                             onBlur={() => precheck({ email: login.email })}
-                            onPressEnter={() => {
+                            onPressEnter={(e) => {
                                 precheck({ email: login.email })
+                                if (isPasswordHidden) {
+                                    e.preventDefault() // Don't trigger submission if password field is still hidden
+                                    passwordInputRef.current?.focus()
+                                }
                             }}
                         />
                     </Field>

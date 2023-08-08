@@ -4,8 +4,8 @@
 # For more info, see:
 # https://posthog.com/handbook/engineering/developing-locally
 #
-# If you are looking at self-hosted deployment options check
-# https://posthog.com/docs/self-host
+# PostHog has sunset support for self-hosted K8s deployments.
+# See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
 
 services:

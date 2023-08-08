@@ -19,7 +19,7 @@ export class PromiseManager {
             return
         }
 
-        status.info('🤝', `Tracking promise ${key}`)
+        status.info('🤝', `Tracking promise ${key} count = ${this.pendingPromises.size}`)
         this.statsd?.increment(`worker_promise_manager_promise_start`, { key })
         this.pendingPromises.add(promise)
 

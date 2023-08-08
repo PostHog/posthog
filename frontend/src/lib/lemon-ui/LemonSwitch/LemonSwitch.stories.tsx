@@ -38,7 +38,6 @@ export const Overview = (): JSX.Element => {
             <LemonSwitch label="Bordered FullWidth" fullWidth bordered />
             <LemonSwitch label="Bordered FullWidth icon" fullWidth bordered icon={<IconGlobeLock />} />
             <LemonSwitch label="Bordered disabled" bordered disabled />
-            <LemonSwitch label="Bordered small" bordered size="small" />
         </div>
     )
 }

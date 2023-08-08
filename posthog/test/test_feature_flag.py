@@ -621,7 +621,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatcher([feature_flag], "307", property_value_overrides={"Organizer Id": 307}).get_match(
                 feature_flag
             ),
-            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # test with a flag where the property is a number
@@ -643,7 +643,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"Distinct Id": 307}).get_match(
                 feature_flag2
             ),
-            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
     def test_coercion_of_booleans(self):
@@ -809,12 +809,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
-        # require explicit type correctness for overrides
+        # don't require explicit type correctness for overrides when you're already at /decide
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "307", property_value_overrides={"Distinct Id": 307}).get_match(
                 feature_flag
             ),
-            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # test with a flag where the property is a number
@@ -2420,6 +2420,42 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         matcher = FeatureFlagMatcher([flag], "example_id_1")
 
         self.assertEqual(matcher.get_matches(), ({}, {}, {}, True))
+        self.assertEqual(matcher.failed_to_fetch_conditions, False)
+        mock_database_healthcheck.set_connection.assert_not_called()
+
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
+    def test_invalid_group_filters_dont_set_db_down(self, mock_database_healthcheck):
+
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag2: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="group-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "aggregation_group_type_index": 0,
+            },
+        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        matcher = FeatureFlagMatcher([flag, flag2], "example_id_1", ["organization"])  # type: ignore
+
+        self.assertEqual(
+            matcher.get_matches(),
+            (
+                {"active-flag": True},
+                {"active-flag": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}},
+                {},
+                True,
+            ),
+        )
         self.assertEqual(matcher.failed_to_fetch_conditions, False)
         mock_database_healthcheck.set_connection.assert_not_called()
 

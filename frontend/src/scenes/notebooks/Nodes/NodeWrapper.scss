@@ -1,27 +1,28 @@
 .NotebookNode {
     transform: translate3d(0, 0, 0);
+    border: 1px solid var(--border-3000);
+    border-radius: var(--radius);
+    margin: 0px 0px 1rem 0px;
+    background-color: var(--bg-light);
+    transition: border 150ms linear;
+
     .NotebookNode__meta {
-        opacity: 0;
-        transition: 150ms ease-out;
-        transform: translateY(100%);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--muted-alt-3000);
+        padding: 0.25rem;
+        border-bottom: 1px solid var(--border);
     }
 
-    outline: 2px solid transparent;
-    outline-offset: 1rem;
-    border-radius: 0.125rem;
-
-    transition: outline 150ms ease-out, outline-offset 150ms ease-out;
-
-    &--selected {
-        outline: 2px solid var(--accent-3000-light);
-        outline-offset: 0.25rem;
+    .NotebookNode__content {
+        transition: box-shadow 150ms ease-out;
+        border-radius: var(--radius);
     }
 
-    &:hover,
     &--selected {
-        .NotebookNode__meta {
-            transform: translateY(0);
-            opacity: 1;
-        }
+        border: 1px solid var(--primary-3000);
     }
 }

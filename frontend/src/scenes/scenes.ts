@@ -103,10 +103,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.WebPerformance]: {
-        projectBased: true,
-        name: 'Web Performance',
-    },
     [Scene.Replay]: {
         projectBased: true,
         name: 'Session Replay',
@@ -163,6 +159,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         name: 'Survey',
     },
     [Scene.DataWarehouse]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehousePosthog]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseExternal]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseSavedQueries]: {
         projectBased: true,
         name: 'Data Warehouse',
     },
@@ -296,6 +304,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Notebook]: {
         projectBased: true,
         name: 'Notebook',
+        layout: 'app-raw',
     },
 }
 
@@ -383,8 +392,6 @@ export const routes: Record<string, Scene> = {
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,
     [urls.database()]: Scene.Database,
     [urls.events()]: Scene.Events,
-    [urls.webPerformance()]: Scene.WebPerformance,
-    [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce((acc, tab) => {
@@ -408,6 +415,9 @@ export const routes: Record<string, Scene> = {
     [urls.survey(':id')]: Scene.Survey,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
+    [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
+    [urls.dataWarehouseExternal()]: Scene.DataWarehouseExternal,
+    [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,

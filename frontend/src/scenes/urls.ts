@@ -5,7 +5,6 @@ import {
     DashboardType,
     FilterType,
     InsightShortId,
-    PerformancePageView,
     ReplayTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
@@ -78,14 +77,6 @@ export const urls = {
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
-    webPerformance: (): string => '/web-performance',
-    webPerformanceWaterfall: (pageview?: PerformancePageView): string => {
-        // KLUDGE: only allow no pageview param for urlToAction in the logic
-        const queryParams = !!pageview
-            ? `?sessionId=${pageview.session_id}&pageviewId=${pageview.pageview_id}&timestamp=${pageview.timestamp}`
-            : ''
-        return `/web-performance/waterfall${queryParams}`
-    },
 
     replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
@@ -111,7 +102,10 @@ export const urls = {
     surveys: (): string => '/surveys',
     dataWarehouse: (): string => '/warehouse',
     dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
-    survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
+    dataWarehousePosthog: (): string => '/data-warehouse/posthog',
+    dataWarehouseExternal: (): string => '/data-warehouse/external',
+    dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
+    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
     annotations: (): string => '/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,

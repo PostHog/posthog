@@ -11,8 +11,6 @@ interface Props {
     durationTypeFilter: DurationType
     onChange: (recordingDurationFilter: RecordingDurationFilter, durationType: DurationType) => void
     pageKey: string
-    // TODO this can be removed when replay summary is the default
-    usesListingV3?: boolean
 }
 
 const durationTypeMapping: Record<DurationType, string> = {
@@ -32,12 +30,7 @@ export const humanFriendlyDurationFilter = (
     return `${operator} ${duration.timeValue || 0} ${durationDescription}${unit}`
 }
 
-export function DurationFilter({
-    recordingDurationFilter,
-    durationTypeFilter,
-    onChange,
-    usesListingV3,
-}: Props): JSX.Element {
+export function DurationFilter({ recordingDurationFilter, durationTypeFilter, onChange }: Props): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const durationString = useMemo(
         () => humanFriendlyDurationFilter(recordingDurationFilter, durationTypeFilter),
@@ -66,12 +59,11 @@ export function DurationFilter({
                         }
                         value={recordingDurationFilter.value || undefined}
                     />
-                    {usesListingV3 ? (
-                        <DurationTypeSelect
-                            onChange={(v) => onChange(recordingDurationFilter, v)}
-                            value={durationTypeFilter}
-                        />
-                    ) : null}
+
+                    <DurationTypeSelect
+                        onChange={(v) => onChange(recordingDurationFilter, v)}
+                        value={durationTypeFilter}
+                    />
                 </div>
             }
         >
