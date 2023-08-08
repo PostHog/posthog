@@ -24,7 +24,6 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
  * The library used relies on canvas.toBlob() which has slightly odd behaviour
  * It tends to convert things to png unexpectedly :'(
  * See http://kangax.github.io/jstests/toDataUrl_mime_type_test/ for a test that shows this behavior
- * @param file
  */
 function canReduceThisBlobType(file: File): boolean {
     const supportedTypes = ['image/png', 'image/jpeg', 'image/webp']
