@@ -406,7 +406,9 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
         feature_flags = get_feature_flags_for_team_in_cache(self.team_id)
         if feature_flags is None:
-            feature_flags = set_feature_flags_for_team_in_cache(self.team_id)
+            feature_flags = set_feature_flags_for_team_in_cache(
+                self.team_id, using_database=DATABASE_FOR_LOCAL_EVALUATION
+            )
 
         cohorts = {}
         seen_cohorts_cache: Dict[str, Cohort] = {
