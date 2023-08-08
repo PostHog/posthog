@@ -157,7 +157,7 @@ export class ActionMatcher {
 
     /** Get all actions matched to the event. */
     public matchBytecode(event: PostIngestionEvent, elements?: Element[]): (Action | undefined)[] {
-        const matchingStart = new Date()
+        const matchingStart = performance.now()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
             const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
@@ -173,13 +173,13 @@ export class ActionMatcher {
                 matches.push(teamActions[i])
             }
         }
-        this.statsd?.timing('action_matching_for_event_hogvm', matchingStart)
+        this.statsd?.timing('action_matching_for_event_hogvm', performance.now() - matchingStart)
         this.statsd?.increment('action_matches_found_hogvm', matches.length)
         return matches
     }
 
     public async matchLegacy(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
-        const matchingStart = new Date()
+        const matchingStart = performance.now()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
             const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
@@ -194,7 +194,7 @@ export class ActionMatcher {
                 matches.push(teamActions[i])
             }
         }
-        this.statsd?.timing('action_matching_for_event', matchingStart)
+        this.statsd?.timing('action_matching_for_event', performance.now() - matchingStart)
         this.statsd?.increment('action_matches_found', matches.length)
         return matches
     }
