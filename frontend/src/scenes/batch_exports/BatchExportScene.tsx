@@ -1,6 +1,6 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
@@ -10,6 +10,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconEdit } from 'lib/lemon-ui/icons'
 import { identifierToHuman } from 'lib/utils'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
+import { intervalToFrequency } from './utils'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -61,6 +62,7 @@ export function BatchExportScene(): JSX.Element {
                 {batchExportConfig ? (
                     <>
                         <BatchExportTag batchExportConfig={batchExportConfig} />
+                        <LemonTag className="uppercase">{intervalToFrequency(batchExportConfig.interval)}</LemonTag>
                     </>
                 ) : (
                     <LemonSkeleton className="w-10" />
@@ -127,6 +129,15 @@ export function BatchExportScene(): JSX.Element {
                                     },
                                 },
                             ]}
+                            emptyState={
+                                <>
+                                    No runs yet. Your exporter runs every <b>{batchExportConfig.interval}</b>.
+                                    <br />
+                                    <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                                        Schedule historic export
+                                    </LemonButton>
+                                </>
+                            }
                         />
                     </div>
                 </div>

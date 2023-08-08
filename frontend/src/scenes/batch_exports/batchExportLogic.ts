@@ -9,8 +9,7 @@ import type { batchExportLogicType } from './batchExportLogicType'
 import { urls } from 'scenes/urls'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { forms } from 'kea-forms'
-import { Dayjs } from 'lib/dayjs'
-import { router } from 'kea-router'
+import { Dayjs, dayjs } from 'lib/dayjs'
 
 export type BatchExportLogicProps = {
     id: string
@@ -66,17 +65,17 @@ export const batchExportLogic = kea<batchExportLogicType>([
 
     forms(({ props, actions }) => ({
         backfillForm: {
-            defaults: {} as {
+            defaults: { end_at: dayjs() } as {
                 start_at?: Dayjs
                 end_at?: Dayjs
             },
-            errors: ({ start_at }) => ({
+            errors: ({ start_at, end_at }) => ({
                 start_at: !start_at ? 'Start date is required' : undefined,
-                end_at: '',
+                end_at: !end_at ? 'End date is required' : undefined,
             }),
             submit: async ({ start_at, end_at }) => {
                 await new Promise((resolve) => setTimeout(resolve, 1000))
-                await api.batchExports.createRun(props.id, {
+                await api.batchExports.createBackfill(props.id, {
                     start_at: start_at?.toISOString() ?? null,
                     end_at: end_at?.toISOString() ?? null,
                 })

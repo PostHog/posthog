@@ -62,10 +62,10 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = BatchExportRun
         fields = "__all__"
-        read_only_fields = ["batch_export"]
+        read_only_fields = "__all__"
 
 
-class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = BatchExportRun.objects.all()
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     serializer_class = BatchExportRunSerializer
@@ -239,6 +239,9 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         start_at_input = request.data.get("start_at", None)
         end_at_input = request.data.get("end_at", None)
+
+        if start_at_input is None or end_at_input is None:
+            raise ValidationError("Both 'start_at' and 'end_at' must be specified")
 
         start_at = validate_date_input(start_at_input)
         end_at = validate_date_input(end_at_input)

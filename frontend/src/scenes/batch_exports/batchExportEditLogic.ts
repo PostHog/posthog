@@ -154,7 +154,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                 }
             })
 
-            actions.setBatchExportConfigFormValues(transformedConfig)
+            actions.resetBatchExportConfigForm(transformedConfig)
         },
     })),
 

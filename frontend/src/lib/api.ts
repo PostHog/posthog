@@ -1285,11 +1285,11 @@ const api = {
         ): Promise<CountedPaginatedResponse<BatchExportRun>> {
             return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
         },
-        async createRun(
+        async createBackfill(
             id: BatchExportConfiguration['id'],
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
-            return await new ApiRequest().batchExportRuns(id).create({ data })
+            return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
         },
     },
 
