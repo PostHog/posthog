@@ -51,13 +51,13 @@ class TestViewLinkQuery(APIBaseTest):
         columns = get_view_link_columns(self.team)
         self.assertDictEqual(columns, {"events": [{"key": "fake", "type": "string"}]})
 
-        response = process_query(
+        query_response = process_query(
             team=self.team,
             query_json={
                 "kind": "DatabaseSchemaQuery",
             },
         )
-        self.assertIn({"key": "fake", "type": "string"}, response["events"])
+        self.assertIn({"key": "fake", "type": "string"}, query_response["events"])
 
     def test_view_link_columns_query(self):
         response = self.client.post(
@@ -75,14 +75,14 @@ class TestViewLinkQuery(APIBaseTest):
 
         DataWarehouseViewLink.objects.create(saved_query=saved_query, table="events", join_key="fake", team=self.team)
 
-        response = process_query(
+        query_response = process_query(
             team=self.team,
             query_json={
                 "kind": "HogQLQuery",
                 "query": f"SELECT event_view.fake FROM events",
             },
         )
-        self.assertEqual(response["types"], [("fake", "String")])
+        self.assertEqual(query_response["types"], [("fake", "String")])
 
     def test_view_link_nested_multiple_joins(self):
         response = self.client.post(
@@ -117,7 +117,7 @@ class TestViewLinkQuery(APIBaseTest):
             saved_query=saved_query, table="events", join_key="p_distinct_id", team=self.team
         )
 
-        response = process_query(
+        query_response = process_query(
             team=self.team,
             query_json={
                 "kind": "HogQLQuery",
@@ -127,7 +127,8 @@ class TestViewLinkQuery(APIBaseTest):
 
         # TODO: is this what we want
         self.assertEqual(
-            response["types"], [("events__event_view.fake", "String"), ("events__person_view.p_distinct_id", "String")]
+            query_response["types"],
+            [("events__event_view.fake", "String"), ("events__person_view.p_distinct_id", "String")],
         )
 
     def test_view_link_external_table(self):
