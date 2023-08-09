@@ -9,7 +9,7 @@ import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 interface NotebookCommentButtonProps extends Pick<LemonButtonProps, 'size'>, Pick<LemonMenuProps, 'visible'> {
     sessionRecordingId: string
     onCommentInNewNotebook: () => void
-    onCommentInExistingNotebook: () => void
+    onCommentInExistingNotebook: (notebookShortId: string) => void
 }
 
 /** A wrapper for the button, that lets you open a new or an existing recording
@@ -52,7 +52,7 @@ export function NotebookCommentButton({
                         : notebooks.map((notebook) => ({
                               label: notebook.title || 'unknown title',
                               onClick: () => {
-                                  onCommentInExistingNotebook()
+                                  onCommentInExistingNotebook(notebook.short_id)
                               },
                           })),
                 },
