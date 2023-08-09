@@ -454,6 +454,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#TableExprPlaceholder.
+    def visitTableExprPlaceholder(self, ctx:HogQLParser.TableExprPlaceholderContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#TableExprSubquery.
     def visitTableExprSubquery(self, ctx:HogQLParser.TableExprSubqueryContext):
         return self.visitChildren(ctx)
