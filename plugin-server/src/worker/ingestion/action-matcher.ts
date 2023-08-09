@@ -148,7 +148,11 @@ export class ActionMatcher {
             legacyResponse.length !== hogVMResponse.length ||
             !legacyResponse.every((action, index) => action.id == hogVMResponse[index]?.id)
         ) {
-            this.statsd?.increment('action_matches_hogvm_legacy_mismatch')
+            if (hogVMResponse.length > legacyResponse.length) {
+                this.statsd?.increment('action_matches_hogvm_legacy_mismatch_hogvm_matched_more')
+            } else {
+                this.statsd?.increment('action_matches_hogvm_legacy_mismatch')
+            }
         } else {
             this.statsd?.increment('action_matches_hogvm_legacy_match')
         }
