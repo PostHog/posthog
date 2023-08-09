@@ -126,10 +126,8 @@ class ActorBaseQuery:
         """
 
         # constrain by date range to help limit the work ClickHouse has to do scanning these tables
-        # always constrain by TTL and maybe constrain further
-        query += " AND timestamp >= now() - INTERVAL 21 DAY"
-        query += " AND timestamp <= now()"
-
+        # really we should constrain by TTL too
+        # but, we're already not doing that, and this adds the benefit without needing too much change
         if date_from:
             query += " AND timestamp >= %(date_from)s"
 
