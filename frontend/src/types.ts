@@ -26,7 +26,14 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext, HogQLQuery } from './queries/schema'
+import {
+    DatabaseSchemaQueryResponseField,
+    HogQLQuery,
+    InsightQueryNode,
+    InsightVizNode,
+    Node,
+    QueryContext,
+} from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
@@ -2041,6 +2048,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    /** query when used as ad-hoc insight */
+    query?: InsightVizNode
 }
 
 export interface SetInsightOptions {
