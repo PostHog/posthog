@@ -10,6 +10,7 @@ import {
     isTimeToSeeDataSessionsNode,
     isHogQLQuery,
     isInsightVizNode,
+    isLifecycleQuery,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -107,7 +108,7 @@ export async function query<N extends DataNode = DataNode>(
     try {
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
-        } else if (isInsightQueryNode(queryNode)) {
+        } else if (isInsightQueryNode(queryNode) && !isLifecycleQuery(queryNode)) {
             const filters = queryNodeToFilter(queryNode)
             const params = {
                 ...filters,
