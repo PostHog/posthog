@@ -32,6 +32,7 @@ import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { PersonDashboard } from './PersonDashboard'
 
 export const scene: SceneExport = {
     component: Person,
@@ -105,7 +106,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const { person, personLoading, currentTab, splitMergeModalShown, urlId, distinctId } = useValues(personsLogic)
+    const {
+        showCustomerSuccessDashboards,
+        person,
+        personLoading,
+        currentTab,
+        splitMergeModalShown,
+        urlId,
+        distinctId,
+    } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
@@ -284,6 +293,13 @@ export function Person(): JSX.Element | null {
                             />
                         ),
                     },
+                    showCustomerSuccessDashboards
+                        ? {
+                              key: PersonsTabType.DASHBOARD,
+                              label: 'Dashboard',
+                              content: <PersonDashboard person={person} />,
+                          }
+                        : false,
                 ]}
             />
 
