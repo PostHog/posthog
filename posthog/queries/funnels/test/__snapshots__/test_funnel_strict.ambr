@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -15,10 +14,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen.1
-  '''
+  '
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -85,10 +84,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '''
-# ---
+  '
+---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -104,10 +103,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step.1
-  '''
+  '
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -178,10 +177,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '''
-# ---
+  '
+---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -196,10 +195,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot.1
-  '''
+  '
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -265,5 +264,5 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '''
-# ---
+  '
+---
