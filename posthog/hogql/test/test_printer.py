@@ -409,6 +409,16 @@ class TestPrinter(BaseTest):
             ),
         self.assertEqual(str(error_context.exception), "JoinExpr with table of type CompareOperation not supported")
 
+    def test_select_cross_join(self):
+        self.assertEqual(
+            self._select("select 1 from events cross join raw_groups"),
+            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT 10000",
+        )
+        self.assertEqual(
+            self._select("select 1 from events, raw_groups"),
+            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT 10000",
+        )
+
     def test_select_array_join(self):
         self.assertEqual(
             self._select("select 1, a from events array join [1,2,3] as a"),
