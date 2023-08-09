@@ -8,8 +8,9 @@ import clsx from 'clsx'
 import { useState } from 'react'
 
 import { DndContext, closestCenter } from '@dnd-kit/core'
-import { useSortable, verticalListSortingStrategy, SortableContext } from '@dnd-kit/sortable'
+import { useSortable, SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { restrictToHorizontalAxis } from '@dnd-kit/modifiers'
 
 export interface PersonPropertySelectProps {
     addText: string
@@ -33,12 +34,12 @@ const SortableProperty = ({
         <span
             ref={setNodeRef}
             className={clsx(sortable ? 'cursor-move' : 'cursor-auto')}
-            style={{
-                transform: CSS.Transform.toString(transform),
-                transition,
-            }}
             {...attributes}
             {...listeners}
+            style={{
+                transform: CSS.Translate.toString(transform),
+                transition,
+            }}
         >
             <LemonSnack onClose={() => onRemove(name)}>{name}</LemonSnack>
         </span>
@@ -74,16 +75,26 @@ export const PersonPropertySelect = ({
                 onDragEnd={({ active, over }) => {
                     if (over && active.id !== over.id) {
                         handleSort({
-                            oldIndex: selectedProperties.indexOf(active.id),
-                            newIndex: selectedProperties.indexOf(over.id),
+                            oldIndex: selectedProperties.indexOf(active.id.toString()),
+                            newIndex: selectedProperties.indexOf(over.id.toString()),
                         })
                     }
                 }}
                 collisionDetection={closestCenter}
+                modifiers={[restrictToHorizontalAxis]}
             >
-                <SortableContext disabled={!sortable} items={selectedProperties} strategy={verticalListSortingStrategy}>
-                    {selectedProperties.map((value, index) => (
-                        <SortableProperty key={`item-${value}`} index={index} name={value} onRemove={handleRemove} />
+                <SortableContext
+                    disabled={!sortable}
+                    items={selectedProperties}
+                    strategy={horizontalListSortingStrategy}
+                >
+                    {selectedProperties.map((value) => (
+                        <SortableProperty
+                            key={`item-${value}`}
+                            name={value}
+                            onRemove={handleRemove}
+                            sortable={sortable}
+                        />
                     ))}
                 </SortableContext>
             </DndContext>
