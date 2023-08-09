@@ -228,7 +228,11 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             .order_by("-created_at")
             .prefetch_related("destination")
             .prefetch_related(
-                Prefetch("batchexportrun_set", queryset=BatchExportRun.objects.order_by("-created_at"), to_attr="runs")
+                Prefetch(
+                    "batchexportrun_set",
+                    queryset=BatchExportRun.objects.order_by("-created_at"),
+                    to_attr="runs",
+                )
             )
         )
 

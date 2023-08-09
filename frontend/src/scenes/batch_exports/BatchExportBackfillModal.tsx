@@ -14,7 +14,7 @@ export function BatchExportBackfillModal(): JSX.Element {
 
     return (
         <LemonModal
-            title={'Schedule historic runs'}
+            title="Create historic export"
             onClose={closeBackfillModal}
             isOpen={isBackfillModalOpen}
             width={'30rem'}
@@ -35,13 +35,13 @@ export function BatchExportBackfillModal(): JSX.Element {
                         data-attr="batch-export-backfill-submit"
                         loading={isBackfillFormSubmitting}
                     >
-                        Schedule historic runs
+                        Schedule runs
                     </LemonButton>
                 </>
             }
         >
             <p>
-                Triggering a manual export will create multiple runs, one after another for the range specified below.
+                Triggering a historic export will create multiple runs, one after another for the range specified below.
                 The runs will export data in <b>{batchExportConfig?.interval}</b> intervals, from the start date until
                 the end date is reached.
             </p>

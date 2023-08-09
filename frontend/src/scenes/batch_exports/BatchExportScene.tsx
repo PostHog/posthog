@@ -11,6 +11,8 @@ import { IconEdit } from 'lib/lemon-ui/icons'
 import { identifierToHuman } from 'lib/utils'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { intervalToFrequency } from './utils'
+import dayjs from 'dayjs'
+import { TZLabel } from '@posthog/apps-common'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -47,7 +49,7 @@ export function BatchExportScene(): JSX.Element {
                     batchExportConfig ? (
                         <>
                             <LemonButton type="secondary" onClick={() => openBackfillModal()}>
-                                Schedule historic runs
+                                Create historic export
                             </LemonButton>
 
                             <LemonButton type="primary" to={urls.batchExportEdit(batchExportConfig?.id)}>
@@ -124,8 +126,24 @@ export function BatchExportScene(): JSX.Element {
                                     key: 'runStart',
                                     tooltip: 'Date and time when this BatchExport run started',
                                     render: function RenderName(_, run) {
-                                        return 'wat'
-                                        // return <>{dayjs(run.created_at).format('YYYY-MM-DD HH:mm:ss z')}</>
+                                        return <TZLabel time={run.created_at} />
+                                    },
+                                },
+
+                                {
+                                    title: 'Data interval start',
+                                    key: 'dataIntervalStart',
+                                    tooltip: 'Start of the time range to export',
+                                    render: function RenderName(_, run) {
+                                        return <>{dayjs(run.data_interval_start).format('YYYY-MM-DD HH:mm:ss z')}</>
+                                    },
+                                },
+                                {
+                                    title: 'Data interval end',
+                                    key: 'dataIntervalEnd',
+                                    tooltip: 'End of the time range to export',
+                                    render: function RenderName(_, run) {
+                                        return <>{dayjs(run.data_interval_end).format('YYYY-MM-DD HH:mm:ss z')}</>
                                     },
                                 },
                             ]}

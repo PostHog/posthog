@@ -98,7 +98,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               config: config,
                           }
 
-                const data: Omit<BatchExportConfiguration, 'id' | 'paused'> = {
+                const data: Omit<BatchExportConfiguration, 'id' | 'paused' | 'created_at'> = {
                     name,
                     interval,
                     start_at,
