@@ -484,6 +484,7 @@ class JoinExpr(Expr):
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table_args: Optional[List[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional["JoinConstraint"] = None

@@ -12,8 +12,9 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
-import { notebookSidebarLogic } from './notebookSidebarLogic'
-import { JSONContent, defaultNotebookContent } from './utils'
+import { notebookPopoverLogic } from './notebookPopoverLogic'
+import { EditorFocusPosition, JSONContent, defaultNotebookContent } from './utils'
+
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<NotebookListItemType> {}
@@ -25,18 +26,24 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
-export const openNotebook = (notebook: NotebookListItemType, target: NotebookTarget): void => {
-    const sidebarLogic = notebookSidebarLogic.findMounted()
+export const openNotebook = (
+    notebookId: string,
+    target: NotebookTarget = NotebookTarget.Auto,
+    focus: EditorFocusPosition = null
+): void => {
+    const popoverLogic = notebookPopoverLogic.findMounted()
 
-    if (NotebookTarget.Sidebar === target) {
-        sidebarLogic?.actions.setNotebookSideBarShown(true)
+    if (NotebookTarget.Popover === target) {
+        popoverLogic?.actions.setVisibility('visible')
     }
 
-    if (sidebarLogic?.values.notebookSideBarShown) {
-        sidebarLogic?.actions.selectNotebook(notebook.short_id)
+    if (popoverLogic?.values.visibility === 'visible') {
+        popoverLogic?.actions.selectNotebook(notebookId)
     } else {
-        router.actions.push(urls.notebookEdit(notebook.short_id))
+        router.actions.push(urls.notebookEdit(notebookId))
     }
+
+    popoverLogic?.actions.setInitialAutofocus(focus)
 }
 
 export const notebooksListLogic = kea<notebooksListLogicType>([
@@ -83,7 +90,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                         content: defaultNotebookContent(title, content),
                     })
 
-                    openNotebook(notebook, location)
+                    openNotebook(notebook.short_id, location, 'end')
 
                     posthog.capture(`notebook created`, {
                         short_id: notebook.short_id,
@@ -99,7 +106,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                         callback: actions.loadNotebooks,
                     })
 
-                    notebookSidebarLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
+                    notebookPopoverLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
 
                     return values.notebooks.filter((n) => n.short_id !== shortId)
                 },

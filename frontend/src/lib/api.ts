@@ -8,6 +8,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataWarehouseTable,
+    DataWarehouseSavedQuery,
     EarlyAccessFeatureType,
     EventDefinition,
     EventDefinitionType,
@@ -438,6 +439,14 @@ class ApiRequest {
     }
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
+    }
+
+    // # Warehouse view
+    public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_query')
+    }
+    public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1141,6 +1150,17 @@ const api = {
                 .withAction('snapshots')
                 .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
                 .getResponse()
+
+            try {
+                const textLines = await response.text()
+
+                if (textLines) {
+                    return textLines.split('\n')
+                }
+            } catch (e) {
+                // Must be gzipped
+            }
+
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
@@ -1280,6 +1300,27 @@ const api = {
             data: Pick<DataWarehouseTable, 'name'>
         ): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
+        },
+    },
+
+    dataWarehouseSavedQueries: {
+        async list(): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
+            return await new ApiRequest().dataWarehouseSavedQueries().get()
+        },
+        async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()
+        },
+        async create(data: Partial<DataWarehouseSavedQuery>): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQueries().create({ data })
+        },
+        async delete(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQuery(viewId).delete()
+        },
+        async update(
+            viewId: DataWarehouseSavedQuery['id'],
+            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+        ): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
     },
 

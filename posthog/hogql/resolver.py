@@ -6,11 +6,12 @@ from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable
+from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.functions.cohort import cohort
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
+from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
 
@@ -205,6 +206,13 @@ class Resolver(CloningVisitor):
 
             if self.database.has_table(table_name):
                 database_table = self.database.get_table(table_name)
+
+                if isinstance(database_table, SavedQuery):
+                    node.table = parse_select(str(database_table.query))
+                    node.alias = table_alias or database_table.name
+                    node = self.visit(node)
+                    return node
+
                 if isinstance(database_table, LazyTable):
                     node_table_type = ast.LazyTableType(table=database_table)
                 else:
@@ -223,6 +231,8 @@ class Resolver(CloningVisitor):
                 node.type = node_type
                 node.table = cast(ast.Field, clone_expr(node.table))
                 node.table.type = node_table_type
+                if node.table_args is not None:
+                    node.table_args = [self.visit(arg) for arg in node.table_args]
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)

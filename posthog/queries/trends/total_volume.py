@@ -28,14 +28,13 @@ from posthog.queries.trends.sql import (
     VOLUME_PER_ACTOR_SQL,
     VOLUME_SQL,
 )
-from posthog.queries.trends.trends_actors import offset_time_series_date_by_interval
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
     determine_aggregator,
-    ensure_value_is_json_serializable,
     enumerate_time_range,
+    offset_time_series_date_by_interval,
     parse_response,
     process_math,
 )
@@ -221,7 +220,7 @@ class TrendsTotalVolume:
 
     def _parse_aggregate_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
         def _parse(result: List) -> List:
-            aggregated_value = ensure_value_is_json_serializable(result[0][0]) if result and len(result) else 0
+            aggregated_value = result[0][0] if result else 0
             seconds_in_interval = TIME_IN_SECONDS[filter.interval]
             time_range = enumerate_time_range(filter, seconds_in_interval)
             filter_params = filter.to_params()
@@ -232,6 +231,7 @@ class TrendsTotalVolume:
                 "entity_order": entity.order,
             }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+            cache_invalidation_key = generate_short_id()
 
             return [
                 {
@@ -240,7 +240,7 @@ class TrendsTotalVolume:
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
-                        "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
+                        "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                     },
                 }
             ]

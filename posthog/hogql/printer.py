@@ -16,11 +16,10 @@ from posthog.hogql.functions import (
     HOGQL_CLICKHOUSE_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
     HOGQL_AGGREGATIONS,
-    ADD_TIMEZONE_TO_FUNCTIONS,
     HOGQL_POSTHOG_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table, FunctionCallTable
+from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.errors import HogQLException
@@ -76,7 +75,6 @@ def prepare_ast_for_printing(
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
-
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
 
@@ -260,7 +258,11 @@ class _Printer(Visitor):
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
             # Skip function call tables like numbers(), s3(), etc.
-            if self.dialect == "clickhouse" and not isinstance(table_type.table, FunctionCallTable):
+            if (
+                self.dialect == "clickhouse"
+                and not isinstance(table_type.table, FunctionCallTable)
+                and not isinstance(table_type.table, SavedQuery)
+            ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
             if self.dialect == "clickhouse":
@@ -271,9 +273,31 @@ class _Printer(Visitor):
                     cte = f"{self._print_identifier(node.alias)} AS (SELECT * FROM {sql})"
 
                     # The table is captured in a CTE so just print the table name in the final select
-                    sql = self._print_identifier(table_type.table.name)
+                    sql = self._print_identifier(node.alias or table_type.table.name)
             else:
                 sql = table_type.table.to_printed_hogql()
+
+            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
+                if node.table_args is None:
+                    raise HogQLException(f"Table function '{table_type.table.name}' requires arguments")
+
+                if table_type.table.min_args is not None and (
+                    node.table_args is None or len(node.table_args) < table_type.table.min_args
+                ):
+                    raise HogQLException(
+                        f"Table function '{table_type.table.name}' requires at least {table_type.table.min_args} argument{'s' if table_type.table.min_args > 1 else ''}"
+                    )
+                if table_type.table.max_args is not None and (
+                    node.table_args is None or len(node.table_args) > table_type.table.max_args
+                ):
+                    raise HogQLException(
+                        f"Table function '{table_type.table.name}' requires at most {table_type.table.max_args} argument{'s' if table_type.table.max_args > 1 else ''}"
+                    )
+                if node.table_args is not None and len(node.table_args) > 0:
+                    sql = f"{sql}({', '.join([self.visit(arg) for arg in node.table_args])})"
+            elif node.table_args is not None:
+                raise HogQLException(f"Table '{table_type.table.to_printed_hogql()}' does not accept arguments")
+
             join_strings.append(sql)
 
             if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
@@ -624,20 +648,32 @@ class _Printer(Visitor):
                 else:
                     args = [self.visit(arg) for arg in node.args]
 
-                if (func_meta.clickhouse_name == "now64" and len(node.args) == 0) or (
-                    func_meta.clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
-                ):
-                    # must add precision if adding timezone in the next step
-                    args.append("6")
+                relevant_clickhouse_name = func_meta.clickhouse_name
+                if func_meta.overloads:
+                    first_arg_constant_type = (
+                        node.args[0].type.resolve_constant_type()
+                        if len(node.args) > 0 and node.args[0].type is not None
+                        else None
+                    )
 
-                if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
+                    if first_arg_constant_type is not None:
+                        for overload_types, overload_clickhouse_name in func_meta.overloads:
+                            if isinstance(first_arg_constant_type, overload_types):
+                                relevant_clickhouse_name = overload_clickhouse_name
+                                break  # Found an overload matching the first function org
+
+                if func_meta.tz_aware:
+                    if (relevant_clickhouse_name == "now64" and len(node.args) == 0) or (
+                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
+                    ):
+                        args.append("6")  # These two CH functions require the precision argument before timezone
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
 
                 params_part = f"({', '.join(params)})" if params is not None else ""
                 args_part = f"({', '.join(args)})"
-                return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+                return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif node.name in HOGQL_POSTHOG_FUNCTIONS:

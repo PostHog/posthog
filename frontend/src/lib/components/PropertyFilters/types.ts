@@ -39,6 +39,6 @@ export interface PropertyFilterInternalProps {
     eventNames?: string[]
     propertyGroupType?: FilterLogicalOperator | null
     orFiltering?: boolean
-    addButton?: JSX.Element | null
+    addText?: string | null
     hasRowOperator?: boolean
 }

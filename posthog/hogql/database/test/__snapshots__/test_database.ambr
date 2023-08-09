@@ -202,89 +202,6 @@
               "type": "datetime"
           }
       ],
-      "session_recording_events": [
-          {
-              "key": "uuid",
-              "type": "string"
-          },
-          {
-              "key": "timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "distinct_id",
-              "type": "string"
-          },
-          {
-              "key": "session_id",
-              "type": "string"
-          },
-          {
-              "key": "window_id",
-              "type": "string"
-          },
-          {
-              "key": "snapshot_data",
-              "type": "json"
-          },
-          {
-              "key": "created_at",
-              "type": "datetime"
-          },
-          {
-              "key": "has_full_snapshot",
-              "type": "boolean"
-          },
-          {
-              "key": "events_summary",
-              "type": "json"
-          },
-          {
-              "key": "click_count",
-              "type": "integer"
-          },
-          {
-              "key": "keypress_count",
-              "type": "integer"
-          },
-          {
-              "key": "timestamps_summary",
-              "type": "datetime"
-          },
-          {
-              "key": "first_event_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "last_event_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "urls",
-              "type": "string"
-          },
-          {
-              "key": "pdi",
-              "type": "lazy_table",
-              "table": "person_distinct_ids"
-          },
-          {
-              "key": "person",
-              "type": "field_traverser",
-              "chain": [
-                  "pdi",
-                  "person"
-              ]
-          },
-          {
-              "key": "person_id",
-              "type": "field_traverser",
-              "chain": [
-                  "pdi",
-                  "person_id"
-              ]
-          }
-      ],
       "session_replay_events": [
           {
               "key": "session_id",
@@ -586,6 +503,12 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "numbers": [
+          {
+              "key": "number",
               "type": "integer"
           }
       ]
@@ -791,89 +714,6 @@
               "type": "datetime"
           }
       ],
-      "session_recording_events": [
-          {
-              "key": "uuid",
-              "type": "string"
-          },
-          {
-              "key": "timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "distinct_id",
-              "type": "string"
-          },
-          {
-              "key": "session_id",
-              "type": "string"
-          },
-          {
-              "key": "window_id",
-              "type": "string"
-          },
-          {
-              "key": "snapshot_data",
-              "type": "json"
-          },
-          {
-              "key": "created_at",
-              "type": "datetime"
-          },
-          {
-              "key": "has_full_snapshot",
-              "type": "boolean"
-          },
-          {
-              "key": "events_summary",
-              "type": "json"
-          },
-          {
-              "key": "click_count",
-              "type": "integer"
-          },
-          {
-              "key": "keypress_count",
-              "type": "integer"
-          },
-          {
-              "key": "timestamps_summary",
-              "type": "datetime"
-          },
-          {
-              "key": "first_event_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "last_event_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "urls",
-              "type": "string"
-          },
-          {
-              "key": "pdi",
-              "type": "lazy_table",
-              "table": "person_distinct_ids"
-          },
-          {
-              "key": "person",
-              "type": "field_traverser",
-              "chain": [
-                  "pdi",
-                  "person"
-              ]
-          },
-          {
-              "key": "person_id",
-              "type": "field_traverser",
-              "chain": [
-                  "pdi",
-                  "person_id"
-              ]
-          }
-      ],
       "session_replay_events": [
           {
               "key": "session_id",
@@ -1175,6 +1015,12 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "numbers": [
+          {
+              "key": "number",
               "type": "integer"
           }
       ]

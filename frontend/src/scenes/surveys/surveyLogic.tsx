@@ -153,16 +153,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyEdited',
                 'reportSurveyArchived',
                 'reportSurveyStopped',
+                'reportSurveyResumed',
                 'reportSurveyViewed',
             ],
         ],
-        values: [pluginsLogic, ['installedPlugins', 'enabledPlugins']],
+        values: [pluginsLogic, ['installedPlugins', 'loading as pluginsLoading', 'enabledPlugins']],
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
         launchSurvey: true,
         stopSurvey: true,
         archiveSurvey: true,
+        resumeSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
         setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
         setSurveyDataVizQuery: (surveyDataVizQuery: InsightVizNode) => ({ surveyDataVizQuery }),
@@ -190,6 +192,9 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             stopSurvey: async () => {
                 return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+            },
+            resumeSurvey: async () => {
+                return await api.surveys.update(props.id, { end_date: null })
             },
         },
     })),
@@ -226,6 +231,10 @@ export const surveyLogic = kea<surveyLogicType>([
         stopSurveySuccess: ({ survey }) => {
             actions.loadSurveys()
             actions.reportSurveyStopped(survey)
+        },
+        resumeSurveySuccess: ({ survey }) => {
+            actions.loadSurveys()
+            actions.reportSurveyResumed(survey)
         },
         archiveSurvey: async () => {
             actions.updateSurvey({ archived: true })
@@ -288,10 +297,12 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         showSurveyAppWarning: [
-            (s) => [s.survey, s.enabledPlugins],
-            (survey: Survey, enabledPlugins: PluginType[]): boolean => {
+            (s) => [s.survey, s.enabledPlugins, s.pluginsLoading],
+            (survey: Survey, enabledPlugins: PluginType[], pluginsLoading: boolean): boolean => {
                 return !!(
-                    survey.type !== SurveyType.API && !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
+                    survey.type !== SurveyType.API &&
+                    !pluginsLoading &&
+                    !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
                 )
             },
         ],

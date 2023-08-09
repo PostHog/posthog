@@ -1,10 +1,10 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { notebookSidebarLogic } from './Notebook/notebookSidebarLogic'
+import { notebookPopoverLogic } from './Notebook/notebookPopoverLogic'
 import { IconArrowRight } from 'lib/lemon-ui/icons'
 
 export function NotebookSidebarPlaceholder(): JSX.Element {
-    const { setNotebookSideBarShown } = useActions(notebookSidebarLogic)
+    const { setVisibility } = useActions(notebookPopoverLogic)
 
     return (
         <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10">
@@ -17,7 +17,7 @@ export function NotebookSidebarPlaceholder(): JSX.Element {
                 it will be full screen here instead.
             </p>
 
-            <LemonButton type="secondary" onClick={() => setNotebookSideBarShown(false)}>
+            <LemonButton type="secondary" onClick={() => setVisibility('hidden')}>
                 Open it here instead
             </LemonButton>
         </div>

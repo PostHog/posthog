@@ -442,6 +442,7 @@ class TrendsFilter(BaseModel):
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
+    show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
@@ -549,6 +550,7 @@ class HogQLMetadataResponse(BaseModel):
     inputExpr: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None
+    isValidView: Optional[bool] = None
     notices: List[HogQLNotice]
     warnings: List[HogQLNotice]
 

@@ -176,4 +176,31 @@
     .rating-section {
         margin-bottom: 0.5rem;
     }
+    .multiple-choice-options {
+        margin-bottom: 0.5rem;
+        margin-top: 0.5rem;
+        font-size: 14px;
+    }
+    .multiple-choice-options .choice-option {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: #00000003;
+        font-size: 14px;
+        padding: 10px 20px 10px 15px;
+        border: 1px solid #0000000d;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-bottom: 6px;
+    }
+    .multiple-choice-options .choice-option:hover {
+        background: #0000000a;
+    }
+    .multiple-choice-options input {
+        cursor: pointer;
+    }
+    .multiple-choice-options label {
+        width: 100%;
+        cursor: pointer;
+    }
 }

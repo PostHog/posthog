@@ -156,6 +156,7 @@ export class HedgehogActor {
             const duration = this.animationIterations
                 ? this.animationIterations * this.animation.frames * (1000 / FPS)
                 : '∞'
+            // eslint-disable-next-line no-console
             console.log(`Hedgehog: Will '${this.animationName}' for ${duration}ms`)
         }
     }

@@ -84,12 +84,19 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         query: [
-            (s) => [s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
-            (filters, insight, internalQuery, filterTestAccountsDefault) =>
+            (s) => [s.propsQuery, s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
+            (propsQuery, filters, insight, internalQuery, filterTestAccountsDefault) =>
+                propsQuery ||
                 internalQuery ||
                 insight.query ||
                 (filters && filters.insight ? queryFromFilters(filters) : undefined) ||
                 queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
+        ],
+
+        propsQuery: [
+            () => [(_, props) => props],
+            // overwrite query from props for standalone InsightVizNode queries
+            (props: InsightLogicProps) => (props.dashboardItemId?.startsWith('new-AdHoc.') ? props.query : null),
         ],
 
         isQueryBasedInsight: [
@@ -189,7 +196,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
         cancelChanges: () => {
             const savedFilters = values.savedInsight.filters
+            const savedResult = values.savedInsight.result
             actions.setQuery(savedFilters ? queryFromFilters(savedFilters) : null)
+            actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
     })),
     propsChanged(({ actions, props, values }) => {
