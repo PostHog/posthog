@@ -270,10 +270,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     onChange={onChange}
                                     disabledReason={
                                         !slackEnabled
-                                            ? 'To use this, set up webhook integration in Project Settings'
-                                            : action.bytecode_error
-                                            ? `${action.bytecode_error} in webhooks`
-                                            : null
+                                            ? 'Configure webhooks in project settings'
+                                            : action.bytecode_error ?? null
                                     }
                                     label={
                                         <>
@@ -286,7 +284,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 />
                                 <div className="mt-1 pl-6">
                                     <Link to="/project/settings#webhook">
-                                        {slackEnabled ? 'Configure' : 'Enable'} this integration in Project Settings.
+                                        {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
                                     </Link>
                                 </div>
                             </div>
