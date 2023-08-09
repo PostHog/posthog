@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { UUIDT } from '../../../src/utils/utils'
 import { parseDate, parseEventTimestamp } from '../../../src/worker/ingestion/timestamps'
 
 describe('parseDate()', () => {
@@ -55,6 +56,7 @@ describe('parseEventTimestamp()', () => {
             timestamp: '2021-10-31T00:44:00.000Z',
             sent_at: 'invalid',
             now: '2021-10-30T01:44:00.000Z',
+            uuid: new UUIDT(),
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
@@ -66,6 +68,7 @@ describe('parseEventTimestamp()', () => {
                     field: 'sent_at',
                     reason: 'the input "invalid" can\'t be parsed as ISO 8601',
                     value: 'invalid',
+                    eventUuid: event.uuid,
                 },
             ],
         ])
@@ -132,6 +135,7 @@ describe('parseEventTimestamp()', () => {
             team_id: 123,
             timestamp: 'notISO',
             now: '2020-01-01T12:00:05.200Z',
+            uuid: new UUIDT(),
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
@@ -143,6 +147,7 @@ describe('parseEventTimestamp()', () => {
                     field: 'timestamp',
                     reason: 'the input "notISO" can\'t be parsed as ISO 8601',
                     value: 'notISO',
+                    eventUuid: event.uuid,
                 },
             ],
         ])
