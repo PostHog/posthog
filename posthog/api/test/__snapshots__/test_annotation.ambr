@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1
-  '''
+  '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -26,10 +25,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /**/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.1
-  '''
+  '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -68,10 +67,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.10
-  '''
+  '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -97,10 +96,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /**/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.11
-  '''
+  '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -139,10 +138,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.12
-  '''
+  '
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -168,20 +167,20 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.13
-  '''
+  '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
   WHERE ((("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
            AND "posthog_annotation"."scope" = 'organization')
           OR "posthog_annotation"."team_id" = 2)
          AND NOT "posthog_annotation"."deleted") /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.14
-  '''
+  '
   SELECT "posthog_annotation"."id",
          "posthog_annotation"."content",
          "posthog_annotation"."created_at",
@@ -255,10 +254,10 @@
          AND NOT "posthog_annotation"."deleted")
   ORDER BY "posthog_annotation"."date_marker" DESC
   LIMIT 1000 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.2
-  '''
+  '
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -284,10 +283,10 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.3
-  '''
+  '
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
@@ -295,20 +294,20 @@
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.4
-  '''
+  '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
   WHERE ((("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
            AND "posthog_annotation"."scope" = 'organization')
           OR "posthog_annotation"."team_id" = 2)
          AND NOT "posthog_annotation"."deleted") /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.5
-  '''
+  '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -334,10 +333,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /**/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.6
-  '''
+  '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -376,10 +375,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.7
-  '''
+  '
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -405,20 +404,20 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.8
-  '''
+  '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
   WHERE ((("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
            AND "posthog_annotation"."scope" = 'organization')
           OR "posthog_annotation"."team_id" = 2)
          AND NOT "posthog_annotation"."deleted") /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.9
-  '''
+  '
   SELECT "posthog_annotation"."id",
          "posthog_annotation"."content",
          "posthog_annotation"."created_at",
@@ -492,5 +491,5 @@
          AND NOT "posthog_annotation"."deleted")
   ORDER BY "posthog_annotation"."date_marker" DESC
   LIMIT 1000 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
-  '''
-# ---
+  '
+---
