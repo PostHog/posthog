@@ -23,7 +23,7 @@ import '@testing-library/jest-dom'
 
 import { CreateExport } from './CreateExport'
 import { initKeaTests } from '../../test/init'
-import { createExportServiceHandlers } from './api-mocks'
+import { createExportServiceHandlers } from './__mocks__/api-mocks'
 import { useMocks } from '../../mocks/jest'
 import userEvent from '@testing-library/user-event'
 

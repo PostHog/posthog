@@ -15,7 +15,7 @@ export function BatchExportTag({ batchExportConfig }: { batchExportConfig: Batch
 
 export function BatchExportRunIcon({ batchExportRun }: { batchExportRun: BatchExportRun }): JSX.Element {
     let color = 'default'
-    let runCount = 1
+    const runCount = 1 // TODO
 
     switch (batchExportRun.status) {
         case 'Completed':
@@ -35,8 +35,6 @@ export function BatchExportRunIcon({ batchExportRun }: { batchExportRun: BatchEx
             color = 'danger'
             break
     }
-
-    const pulse = batchExportRun.status === 'Running' || batchExportRun.status === 'Starting'
 
     return (
         <Tooltip

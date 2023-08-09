@@ -1,8 +1,9 @@
-import { BatchExport, BatchExportData, BatchExportsResponse } from './api'
+import { CountedPaginatedResponse } from 'lib/api'
+import { BatchExportConfiguration } from '~/types'
 
 export const createExportServiceHandlers = (
-    exports: { [id: number]: BatchExport } = {}
-): { exports: { [id: number]: BatchExport }; handlers: any } => {
+    exports: { [id: number]: BatchExportConfiguration } = {}
+): { exports: { [id: number]: BatchExportConfiguration }; handlers: any } => {
     const handlers = {
         get: {
             '/api/projects/:team_id/batch_exports/': (_req: any, res: any, ctx: any) => {
@@ -10,7 +11,7 @@ export const createExportServiceHandlers = (
                     ctx.delay(1000),
                     ctx.json({
                         results: Object.values(exports),
-                    } as BatchExportsResponse)
+                    } as CountedPaginatedResponse<BatchExportConfiguration>)
                 )
             },
             '/api/projects/:team_id/batch_exports/:export_id': (req: any, res: any, ctx: any) => {
@@ -22,22 +23,14 @@ export const createExportServiceHandlers = (
                 return res(
                     ctx.delay(1000),
                     ctx.json({
-                        results: [
-                            {
-                                export_id: id,
-                                run_id: 1,
-                                status: 'RUNNING',
-                                created_at: '2021-09-01T00:00:00.000000Z',
-                                last_updated_at: '2021-09-01T00:00:00.000000Z',
-                            },
-                        ],
+                        results: exports[id]?.runs ?? [],
                     })
                 )
             },
         },
         post: {
             '/api/projects/:team_id/batch_exports/': (req: any, res: any, ctx: any) => {
-                const body = req.body as BatchExportData
+                const body = req.body as BatchExportConfiguration
                 const id = (Object.keys(exports).length + 1).toString()
                 exports[id] = {
                     ...body,

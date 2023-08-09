@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 
 import { BatchExport } from './api'
-import { createExportServiceHandlers } from './api-mocks'
+import { createExportServiceHandlers } from './__mocks__/api-mocks'
 import { NestedExportActionButtons, Exports } from './ExportsList'
 import { initKeaTests } from '../../test/init'
 import { useMocks } from '../../mocks/jest'

@@ -3098,6 +3098,7 @@ export type BatchExportConfiguration = {
     name: string
     destination: BatchExportDestination
     interval: 'hour' | 'day'
+    created_at: string
     start_at: string | null
     end_at: string | null
     paused: boolean
@@ -3110,5 +3111,5 @@ export type BatchExportRun = {
     created_at: string
     data_interval_start: string
     data_interval_end: string
-    last_updated_at: string
+    last_updated_at?: string
 }
