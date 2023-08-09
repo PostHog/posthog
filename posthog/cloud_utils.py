@@ -55,27 +55,26 @@ def get_cached_instance_license() -> Optional["License"]:
 
     try:
         from ee.models.license import License
-
-        if isinstance(instance_license_cached, License):
-            return instance_license_cached
-
-        if is_instance_licensed_cached is False:
-            # This is an unlicensed instance
-            return None
-
-        # TRICKY - The license table may not exist if a migration is running
-        license = License.objects.first_valid()
-        if license:
-            instance_license_cached = license
-            is_instance_licensed_cached = True
-        return instance_license_cached
-
     except ProgrammingError:
         # TRICKY - The license table may not exist if a migration is running
         pass
     except Exception as e:
-        print("ERROR: Unable to check license", e)  # noqa: T201
-    return None
+        capture_exception(e)
+        return None
+
+    if isinstance(instance_license_cached, License):
+        return instance_license_cached
+
+    if is_instance_licensed_cached is False:
+        # This is an unlicensed instance
+        return None
+
+    # TRICKY - The license table may not exist if a migration is running
+    license = License.objects.first_valid()
+    if license:
+        instance_license_cached = license
+        is_instance_licensed_cached = True
+    return instance_license_cached
 
 
 # NOTE: This is purely for testing purposes
