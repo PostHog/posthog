@@ -13,8 +13,8 @@ SELECT_QUERY_TEMPLATE = Template(
         -- These 'timestamp' checks are a heuristic to exploit the sort key.
         -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
         -- As a side-effect, this heuristic will discard historical loads older than 2 days.
-        timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
-        AND timestamp < toDateTime64({data_interval_start}, 6, 'UTC') + INTERVAL 1 DAY
+        timestamp >= toDateTime({data_interval_start}, 'UTC') - INTERVAL 2 DAY
+        AND timestamp < toDateTime({data_interval_end}, 'UTC') + INTERVAL 1 DAY
         AND COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
