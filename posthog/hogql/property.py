@@ -254,7 +254,7 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.url_matching == ActionStep.EXACT:
                 expr = parse_expr("properties.$current_url = {url}", {"url": ast.Constant(value=step.url)})
             elif step.url_matching == ActionStep.REGEX:
-                expr = parse_expr("match(properties.$current_url, {regex})", {"regex": ast.Constant(value=step.url)})
+                expr = parse_expr("properties.$current_url =~ {regex}", {"regex": ast.Constant(value=step.url)})
             else:
                 expr = parse_expr("properties.$current_url like {url}", {"url": ast.Constant(value=f"%{step.url}%")})
             exprs.append(expr)
@@ -287,11 +287,13 @@ def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
         value = re.escape(escaped)
     else:
         raise NotImplementedException(f"element_href_to_expr not implemented for operator {operator}")
-    optional_flag = (
-        "(?i)" if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains else ""
-    )
-    regex = f'{optional_flag}({key}="{value}")'
-    expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(regex))})
+
+    regex = f'({key}="{value}")'
+    if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains:
+        expr = parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(regex))})
+    else:
+        expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(regex))})
+
     if (
         operator == PropertyOperator.is_not_set
         or operator == PropertyOperator.not_icontains
@@ -304,11 +306,11 @@ def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
 
 def tag_name_to_expr(tag_name: str):
     regex = rf"(^|;){tag_name}(\.|$|;|:)"
-    expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(regex))})
+    expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(regex))})
     return expr
 
 
 def selector_to_expr(selector: str):
     regex = build_selector_regex(Selector(selector, escape_slashes=False))
-    expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=regex)})
+    expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)})
     return expr
