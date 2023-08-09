@@ -99,28 +99,6 @@ def create_hogql_database(team_id: int) -> Database:
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
-    def determine_join_function(view):
-        def join_function(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
-            from posthog.hogql import ast
-            from posthog.hogql.parser import parse_select
-
-            if not requested_fields:
-                raise HogQLException(f"No fields requested from {to_table}")
-
-            join_expr = ast.JoinExpr(table=parse_select(view.saved_query.query["query"]))
-            join_expr.join_type = "INNER JOIN"
-            join_expr.alias = to_table
-            join_expr.constraint = ast.JoinConstraint(
-                expr=ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[from_table, view.from_join_key]),
-                    right=ast.Field(chain=[to_table, view.to_join_key]),
-                )
-            )
-            return join_expr
-
-        return join_function
-
     for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
         # TODO: handle repeated names
         getattr(database, view.table).fields[view.saved_query.name] = LazyJoin(
@@ -139,6 +117,29 @@ def create_hogql_database(team_id: int) -> Database:
     database.add_warehouse_tables(**tables)
 
     return database
+
+
+def determine_join_function(view):
+    def join_function(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+        from posthog.hogql import ast
+        from posthog.hogql.parser import parse_select
+
+        if not requested_fields:
+            raise HogQLException(f"No fields requested from {to_table}")
+
+        join_expr = ast.JoinExpr(table=parse_select(view.saved_query.query["query"]))
+        join_expr.join_type = "INNER JOIN"
+        join_expr.alias = to_table
+        join_expr.constraint = ast.JoinConstraint(
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[from_table, view.from_join_key]),
+                right=ast.Field(chain=[to_table, view.to_join_key]),
+            )
+        )
+        return join_expr
+
+    return join_function
 
 
 class _SerializedFieldBase(TypedDict):
