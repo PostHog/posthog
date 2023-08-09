@@ -480,7 +480,7 @@ class JoinConstraint(Expr):
 @dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
-    type: Optional[TableOrSelectType]
+    type: Optional[TableOrSelectType] = field(default=None)
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
