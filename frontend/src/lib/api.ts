@@ -1232,8 +1232,12 @@ const api = {
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<NotebookType>> {
-            return await new ApiRequest().notebooks().get()
+        async list(sessionRecordingId?: string): Promise<PaginatedResponse<NotebookType>> {
+            const apiRequest = new ApiRequest().notebooks()
+            if (sessionRecordingId) {
+                apiRequest.withQueryString({ has_recordings: sessionRecordingId })
+            }
+            return await apiRequest.get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
