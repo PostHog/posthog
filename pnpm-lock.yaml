@@ -44,9 +44,6 @@ dependencies:
   '@tiptap/extension-floating-menu':
     specifier: ^2.1.0-rc.12
     version: 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
-  '@tiptap/extension-link':
-    specifier: ^2.1.0-rc.12
-    version: 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
   '@tiptap/extension-placeholder':
     specifier: ^2.1.0-rc.12
     version: 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
@@ -4990,17 +4987,6 @@ packages:
       '@tiptap/core': ^2.0.0
     dependencies:
       '@tiptap/core': 2.1.0-rc.12(@tiptap/pm@2.1.0-rc.12)
-    dev: false
-
-  /@tiptap/extension-link@2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12):
-    resolution: {integrity: sha512-V44dX99CM/VN/IYxrK0egXnx/VElatKCW1JOxCFCzVdDXryot9GfFMFxIi3eS0kPsaZqzmUAEvVxtnaz5Uj3DA==}
-    peerDependencies:
-      '@tiptap/core': ^2.0.0
-      '@tiptap/pm': ^2.0.0
-    dependencies:
-      '@tiptap/core': 2.1.0-rc.12(@tiptap/pm@2.1.0-rc.12)
-      '@tiptap/pm': 2.1.0-rc.12
-      linkifyjs: 4.1.1
     dev: false
 
   /@tiptap/extension-list-item@2.1.0-rc.12(@tiptap/core@2.1.0-rc.12):
@@ -13835,10 +13821,6 @@ packages:
     resolution: {integrity: sha512-C7bfi1UZmoj8+PQx22XyeXCuBlokoyWQL5pWSP+EI6nzRylyThouddufc2c1NDIcP9k5agmN9fLpA7VNJfIiqw==}
     dependencies:
       uc.micro: 1.0.6
-    dev: false
-
-  /linkifyjs@4.1.1:
-    resolution: {integrity: sha512-zFN/CTVmbcVef+WaDXT63dNzzkfRBKT1j464NJQkV7iSgJU0sLBus9W0HBwnXK13/hf168pbrx/V/bjEHOXNHA==}
     dev: false
 
   /lint-staged@10.2.13:

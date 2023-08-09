@@ -56,26 +56,23 @@ export function posthogNodePasteRule(options: {
     })
 }
 
-export function posthogLinkPasteRule(editor: TTEditor): PasteRule {
-    return markPasteRule({ internal: true, editor })
+export function posthogLinkPasteRule(): PasteRule {
+    return markPasteRule(true)
 }
 
-export function externalLinkPasteRule(editor: TTEditor): PasteRule {
-    return markPasteRule({ internal: false, editor })
+export function externalLinkPasteRule(): PasteRule {
+    return markPasteRule(false)
 }
 
-function markPasteRule(options: { internal: boolean; editor: TTEditor }): PasteRule {
-    const regex = createUrlRegex(
-        "([a-zA-Z0-9-._~:/?#\\[\\]!@$&'()*,;=]*)",
-        options.internal ? undefined : '(https?|mailto)://'
-    )
+function markPasteRule(internal: boolean): PasteRule {
+    const regex = createUrlRegex("([a-zA-Z0-9-._~:/?#\\[\\]!@$&'()*,;=]*)", internal ? undefined : '(https?|mailto)://')
 
     return new PasteRule({
         find: regex,
         handler: ({ match, chain, range }) => {
             if (match.input) {
                 const url = new URL(match[0])
-                const href = options.internal ? url.pathname : url.toString()
+                const href = internal ? url.pathname : url.toString()
                 chain()
                     .deleteRange(range)
                     .insertContent([

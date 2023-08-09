@@ -26,7 +26,7 @@ export const NotebookMarkLink = Mark.create({
     },
 
     addPasteRules() {
-        return [posthogLinkPasteRule(this.editor), externalLinkPasteRule(this.editor)]
+        return [posthogLinkPasteRule(), externalLinkPasteRule()]
     },
 
     addProseMirrorPlugins() {
