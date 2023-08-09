@@ -718,6 +718,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
 
+    def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
+        return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
+
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias = self.visit(ctx.alias() or ctx.identifier())
         if alias in RESERVED_KEYWORDS:

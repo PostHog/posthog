@@ -629,6 +629,22 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_select_from_placeholder(self):
+        self.assertEqual(
+            self._select("select 1 from {placeholder}"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Placeholder(field="placeholder")),
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from {placeholder}", {"placeholder": ast.Field(chain=["events"])}),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            ),
+        )
+
     def test_select_from_join(self):
         self.assertEqual(
             self._select("select 1 from events JOIN events2 ON 1"),
