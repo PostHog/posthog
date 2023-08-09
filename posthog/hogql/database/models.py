@@ -138,6 +138,8 @@ class FunctionCallTable(Table):
     """
 
     name: str
+    min_args: Optional[int] = None
+    max_args: Optional[int] = None
 
 
 class SavedQuery(Table):

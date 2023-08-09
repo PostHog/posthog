@@ -506,6 +506,12 @@
               "key": "version",
               "type": "integer"
           }
+      ],
+      "numbers": [
+          {
+              "key": "number",
+              "type": "integer"
+          }
       ]
   }
   '''
@@ -1010,6 +1016,12 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "numbers": [
+          {
+              "key": "number",
               "type": "integer"
           }
       ]
