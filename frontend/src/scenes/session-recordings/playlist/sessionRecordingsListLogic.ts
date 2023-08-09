@@ -308,14 +308,20 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             },
         ],
         showFilters: [
-            false,
+            true,
+            {
+                persist: true,
+            },
             {
                 setShowFilters: (_, { showFilters }) => showFilters,
                 setShowSettings: () => false,
             },
         ],
         showSettings: [
-            false,
+            true,
+            {
+                persist: true,
+            },
             {
                 setShowSettings: (_, { showSettings }) => showSettings,
                 setShowFilters: () => false,
