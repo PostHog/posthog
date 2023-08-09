@@ -389,6 +389,7 @@ def create_batch_export(
                         # We could take the batch_export_id from the Workflow id
                         # But temporal appends a timestamp at the end we would have to parse out.
                         batch_export_id=str(batch_export.id),
+                        interval=str(batch_export.interval),
                         **batch_export.destination.config,
                     )
                 ),
