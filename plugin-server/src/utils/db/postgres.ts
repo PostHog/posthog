@@ -37,3 +37,22 @@ export function postgresQuery<R extends QueryResultRow = any, I extends any[] = 
         }
     })
 }
+
+export async function assertTablesExist(client: Client | Pool | PoolClient, tables: string[]): Promise<void> {
+    // Allows to check at startup that the configured PG holds the expected tables,
+    // to catch misconfigurations before the entire deployment rolls out.
+    const found: string[] = (
+        await postgresQuery(
+            client,
+            'SELECT relname FROM pg_class WHERE relname = ANY($1) ORDER BY relname;',
+            [tables],
+            'assertTablesExist'
+        )
+    ).rows.map((row) => row.relname)
+
+    const missing = tables.filter((table) => !found.includes(table))
+    if (missing.length > 0) {
+        throw new Error(`Configured PG target does not hold the expected tables: ${missing.join(', ')}`)
+    }
+    return Promise.resolve()
+}
