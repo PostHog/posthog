@@ -129,10 +129,10 @@ class ActorBaseQuery:
         # really we should constrain by TTL too
         # but, we're already not doing that, and this adds the benefit without needing too much change
         if date_from:
-            query += " AND timestamp >= %(date_from)s"
+            query += " AND min_first_timestamp >= %(date_from)s"
 
         if date_to:
-            query += " AND timestamp <= %(date_to)s"
+            query += " AND max_last_timestamp <= %(date_to)s"
 
         params = {
             "team_id": self._team.pk,
