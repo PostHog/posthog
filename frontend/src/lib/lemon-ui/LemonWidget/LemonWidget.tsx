@@ -10,6 +10,7 @@ export interface LemonWidgetProps {
     icon: JSX.Element
     collapsed?: boolean
     selected?: boolean
+    onClickCollapsedOpener?: () => void
     children: React.ReactChild
 }
 
@@ -18,6 +19,7 @@ export function LemonWidget({
     icon,
     collapsed = false,
     selected = false,
+    onClickCollapsedOpener,
     children,
 }: LemonWidgetProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState<boolean>(true)
@@ -39,7 +41,12 @@ export function LemonWidget({
             }
         >
             <LemonButton
-                onClick={() => setVisible(!visible)}
+                onClick={() => {
+                    if (!visible && !!onClickCollapsedOpener) {
+                        onClickCollapsedOpener()
+                    }
+                    setVisible(!visible)
+                }}
                 size="small"
                 status="primary-alt"
                 className="flex-1"

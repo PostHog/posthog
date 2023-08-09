@@ -42,6 +42,7 @@ export const notebookLogic = kea<notebookLogicType>([
         registerNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
+        scrollToSelection: true,
     }),
     reducers({
         localContent: [
@@ -323,10 +324,12 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
 
             if (node?.attrs.nodeId) {
-                // We need to wait for the node to expand before scrolling to get the correct position
-                setTimeout(() => {
-                    values.editor?.scrollToSelection()
-                }, 10)
+                actions.scrollToSelection()
+            }
+        },
+        scrollToSelection: () => {
+            if (values.editor) {
+                values.editor.scrollToSelection()
             }
         },
     })),

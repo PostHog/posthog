@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { Settings as RecordingSettings } from '../Nodes/NotebookNodeRecording'
 import { Link } from '@posthog/lemon-ui'
@@ -8,6 +8,7 @@ import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 
 export const NotebookSettings = (): JSX.Element | null => {
     const { selectedNodeLogic, shouldCollapseSettings } = useValues(notebookLogic)
+    const { scrollToSelection } = useActions(notebookLogic)
 
     return (
         <div className="NotebookSettings space-y-2">
@@ -22,6 +23,7 @@ export const NotebookSettings = (): JSX.Element | null => {
                     selected={true}
                     collapsed={shouldCollapseSettings}
                     icon={<IconRecording />}
+                    onClickCollapsedOpener={scrollToSelection}
                 >
                     <SelectedNodeSettingsWidget
                         nodeType={selectedNodeLogic.props.nodeType}
