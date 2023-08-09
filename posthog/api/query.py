@@ -26,7 +26,7 @@ from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
-from posthog.models.event.events_query import run_events_query
+from posthog.nodes.events_query import run_events_query
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
