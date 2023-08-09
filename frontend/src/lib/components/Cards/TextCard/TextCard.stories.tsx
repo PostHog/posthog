@@ -70,7 +70,7 @@ export const Template: Story = () => {
                     textTile={makeTextTile('showing handles')}
                 />
             </div>
-            <div className={'w-full h-200'}>
+            <div className={'w-full h-50'}>
                 <h5>Large Card</h5>
                 <TextCard
                     className={'h-full w-full react-grid-item react-draggable cssTransforms react-resizable'}
