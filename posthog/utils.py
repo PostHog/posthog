@@ -115,30 +115,6 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
-    """
-    Returns a pair of datetimes, representing the start and end of the week preceding to the passed date's week.
-    `at` is the datetime to use as a reference point.
-    """
-
-    if not at:
-        at = timezone.now()
-
-    period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(timezone.now().weekday() + 1),
-        datetime.time.max,
-        tzinfo=pytz.UTC,
-    )  # very end of the previous Sunday
-
-    period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6),
-        datetime.time.min,
-        tzinfo=pytz.UTC,
-    )  # very start of the previous Monday
-
-    return (period_start, period_end)
-
-
 def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the preceding day.
@@ -245,28 +221,6 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
 
 def relative_date_parse(input: str) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(input)[0]
-
-
-def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
-    if filters.get("date_from"):
-        date_from: Optional[datetime.datetime] = relative_date_parse(filters["date_from"])
-        if filters["date_from"] == "all":
-            date_from = None
-    else:
-        date_from = datetime.datetime.today() - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
-        date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    date_to = None
-    if filters.get("date_to"):
-        date_to = relative_date_parse(filters["date_to"])
-
-    resp = {}
-    if date_from:
-        resp["timestamp__gte"] = date_from.replace(tzinfo=pytz.UTC)
-    if date_to:
-        days = 1 if not exact else 0
-        resp["timestamp__lte"] = (date_to + relativedelta(days=days)).replace(tzinfo=pytz.UTC)
-    return resp
 
 
 def get_git_branch() -> Optional[str]:
