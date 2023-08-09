@@ -250,6 +250,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
             "schema": "test",
             "warehouse": "COMPUTE_WH",
             "table_name": "events",
+            "legacy_schema": False,
         },
     }
 
@@ -476,6 +477,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail():
             "schema": "test",
             "warehouse": "COMPUTE_WH",
             "table_name": "events",
+            "legacy_schema": False,
         },
     }
 
@@ -571,6 +573,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail():
             "schema": "test",
             "warehouse": "COMPUTE_WH",
             "table_name": "events",
+            "legacy_schema": False,
         },
     }
 
