@@ -11,6 +11,7 @@ import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
 import { PluginTab } from './plugins/types'
+import { toParams } from 'lib/utils'
 
 /**
  * To add a new URL to the front end:
@@ -53,7 +54,8 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     batchExports: (): string => '/batch_exports',
     batchExportNew: (): string => `/batch_exports/new`,
-    batchExport: (id: string): string => `/batch_exports/${id}`,
+    batchExport: (id: string, params?: { runId?: string }): string =>
+        `/batch_exports/${id}` + (params ? `?${toParams(params)}` : ''),
     batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>

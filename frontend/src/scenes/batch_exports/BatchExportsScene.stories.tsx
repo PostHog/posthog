@@ -37,7 +37,6 @@ export default {
                     interval: 'hour',
                     paused: false,
                     created_at: '2021-09-01T00:00:00.000000Z',
-                    // status: 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut' | 'Running' | 'Starting'
                     runs: [
                         {
                             id: '4',

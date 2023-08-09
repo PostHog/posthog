@@ -1,18 +1,18 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
-import { BatchExportRunStatus, BatchExportTag } from './components'
+import { BatchExportRunIcon, BatchExportRunStatus, BatchExportTag } from './components'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { IconEdit } from 'lib/lemon-ui/icons'
+import { IconEdit, IconPause, IconRefresh } from 'lib/lemon-ui/icons'
 import { identifierToHuman } from 'lib/utils'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
-import { intervalToFrequency } from './utils'
-import dayjs from 'dayjs'
+import { intervalToFrequency, isRunInProgress } from './utils'
 import { TZLabel } from '@posthog/apps-common'
+import { UUIDShortener } from 'lib/components/UUIDShortener'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -108,25 +108,27 @@ export function BatchExportScene(): JSX.Element {
                             pagination={batchExportRunsPagination}
                             columns={[
                                 {
-                                    title: 'Status',
-                                    key: 'status',
-                                    render: function RenderStatus(_, run) {
-                                        return <BatchExportRunStatus batchExportRun={run} />
+                                    key: 'icon',
+                                    width: 0,
+                                    render: (_, run) => {
+                                        return <BatchExportRunIcon batchExportRun={run} />
                                     },
                                 },
                                 {
                                     title: 'ID',
                                     key: 'runId',
-                                    render: function RenderStatus(_, run) {
-                                        return <>{run.id}</>
-                                    },
-                                },
-                                {
-                                    title: 'Run start',
-                                    key: 'runStart',
-                                    tooltip: 'Date and time when this BatchExport run started',
-                                    render: function RenderName(_, run) {
-                                        return <TZLabel time={run.created_at} />
+                                    width: 0,
+                                    render: (_, run) => {
+                                        return (
+                                            <Link
+                                                className="font-semibold"
+                                                to={urls.batchExport(batchExportConfig.id, {
+                                                    runId: run.id,
+                                                })}
+                                            >
+                                                <UUIDShortener uuid={run.id} />
+                                            </Link>
+                                        )
                                     },
                                 },
 
@@ -134,16 +136,62 @@ export function BatchExportScene(): JSX.Element {
                                     title: 'Data interval start',
                                     key: 'dataIntervalStart',
                                     tooltip: 'Start of the time range to export',
-                                    render: function RenderName(_, run) {
-                                        return <>{dayjs(run.data_interval_start).format('YYYY-MM-DD HH:mm:ss z')}</>
+                                    render: (_, run) => {
+                                        return (
+                                            <TZLabel
+                                                time={run.data_interval_start}
+                                                formatDate="MMMM DD, YYYY"
+                                                formatTime="hh:mm:ss"
+                                            />
+                                        )
                                     },
                                 },
                                 {
                                     title: 'Data interval end',
                                     key: 'dataIntervalEnd',
                                     tooltip: 'End of the time range to export',
+                                    render: (_, run) => {
+                                        return (
+                                            <TZLabel
+                                                time={run.data_interval_end}
+                                                formatDate="MMMM DD, YYYY"
+                                                formatTime="hh:mm:ss"
+                                            />
+                                        )
+                                    },
+                                },
+                                {
+                                    title: 'Run start',
+                                    key: 'runStart',
+                                    tooltip: 'Date and time when this BatchExport run started',
+                                    render: (_, run) => {
+                                        return <TZLabel time={run.created_at} />
+                                    },
+                                },
+                                {
+                                    // title: 'Actions',
+                                    key: 'actions',
+                                    width: 0,
                                     render: function RenderName(_, run) {
-                                        return <>{dayjs(run.data_interval_end).format('YYYY-MM-DD HH:mm:ss z')}</>
+                                        return (
+                                            <span className="flex items-center gap-1">
+                                                {isRunInProgress(run) ? (
+                                                    <LemonButton
+                                                        size="small"
+                                                        type="secondary"
+                                                        icon={<IconPause />}
+                                                        onClick={() => alert('TODO')}
+                                                    />
+                                                ) : (
+                                                    <LemonButton
+                                                        size="small"
+                                                        type="secondary"
+                                                        icon={<IconRefresh />}
+                                                        onClick={() => alert('TODO')}
+                                                    />
+                                                )}
+                                            </span>
+                                        )
                                     },
                                 },
                             ]}

@@ -26,6 +26,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
         loadBatchExportRuns: (offset?: number) => ({ offset }),
         openBackfillModal: true,
         closeBackfillModal: true,
+        retryRun: (runId: BatchExportRun) => ({ runId }),
     }),
 
     reducers({

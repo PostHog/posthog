@@ -48,7 +48,7 @@ export function BatchExportRunIcon({ batchExportRun }: { batchExportRun: BatchEx
         >
             <span
                 className={clsx(
-                    `h-6 w-6 border-2 flex items-center justify-center rounded-full font-semibold text-sm text-muted border-${color}`,
+                    `h-6 w-6 border-2 flex items-center justify-center rounded-full font-semibold text-xs text-muted border-${color} select-none`,
                     color === 'primary' && 'BatchExportRunIcon--pulse'
                 )}
             >
