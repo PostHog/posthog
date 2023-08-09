@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: TestClickhouseLifecycle.test_interval_dates_days
-  '''
+  '
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -70,10 +69,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '''
-# ---
+  '
+---
 # name: TestClickhouseLifecycle.test_interval_dates_months
-  '''
+  '
   WITH 'month' AS selected_period,
        periods AS
     (SELECT dateSub(month, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -143,10 +142,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '''
-# ---
+  '
+---
 # name: TestClickhouseLifecycle.test_interval_dates_weeks
-  '''
+  '
   WITH 'week' AS selected_period,
        periods AS
     (SELECT dateSub(week, number, dateTrunc(selected_period, toDateTime('2021-05-06 23:59:59', 'UTC'))) AS start_of_period
@@ -216,10 +215,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '''
-# ---
+  '
+---
 # name: TestClickhouseLifecycle.test_lifecycle_edge_cases
-  '''
+  '
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-18 23:59:59', 'UTC'))) AS start_of_period
@@ -289,10 +288,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '''
-# ---
+  '
+---
 # name: TestClickhouseLifecycle.test_lifecycle_hogql_event_properties
-  '''
+  '
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -363,10 +362,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '''
-# ---
+  '
+---
 # name: TestClickhouseLifecycle.test_lifecycle_hogql_event_properties_materialized
-  '''
+  '
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -437,10 +436,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '''
-# ---
+  '
+---
 # name: TestClickhouseLifecycle.test_lifecycle_hogql_person_properties
-  '''
+  '
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -512,10 +511,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '''
-# ---
+  '
+---
 # name: TestClickhouseLifecycle.test_lifecycle_hogql_person_properties_materialized
-  '''
+  '
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -587,10 +586,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '''
-# ---
+  '
+---
 # name: TestClickhouseLifecycle.test_test_account_filters_with_groups
-  '''
+  '
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
@@ -668,5 +667,5 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '''
-# ---
+  '
+---

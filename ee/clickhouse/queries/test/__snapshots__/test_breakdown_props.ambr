@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: TestBreakdownProps.test_breakdown_group_props
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -24,10 +23,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestBreakdownProps.test_breakdown_group_props.1
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -51,10 +50,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestBreakdownProps.test_breakdown_person_props
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -83,10 +82,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestBreakdownProps.test_breakdown_person_props_materialized
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -115,10 +114,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestBreakdownProps.test_breakdown_person_props_with_entity_filter_and_or_props_with_partial_pushdown
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -155,10 +154,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestBreakdownProps.test_breakdown_session_props
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -182,10 +181,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestBreakdownProps.test_breakdown_with_math_property_session
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -223,10 +222,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: TestBreakdownProps.test_breakdown_with_math_property_session.1
-  '''
+  '
   
   SELECT groupArray(value)
   FROM
@@ -264,5 +263,5 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '''
-# ---
+  '
+---
