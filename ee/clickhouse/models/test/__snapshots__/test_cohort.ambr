@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: TestCohort.test_cohortpeople_basic
-  '''
+  '
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -33,10 +32,10 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '''
-# ---
+  '
+---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator
-  '''
+  '
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -67,10 +66,10 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '''
-# ---
+  '
+---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.1
-  '''
+  '
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -126,10 +125,10 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '''
-# ---
+  '
+---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation
-  '''
+  '
   SELECT uuid,
          distinct_id
   FROM events
@@ -180,10 +179,10 @@
                        AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
                  WHERE 1 = 1
                    AND ((((performed_event_condition_17_level_level_0_level_0_level_0_0)))) ) ))
-  '''
-# ---
+  '
+---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts
-  '''
+  '
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -221,10 +220,10 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '''
-# ---
+  '
+---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.1
-  '''
+  '
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -266,10 +265,10 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '''
-# ---
+  '
+---
 # name: TestCohort.test_static_cohort_precalculated
-  '''
+  '
   
   SELECT distinct_id
   FROM
@@ -284,5 +283,5 @@
        FROM person_static_cohort
        WHERE cohort_id = %(_cohort_id_0)s
          AND team_id = %(team_id)s)
-  '''
-# ---
+  '
+---
