@@ -101,6 +101,7 @@ def create_hogql_database(team_id: int) -> Database:
 
     for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
         # TODO: handle repeated names
+        # TODO: how to handle errors
         getattr(database, view.table).fields[view.saved_query.name] = LazyJoin(
             from_field="distinct_id",
             join_table=view.saved_query.hogql_definition(),
