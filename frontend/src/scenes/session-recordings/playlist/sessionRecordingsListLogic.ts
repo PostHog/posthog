@@ -318,7 +318,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             },
         ],
         showSettings: [
-            true,
+            false,
             {
                 persist: true,
             },
