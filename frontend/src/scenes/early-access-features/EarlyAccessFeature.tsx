@@ -133,12 +133,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 )}
                                 <LemonDivider vertical />
                                 {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
-                                    <LemonButton
-                                        type="secondary"
-                                        htmlType="submit"
-                                        onClick={() => editFeature(true)}
-                                        loading={false}
-                                    >
+                                    <LemonButton type="secondary" onClick={() => editFeature(true)} loading={false}>
                                         Edit
                                     </LemonButton>
                                 )}
@@ -406,11 +401,9 @@ function PersonsTableByFilter({ properties, emptyState }: PersonsTableByFilterPr
 
     return (
         <div className="space-y-2">
-            {
-                <div className="flex-col">
-                    <PersonsSearch />
-                </div>
-            }
+            <div className="flex-col">
+                <PersonsSearch />
+            </div>
             <div className="flex flex-row justify-between">
                 <PropertyFilters
                     pageKey="persons-list-page"

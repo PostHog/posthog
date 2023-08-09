@@ -340,7 +340,7 @@ export function OverViewTab({
                         pagination={{ pageSize: 100 }}
                         nouns={nouns}
                         data-attr="feature-flag-table"
-                        emptyState="No results. Create a new flag?"
+                        emptyState="No results for this filter, change filter or create a new flag."
                     />
                 </>
             )}
