@@ -23,7 +23,12 @@ class TestViewLinkQuery(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_view_link/",
-            {"saved_query_id": saved_query["id"], "table": "events", "join_key": "distinct_id"},
+            {
+                "saved_query_id": saved_query["id"],
+                "table": "events",
+                "to_join_key": "distinct_id",
+                "from_join_key": "distinct_id",
+            },
         )
         self.assertEqual(response.status_code, 201, response.content)
         view_link = response.json()
@@ -45,7 +50,11 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
         DataWarehouseViewLink.objects.create(
-            saved_query=saved_query, table="events", join_key="distinct_id", team=self.team
+            saved_query=saved_query,
+            table="events",
+            to_join_key="distinct_id",
+            team=self.team,
+            from_join_key="distinct_id",
         )
 
         columns = get_view_link_columns(self.team)
@@ -73,7 +82,9 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query_response = response.json()
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
-        DataWarehouseViewLink.objects.create(saved_query=saved_query, table="events", join_key="fake", team=self.team)
+        DataWarehouseViewLink.objects.create(
+            saved_query=saved_query, table="events", to_join_key="fake", from_join_key="distinct_id", team=self.team
+        )
 
         query_response = process_query(
             team=self.team,
@@ -98,7 +109,9 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query_response = response.json()
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
-        DataWarehouseViewLink.objects.create(saved_query=saved_query, table="events", join_key="fake", team=self.team)
+        DataWarehouseViewLink.objects.create(
+            saved_query=saved_query, table="events", to_join_key="fake", from_join_key="distinct_id", team=self.team
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_query/",
@@ -114,7 +127,11 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
         DataWarehouseViewLink.objects.create(
-            saved_query=saved_query, table="events", join_key="p_distinct_id", team=self.team
+            saved_query=saved_query,
+            table="events",
+            to_join_key="p_distinct_id",
+            from_join_key="distinct_id",
+            team=self.team,
         )
 
         query_response = process_query(
@@ -130,6 +147,3 @@ class TestViewLinkQuery(APIBaseTest):
             query_response["types"],
             [("events__event_view.fake", "String"), ("events__person_view.p_distinct_id", "String")],
         )
-
-    def test_view_link_external_table(self):
-        pass

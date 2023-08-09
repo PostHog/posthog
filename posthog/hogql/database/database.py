@@ -113,8 +113,8 @@ def create_hogql_database(team_id: int) -> Database:
             join_expr.constraint = ast.JoinConstraint(
                 expr=ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[from_table, "distinct_id"]),
-                    right=ast.Field(chain=[to_table, view.join_key]),
+                    left=ast.Field(chain=[from_table, view.from_join_key]),
+                    right=ast.Field(chain=[to_table, view.to_join_key]),
                 )
             )
             return join_expr

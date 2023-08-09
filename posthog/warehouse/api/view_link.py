@@ -16,17 +16,27 @@ class ViewLinkSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseViewLink
-        fields = ["id", "deleted", "table", "created_by", "created_at", "saved_query_id", "saved_query", "join_key"]
+        fields = [
+            "id",
+            "deleted",
+            "table",
+            "created_by",
+            "created_at",
+            "saved_query_id",
+            "saved_query",
+            "to_join_key",
+            "from_join_key",
+        ]
         read_only_fields = ["id", "created_by", "created_at", "saved_query"]
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
-        join_key = validated_data.get("join_key")
+        to_join_key = validated_data.get("to_join_key")
         table = validated_data.get("table")
 
-        self._validate_join_key(join_key, table)
+        self._validate_join_key(to_join_key, table)
 
         view_link = DataWarehouseViewLink.objects.create(**validated_data)
 
