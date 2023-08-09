@@ -62,7 +62,7 @@ class SnowflakeInsertInputs:
     data_interval_start: str
     data_interval_end: str
     role: str | None = None
-    legacy_schema: bool = False
+    legacy_schema: bool = True
 
 
 def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
