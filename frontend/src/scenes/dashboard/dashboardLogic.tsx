@@ -81,8 +81,6 @@ export interface RefreshStatus {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
-export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
-
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
@@ -192,7 +190,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     loaders(({ actions, props, values }) => ({
-        // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         dashboard: [
             null as DashboardType | null,
             {

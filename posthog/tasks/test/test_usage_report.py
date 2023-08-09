@@ -289,7 +289,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
             expectation = [
                 {
-                    "posthog_version": all_reports[0]["posthog_version"],
                     "deployment_infrastructure": "tests",
                     "realm": "hosted-clickhouse",
                     "period": {
@@ -415,7 +414,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                 },
                 {
-                    "posthog_version": all_reports[1]["posthog_version"],
                     "deployment_infrastructure": "tests",
                     "realm": "hosted-clickhouse",
                     "period": {

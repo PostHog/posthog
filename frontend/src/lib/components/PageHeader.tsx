@@ -27,7 +27,7 @@ export function PageHeader({
     return (
         <>
             <div className="page-title-row flex justify-between" style={style}>
-                <div>
+                <div className="min-w-0">
                     {notebookProps ? (
                         <DraggableToNotebook {...notebookProps}>
                             <h1 className="page-title">{title}</h1>

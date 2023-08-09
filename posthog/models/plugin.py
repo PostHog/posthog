@@ -12,9 +12,10 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
-from semantic_version.base import SimpleSpec, Version
+from semantic_version.base import SimpleSpec
 
 from posthog.cloud_utils import is_cloud
+from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
@@ -28,7 +29,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
 
@@ -105,13 +105,14 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["plugin_type"] = Plugin.PluginType.CUSTOM
 
     if posthog_version and not is_cloud():
+        # Legacy: PostHog is no longer versioned
         try:
             spec = SimpleSpec(posthog_version.replace(" ", ""))
         except ValueError:
             raise ValidationError(f'Invalid PostHog semantic version requirement "{posthog_version}"!')
-        if Version(VERSION) not in spec:
+        if FROZEN_POSTHOG_VERSION not in spec:
             raise ValidationError(
-                f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
+                f'Currently running PostHog version {FROZEN_POSTHOG_VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
             )
 
     return plugin_json
