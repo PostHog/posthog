@@ -322,7 +322,8 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name):
+@pytest.mark.parametrize("interval", ["hour", "day"])
+async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name, interval):
     """Test that S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     The workflow should update the batch export run status to completed and produce the expected
@@ -350,7 +351,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
     batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
-        "interval": "hour",
+        "interval": interval,
     }
 
     organization = await acreate_organization("test")
@@ -393,6 +394,26 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
         },
     ]
 
+    if interval == "day":
+        # Add an event outside the hour range but within the day range to ensure it's exported too.
+        events_outside_hour: list[EventValues] = [
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-25 00:30:00.000000",
+                "created_at": "2023-04-25 00:30:00.000000",
+                "inserted_at": "2023-04-25 00:30:00.000000",
+                "_timestamp": "2023-04-25 00:30:00",
+                "person_id": str(uuid4()),
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "team_id": team.pk,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "distinct_id": str(uuid4()),
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            }
+        ]
+        events += events_outside_hour
+
     # Insert some data into the `sharded_events` table.
     await insert_events(
         client=ch_client,
@@ -404,6 +425,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
         team_id=team.pk,
         batch_export_id=str(batch_export.id),
         data_interval_end="2023-04-25 14:30:00.000000",
+        interval=interval,
         **batch_export.destination.config,
     )
 
