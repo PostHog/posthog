@@ -72,9 +72,27 @@ class SnowflakeBatchExportInputs:
     role: str | None = None
 
 
+@dataclass
+class PostgresBatchExportInputs:
+    """Inputs for Postgres export workflow."""
+
+    batch_export_id: str
+    team_id: int
+    user: str
+    password: str
+    host: str
+    database: str
+    schema: str
+    table_name: str
+    interval: str = "hour"
+    data_interval_end: str | None = None
+    port: int = 5432
+
+
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
+    "Postgres": ("postgres-export", PostgresBatchExportInputs),
 }
 
 
