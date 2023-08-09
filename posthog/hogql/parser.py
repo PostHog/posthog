@@ -143,10 +143,23 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif offset_only_clause := ctx.offsetOnlyClause():
             select_query.offset = self.visit(offset_only_clause.columnExpr())
 
+        if ctx.arrayJoinClause():
+            array_join_clause = ctx.arrayJoinClause()
+            if select_query.select_from is None:
+                raise HogQLException("Using ARRAY JOIN without a FROM clause is not permitted")
+            if array_join_clause.LEFT():
+                select_query.array_join_op = "LEFT ARRAY JOIN"
+            elif array_join_clause.INNER():
+                select_query.array_join_op = "INNER ARRAY JOIN"
+            else:
+                select_query.array_join_op = "ARRAY JOIN"
+            select_query.array_join_list = self.visit(array_join_clause.columnExprList())
+            for expr in select_query.array_join_list:
+                if not isinstance(expr, ast.Alias):
+                    raise HogQLException("ARRAY JOIN arrays must have an alias", start=expr.start, end=expr.end)
+
         if ctx.topClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.topClause()")
-        if ctx.arrayJoinClause():
-            raise NotImplementedException(f"Unsupported: SelectStmt.arrayJoinClause()")
         if ctx.settingsClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.settingsClause()")
 

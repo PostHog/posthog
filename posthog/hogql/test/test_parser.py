@@ -731,6 +731,65 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_select_array_join(self):
+        self.assertEqual(
+            self._select("select a from events ARRAY JOIN [1,2,3] a"),
+            ast.SelectQuery(
+                select=[ast.Field(chain=["a"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                array_join_op="ARRAY JOIN",
+                array_join_list=[
+                    ast.Alias(
+                        expr=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                        alias="a",
+                    )
+                ],
+            ),
+        )
+        self.assertEqual(
+            self._select("select a from events INNER ARRAY JOIN [1,2,3] a"),
+            ast.SelectQuery(
+                select=[ast.Field(chain=["a"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                array_join_op="INNER ARRAY JOIN",
+                array_join_list=[
+                    ast.Alias(
+                        expr=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                        alias="a",
+                    )
+                ],
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1, b from events LEFT ARRAY JOIN [1,2,3] a, [4,5,6] AS b"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1), ast.Field(chain=["b"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                array_join_op="LEFT ARRAY JOIN",
+                array_join_list=[
+                    ast.Alias(
+                        expr=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                        alias="a",
+                    ),
+                    ast.Alias(
+                        expr=ast.Array(exprs=[ast.Constant(value=4), ast.Constant(value=5), ast.Constant(value=6)]),
+                        alias="b",
+                    ),
+                ],
+            ),
+        )
+
+    def test_select_array_join_errors(self):
+        with self.assertRaises(HogQLException) as e:
+            self._select("select a from events ARRAY JOIN [1,2,3]")
+        self.assertEqual(e.exception.start, 32)
+        self.assertEqual(e.exception.end, 39)
+        self.assertEqual(str(e.exception), "ARRAY JOIN arrays must have an alias")
+
+        with self.assertRaises(HogQLException) as e:
+            self._select("select a ARRAY JOIN [1,2,3]")
+        self.assertEqual(str(e.exception), "Using ARRAY JOIN without a FROM clause is not permitted")
+
     def test_select_group_by(self):
         self.assertEqual(
             self._select("select 1 from events GROUP BY 1, event"),
