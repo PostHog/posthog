@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
-  '''
+  '
   /* user_id:55 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
@@ -9,10 +8,10 @@
     AND timestamp < now()
   GROUP BY team_id
   ORDER BY age;
-  '''
-# ---
+  '
+---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.1
-  '''
+  '
   /* celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
@@ -21,10 +20,10 @@
     AND timestamp < now()
   GROUP BY team_id
   ORDER BY age;
-  '''
-# ---
+  '
+---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.2
-  '''
+  '
   /* celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
@@ -33,10 +32,10 @@
     AND timestamp < now()
   GROUP BY team_id
   ORDER BY age;
-  '''
-# ---
+  '
+---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.3
-  '''
+  '
   /* celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
@@ -45,10 +44,10 @@
     AND timestamp < now()
   GROUP BY team_id
   ORDER BY age;
-  '''
-# ---
+  '
+---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.4
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -63,10 +62,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.5
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -109,10 +108,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '''
-# ---
+  '
+---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.6
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -127,10 +126,10 @@
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
-  '''
-# ---
+  '
+---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.7
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -199,5 +198,5 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '''
-# ---
+  '
+---

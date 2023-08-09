@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: TestClickhouseStickiness.test_aggregate_by_groups
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -24,10 +23,10 @@
   WHERE num_intervals <= 8
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.1
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
@@ -51,10 +50,10 @@
   WHERE num_intervals = 1
   LIMIT 100
   OFFSET 0
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.2
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
@@ -78,10 +77,10 @@
   WHERE num_intervals = 2
   LIMIT 100
   OFFSET 0
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.3
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
@@ -105,10 +104,10 @@
   WHERE num_intervals = 3
   LIMIT 100
   OFFSET 0
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_compare
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -131,10 +130,10 @@
   WHERE num_intervals <= 9
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_compare.1
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -157,10 +156,10 @@
   WHERE num_intervals <= 9
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_filter_by_group_properties
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -191,10 +190,10 @@
   WHERE num_intervals <= 8
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.1
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
@@ -224,10 +223,10 @@
   WHERE num_intervals = 1
   LIMIT 100
   OFFSET 0
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.2
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
@@ -257,10 +256,10 @@
   WHERE num_intervals = 2
   LIMIT 100
   OFFSET 0
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.3
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
@@ -290,10 +289,10 @@
   WHERE num_intervals = 3
   LIMIT 100
   OFFSET 0
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_all_time
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp
   from events
@@ -301,10 +300,10 @@
     AND timestamp > '2015-01-01'
   order by timestamp
   limit 1
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_all_time.1
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -327,10 +326,10 @@
   WHERE num_intervals <= 9
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_all_time_with_sampling
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp
   from events
@@ -338,10 +337,10 @@
     AND timestamp > '2015-01-01'
   order by timestamp
   limit 1
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_all_time_with_sampling.1
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -364,10 +363,10 @@
   WHERE num_intervals <= 9
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_hours
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -390,10 +389,10 @@
   WHERE num_intervals <= 10
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_people_endpoint
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
@@ -415,10 +414,10 @@
   WHERE num_intervals = 1
   LIMIT 100
   OFFSET 0
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_people_paginated
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
@@ -440,10 +439,10 @@
   WHERE num_intervals = 1
   LIMIT 100
   OFFSET 0
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_people_paginated.1
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
@@ -465,10 +464,10 @@
   WHERE num_intervals = 1
   LIMIT 100
   OFFSET 100
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2
-  '''
+  '
   
   SELECT distinct_id,
          person_id
@@ -479,10 +478,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'person1', -1, 0)
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2.1
-  '''
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -505,10 +504,10 @@
   WHERE num_intervals <= 9
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_timezones
-  '''
+  '
   
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -531,10 +530,10 @@
   WHERE num_intervals <= 16
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
 # name: TestClickhouseStickiness.test_timezones.1
-  '''
+  '
   
   SELECT countDistinct(aggregation_target),
          num_intervals
@@ -557,5 +556,5 @@
   WHERE num_intervals <= 16
   GROUP BY num_intervals
   ORDER BY num_intervals
-  '''
-# ---
+  '
+---
