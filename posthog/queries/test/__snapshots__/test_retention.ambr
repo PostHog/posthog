@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: TestFOSSRetention.test_day_interval_sampled
-  '''
+  '
   WITH actor_query AS
     (WITH 'Day' as period,
           NULL as breakdown_values_filter,
@@ -69,10 +68,10 @@
            intervals_from_base
   ORDER BY breakdown_values,
            intervals_from_base
-  '''
-# ---
+  '
+---
 # name: TestFOSSRetention.test_month_interval_with_person_on_events_v2
-  '''
+  '
   
   SELECT distinct_id,
          person_id
@@ -83,10 +82,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'person1', -1, 0)
-  '''
-# ---
+  '
+---
 # name: TestFOSSRetention.test_month_interval_with_person_on_events_v2.1
-  '''
+  '
   WITH actor_query AS
     (WITH 'Month' as period,
           NULL as breakdown_values_filter,
@@ -155,10 +154,10 @@
            intervals_from_base
   ORDER BY breakdown_values,
            intervals_from_base
-  '''
-# ---
+  '
+---
 # name: TestFOSSRetention.test_retention_event_action
-  '''
+  '
   WITH actor_query AS
     (WITH 'Day' as period,
           NULL as breakdown_values_filter,
@@ -227,10 +226,10 @@
            intervals_from_base
   ORDER BY breakdown_values,
            intervals_from_base
-  '''
-# ---
+  '
+---
 # name: TestFOSSRetention.test_retention_with_user_properties_via_action
-  '''
+  '
   WITH actor_query AS
     (WITH 'Day' as period,
           NULL as breakdown_values_filter,
@@ -314,10 +313,10 @@
            intervals_from_base
   ORDER BY breakdown_values,
            intervals_from_base
-  '''
-# ---
+  '
+---
 # name: TestFOSSRetention.test_timezones
-  '''
+  '
   WITH actor_query AS
     (WITH 'Day' as period,
           NULL as breakdown_values_filter,
@@ -386,10 +385,10 @@
            intervals_from_base
   ORDER BY breakdown_values,
            intervals_from_base
-  '''
-# ---
+  '
+---
 # name: TestFOSSRetention.test_timezones.1
-  '''
+  '
   WITH actor_query AS
     (WITH 'Day' as period,
           NULL as breakdown_values_filter,
@@ -458,5 +457,5 @@
            intervals_from_base
   ORDER BY breakdown_values,
            intervals_from_base
-  '''
-# ---
+  '
+---
