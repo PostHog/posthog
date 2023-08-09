@@ -198,8 +198,8 @@ dependencies:
     specifier: ^0.39.0
     version: 0.39.0
   posthog-js:
-    specifier: 1.75.2
-    version: 1.75.2
+    specifier: 1.75.4
+    version: 1.75.4
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -13639,7 +13639,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.11
+      graceful-fs: 4.2.10
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
@@ -15918,8 +15918,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.75.2:
-    resolution: {integrity: sha512-tvLsKu9FXrsz1ytkjRc0xqo1eZJ/FZjTdrrKRrXrzgbpwnqeN5pgs6Mq4hMNxQeFuDhoCMwGnyChk1NnDL5hEw==}
+  /posthog-js@1.75.4:
+    resolution: {integrity: sha512-6vJTNe9FlkK8QyzpOLAzTQb1bp3Z+Qi/JOaX9+/H2CqvKaV7EUjToLDmAJG+vUibturAtzAlLeISpQt8GJB1sg==}
     dependencies:
       fflate: 0.4.8
     dev: false

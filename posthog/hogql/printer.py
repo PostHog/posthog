@@ -276,6 +276,28 @@ class _Printer(Visitor):
                     sql = self._print_identifier(node.alias or table_type.table.name)
             else:
                 sql = table_type.table.to_printed_hogql()
+
+            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
+                if node.table_args is None:
+                    raise HogQLException(f"Table function '{table_type.table.name}' requires arguments")
+
+                if table_type.table.min_args is not None and (
+                    node.table_args is None or len(node.table_args) < table_type.table.min_args
+                ):
+                    raise HogQLException(
+                        f"Table function '{table_type.table.name}' requires at least {table_type.table.min_args} argument{'s' if table_type.table.min_args > 1 else ''}"
+                    )
+                if table_type.table.max_args is not None and (
+                    node.table_args is None or len(node.table_args) > table_type.table.max_args
+                ):
+                    raise HogQLException(
+                        f"Table function '{table_type.table.name}' requires at most {table_type.table.max_args} argument{'s' if table_type.table.max_args > 1 else ''}"
+                    )
+                if node.table_args is not None and len(node.table_args) > 0:
+                    sql = f"{sql}({', '.join([self.visit(arg) for arg in node.table_args])})"
+            elif node.table_args is not None:
+                raise HogQLException(f"Table '{table_type.table.to_printed_hogql()}' does not accept arguments")
+
             join_strings.append(sql)
 
             if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:

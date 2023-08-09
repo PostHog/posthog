@@ -189,12 +189,7 @@ tableExpr
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? identifier;
-tableArgList: tableArgExpr (COMMA tableArgExpr)*;
-tableArgExpr
-    : nestedIdentifier
-    | tableFunctionExpr
-    | literal
-    ;
+tableArgList: columnExpr (COMMA columnExpr)*;
 
 // Databases
 
