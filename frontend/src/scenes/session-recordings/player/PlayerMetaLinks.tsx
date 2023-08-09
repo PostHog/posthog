@@ -9,29 +9,44 @@ import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/Pl
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
-import {
-    notebookNodeLogic,
-    // useNotebookNode
-} from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { NotebookNodeType, NotebookTarget } from '~/types'
 import { notebooksListLogic, openNotebook } from 'scenes/notebooks/Notebook/notebooksListLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dayjs } from 'lib/dayjs'
 import { NotebookCommentButton } from 'scenes/notebooks/NotebookCommentButton/NotebookCommentButton'
+import { useCallback } from 'react'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
     const { createNotebook } = useActions(notebooksListLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    // const nodeLogic = useNotebookNode()
+    const nodeLogic = useNotebookNode()
 
     const getCurrentPlayerTime = (): number => {
         // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
         const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         return Math.floor(playerTime / 1000)
     }
+
+    const commentInExistingNotebook = useCallback(
+        (notebookShortId) => {
+            const currentPlayerTime = getCurrentPlayerTime() * 1000
+            openNotebook(notebookShortId, NotebookTarget.Popover)
+            setTimeout(() => {
+                if (!nodeLogic) {
+                    throw new Error('wat')
+                }
+                // need time for the notebook to open and mount its logic
+                nodeLogic.actions.insertAfterLastNodeOfType(NotebookNodeType.ReplayTimestamp, [
+                    buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
+                ])
+            }, 50)
+        },
+        [nodeLogic]
+    )
 
     const onShare = (): void => {
         setPause()
@@ -81,16 +96,7 @@ export function PlayerMetaLinks(): JSX.Element {
                                         buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
                                     ])
                                 }}
-                                onCommentInExistingNotebook={(notebookShortId) => {
-                                    // TODO very not this
-                                    const currentPlayerTime = getCurrentPlayerTime() * 1000
-                                    openNotebook(notebookShortId, NotebookTarget.Popover)
-                                    // console.log({ nodeLogic })
-                                    const logic = notebookNodeLogic.findMounted({ notebookShortId })
-                                    logic?.actions.insertAfterLastNodeOfType(NotebookNodeType.ReplayTimestamp, [
-                                        buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
-                                    ])
-                                }}
+                                onCommentInExistingNotebook={commentInExistingNotebook}
                             />
                         </>
                     )}
