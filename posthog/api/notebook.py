@@ -5,6 +5,8 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_view
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -14,11 +16,18 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions import Conflict
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity, load_activity
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+    load_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.settings import DEBUG
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -131,6 +140,48 @@ class NotebookSerializer(serializers.ModelSerializer):
         return updated_notebook
 
 
+@extend_schema(
+    description="The API for interacting with Notebooks. This feature is in early access and the API can have "
+    "breaking changes without announcement.",
+)
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("short_id", exclude=True),
+            OpenApiParameter(
+                "created_by", OpenApiTypes.INT, description="The user ID of the Notebook's creator", required=False
+            ),
+            OpenApiParameter(
+                "user",
+                description="If any value is provided for this parameter, return notebooks created by the logged in user.",
+                required=False,
+            ),
+            OpenApiParameter(
+                "date_from",
+                OpenApiTypes.DATETIME,
+                description="Filter for notebooks created after this date & time",
+                required=False,
+            ),
+            OpenApiParameter(
+                "date_to",
+                OpenApiTypes.DATETIME,
+                description="Filter for notebooks created before this date & time",
+                required=False,
+            ),
+            OpenApiParameter(
+                "has_recording",
+                OpenApiTypes.DATETIME,
+                description="Filter for notebooks created before this date & time",
+                required=False,
+            ),
+            OpenApiParameter(
+                "has_recording",
+                description="Filter for notebooks that have (or do not have) at least one recording attached to them by sending 'true' or 'false'. Filter for notebooks with a specific recording by sending its ID.",
+                required=False,
+            ),
+        ],
+    )
+)
 class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Notebook.objects.all()
     serializer_class = NotebookSerializer
@@ -138,7 +189,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     # TODO: Remove this once we have released notebooks
-    include_in_docs = False
+    include_in_docs = DEBUG
     lookup_field = "short_id"
 
     def get_queryset(self) -> QuerySet:
@@ -187,7 +238,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
 
         return queryset
 
-    @action(methods=["GET"], url_path="activity", detail=False)
+    @action(methods=["GET"], url_path="activity", detail=False, name="load all notebook activity history")
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
