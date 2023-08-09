@@ -1388,7 +1388,7 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType> | null | undefined
+    default: Record<string, JsonType>
     required: boolean
 }
 

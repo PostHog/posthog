@@ -414,6 +414,14 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
 
+export function isObject(candidate: unknown): candidate is Record<string, unknown> {
+    return typeof candidate === 'object' && candidate !== null
+}
+
+export function isEmptyObject(candidate: unknown): boolean {
+    return isObject(candidate) && Object.keys(candidate).length === 0
+}
+
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
 export function objectClean<T extends Record<string | number | symbol, unknown>>(obj: T): T {
     const response = { ...obj }
