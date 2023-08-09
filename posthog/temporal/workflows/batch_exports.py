@@ -97,3 +97,9 @@ def get_results_iterator(
                 "person_properties": json.loads(person_properties) if person_properties else None,
                 "elements_chain": record.get("elements_chain").decode(),
             }
+
+
+class UnsupportedInterval(Exception):
+    def __init__(self, interval):
+        msg = f"Interval {interval} is not supported in BatchExports."
+        super().__init__(msg)

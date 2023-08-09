@@ -18,6 +18,7 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
+    UnsupportedInterval,
     get_results_iterator,
     get_rows_count,
 )
@@ -117,7 +118,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             )
             return
 
-        activity.logger.info("BatchExporting %s rows to S3", count)
+        activity.logger.info("BatchExporting %s rows to Snowflake", count)
 
         conn = snowflake.connector.connect(
             user=inputs.user,
@@ -409,10 +410,11 @@ def get_data_interval_from_workflow_inputs(inputs: SnowflakeBatchExportInputs) -
     else:
         data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
 
-    # TODO: handle different time intervals. I'm also no 100% happy with how we
-    # decide on the interval start/end. I would be much happier if we were to
-    # inspect the previous `data_interval_end` and used that as the start of
-    # the next interval. This would be more robust to failures and retries.
-    data_interval_start = data_interval_end - dt.timedelta(seconds=3600)
+    if inputs.interval == "hour":
+        data_interval_start = data_interval_end - dt.timedelta(hours=1)
+    elif inputs.interval == "day":
+        data_interval_start = data_interval_end - dt.timedelta(days=1)
+    else:
+        raise UnsupportedInterval(inputs.interval)
 
     return (data_interval_start, data_interval_end)

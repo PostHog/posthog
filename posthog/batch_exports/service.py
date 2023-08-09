@@ -32,24 +32,23 @@ class S3BatchExportInputs:
     """Inputs for S3 export workflow.
 
     Attributes:
+        batch_export_id: The ID of the parent BatchExport.
+        team_id: The ID of the team that contains the BatchExport whose data we are exporting.
+        interval: The range of data we are exporting.
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
-        file_name_prefix: A prefix for the file name to be created in S3.
-        batch_window_size: The size in seconds of the batch window.
+        prefix: A prefix for the file name to be created in S3.
             For example, for one hour batches, this should be 3600.
-        team_id: The team_id whose data we are exporting.
-        file_format: The format of the file to be created in S3, supported by ClickHouse.
-            A list of all supported formats can be found in https://clickhouse.com/docs/en/interfaces/formats.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
     """
 
+    batch_export_id: str
+    team_id: int
     bucket_name: str
     region: str
     prefix: str
-    batch_window_size: int
-    team_id: int
-    batch_export_id: str
+    interval: str = "hour"
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     data_interval_end: str | None = None
@@ -67,6 +66,7 @@ class SnowflakeBatchExportInputs:
     database: str
     warehouse: str
     schema: str
+    interval: str = "hour"
     table_name: str = "events"
     data_interval_end: str | None = None
     role: str | None = None
@@ -304,6 +304,7 @@ def update_batch_export(
                 workflow_inputs(
                     team_id=batch_export.team.id,
                     batch_export_id=str(batch_export.id),
+                    interval=str(batch_export.interval),
                     **batch_export.destination.config,
                 )
             ),

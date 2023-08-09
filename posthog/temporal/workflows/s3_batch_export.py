@@ -1,8 +1,8 @@
 import asyncio
 import datetime as dt
 import json
-import tempfile
 import posixpath
+import tempfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
 
@@ -20,6 +20,7 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
+    UnsupportedInterval,
     get_results_iterator,
     get_rows_count,
 )
@@ -105,7 +106,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 "Nothing to export in batch %s - %s. Exiting.",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
-                count,
             )
             return
 
@@ -379,6 +379,11 @@ def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple
     else:
         data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
 
-    data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
+    if inputs.interval == "hour":
+        data_interval_start = data_interval_end - dt.timedelta(hours=1)
+    elif inputs.interval == "day":
+        data_interval_start = data_interval_end - dt.timedelta(days=1)
+    else:
+        raise UnsupportedInterval(inputs.interval)
 
     return (data_interval_start, data_interval_end)

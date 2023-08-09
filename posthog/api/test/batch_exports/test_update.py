@@ -42,7 +42,6 @@ def test_can_put_config(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -119,7 +118,6 @@ def test_can_patch_config(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -145,8 +143,7 @@ def test_can_patch_config(client: HttpClient):
         old_schedule = describe_schedule(temporal, batch_export["id"])
 
         # We should be able to update the destination config, excluding the aws
-        # credentials. The existing values should be preserved, e.g.
-        # batch_window_size = 3600
+        # credentials. The existing values should be preserved.
         new_destination_data = {
             "type": "S3",
             "config": {
@@ -164,11 +161,11 @@ def test_can_patch_config(client: HttpClient):
         response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-        # get the batch export and validate e.g. that batch_window_size and interval
-        # has been preserved
+        # get the batch export and validate e.g. that bucket_name and interval
+        # has been preserved.
         batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
         assert batch_export["interval"] == "hour"
-        assert batch_export["destination"]["config"]["batch_window_size"] == 3600
+        assert batch_export["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
         # validate the underlying temporal schedule has been updated
         codec = EncryptionCodec(settings=settings)
