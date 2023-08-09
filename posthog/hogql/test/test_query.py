@@ -7,7 +7,7 @@ from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
-from posthog.hogql.errors import SyntaxException
+from posthog.hogql.errors import SyntaxException, HogQLException
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
@@ -1280,3 +1280,119 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response.results,
             [(1, 2, 3, "string", 6, 5, 20, 10)],
         )
+
+    def test_numbers_table(self):
+        query = "SELECT number from numbers(1, 4)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (1,),
+                (2,),
+                (3,),
+                (4,),
+            ],
+        )
+
+        query = "SELECT * from numbers(1, 4)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (1,),
+                (2,),
+                (3,),
+                (4,),
+            ],
+        )
+
+        query = "SELECT number from numbers(4)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (0,),
+                (1,),
+                (2,),
+                (3,),
+            ],
+        )
+
+        query = "SELECT number from numbers(2 + 2)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (0,),
+                (1,),
+                (2,),
+                (3,),
+            ],
+        )
+
+        query = "SELECT number + number + 1 from numbers(2 + 2)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (1,),
+                (3,),
+                (5,),
+                (7,),
+            ],
+        )
+
+        query = f"SELECT number from numbers"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "Table function 'numbers' requires arguments")
+
+        query = f"SELECT number from numbers()"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "Table function 'numbers' requires at least 1 argument")
+
+        query = f"SELECT number from numbers(1,2,3)"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "Table function 'numbers' requires at most 2 arguments")
+
+        query = "SELECT number from numbers(2 + ifNull((select 2), 1000))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (0,),
+                (1,),
+                (2,),
+                (3,),
+            ],
+        )
+
+        query = "SELECT number from numbers(assumeNotNull(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00')), toDateTime('2012-01-14 23:59:59'))))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (0,),
+                (1,),
+                (2,),
+                (3,),
+                (4,),
+                (5,),
+                (6,),
+                (7,),
+                (8,),
+                (9,),
+                (10,),
+                (11,),
+                (12,),
+                (13,),
+            ],
+        )
+
+    def test_events_table_error_if_function(self):
+        query = "SELECT * from events(1, 4)"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "Table 'events' does not accept arguments")

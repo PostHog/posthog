@@ -484,11 +484,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#tableArgExpr.
-    def visitTableArgExpr(self, ctx:HogQLParser.TableArgExprContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#databaseIdentifier.
     def visitDatabaseIdentifier(self, ctx:HogQLParser.DatabaseIdentifierContext):
         return self.visitChildren(ctx)
