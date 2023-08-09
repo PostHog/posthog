@@ -14,7 +14,8 @@ pytestmark = [
 ]
 
 
-def test_create_batch_export_with_interval_schedule(client: HttpClient):
+@pytest.mark.parametrize("interval", ["hour", "day"])
+def test_create_batch_export_with_interval_schedule(client: HttpClient, interval):
     """Test creating a BatchExport.
 
     When creating a BatchExport, we should create a corresponding Schedule in
@@ -38,7 +39,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient):
     batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
-        "interval": "hour",
+        "interval": interval,
     }
 
     organization = create_organization("Test Org")
@@ -66,7 +67,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient):
     # We should match on top level fields.
     assert {"name": data["name"], "interval": data["interval"]} == {
         "name": "my-production-s3-bucket-destination",
-        "interval": "hour",
+        "interval": interval,
     }
 
 

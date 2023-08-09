@@ -109,7 +109,8 @@ def test_can_put_config(client: HttpClient):
         assert args["aws_secret_access_key"] == "new-secret"
 
 
-def test_can_patch_config(client: HttpClient):
+@pytest.mark.parametrize("interval", ["hour", "day"])
+def test_can_patch_config(client: HttpClient, interval):
     temporal = sync_connect()
 
     destination_data = {
@@ -126,7 +127,7 @@ def test_can_patch_config(client: HttpClient):
     batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
-        "interval": "hour",
+        "interval": interval,
     }
 
     organization = create_organization("Test Org")
@@ -164,7 +165,7 @@ def test_can_patch_config(client: HttpClient):
         # get the batch export and validate e.g. that bucket_name and interval
         # has been preserved.
         batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert batch_export["interval"] == "hour"
+        assert batch_export["interval"] == interval
         assert batch_export["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
         # validate the underlying temporal schedule has been updated

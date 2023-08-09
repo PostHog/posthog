@@ -1,7 +1,9 @@
+import datetime as dt
 import json
 import typing
-from datetime import datetime
 from string import Template
+
+from temporalio import workflow
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -23,8 +25,8 @@ SELECT_QUERY_TEMPLATE = Template(
 
 
 async def get_rows_count(client, team_id: int, interval_start: str, interval_end: str) -> int:
-    data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+    data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
+    data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count", order_by="", format=""
     )
@@ -46,8 +48,8 @@ async def get_rows_count(client, team_id: int, interval_start: str, interval_end
 def get_results_iterator(
     client, team_id: int, interval_start: str, interval_end: str
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
-    data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+    data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
+    data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="""
                     DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))
@@ -99,7 +101,58 @@ def get_results_iterator(
             }
 
 
-class UnsupportedInterval(Exception):
-    def __init__(self, interval):
-        msg = f"Interval {interval} is not supported in BatchExports."
-        super().__init__(msg)
+def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
+    """Return the start and end of an export's data interval.
+
+    Args:
+        interval: The interval of the BatchExport associated with this Workflow.
+        data_interval_end: The optional end of the BatchExport period. If not included, we will
+            attempt to extract it from Temporal SearchAttributes.
+
+    Raises:
+        TypeError: If when trying to obtain the data interval end we run into non-str types.
+        ValueError: If passing an unsupported interval value.
+
+    Returns:
+        A tuple of two dt.datetime indicating start and end of the data_interval.
+    """
+    data_interval_end_str = data_interval_end
+
+    if not data_interval_end_str:
+        data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
+
+        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
+        # So, they exist to make mypy happy.
+        if data_interval_end_search_attr is None:
+            msg = (
+                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
+                "This should be set by the Temporal Schedule unless triggering workflow manually."
+                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
+            )
+            raise TypeError(msg)
+
+        # Failing here would perhaps be a bug in Temporal.
+        if isinstance(data_interval_end_search_attr[0], str):
+            data_interval_end_str = data_interval_end_search_attr[0]
+            data_interval_end_dt = dt.datetime.fromisoformat(data_interval_end_str)
+
+        elif isinstance(data_interval_end_search_attr[0], dt.datetime):
+            data_interval_end_dt = data_interval_end_search_attr[0]
+
+        else:
+            msg = (
+                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
+                f"of type '{type(data_interval_end_search_attr[0])}'."
+            )
+            raise TypeError(msg)
+    else:
+        data_interval_end_dt = dt.datetime.fromisoformat(data_interval_end_str)
+
+    if interval == "hour":
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
+    elif interval == "day":
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
+    else:
+        raise ValueError(f"Unsupported interval: '{interval}'")
+
+    return (data_interval_start_dt, data_interval_end_dt)
