@@ -1303,16 +1303,17 @@ describe('ActionMatcher', () => {
                 properties: { foo: null, $viewport_width: 400, $viewport_height: 600 },
             })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsSet])
+            // TODO: replace with `actionMatcher.match` once we enable bytecode matching for all
+            expect(actionMatcher.matchBytecode(eventFooBar)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.matchBytecode(eventFooBarPolPot)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFooBaR)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.matchBytecode(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.matchBytecode(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.matchBytecode(eventNoNothing)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFigNumber)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFooTrue)).toEqual([])
+            expect(actionMatcher.matchBytecode(eventFooNull)).toEqual([actionDefinitionOpIsSet])
         })
 
         it('bytecode element handling works', async () => {
@@ -1365,7 +1366,8 @@ describe('ActionMatcher', () => {
                     2
                 ),
             })
-            expect(await actionMatcher.match(event)).toEqual([actionDefinition])
+            // TODO: replace with `actionMatcher.match` once we enable bytecode matching for all
+            expect(actionMatcher.matchBytecode(event)).toEqual([actionDefinition])
         })
     })
 
