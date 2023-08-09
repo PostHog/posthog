@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import (
     Any,
     Dict,
@@ -137,7 +137,9 @@ class ActorBaseQuery:
         params = {
             "team_id": self._team.pk,
             "session_ids": sorted(list(session_ids)),  # Sort for stable queries
-            "date_from": date_from,
+            # widen the starting date range a little
+            # we don't want to exclude sessions that started a little before the date range
+            "date_from": date_from - timedelta(days=1) if date_from else None,
             "date_to": date_to,
         }
         raw_result = insight_sync_execute(
