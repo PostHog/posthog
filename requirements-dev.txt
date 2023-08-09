@@ -19,6 +19,7 @@ attrs==21.4.0
     #   -c requirements.txt
     #   jsonschema
     #   openapi-schema-validator
+    #   syrupy
 black==22.8.0
     # via
     #   -r requirements-dev.in
@@ -277,7 +278,7 @@ sqlparse==0.4.4
     # via
     #   -c requirements.txt
     #   django
-syrupy==4.0.8
+syrupy==1.7.4
     # via -r requirements-dev.in
 toml==0.10.1
     # via
