@@ -1,13 +1,19 @@
+import datetime as dt
+import json
+
 import pytest
+from asgiref.sync import async_to_sync
+from django.conf import settings
 from django.test.client import Client as HttpClient
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker
 from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.temporal.client import sync_connect
+from posthog.temporal.codec import EncryptionCodec
 
 pytestmark = [
     pytest.mark.django_db,
@@ -20,8 +26,8 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
 
     When creating a BatchExport, we should create a corresponding Schedule in
     Temporal as described by the associated BatchExportSchedule model. In this
-    test we assert this Schedule is created in
-    Temporal.
+    test we assert this Schedule is created in Temporal and populated with the
+    expected inputs.
     """
     temporal = sync_connect()
 
@@ -54,21 +60,46 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
             batch_export_data,
         )
 
-    assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    data = response.json()
+        data = response.json()
 
-    # We should not get the aws_access_key_id or aws_secret_access_key back, so
-    # remove that from the data we expect.
-    batch_export_data["destination"]["config"].pop("aws_access_key_id")
-    batch_export_data["destination"]["config"].pop("aws_secret_access_key")
-    assert data["destination"] == batch_export_data["destination"]
+        # We should not get the aws_access_key_id or aws_secret_access_key back, so
+        # remove that from the data we expect.
+        batch_export_data["destination"]["config"].pop("aws_access_key_id")
+        batch_export_data["destination"]["config"].pop("aws_secret_access_key")
+        assert data["destination"] == batch_export_data["destination"]
 
-    # We should match on top level fields.
-    assert {"name": data["name"], "interval": data["interval"]} == {
-        "name": "my-production-s3-bucket-destination",
-        "interval": interval,
-    }
+        # We should match on top level fields.
+        assert {"name": data["name"], "interval": data["interval"]} == {
+            "name": "my-production-s3-bucket-destination",
+            "interval": interval,
+        }
+
+        # validate the underlying temporal schedule has been created
+        codec = EncryptionCodec(settings=settings)
+        schedule = describe_schedule(temporal, data["id"])
+
+        if interval == "hour":
+            expected_interval = dt.timedelta(hours=1)
+        else:
+            expected_interval = dt.timedelta(days=1)
+        assert schedule.schedule.spec.intervals[0].every == expected_interval
+
+        decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+
+        # Common inputs
+        assert args["team_id"] == team.pk
+        assert args["batch_export_id"] == data["id"]
+        assert args["interval"] == interval
+
+        # S3 specific inputs
+        assert args["bucket_name"] == "my-production-s3-bucket"
+        assert args["region"] == "us-east-1"
+        assert args["prefix"] == "posthog-events/"
+        assert args["aws_access_key_id"] == "abc123"
+        assert args["aws_secret_access_key"] == "secret"
 
 
 def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient):

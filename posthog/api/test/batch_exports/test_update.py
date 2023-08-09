@@ -7,7 +7,7 @@ from django.conf import settings
 from django.test.client import Client as HttpClient
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
@@ -23,14 +23,6 @@ from posthog.temporal.codec import EncryptionCodec
 pytestmark = [
     pytest.mark.django_db,
 ]
-
-
-@async_to_sync
-async def describe_schedule(temporal, schedule_id: str):
-    """Return the description of a Temporal Schedule with the given id."""
-    handle = temporal.get_schedule_handle(schedule_id)
-    temporal_schedule = await handle.describe()
-    return temporal_schedule
 
 
 def test_can_put_config(client: HttpClient):
