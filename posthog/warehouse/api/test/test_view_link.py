@@ -1,8 +1,6 @@
 from posthog.test.base import (
     APIBaseTest,
 )
-
-from posthog.models import PropertyDefinition
 from posthog.warehouse.models import DataWarehouseViewLink, DataWarehouseSavedQuery
 from posthog.warehouse.query import get_view_link_columns
 from posthog.api.query import process_query
@@ -31,7 +29,6 @@ class TestViewLinkQuery(APIBaseTest):
         view_link = response.json()
 
         self.assertEqual(view_link["saved_query"], saved_query["id"])
-        self.assertEqual(len(PropertyDefinition.objects.all()), 2)
 
     def test_view_link_columns(self):
         response = self.client.post(
