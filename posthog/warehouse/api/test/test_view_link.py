@@ -35,6 +35,67 @@ class TestViewLinkQuery(APIBaseTest):
 
         self.assertEqual(view_link["saved_query"], saved_query["id"])
 
+    def test_create_key_error(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event AS event, distinct_id as distinct_id from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_view_link/",
+            {
+                "saved_query_id": saved_query["id"],
+                "table": "eventss",
+                "to_join_key": "distinct_id",
+                "from_join_key": "distinct_id",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_view_link/",
+            {
+                "saved_query_id": saved_query["id"],
+                "table": "events",
+                "to_join_key": "distinct_id",
+                "from_join_key": "key_that_doesnt_exist",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_create_saved_query_key_error(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event AS event, distinct_id as distinct_id from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_view_link/",
+            {
+                "saved_query_id": saved_query["id"],
+                "table": "eventss",
+                "to_join_key": "key_that_doesn't_exist",
+                "from_join_key": "distinct_id",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     def test_view_link_columns(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_query/",
