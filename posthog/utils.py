@@ -163,23 +163,25 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
     return (period_start, period_end)
 
 
-def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+def relative_date_parse_with_delta_mapping(
+    input: str, team: "Team"
+) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
-        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC), None
+        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=team.timezone_info), None
     except ValueError:
         pass
 
     # when input also contains the time for intervals "hour" and "minute"
     # the above try fails. Try one more time from isoformat.
     try:
-        return parser.isoparse(input).replace(tzinfo=pytz.UTC), None
+        return parser.isoparse(input).replace(tzinfo=team.timezone_info), None
     except ValueError:
         pass
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = timezone.now()
+    date = team.now()
     delta_mapping: Dict[str, int] = {}
     if not match:
         return date, delta_mapping
@@ -188,6 +190,16 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
     elif match.group("type") == "d":
         if match.group("number"):
             delta_mapping["days"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["hour"] = 0
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif match.group("position") == "End":
+            delta_mapping["hour"] = 23
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
     elif match.group("type") == "w":
         if match.group("number"):
             delta_mapping["weeks"] = int(match.group("number"))
@@ -196,7 +208,7 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
             delta_mapping["months"] = int(match.group("number"))
         if match.group("position") == "Start":
             delta_mapping["day"] = 1
-        if match.group("position") == "End":
+        elif match.group("position") == "End":
             delta_mapping["day"] = 31
     elif match.group("type") == "q":
         if match.group("number"):
@@ -207,7 +219,7 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
         if match.group("position") == "Start":
             delta_mapping["month"] = 1
             delta_mapping["day"] = 1
-        if match.group("position") == "End":
+        elif match.group("position") == "End":
             delta_mapping["month"] = 12
             delta_mapping["day"] = 31
     date -= relativedelta(**delta_mapping)  # type: ignore
@@ -219,8 +231,8 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
     return date, delta_mapping
 
 
-def relative_date_parse(input: str) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input)[0]
+def relative_date_parse(input: str, team: "Team") -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, team=team)[0]
 
 
 def get_git_branch() -> Optional[str]:
