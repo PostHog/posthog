@@ -1,15 +1,14 @@
-# serializer version: 1
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests
-  '''
+  '
   
   SELECT team_id,
          count(1) as count
   FROM events
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.1
-  '''
+  '
   
   SELECT team_id,
          count(1) as count
@@ -17,10 +16,10 @@
   WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND event != '$feature_flag_called'
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.10
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -34,10 +33,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.11
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -51,10 +50,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.12
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -68,10 +67,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.13
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -85,10 +84,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.14
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -102,10 +101,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.15
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -119,10 +118,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.16
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -136,10 +135,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.17
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -153,10 +152,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.18
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -170,10 +169,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.19
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -187,10 +186,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.2
-  '''
+  '
   
   SELECT team_id,
          count(1) as count
@@ -198,10 +197,10 @@
   WHERE timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
     AND event != '$feature_flag_called'
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.20
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -215,10 +214,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.21
-  '''
+  '
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
@@ -232,10 +231,10 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.3
-  '''
+  '
   
   SELECT team_id,
          count(1) as count
@@ -247,10 +246,10 @@
          OR $group_3 != ''
          OR $group_4 != '')
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.4
-  '''
+  '
   
   SELECT team_id,
          count(distinct session_id) as count
@@ -262,19 +261,19 @@
        WHERE min_first_timestamp BETWEEN '2022-01-09 00:00:00' AND '2022-01-10 00:00:00'
        GROUP BY session_id)
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.5
-  '''
+  '
   
   SELECT team_id,
          count(distinct session_id) as count
   FROM session_replay_events
   GROUP BY team_id
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.6
-  '''
+  '
   
   SELECT distinct_id as team,
          sum(JSONExtractInt(properties, 'count')) as sum
@@ -284,10 +283,10 @@
     AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
   GROUP BY team
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.7
-  '''
+  '
   
   SELECT distinct_id as team,
          sum(JSONExtractInt(properties, 'count')) as sum
@@ -297,10 +296,10 @@
     AND timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
     AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
   GROUP BY team
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.8
-  '''
+  '
   
   SELECT distinct_id as team,
          sum(JSONExtractInt(properties, 'count')) as sum
@@ -310,10 +309,10 @@
     AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
   GROUP BY team
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.9
-  '''
+  '
   
   SELECT distinct_id as team,
          sum(JSONExtractInt(properties, 'count')) as sum
@@ -323,5 +322,5 @@
     AND timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
     AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
   GROUP BY team
-  '''
-# ---
+  '
+---

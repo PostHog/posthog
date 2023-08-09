@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type
-  '''
+  '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -46,10 +45,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.1
-  '''
+  '
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -69,10 +68,10 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.2
-  '''
+  '
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -92,10 +91,10 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.3
-  '''
+  '
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -115,10 +114,10 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.4
-  '''
+  '
   SELECT ((("posthog_person"."properties" -> 'Distinct Id') IN ('"307"')
            OR ("posthog_person"."properties" -> 'Distinct Id') IN ('307'))
           AND "posthog_person"."properties" ? 'Distinct Id'
@@ -128,10 +127,10 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.5
-  '''
+  '
   SELECT (("posthog_person"."properties" -> 'Distinct Id') IN ('307')
           AND "posthog_person"."properties" ? 'Distinct Id'
           AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
@@ -140,10 +139,10 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.6
-  '''
+  '
   SELECT (("posthog_person"."properties" -> 'Distinct Id') = '307'
           AND "posthog_person"."properties" ? 'Distinct Id'
           AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
@@ -152,10 +151,10 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_multiple_flags
-  '''
+  '
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."group_type",
@@ -164,10 +163,10 @@
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_multiple_flags.1
-  '''
+  '
   SELECT (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'
           AND "posthog_person"."properties" ? 'email'
           AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
@@ -180,20 +179,20 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'test_id'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_multiple_flags.2
-  '''
+  '
   SELECT (true) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0"
   FROM "posthog_group"
   WHERE ("posthog_group"."team_id" = 2
          AND "posthog_group"."group_key" = 'group_key'
          AND "posthog_group"."group_type_index" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_multiple_flags.3
-  '''
+  '
   SELECT (("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"')
           AND "posthog_group"."group_properties" ? 'name'
           AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0",
@@ -204,10 +203,10 @@
   WHERE ("posthog_group"."team_id" = 2
          AND "posthog_group"."group_key" = 'foo'
          AND "posthog_group"."group_type_index" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_multiple_flags.4
-  '''
+  '
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."group_type",
@@ -216,10 +215,10 @@
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_multiple_flags.5
-  '''
+  '
   SELECT (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'
           AND "posthog_person"."properties" ? 'email'
           AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
@@ -232,10 +231,10 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'test_id'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_multiple_flags.6
-  '''
+  '
   SELECT (("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"')
           AND "posthog_group"."group_properties" ? 'name'
           AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0",
@@ -246,10 +245,10 @@
   WHERE ("posthog_group"."team_id" = 2
          AND "posthog_group"."group_key" = 'foo2'
          AND "posthog_group"."group_type_index" = 2)
-  '''
-# ---
+  '
+---
 # name: TestFeatureFlagMatcher.test_super_condition_matches_string
-  '''
+  '
   SELECT ((("posthog_person"."properties" -> 'is_enabled') = 'true'
            OR ("posthog_person"."properties" -> 'is_enabled') = '"true"')
           AND "posthog_person"."properties" ? 'is_enabled'
@@ -266,16 +265,16 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'test_id'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging
-  '''
+  '
   
   SET LOCAL statement_timeout = 2
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.1
-  '''
+  '
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
@@ -302,16 +301,16 @@
     AND key NOT IN
       (SELECT feature_flag_key
        FROM existing_overrides)
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.2
-  '''
+  '
   
   SET LOCAL statement_timeout = 2
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.3
-  '''
+  '
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
@@ -351,16 +350,16 @@
        FROM posthog_person
        WHERE id = person_id
          AND team_id = 2) ON CONFLICT DO NOTHING
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.4
-  '''
+  '
   
   SET LOCAL statement_timeout = 2
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.5
-  '''
+  '
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
@@ -400,26 +399,26 @@
        FROM posthog_person
        WHERE id = person_id
          AND team_id = 2) ON CONFLICT DO NOTHING
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.6
-  '''
+  '
   
   SET LOCAL statement_timeout = 2
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.7
-  '''
+  '
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('other_id',
                                                       'example_id')
          AND "posthog_persondistinctid"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.8
-  '''
+  '
   SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
          "posthog_featureflaghashkeyoverride"."hash_key",
          "posthog_featureflaghashkeyoverride"."person_id"
@@ -430,16 +429,16 @@
                                                               4,
                                                               5 /* ... */)
          AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging
-  '''
+  '
   
   SET LOCAL statement_timeout = 2
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.1
-  '''
+  '
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
@@ -466,16 +465,16 @@
     AND key NOT IN
       (SELECT feature_flag_key
        FROM existing_overrides)
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.2
-  '''
+  '
   
   SET LOCAL statement_timeout = 2
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.3
-  '''
+  '
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
@@ -515,16 +514,16 @@
        FROM posthog_person
        WHERE id = person_id
          AND team_id = 2) ON CONFLICT DO NOTHING
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.4
-  '''
+  '
   
   SET LOCAL statement_timeout = 2
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.5
-  '''
+  '
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
@@ -564,26 +563,26 @@
        FROM posthog_person
        WHERE id = person_id
          AND team_id = 2) ON CONFLICT DO NOTHING
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.6
-  '''
+  '
   
   SET LOCAL statement_timeout = 2
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.7
-  '''
+  '
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('other_id',
                                                       'example_id')
          AND "posthog_persondistinctid"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.8
-  '''
+  '
   SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
          "posthog_featureflaghashkeyoverride"."hash_key",
          "posthog_featureflaghashkeyoverride"."person_id"
@@ -594,5 +593,5 @@
                                                               4,
                                                               5 /* ... */)
          AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
-  '''
-# ---
+  '
+---
