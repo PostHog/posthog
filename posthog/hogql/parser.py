@@ -216,6 +216,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         table_final = True if ctx.FINAL() else None
         if isinstance(table, ast.JoinExpr):
             # visitTableExprAlias returns a JoinExpr to pass the alias
+            # visitTableExprFunction returns a JoinExpr to pass the args
             table.table_final = table_final
             table.sample = sample
             return table
@@ -708,13 +709,19 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         alias = self.visit(ctx.alias() or ctx.identifier())
         if alias in RESERVED_KEYWORDS:
             raise HogQLException(f"Alias '{alias}' is a reserved keyword")
-        return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=alias)
+        table = self.visit(ctx.tableExpr())
+        if isinstance(table, ast.JoinExpr):
+            table.alias = alias
+            return table
+        return ast.JoinExpr(table=table, alias=alias)
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
-        raise NotImplementedException(f"Unsupported node: TableExprFunction")
+        return self.visit(ctx.tableFunctionExpr())
 
     def visitTableFunctionExpr(self, ctx: HogQLParser.TableFunctionExprContext):
-        raise NotImplementedException(f"Unsupported node: TableFunctionExpr")
+        name = self.visit(ctx.identifier())
+        args = self.visit(ctx.tableArgList()) if ctx.tableArgList() else []
+        return ast.JoinExpr(table=ast.Field(chain=[name]), table_args=args)
 
     def visitTableIdentifier(self, ctx: HogQLParser.TableIdentifierContext):
         text = self.visit(ctx.identifier())
@@ -723,10 +730,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [text]
 
     def visitTableArgList(self, ctx: HogQLParser.TableArgListContext):
-        raise NotImplementedException(f"Unsupported node: TableArgList")
-
-    def visitTableArgExpr(self, ctx: HogQLParser.TableArgExprContext):
-        raise NotImplementedException(f"Unsupported node: TableArgExpr")
+        return [self.visit(arg) for arg in ctx.columnExpr()]
 
     def visitDatabaseIdentifier(self, ctx: HogQLParser.DatabaseIdentifierContext):
         return self.visit(ctx.identifier())
