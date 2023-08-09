@@ -42,8 +42,8 @@
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in []
-    AND timestamp >= '2020-01-08 00:00:00'
-    AND timestamp <= '2020-01-12 23:59:59'
+    AND min_first_timestamp >= '2020-01-08 00:00:00'
+    AND max_last_timestamp <= '2020-01-12 23:59:59'
   '
 ---
 # name: TestPersonTrends.test_trends_people_endpoint_filters_search.2
@@ -100,8 +100,8 @@
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in []
-    AND timestamp >= '2020-01-08 00:00:00'
-    AND timestamp <= '2020-01-12 23:59:59'
+    AND min_first_timestamp >= '2020-01-08 00:00:00'
+    AND max_last_timestamp <= '2020-01-12 23:59:59'
   '
 ---
 # name: TestPersonTrends.test_trends_people_endpoint_includes_recordings
@@ -148,7 +148,7 @@
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s1']
-    AND timestamp >= '2020-01-08 00:00:00'
-    AND timestamp <= '2020-01-12 23:59:59'
+    AND min_first_timestamp >= '2020-01-08 00:00:00'
+    AND max_last_timestamp <= '2020-01-12 23:59:59'
   '
 ---
