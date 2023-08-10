@@ -169,14 +169,10 @@ def relative_date_parse_with_delta_mapping(
 ) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
-        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=timezone_info), None
-    except ValueError:
-        pass
-
-    # when input also contains the time for intervals "hour" and "minute"
-    # the above try fails. Try one more time from isoformat.
-    try:
-        return parser.isoparse(input).replace(tzinfo=timezone_info), None
+        # This supports a few formats, but we primarily care about:
+        # YYYY-MM-DD, YYYY-MM-DD[T]hh:mm, YYYY-MM-DD[T]hh:mm:ss, YYYY-MM-DD[T]hh:mm:ss.ssssss
+        # (timezone offsets are recognized as well)
+        return parser.isoparse(input).astimezone(timezone_info), None
     except ValueError:
         pass
 
