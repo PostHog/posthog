@@ -170,16 +170,16 @@ export function NewDashboardModal(): JSX.Element {
         <LemonModal
             onClose={hideNewDashboardModal}
             isOpen={newDashboardModalVisible}
-            title={activeDashboardTemplate ? 'Setup your events' : 'Create a dashboard'}
+            title={activeDashboardTemplate ? 'Choose your events' : 'Create a dashboard'}
             description={
-                activeDashboardTemplate
-                    ? `The dashboard template you selected requires you to set up ${pluralize(
-                          (activeDashboardTemplate.variables || []).length,
-                          'event',
-                          'events',
-                          true
-                      )}.`
-                    : 'Choose a template or start with a blank slate'
+                activeDashboardTemplate ? (
+                    <>
+                        The <i>{activeDashboardTemplate.template_name}</i> template requires you to choose{' '}
+                        {pluralize((activeDashboardTemplate.variables || []).length, 'event', 'events', true)}.
+                    </>
+                ) : (
+                    'Choose a template or start with a blank slate'
+                )
             }
         >
             <div className="NewDashboardModal">

@@ -99,7 +99,6 @@ describe('CreateExport', () => {
                             region: 'ca-central-1',
                             aws_access_key_id: 'test-access-key-id',
                             aws_secret_access_key: 'test-secret-access-key',
-                            batch_window_size: 3600,
                         },
                     },
                 })
