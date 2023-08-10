@@ -7,7 +7,7 @@ from django.conf import settings
 from django.test.client import Client as HttpClient
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
@@ -25,14 +25,6 @@ pytestmark = [
 ]
 
 
-@async_to_sync
-async def describe_schedule(temporal, schedule_id: str):
-    """Return the description of a Temporal Schedule with the given id."""
-    handle = temporal.get_schedule_handle(schedule_id)
-    temporal_schedule = await handle.describe()
-    return temporal_schedule
-
-
 def test_can_put_config(client: HttpClient):
     temporal = sync_connect()
 
@@ -42,7 +34,6 @@ def test_can_put_config(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -110,7 +101,8 @@ def test_can_put_config(client: HttpClient):
         assert args["aws_secret_access_key"] == "new-secret"
 
 
-def test_can_patch_config(client: HttpClient):
+@pytest.mark.parametrize("interval", ["hour", "day"])
+def test_can_patch_config(client: HttpClient, interval):
     temporal = sync_connect()
 
     destination_data = {
@@ -119,7 +111,6 @@ def test_can_patch_config(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -128,7 +119,7 @@ def test_can_patch_config(client: HttpClient):
     batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
-        "interval": "hour",
+        "interval": interval,
     }
 
     organization = create_organization("Test Org")
@@ -145,8 +136,7 @@ def test_can_patch_config(client: HttpClient):
         old_schedule = describe_schedule(temporal, batch_export["id"])
 
         # We should be able to update the destination config, excluding the aws
-        # credentials. The existing values should be preserved, e.g.
-        # batch_window_size = 3600
+        # credentials. The existing values should be preserved.
         new_destination_data = {
             "type": "S3",
             "config": {
@@ -164,11 +154,11 @@ def test_can_patch_config(client: HttpClient):
         response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-        # get the batch export and validate e.g. that batch_window_size and interval
-        # has been preserved
+        # get the batch export and validate e.g. that bucket_name and interval
+        # has been preserved.
         batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert batch_export["interval"] == "hour"
-        assert batch_export["destination"]["config"]["batch_window_size"] == 3600
+        assert batch_export["interval"] == interval
+        assert batch_export["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
         # validate the underlying temporal schedule has been updated
         codec = EncryptionCodec(settings=settings)
