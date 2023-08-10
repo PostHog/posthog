@@ -343,7 +343,7 @@ class DateMixin(BaseParamMixin):
             if self._date_from == "all":
                 return None
             elif isinstance(self._date_from, str):
-                date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_from, team=self.team)
+                date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_from, self.team.timezone_info)  # type: ignore
                 self.date_from_delta_mapping = delta_mapping
                 return date
             else:
@@ -367,7 +367,7 @@ class DateMixin(BaseParamMixin):
                     try:
                         return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
                     except ValueError:
-                        date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_to, team=self.team)
+                        date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_to, self.team.timezone_info)  # type: ignore
                         self.date_to_delta_mapping = delta_mapping
                         return date
             else:

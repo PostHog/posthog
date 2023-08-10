@@ -133,7 +133,7 @@ class ClickhouseFunnelBase(ABC):
         # format default dates
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
-            data.update({"date_from": relative_date_parse("-7d")})
+            data.update({"date_from": relative_date_parse("-7d", self._team.timezone_info)})
 
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})

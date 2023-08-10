@@ -42,7 +42,7 @@ class StickinessDateMixin(DateMixin):
         elif _date_from:
             return _date_from
         else:
-            return relative_date_parse("-7d")
+            return relative_date_parse("-7d", self.team.timezone_info)
 
     @cached_property
     def _date_to(self) -> Optional[Union[str, datetime]]:

@@ -1,6 +1,6 @@
 import inspect
 import json
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from rest_framework import request
 
@@ -12,9 +12,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 
 class BaseFilter(BaseParamMixin):
     _data: Dict
+    team: Optional["Team"]
     kwargs: Dict
     hogql_context: HogQLContext
 
@@ -22,6 +26,8 @@ class BaseFilter(BaseParamMixin):
         self,
         data: Optional[Dict[str, Any]] = None,
         request: Optional[request.Request] = None,
+        *,
+        team: Optional["Team"] = None,
         **kwargs,
     ) -> None:
         if request:
@@ -40,7 +46,7 @@ class BaseFilter(BaseParamMixin):
 
         self._data = data
         self.kwargs = kwargs
-        self.team = kwargs.get("team", None)
+        self.team = team
 
         # Set the HogQL context for the request
         self.hogql_context = self.kwargs.get(
@@ -70,7 +76,9 @@ class BaseFilter(BaseParamMixin):
 
     def shallow_clone(self, overrides: Dict[str, Any]):
         "Clone the filter's data while sharing the HogQL context"
-        return type(self)(data={**self._data, **overrides}, **{**self.kwargs, "hogql_context": self.hogql_context})
+        return type(self)(
+            data={**self._data, **overrides}, **{**self.kwargs, "team": self.team, "hogql_context": self.hogql_context}
+        )
 
     def query_tags(self) -> Dict[str, Any]:
         ret = {}

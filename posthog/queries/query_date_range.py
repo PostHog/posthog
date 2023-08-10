@@ -7,7 +7,6 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from posthog.models.filters import AnyFilter
-from posthog.models.filters.filter import Filter
 
 from posthog.models.team import Team
 from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
@@ -21,7 +20,7 @@ class QueryDateRange:
     _table: str
     _should_round: Optional[bool]
 
-    def __init__(self, filter: Filter, team: Team, should_round: Optional[bool] = None, table="") -> None:
+    def __init__(self, filter: AnyFilter, team: Team, should_round: Optional[bool] = None, table="") -> None:
         filter.team = team  # This is a dirty - but the easiest - way to get the team into the filter
         self._filter = filter
         self._team = team
@@ -32,7 +31,7 @@ class QueryDateRange:
     def date_to_param(self) -> datetime:
         date_to = self._now
         if isinstance(self._filter._date_to, str):
-            date_to = relative_date_parse(self._filter._date_to, team=self._team)
+            date_to = relative_date_parse(self._filter._date_to, self._team.timezone_info)
         elif isinstance(self._filter._date_to, datetime):
             date_to = self._localize_to_team(self._filter._date_to)
 
@@ -55,7 +54,7 @@ class QueryDateRange:
         if self._filter._date_from == "all":
             date_from = self.get_earliest_timestamp()
         elif isinstance(self._filter._date_from, str):
-            date_from = relative_date_parse(self._filter._date_from, team=self._team)
+            date_from = relative_date_parse(self._filter._date_from, self._team.timezone_info)
         elif isinstance(self._filter._date_from, datetime):
             date_from = self._localize_to_team(self._filter._date_from)
         else:
@@ -186,14 +185,14 @@ class QueryDateRange:
             return False
 
         round_interval = False
-        if self._filter.interval in ["week", "month"]:
+        if self._filter.interval in ["week", "month"]:  # type: ignore
             round_interval = True
         else:
-            round_interval = self.time_difference.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2
+            round_interval = self.time_difference.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2  # type: ignore
 
         return round_interval
 
     def is_hourly(self, target):
         if not hasattr(self._filter, "interval"):
             return False
-        return self._filter.interval == "hour" or (target and isinstance(target, str) and "h" in target)
+        return self._filter.interval == "hour" or (target and isinstance(target, str) and "h" in target)  # type: ignore

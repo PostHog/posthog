@@ -9,7 +9,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.db.models.signals import post_delete, post_save
-import datetime as dt
 from zoneinfo import ZoneInfo
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -302,10 +301,6 @@ class Team(UUIDClassicModel):
     @cached_property
     def timezone_info(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
-
-    def now(self) -> dt.datetime:
-        """Return the current time in the team's timezone."""
-        return dt.datetime.now().astimezone(self.timezone_info)
 
     def __str__(self):
         if self.name:

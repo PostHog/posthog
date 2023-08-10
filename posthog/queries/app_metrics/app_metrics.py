@@ -79,12 +79,12 @@ class AppMetricsQuery:
 
     @property
     def date_from(self):
-        return relative_date_parse(self.filter.validated_data.get("date_from"))
+        return relative_date_parse(self.filter.validated_data.get("date_from"), self.team.timezone_info)
 
     @property
     def date_to(self):
         date_to_string = self.filter.validated_data.get("date_to")
-        return relative_date_parse(date_to_string) if date_to_string is not None else now()
+        return relative_date_parse(date_to_string, self.team.timezone_info) if date_to_string is not None else now()
 
     @property
     def interval(self) -> IntervalType:

@@ -28,6 +28,7 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
 
 import lzstring
 import posthoganalytics
@@ -164,24 +165,24 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
 
 
 def relative_date_parse_with_delta_mapping(
-    input: str, team: "Team"
+    input: str, timezone_info: ZoneInfo
 ) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
-        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=team.timezone_info), None
+        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=timezone_info), None
     except ValueError:
         pass
 
     # when input also contains the time for intervals "hour" and "minute"
     # the above try fails. Try one more time from isoformat.
     try:
-        return parser.isoparse(input).replace(tzinfo=team.timezone_info), None
+        return parser.isoparse(input).replace(tzinfo=timezone_info), None
     except ValueError:
         pass
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = team.now()
+    date = dt.datetime.now().astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
         return date, delta_mapping
@@ -231,8 +232,8 @@ def relative_date_parse_with_delta_mapping(
     return date, delta_mapping
 
 
-def relative_date_parse(input: str, team: "Team") -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input, team=team)[0]
+def relative_date_parse(input: str, timezone_info: ZoneInfo) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, timezone_info)[0]
 
 
 def get_git_branch() -> Optional[str]:
