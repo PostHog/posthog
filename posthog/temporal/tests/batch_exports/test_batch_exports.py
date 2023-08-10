@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import operator
 from random import randint
@@ -10,6 +11,7 @@ import pytest_asyncio
 from django.conf import settings
 
 from posthog.temporal.workflows.batch_exports import (
+    get_data_interval,
     get_results_iterator,
     get_rows_count,
 )
@@ -247,3 +249,30 @@ async def test_get_results_iterator_handles_duplicates(client):
         for key, value in result.items():
             # Some keys will be missing from result, so let's only check the ones we have.
             assert value == expected[key], f"{key} value in {result} didn't match value in {expected}"
+
+
+@pytest.mark.parametrize(
+    "interval,data_interval_end,expected",
+    [
+        (
+            "hour",
+            "2023-08-01T00:00:00+00:00",
+            (
+                dt.datetime(2023, 7, 31, 23, 0, 0, tzinfo=dt.timezone.utc),
+                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+            ),
+        ),
+        (
+            "day",
+            "2023-08-01T00:00:00+00:00",
+            (
+                dt.datetime(2023, 7, 31, 0, 0, 0, tzinfo=dt.timezone.utc),
+                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+            ),
+        ),
+    ],
+)
+def test_get_data_interval(interval, data_interval_end, expected):
+    """Test get_data_interval returns the expected data interval tuple."""
+    result = get_data_interval(interval, data_interval_end)
+    assert result == expected
