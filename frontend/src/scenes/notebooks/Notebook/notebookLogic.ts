@@ -268,7 +268,6 @@ export const notebookLogic = kea<notebookLogicType>([
         insertAfterLastNodeOfType: ({ content, nodeType, desiredInsertPosition }) => {
             let insertionPosition = desiredInsertPosition
             let nextNode = values.editor?.nextNode(insertionPosition)
-
             while (nextNode && values.editor?.hasChildOfType(nextNode.node, nodeType)) {
                 insertionPosition = nextNode.position
                 nextNode = values.editor?.nextNode(insertionPosition)

@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, BuiltLogic, connect, kea, path, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookTarget, NotebookType } from '~/types'
@@ -14,6 +14,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
 import { notebookPopoverLogic } from './notebookPopoverLogic'
 import { EditorFocusPosition, JSONContent, defaultNotebookContent } from './utils'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
@@ -26,11 +28,13 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
-export const openNotebook = (
+export const openNotebook = async (
     notebookId: string,
     target: NotebookTarget = NotebookTarget.Auto,
-    focus: EditorFocusPosition = null
-): void => {
+    focus: EditorFocusPosition = null,
+    // a list of commands to run against the notebook logic after it's opened
+    commandsAfterOpen: ((logic: BuiltLogic<notebookLogicType>) => void)[] = []
+): Promise<void> => {
     const popoverLogic = notebookPopoverLogic.findMounted()
 
     if (NotebookTarget.Popover === target) {
@@ -44,6 +48,16 @@ export const openNotebook = (
     }
 
     popoverLogic?.actions.setInitialAutofocus(focus)
+
+    const theMountedNotebookLogic = notebookLogic({ shortId: notebookId })
+    // there's a race here between opening up the notebook and mounting its logic
+    // and that logic having an editor ready to receive commands
+    let retryCount = 0
+    while (theMountedNotebookLogic.values.editor === null && retryCount < 100) {
+        await new Promise((r) => setTimeout(r, 10))
+        retryCount += 1
+    }
+    commandsAfterOpen.forEach((command) => command(theMountedNotebookLogic))
 }
 
 export const notebooksListLogic = kea<notebooksListLogicType>([

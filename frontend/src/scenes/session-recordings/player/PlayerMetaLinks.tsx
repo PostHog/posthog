@@ -34,16 +34,16 @@ export function PlayerMetaLinks(): JSX.Element {
     const commentInExistingNotebook = useCallback(
         (notebookShortId) => {
             const currentPlayerTime = getCurrentPlayerTime() * 1000
-            openNotebook(notebookShortId, NotebookTarget.Popover)
-            setTimeout(() => {
-                if (!nodeLogic) {
-                    throw new Error('wat')
-                }
-                // need time for the notebook to open and mount its logic
-                nodeLogic.actions.insertAfterLastNodeOfType(NotebookNodeType.ReplayTimestamp, [
-                    buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
-                ])
-            }, 50)
+            openNotebook(notebookShortId, NotebookTarget.Popover, null, [
+                (theNotebookLogic) => {
+                    // TODO I don't want to have to know the position? Or how do I find it?
+                    theNotebookLogic.actions.insertAfterLastNodeOfType(
+                        NotebookNodeType.ReplayTimestamp,
+                        [buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)],
+                        0
+                    )
+                },
+            ])
         },
         [nodeLogic]
     )
