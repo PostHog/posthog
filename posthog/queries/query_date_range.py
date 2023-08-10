@@ -10,7 +10,7 @@ from posthog.models.filters import AnyFilter
 
 from posthog.models.team import Team
 from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 
 # Assume that any date being sent from the client is timezone aware according to the timezone that the team has set
@@ -30,13 +30,20 @@ class QueryDateRange:
     @cached_property
     def date_to_param(self) -> datetime:
         date_to = self._now
+        delta_mapping = None
         if isinstance(self._filter._date_to, str):
-            date_to = relative_date_parse(self._filter._date_to, self._team.timezone_info)
+            date_to, delta_mapping = relative_date_parse_with_delta_mapping(
+                self._filter._date_to, self._team.timezone_info
+            )
         elif isinstance(self._filter._date_to, datetime):
             date_to = self._localize_to_team(self._filter._date_to)
 
-        if not self.is_hourly(self._filter._date_to) and not self._filter.use_explicit_dates:
-            date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+        is_relative = not self._filter._date_to or delta_mapping is not None
+        if not self._filter.use_explicit_dates:
+            if not self.is_hourly(self._filter._date_to):
+                date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+            elif is_relative:
+                date_to = date_to.replace(minute=59, second=59, microsecond=999999)
 
         return date_to
 
