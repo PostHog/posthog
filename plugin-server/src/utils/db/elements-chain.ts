@@ -84,8 +84,6 @@ export function chainToElements(chain: string, teamId: number, options: { throwO
                         element.text = value
                     } else if (key == 'attr_id') {
                         element.attr_id = value
-                    } else if (key == 'attr_class') {
-                        element.attr_class = extractAttrClass(element['attr_class'])
                     } else if (key) {
                         if (!element.attributes) {
                             element.attributes = {}
