@@ -458,8 +458,8 @@
       (SELECT id
        FROM person
        WHERE team_id = 2
-         AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000000%')
-              OR (id = '00000000-0000-4000-8000-000000000000'
+         AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000001%')
+              OR (id = '00000000-0000-4000-8000-000000000001'
                   OR id IN
                     (SELECT person_id
                      FROM
@@ -469,12 +469,12 @@
                         WHERE team_id = 2
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
+                     WHERE distinct_id = '00000000-0000-4000-8000-000000000001' ))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(created_at, version) < now() + INTERVAL 1 DAY
-  AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000000%')
-       OR (id = '00000000-0000-4000-8000-000000000000'
+  AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000001%')
+       OR (id = '00000000-0000-4000-8000-000000000001'
            OR id IN
              (SELECT person_id
               FROM
@@ -484,7 +484,7 @@
                  WHERE team_id = 2
                  GROUP BY distinct_id
                  HAVING argMax(is_deleted, version) = 0)
-              WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
+              WHERE distinct_id = '00000000-0000-4000-8000-000000000001' )))
   ORDER BY argMax(created_at, version) DESC, id
   LIMIT 100
   '
