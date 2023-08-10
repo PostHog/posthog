@@ -1,5 +1,4 @@
 import {
-    NodeViewProps,
     Node,
     NodeViewWrapper,
     mergeAttributes,
@@ -21,6 +20,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
+import { NotebookNodeViewProps } from '../Notebook/utils'
 
 export interface NodeWrapperProps {
     title: string
@@ -53,7 +53,7 @@ export function NodeWrapper({
     node,
     getPos,
     updateAttributes,
-}: NodeWrapperProps & NodeViewProps): JSX.Element {
+}: NodeWrapperProps & NotebookNodeViewProps): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
     const nodeLogicProps = {
@@ -184,7 +184,7 @@ export function NodeWrapper({
 
 export type CreatePostHogWidgetNodeOptions = NodeWrapperProps & {
     nodeType: NotebookNodeType
-    Component: (props: NodeViewProps) => JSX.Element | null
+    Component: (props: NotebookNodeViewProps) => JSX.Element | null
     pasteOptions?: {
         find: string
         getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
@@ -193,16 +193,19 @@ export type CreatePostHogWidgetNodeOptions = NodeWrapperProps & {
 }
 
 // TODO: Correct return type
-export const createPostHogWidgetNode = ({
+export function createPostHogWidgetNode<T extends NotebookNodeType>({
     Component,
     pasteOptions,
     attributes,
     ...wrapperProps
-}: CreatePostHogWidgetNodeOptions): any => {
-    const WrappedComponent = (props: NodeViewProps): JSX.Element => {
+}: CreatePostHogWidgetNodeOptions): any {
+    const WrappedComponent = ({ node, ...props }: NotebookNodeViewProps): JSX.Element => {
+        // props.node
+        // const meme = 123 as T
+
         return (
-            <NodeWrapper {...props} {...wrapperProps}>
-                <Component {...props} />
+            <NodeWrapper node={node} {...props} {...wrapperProps}>
+                <Component node={node as T} {...props} />
             </NodeWrapper>
         )
     }

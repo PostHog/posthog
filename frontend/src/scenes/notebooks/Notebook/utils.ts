@@ -8,7 +8,7 @@ import {
     getText,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
-import { NotebookNodeType } from '~/types'
+import { NodeViewProps } from '@tiptap/react'
 
 /* eslint-disable @typescript-eslint/no-empty-interface */
 export interface Node extends PMNode {}
@@ -21,6 +21,28 @@ export {
     Range as EditorRange,
     FocusPosition as EditorFocusPosition,
 } from '@tiptap/core'
+
+type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
+    attrs: T
+}
+
+// Record<string, Partial<Attribute>>
+
+export type NotebookNodePersonAttributes = {
+    id: string
+}
+export type NotebookNodeFlagAttributes = {
+    id: string
+}
+
+export type NotebookNodeAttributes = NotebookNodePersonAttributes | NotebookNodeFlagAttributes
+
+export type NotebookNodePersonType = NotebookNode<NotebookNodePersonAttributes>
+export type NodebookNodeFlagType = NotebookNode<NotebookNodeFlagAttributes>
+
+export type NotebookNodeType = NotebookNodePersonType | NodebookNodeFlagType
+
+export type NotebookNodeViewProps = Omit<NodeViewProps, 'node'> & { node: NotebookNodeType }
 
 export interface NotebookEditor {
     getJSON: () => JSONContent

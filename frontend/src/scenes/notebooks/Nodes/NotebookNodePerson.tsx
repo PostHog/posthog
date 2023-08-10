@@ -9,6 +9,7 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodePersonType } from '../Notebook/utils'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
@@ -43,7 +44,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const NotebookNodePerson = createPostHogWidgetNode({
+export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonType>({
     nodeType: NotebookNodeType.Person,
     title: 'Person',
     Component,
