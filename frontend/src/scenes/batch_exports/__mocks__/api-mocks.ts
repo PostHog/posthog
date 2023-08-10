@@ -23,7 +23,7 @@ export const createExportServiceHandlers = (
                 return res(
                     ctx.delay(1000),
                     ctx.json({
-                        results: exports[id]?.runs ?? [],
+                        results: exports[id]?.latest_runs ?? [],
                     })
                 )
             },

@@ -3102,7 +3102,7 @@ export type BatchExportConfiguration = {
     start_at: string | null
     end_at: string | null
     paused: boolean
-    runs?: BatchExportRun[]
+    latest_runs?: BatchExportRun[]
 }
 
 export type BatchExportRun = {

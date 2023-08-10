@@ -29,16 +29,13 @@ type BatchExportConfigurationFrom = Omit<BatchExportConfiguration, 'id' | 'desti
         end_at: Dayjs | null
     }
 
-const formFields = ({
-    name,
-    destination,
-    interval,
-    start_at,
-    end_at,
-    paused,
-    ...config
-}: BatchExportConfigurationFrom): Record<string, any> => {
+const formFields = (
+    props: BatchExportsEditLogicProps,
+    { name, destination, interval, start_at, end_at, paused, ...config }: BatchExportConfigurationFrom
+): Record<string, any> => {
     // Important! All fields that are required must be checked here as it is used also to sanitise the existing
+    const isNew = props.id === 'new'
+
     return {
         name: !name ? 'Please enter a name' : '',
         destination: !destination ? 'Please select a destination' : '',
@@ -51,16 +48,16 @@ const formFields = ({
                   bucket_name: !config.bucket_name ? 'This field is required' : '',
                   region: !config.region ? 'This field is required' : '',
                   prefix: !config.prefix ? 'This field is required' : '',
-                  aws_access_key_id: !config.aws_access_key_id ? 'This field is required' : '',
-                  aws_secret_access_key: !config.aws_secret_access_key ? 'This field is required' : '',
+                  aws_access_key_id: isNew ? (!config.aws_access_key_id ? 'This field is required' : '') : '',
+                  aws_secret_access_key: isNew ? (!config.aws_secret_access_key ? 'This field is required' : '') : '',
               }
             : destination === 'Snowflake'
             ? {
                   account: !config.account ? 'This field is required' : '',
                   database: !config.database ? 'This field is required' : '',
                   warehouse: !config.warehouse ? 'This field is required' : '',
-                  user: !config.user ? 'This field is required' : '',
-                  password: !config.password ? 'This field is required' : '',
+                  user: isNew ? (!config.user ? 'This field is required' : '') : '',
+                  password: isNew ? (!config.password ? 'This field is required' : '') : '',
                   schema: !config.schema ? 'This field is required' : '',
                   table_name: !config.table_name ? 'This field is required' : '',
                   role: '',
@@ -87,8 +84,8 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             defaults: {
                 name: '',
             } as BatchExportConfigurationFrom,
-            errors: (form) => formFields(form),
-            submit: async ({ name, destination, interval, start_at, end_at, ...config }) => {
+            errors: (form) => formFields(props, form),
+            submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
                 const destinationObject: BatchExportDestination =
                     destination === 'S3'
                         ? {
@@ -100,7 +97,8 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               config: config,
                           }
 
-                const data: Omit<BatchExportConfiguration, 'id' | 'paused' | 'created_at'> = {
+                const data: Omit<BatchExportConfiguration, 'id' | 'created_at'> = {
+                    paused,
                     name,
                     interval,
                     start_at,
@@ -148,7 +146,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
 
             // Filter out any values that aren't part of our from
 
-            const validFormFields = Object.keys(formFields(transformedConfig))
+            const validFormFields = Object.keys(formFields(props, transformedConfig))
 
             Object.keys(transformedConfig).forEach((key) => {
                 if (!validFormFields.includes(key)) {

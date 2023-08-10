@@ -57,7 +57,7 @@ export function BatchExportsScene(): JSX.Element {
                         render: function RenderStatus(_, batchExport) {
                             return (
                                 <div className="flex gap-2">
-                                    {[...(batchExport.runs || [])].reverse()?.map((run) => (
+                                    {[...(batchExport.latest_runs || [])].reverse()?.map((run) => (
                                         // TODO: Link to run details
                                         <LemonButton
                                             to={urls.batchExport(batchExport.id)}

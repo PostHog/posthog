@@ -37,7 +37,7 @@ export default {
                     interval: 'hour',
                     paused: false,
                     created_at: '2021-09-01T00:00:00.000000Z',
-                    runs: [
+                    latest_runs: [
                         {
                             id: '4',
                             status: 'Running',
@@ -83,6 +83,13 @@ export const Exports: Story = () => {
 export const CreateExport: Story = () => {
     useEffect(() => {
         router.actions.push(urls.batchExportNew())
+    })
+    return <App />
+}
+
+export const ViewExport: Story = () => {
+    useEffect(() => {
+        router.actions.push(urls.batchExport('1'))
     })
     return <App />
 }

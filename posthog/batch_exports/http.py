@@ -154,7 +154,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
     destination = BatchExportDestinationSerializer()
-    runs = BatchExportRunSerializer(many=True, read_only=True)
+    latest_runs = BatchExportRunSerializer(many=True, read_only=True)
     trigger_immediately = serializers.BooleanField(default=False)
 
     class Meta:
@@ -171,9 +171,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "start_at",
             "end_at",
             "trigger_immediately",
-            "runs",
+            "latest_runs",
         ]
-        read_only_fields = ["id", "paused", "created_at", "last_updated_at", "runs"]
+        read_only_fields = ["id", "paused", "created_at", "last_updated_at", "latest_runs"]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -227,13 +227,6 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             .exclude(deleted=True)
             .order_by("-created_at")
             .prefetch_related("destination")
-            .prefetch_related(
-                Prefetch(
-                    "batchexportrun_set",
-                    queryset=BatchExportRun.objects.order_by("-created_at"),
-                    to_attr="runs",
-                )
-            )
         )
 
     @action(methods=["POST"], detail=True)

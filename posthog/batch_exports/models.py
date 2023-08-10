@@ -124,3 +124,7 @@ class BatchExport(UUIDModel):
     end_at: models.DateTimeField = models.DateTimeField(
         null=True, default=None, help_text="Time after which any Batch Export runs won't be triggered."
     )
+
+    @property
+    def latest_runs(self):
+        return self.batchexportrun_set.all().order_by("-created_at")[:10]
