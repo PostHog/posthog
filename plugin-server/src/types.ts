@@ -267,6 +267,7 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
+    transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     http?: boolean
     mmdb?: boolean
 }
