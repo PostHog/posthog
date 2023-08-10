@@ -1087,7 +1087,7 @@ export function FeatureFlagReleaseConditions({
         return !!(
             featureFlag.features?.length &&
             featureFlag.features?.length > 0 &&
-            group.properties.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
+            group.properties?.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
         )
     }
 
@@ -1139,7 +1139,7 @@ export function FeatureFlagReleaseConditions({
                         )}
                     </Row>
                     <LemonDivider className="my-3" />
-                    {!readOnly && hasNonInstantProperty(group.properties) && (
+                    {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">
                             These properties aren't immediately available on first page load for unidentified persons.
                             This feature flag requires that at least one event is sent prior to becoming available to
@@ -1153,7 +1153,7 @@ export function FeatureFlagReleaseConditions({
 
                     {readOnly ? (
                         <>
-                            {group.properties.map((property, idx) => (
+                            {group.properties?.map((property, idx) => (
                                 <>
                                     <div className="feature-flag-property-display" key={idx}>
                                         {idx === 0 ? (
