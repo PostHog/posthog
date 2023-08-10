@@ -43,6 +43,7 @@ import {
     Survey,
     TeamType,
     UserType,
+    DataWarehouseViewLink,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -447,6 +448,14 @@ class ApiRequest {
     }
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
+    // # Warehouse view link
+    public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_view_link')
+    }
+    public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1321,6 +1330,27 @@ const api = {
             data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
+        },
+    },
+
+    dataWarehouseViewLinks: {
+        async list(): Promise<PaginatedResponse<DataWarehouseViewLink>> {
+            return await new ApiRequest().dataWarehouseViewLinks().get()
+        },
+        async get(viewLinkId: DataWarehouseViewLink['id']): Promise<DataWarehouseViewLink> {
+            return await new ApiRequest().dataWarehouseViewLink(viewLinkId).get()
+        },
+        async create(data: Partial<DataWarehouseViewLink>): Promise<DataWarehouseViewLink> {
+            return await new ApiRequest().dataWarehouseViewLinks().create({ data })
+        },
+        async delete(viewId: DataWarehouseViewLink['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseViewLink(viewId).delete()
+        },
+        async update(
+            viewId: DataWarehouseViewLink['id'],
+            data: Pick<DataWarehouseViewLink, 'saved_query_id' | 'from_join_key' | 'table' | 'to_join_key'>
+        ): Promise<DataWarehouseViewLink> {
+            return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
         },
     },
 

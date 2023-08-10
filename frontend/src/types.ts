@@ -3046,3 +3046,11 @@ export interface DataWarehouseSavedQuery {
     query: HogQLQuery
     columns: DatabaseSchemaQueryResponseField[]
 }
+
+export interface DataWarehouseViewLink {
+    id: string
+    saved_query_id?: string
+    table?: string
+    to_join_key?: string
+    from_join_key?: string
+}

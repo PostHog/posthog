@@ -2,6 +2,17 @@ import { actions, connect, kea, selectors, listeners, reducers, path } from 'kea
 import { dataWarehouseSavedQueriesLogic } from './saved_queries/dataWarehouseSavedQueriesLogic'
 import { DataWarehouseSceneRow } from './types'
 import { viewLinkLogicType } from './viewLinkLogicType'
+import { DataWarehouseViewLink } from '~/types'
+import { forms } from 'kea-forms'
+import api from 'lib/api'
+
+const NEW_VIEW_LINK: DataWarehouseViewLink = {
+    id: 'new',
+    saved_query_id: undefined,
+    table: undefined,
+    to_join_key: undefined,
+    from_join_key: undefined,
+}
 
 export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
@@ -13,6 +24,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setView: (view) => ({ view }),
         selectTable: (selectedTable) => ({ selectedTable }),
         toggleFieldModal: true,
+        saveViewLink: (viewLink) => ({ viewLink }),
     }),
     reducers({
         selectedView: [
@@ -34,6 +46,27 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             },
         ],
     }),
+    forms(({ actions, values }) => ({
+        viewLink: {
+            defaults: NEW_VIEW_LINK,
+            errors: ({ saved_query_id, to_join_key, from_join_key }) => ({
+                saved_query_id: !saved_query_id ? 'Must select a view' : undefined,
+                to_join_key: !to_join_key ? 'Must select a join key' : undefined,
+                from_join_key: !from_join_key ? 'Must select a join key' : undefined,
+            }),
+            submit: ({ saved_query_id, to_join_key, from_join_key }) => {
+                if (values.selectedTable) {
+                    api.dataWarehouseViewLinks.create({
+                        table: values.selectedTable.name,
+                        saved_query_id,
+                        to_join_key,
+                        from_join_key,
+                    })
+                    actions.toggleFieldModal()
+                }
+            },
+        },
+    })),
     listeners(({ values, actions }) => ({
         selectView: ({ selectedView }) => {
             actions.setView(values.mappedViewOptions[selectedView])
