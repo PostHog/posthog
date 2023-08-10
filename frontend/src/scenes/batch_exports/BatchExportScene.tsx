@@ -13,6 +13,7 @@ import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { intervalToFrequency, isRunInProgress } from './utils'
 import { TZLabel } from '@posthog/apps-common'
 import { UUIDShortener } from 'lib/components/UUIDShortener'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -24,13 +25,15 @@ export const scene: SceneExport = {
 
 export function BatchExportScene(): JSX.Element {
     const {
+        batchExportRunsResponse,
         batchExportConfig,
         batchExportConfigLoading,
         batchExportRuns,
-        batchExportRunsLoading,
-        batchExportRunsPagination,
+        batchExportRunsResponseLoading,
+        runsDateRange,
     } = useValues(batchExportLogic)
-    const { loadBatchExportConfig, loadBatchExportRuns, openBackfillModal } = useActions(batchExportLogic)
+    const { loadBatchExportConfig, loadBatchExportRuns, loadNextBatchExportRuns, openBackfillModal, setRunsDateRange } =
+        useActions(batchExportLogic)
 
     useEffect(() => {
         loadBatchExportConfig()
@@ -99,13 +102,45 @@ export function BatchExportScene(): JSX.Element {
                         </LemonButton>
                     </div>
 
-                    <div className="flex-1">
-                        <h2>Latest Runs</h2>
+                    <div className="flex-1 space-y-2">
+                        <div className="flex justify-between items-center">
+                            <h2 className="flex-1">Latest Runs</h2>
+                            <DateFilter
+                                dateFrom={runsDateRange.from}
+                                dateTo={runsDateRange.to}
+                                onChange={(changedDateFrom, changedDateTo) => {
+                                    setRunsDateRange({
+                                        from: changedDateFrom,
+                                        to: changedDateTo,
+                                    })
+                                }}
+                                dateOptions={[
+                                    { key: 'Custom', values: [] },
+                                    { key: 'Last 24 hours', values: ['-24h'] },
+                                    { key: 'Last 7 days', values: ['-7d'] },
+                                    { key: 'Last 30 days', values: ['-21d'] },
+                                ]}
+                                dropdownPlacement="bottom-end"
+                            />
+                        </div>
                         <LemonTable
-                            dataSource={batchExportRuns?.results ?? []}
-                            loading={batchExportRunsLoading}
+                            dataSource={batchExportRuns}
+                            loading={batchExportRunsResponseLoading}
                             loadingSkeletonRows={5}
-                            pagination={batchExportRunsPagination}
+                            footer={
+                                batchExportRunsResponse?.next && (
+                                    <div className="flex items-center m-2">
+                                        <LemonButton
+                                            center
+                                            fullWidth
+                                            onClick={loadNextBatchExportRuns}
+                                            loading={batchExportRunsResponseLoading}
+                                        >
+                                            Load more button in the footer!
+                                        </LemonButton>
+                                    </div>
+                                )
+                            }
                             columns={[
                                 {
                                     key: 'icon',

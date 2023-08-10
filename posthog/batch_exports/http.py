@@ -1,9 +1,11 @@
 import datetime as dt
 from typing import Any
 
+from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated, NotFound, ValidationError
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -19,17 +21,10 @@ from posthog.batch_exports.service import (
     unpause_batch_export,
     update_batch_export,
 )
-from posthog.models import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportRun,
-    User,
-)
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, User
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.temporal.client import sync_connect
+from posthog.utils import relative_date_parse, relative_date_parse_with_delta_mapping
 
 
 def validate_date_input(date_input: Any) -> dt.datetime:
@@ -65,10 +60,16 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
         read_only_fields = ["batch_export"]
 
 
+class RunsCursorPagination(CursorPagination):
+    ordering = "-created_at"
+    page_size = 100
+
+
 class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = BatchExportRun.objects.all()
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     serializer_class = BatchExportRunSerializer
+    pagination_class = RunsCursorPagination
 
     def get_queryset(self, date_range: tuple[dt.datetime, dt.datetime] | None = None):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
@@ -88,31 +89,15 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSe
         if not isinstance(request.user, User) or request.user.current_team is None:
             raise NotAuthenticated()
 
-        after = self.request.query_params.get("after", None)
+        after = self.request.query_params.get("after", "-7d")
         before = self.request.query_params.get("before", None)
-        date_range = None
-        if after is not None and before is not None:
-            after_datetime = validate_date_input(after)
-            before_datetime = validate_date_input(before)
-            date_range = (after_datetime, before_datetime)
+        after_datetime = relative_date_parse(after)
+        before_datetime = relative_date_parse(before) if before else now()
+        date_range = (after_datetime, before_datetime)
 
-        runs = self.get_queryset(date_range=date_range)
-        limit = self.request.query_params.get("limit", None)
-        if limit is not None:
-            try:
-                limit = int(limit)
-            except (TypeError, ValueError):
-                raise ValidationError(f"Invalid value for 'limit' parameter: '{limit}'")
-
-            runs = runs[:limit]
-
-        page = self.paginate_queryset(runs)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(runs, many=True)
-        return response.Response(serializer.data)
+        page = self.paginate_queryset(self.get_queryset(date_range=date_range))
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
     @action(methods=["POST"], detail=True)
     def reset(self, request: request.Request, *args, **kwargs) -> response.Response:

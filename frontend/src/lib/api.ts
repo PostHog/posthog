@@ -1282,7 +1282,7 @@ const api = {
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
-        ): Promise<CountedPaginatedResponse<BatchExportRun>> {
+        ): Promise<PaginatedResponse<BatchExportRun>> {
             return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
         },
         async createBackfill(
@@ -1463,7 +1463,7 @@ const api = {
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
-    async get(url: string, options?: ApiMethodOptions): Promise<any> {
+    async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)
     },

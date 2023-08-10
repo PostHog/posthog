@@ -3,20 +3,19 @@ import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, sel
 import { loaders } from 'kea-loaders'
 import { BatchExportConfiguration, BatchExportRun, Breadcrumb } from '~/types'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 
-import type { batchExportLogicType } from './batchExportLogicType'
-import { urls } from 'scenes/urls'
-import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { lemonToast } from '@posthog/lemon-ui'
 import { forms } from 'kea-forms'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { lemonToast } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
+import type { batchExportLogicType } from './batchExportLogicType'
 
 export type BatchExportLogicProps = {
     id: string
 }
 
-const RUNS_PAGE_SIZE = 100
+// TODO: Fix this
 const RUNS_REFRESH_INTERVAL = 5000
 
 export const batchExportLogic = kea<batchExportLogicType>([
@@ -25,13 +24,21 @@ export const batchExportLogic = kea<batchExportLogicType>([
     path((key) => ['scenes', 'batch_exports', 'batchExportLogic', key]),
 
     actions({
-        loadBatchExportRuns: (offset?: number) => ({ offset }),
+        loadBatchExportRuns: true,
+        loadNextBatchExportRuns: true,
         openBackfillModal: true,
         closeBackfillModal: true,
         retryRun: (runId: BatchExportRun) => ({ runId }),
+        setRunsDateRange: (data: { from: string | null; to: string | null }) => data,
     }),
 
     reducers({
+        runsDateRange: [
+            { from: '-24h' as string | null, to: null as string | null },
+            {
+                setRunsDateRange: (_, { from, to }) => ({ from, to }),
+            },
+        ],
         isBackfillModalOpen: [
             false,
             {
@@ -39,9 +46,22 @@ export const batchExportLogic = kea<batchExportLogicType>([
                 closeBackfillModal: () => false,
             },
         ],
+
+        batchExportRuns: [
+            [] as BatchExportRun[],
+
+            {
+                loadBatchExportRunsSuccess: (_, { batchExportRunsResponse }) => {
+                    return batchExportRunsResponse.results
+                },
+                loadNextBatchExportRunsSuccess: (state, { batchExportRunsResponse }) => {
+                    return [...state, ...(batchExportRunsResponse?.results ?? [])]
+                },
+            },
+        ],
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         batchExportConfig: [
             null as BatchExportConfiguration | null,
             {
@@ -52,13 +72,25 @@ export const batchExportLogic = kea<batchExportLogicType>([
             },
         ],
 
-        batchExportRuns: [
-            null as CountedPaginatedResponse<BatchExportRun> | null,
+        batchExportRunsResponse: [
+            null as PaginatedResponse<BatchExportRun> | null,
             {
-                loadBatchExportRuns: async ({ offset }) => {
+                loadBatchExportRuns: async () => {
                     const res = await api.batchExports.listRuns(props.id, {
-                        limit: RUNS_PAGE_SIZE,
+                        after: values.runsDateRange.from,
+                        before: values.runsDateRange.to,
                     })
+
+                    return res
+                },
+                loadNextBatchExportRuns: async () => {
+                    const nextUrl = values.batchExportRunsResponse?.next
+
+                    if (!nextUrl) {
+                        return values.batchExportRunsResponse
+                    }
+
+                    const res = await api.get<PaginatedResponse<BatchExportRun>>(nextUrl)
 
                     return res
                 },
@@ -103,20 +135,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
         },
     })),
 
-    selectors(({ actions }) => ({
-        batchExportRunsPagination: [
-            (s) => [s.batchExportRuns],
-            (batchExportRuns): PaginationManual => {
-                return {
-                    controlled: true,
-                    pageSize: RUNS_PAGE_SIZE,
-                    currentPage: 1,
-                    entryCount: batchExportRuns?.count,
-                    onBackward: () => actions.loadBatchExportConfig(0),
-                    onForward: () => actions.loadBatchExportConfig(10),
-                }
-            },
-        ],
+    selectors(({}) => ({
         breadcrumbs: [
             (s) => [s.batchExportConfig],
             (config): Breadcrumb[] => [
@@ -132,12 +151,16 @@ export const batchExportLogic = kea<batchExportLogicType>([
     })),
 
     listeners(({ actions, cache }) => ({
+        setRunsDateRange: () => {
+            actions.loadBatchExportRuns()
+        },
         loadBatchExportRunsSuccess: () => {
             clearTimeout(cache.refreshTimeout)
 
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadBatchExportRuns()
-            }, RUNS_REFRESH_INTERVAL)
+            // NOTE: Here we should load only newer runs and refresh any in a non-complete state...
+            // cache.refreshTimeout = setTimeout(() => {
+            //     actions.loadBatchExportRuns()
+            // }, RUNS_REFRESH_INTERVAL)
         },
     })),
 

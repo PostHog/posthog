@@ -36,7 +36,7 @@ export function BatchExportsScene(): JSX.Element {
             <p>Batch exports allow you to export your data to a destination of your choice.</p>
 
             <LemonTable
-                dataSource={batchExportConfigs?.results}
+                dataSource={batchExportConfigs?.results ?? []}
                 loading={batchExportConfigsLoading}
                 pagination={pagination}
                 columns={[
