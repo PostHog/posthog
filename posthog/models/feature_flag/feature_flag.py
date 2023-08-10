@@ -42,7 +42,9 @@ class FeatureFlag(models.Model):
     performed_rollback: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
-    usage_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
+    usage_dashboard: models.ForeignKey = models.ForeignKey(
+        "Dashboard", on_delete=models.SET_NULL, null=True, blank=True
+    )
     analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "Dashboard",
         through="FeatureFlagDashboards",
