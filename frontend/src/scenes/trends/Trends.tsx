@@ -8,7 +8,6 @@ import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { LemonButton } from '@posthog/lemon-ui'
 import { trendsDataLogic } from './trendsDataLogic'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 interface Props {
     view: InsightType
@@ -22,8 +21,6 @@ export function TrendInsight({ view }: Props): JSX.Element {
         trendsDataLogic(insightProps)
     )
     const { loadMoreBreakdownValues } = useActions(trendsDataLogic(insightProps))
-
-    const { dataNodeProps } = useValues(dataNodeLogic)
 
     const renderViz = (): JSX.Element | undefined => {
         if (

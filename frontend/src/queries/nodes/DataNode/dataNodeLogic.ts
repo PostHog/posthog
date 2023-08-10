@@ -303,7 +303,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
         query: [(_, p) => [p.query], (query) => query],
-        dataNodeProps: [() => [(_, props) => props], (props): DataNodeLogicProps => props],
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
