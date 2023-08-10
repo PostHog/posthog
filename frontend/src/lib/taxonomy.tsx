@@ -200,7 +200,6 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $survey_id: {
             label: 'Survey ID',
             description: 'The unique identifier for the survey',
-            system: true,
         },
         $device: {
             label: 'Device',
