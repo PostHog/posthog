@@ -315,6 +315,18 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                         <TZLabel time={created_at} />
                     </section>
                 </div>
+                <div>
+                    <h5>Last modified by</h5>
+                    <section>
+                        <ProfilePicture
+                            name={insight.last_modified_by?.first_name}
+                            email={insight.last_modified_by?.email}
+                            showName
+                            size="md"
+                        />{' '}
+                        <TZLabel time={insight.last_modified_at} />
+                    </section>
+                </div>
                 {filters.breakdown_type && <BreakdownSummary filters={filters} />}
             </div>
         </div>
