@@ -10,8 +10,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
 
-const Component = (props: NotebookNodeViewProps): JSX.Element => {
-    props.node
+const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): JSX.Element => {
     const id = props.node.attrs.id
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
@@ -58,7 +57,6 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     resizeable: true,
     attributes: {
         id: {},
-        // meme: {},
     },
     pasteOptions: {
         find: urls.person('') + '(.+)',

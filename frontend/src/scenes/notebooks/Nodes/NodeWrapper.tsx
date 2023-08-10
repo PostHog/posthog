@@ -38,7 +38,7 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     autoHideMetadata?: boolean
 }
 
-export function NodeWrapper({
+export function NodeWrapper<T extends NotebookNodeAttributes>({
     title: defaultTitle,
     nodeType,
     children,
@@ -53,7 +53,7 @@ export function NodeWrapper({
     node,
     getPos,
     updateAttributes,
-}: NodeWrapperProps & NotebookNodeViewProps): JSX.Element {
+}: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
     const nodeLogicProps = {
@@ -199,7 +199,7 @@ export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
     attributes,
     ...wrapperProps
 }: CreatePostHogWidgetNodeOptions<T>): Node {
-    const WrappedComponent = (props: NotebookNodeViewProps): JSX.Element => {
+    const WrappedComponent = (props: NotebookNodeViewProps<T>): JSX.Element => {
         return (
             <NodeWrapper {...props} {...wrapperProps}>
                 <Component {...props} />
