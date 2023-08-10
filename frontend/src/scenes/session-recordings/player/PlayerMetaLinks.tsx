@@ -32,9 +32,9 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const commentInExistingNotebook = useCallback(
-        (notebookShortId) => {
+        async (notebookShortId) => {
             const currentPlayerTime = getCurrentPlayerTime() * 1000
-            openNotebook(notebookShortId, NotebookTarget.Popover, null, [
+            await openNotebook(notebookShortId, NotebookTarget.Popover, null, [
                 (theNotebookLogic) => {
                     const ed = theNotebookLogic.values.editor
                     if (ed === null) {
