@@ -256,6 +256,10 @@
               "type": "integer"
           },
           {
+              "key": "event_count",
+              "type": "integer"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids"
@@ -362,6 +366,10 @@
           },
           {
               "key": "size",
+              "type": "integer"
+          },
+          {
+              "key": "event_count",
               "type": "integer"
           },
           {
@@ -768,6 +776,10 @@
               "type": "integer"
           },
           {
+              "key": "event_count",
+              "type": "integer"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids"
@@ -874,6 +886,10 @@
           },
           {
               "key": "size",
+              "type": "integer"
+          },
+          {
+              "key": "event_count",
               "type": "integer"
           },
           {
