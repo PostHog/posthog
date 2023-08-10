@@ -20,13 +20,13 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { NotebookNodeAttributes, NotebookNodeViewProps } from '../Notebook/utils'
 
-export interface NodeWrapperProps {
+export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     title: string
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
-    href?: string | ((attributes: Record<string, any>) => string)
+    href?: string | ((attributes: T) => string)
 
     // Sizing
     expandable?: boolean
@@ -182,30 +182,27 @@ export function NodeWrapper({
     )
 }
 
-export type CreatePostHogWidgetNodeOptions = NodeWrapperProps & {
+export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
-    Component: (props: NotebookNodeViewProps) => JSX.Element | null
+    Component: (props: NotebookNodeViewProps<T>) => JSX.Element | null
     pasteOptions?: {
         find: string
-        getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+        getAttributes: (match: ExtendedRegExpMatchArray) => T | null | undefined
     }
-    attributes: Record<string, Partial<Attribute>>
+    attributes: Record<keyof T, Partial<Attribute>>
 }
 
 // TODO: Correct return type
-export function createPostHogWidgetNode<T extends NotebookNodeType>({
+export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
     Component,
     pasteOptions,
     attributes,
     ...wrapperProps
-}: CreatePostHogWidgetNodeOptions): any {
-    const WrappedComponent = ({ node, ...props }: NotebookNodeViewProps): JSX.Element => {
-        // props.node
-        // const meme = 123 as T
-
+}: CreatePostHogWidgetNodeOptions<T>): Node {
+    const WrappedComponent = (props: NotebookNodeViewProps): JSX.Element => {
         return (
-            <NodeWrapper node={node} {...props} {...wrapperProps}>
-                <Component node={node as T} {...props} />
+            <NodeWrapper {...props} {...wrapperProps}>
+                <Component {...props} />
             </NodeWrapper>
         )
     }

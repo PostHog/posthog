@@ -1,4 +1,3 @@
-import { NodeViewProps } from '@tiptap/core'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { useValues } from 'kea'
@@ -9,9 +8,10 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodePersonType } from '../Notebook/utils'
+import { NotebookNodeViewProps } from '../Notebook/utils'
 
-const Component = (props: NodeViewProps): JSX.Element => {
+const Component = (props: NotebookNodeViewProps): JSX.Element => {
+    props.node
     const id = props.node.attrs.id
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
@@ -44,7 +44,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonType>({
+type NotebookNodePersonAttributes = {
+    id: string
+}
+
+export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
     nodeType: NotebookNodeType.Person,
     title: 'Person',
     Component,
@@ -54,6 +58,7 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonType
     resizeable: true,
     attributes: {
         id: {},
+        // meme: {},
     },
     pasteOptions: {
         find: urls.person('') + '(.+)',

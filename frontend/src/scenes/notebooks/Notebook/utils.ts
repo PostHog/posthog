@@ -23,7 +23,10 @@ export {
 } from '@tiptap/core'
 
 type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
-    attrs: T
+    attrs: T & {
+        nodeId?: string
+        height?: string | number
+    }
 }
 
 // Record<string, Partial<Attribute>>
@@ -42,7 +45,7 @@ export type NodebookNodeFlagType = NotebookNode<NotebookNodeFlagAttributes>
 
 export type NotebookNodeType = NotebookNodePersonType | NodebookNodeFlagType
 
-export type NotebookNodeViewProps = Omit<NodeViewProps, 'node'> & { node: NotebookNodeType }
+export type NotebookNodeViewProps<T extends NotebookNodeType> = Omit<NodeViewProps, 'node'> & { node: T }
 
 export interface NotebookEditor {
     getJSON: () => JSONContent
