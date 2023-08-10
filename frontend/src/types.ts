@@ -2190,6 +2190,8 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     tags: string[]
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
+    has_enriched_analytics?: boolean
+    usage_dashboard_has_enriched_insights?: boolean
 }
 
 export interface FeatureFlagRollbackConditions {

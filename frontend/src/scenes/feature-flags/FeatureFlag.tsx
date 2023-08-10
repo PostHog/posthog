@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
-import { defaultEntityFilterOnFlag, featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
@@ -97,7 +97,8 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
+    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, recordingFilterForFlag } =
+        useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate } =
         useActions(featureFlagLogic)
@@ -530,16 +531,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
                                                     <>
                                                         <LemonButton
-                                                            to={urls.replay(ReplayTabs.Recent, {
-                                                                events: defaultEntityFilterOnFlag(featureFlag.key)
-                                                                    .events,
-                                                            })}
+                                                            to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
                                                             type="secondary"
                                                         >
                                                             View Recordings
-                                                            <LemonTag type="warning" className="uppercase ml-2 mr-2">
-                                                                Beta
-                                                            </LemonTag>
                                                         </LemonButton>
                                                         <LemonDivider vertical />
                                                     </>
@@ -593,7 +588,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 }
 
 function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
-    const { key: featureFlagKey, usage_dashboard: dashboardId } = featureFlag
+    const {
+        key: featureFlagKey,
+        usage_dashboard: dashboardId,
+        has_enriched_analytics: hasEnrichedAnalytics,
+    } = featureFlag
     const { generateUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
     const { receivedErrorsFromAPI } = useValues(
@@ -611,6 +610,15 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 
     return (
         <div>
+            {!hasEnrichedAnalytics && (
+                <LemonBanner type="warning" className="mb-1">
+                    Get richer insights automatically by{' '}
+                    <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
+                        {' '}
+                        enabling enriched analytics for flags{' '}
+                    </Link>
+                </LemonBanner>
+            )}
             {connectedDashboardExists ? (
                 <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
             ) : (

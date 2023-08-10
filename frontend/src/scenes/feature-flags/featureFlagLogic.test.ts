@@ -14,7 +14,9 @@ import {
 function generateFeatureFlag(
     groups: FeatureFlagGroupType[],
     multivariate?: MultivariateFlagOptions,
-    id: number | null = 123
+    id: number | null = 123,
+    has_enriched_analytics?: boolean,
+    usage_dashboard_has_enriched_insights?: boolean
 ): FeatureFlagType {
     return {
         id,
@@ -34,6 +36,8 @@ function generateFeatureFlag(
         performed_rollback: false,
         can_edit: true,
         tags: [],
+        has_enriched_analytics,
+        usage_dashboard_has_enriched_insights,
     }
 }
 
@@ -381,6 +385,93 @@ describe('the feature flag logic', () => {
 
             // no extra calls when changing rollout percentage
             expect(api.create).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('enriched analytics usage insights', () => {
+        it('does not generate enriched insights on load if already present', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadFeatureFlagSuccess(
+                    generateFeatureFlag(
+                        [
+                            {
+                                properties: [
+                                    {
+                                        key: 'aloha',
+                                        value: 'aloha',
+                                        type: PropertyFilterType.Person,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                                rollout_percentage: 50,
+                                variant: null,
+                            },
+                        ],
+                        undefined,
+                        null,
+                        true,
+                        true
+                    )
+                )
+            })
+                .toDispatchActions(['loadRecentInsights', 'loadAllInsightsForFlag'])
+                .toNotHaveDispatchedActions(['enrichUsageDashboard'])
+        })
+
+        it('does not generate enriched insights on load if enrichment disabled', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadFeatureFlagSuccess(
+                    generateFeatureFlag(
+                        [
+                            {
+                                properties: [
+                                    {
+                                        key: 'aloha',
+                                        value: 'aloha',
+                                        type: PropertyFilterType.Person,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                                rollout_percentage: 50,
+                                variant: null,
+                            },
+                        ],
+                        undefined,
+                        null,
+                        false,
+                        false
+                    )
+                )
+            })
+                .toDispatchActions(['loadRecentInsights', 'loadAllInsightsForFlag'])
+                .toNotHaveDispatchedActions(['enrichUsageDashboard'])
+        })
+
+        it('generates enriched insights on load if already present', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadFeatureFlagSuccess(
+                    generateFeatureFlag(
+                        [
+                            {
+                                properties: [
+                                    {
+                                        key: 'aloha',
+                                        value: 'aloha',
+                                        type: PropertyFilterType.Person,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                                rollout_percentage: 50,
+                                variant: null,
+                            },
+                        ],
+                        undefined,
+                        null,
+                        true,
+                        false
+                    )
+                )
+            }).toDispatchActions(['loadRecentInsights', 'loadAllInsightsForFlag', 'enrichUsageDashboard'])
         })
     })
 })

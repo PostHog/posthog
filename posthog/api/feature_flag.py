@@ -18,6 +18,7 @@ from posthog.api.dashboards.dashboard import Dashboard
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
+from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -236,8 +237,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         self._attempt_set_tags(tags, instance)
 
-        instance.usage_dashboard = _create_usage_dashboard(instance, request.user)
-        instance.save()
+        _create_usage_dashboard(instance, request.user)
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
@@ -287,6 +287,9 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
         created_by=user,
     )
     create_feature_flag_dashboard(feature_flag, usage_dashboard)
+
+    feature_flag.usage_dashboard = usage_dashboard
+    feature_flag.save()
 
     return usage_dashboard
 
@@ -352,13 +355,59 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         feature_flag: FeatureFlag = self.get_object()
         try:
             usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
-            feature_flag.usage_dashboard = usage_dashboard
-            feature_flag.save()
-        except:
+
+            if feature_flag.has_enriched_analytics and not feature_flag.usage_dashboard_has_enriched_insights:
+                add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
+
+        except Exception as e:
             return Response(
                 {
                     "success": False,
-                    "error": f"Unable to generate usage dashboard",
+                    "error": f"Unable to generate usage dashboard: {e}",
+                },
+                status=400,
+            )
+
+        return Response({"success": True}, status=200)
+
+    @action(methods=["POST"], detail=True)
+    def enrich_usage_dashboard(self, request: request.Request, **kwargs):
+        feature_flag: FeatureFlag = self.get_object()
+        usage_dashboard = feature_flag.usage_dashboard
+
+        if not usage_dashboard:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Usage dashboard not found",
+                },
+                status=400,
+            )
+
+        if feature_flag.usage_dashboard_has_enriched_insights:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Usage dashboard already has enriched data",
+                },
+                status=400,
+            )
+
+        if not feature_flag.has_enriched_analytics:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"No enriched analytics available for this feature flag",
+                },
+                status=400,
+            )
+        try:
+            add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
+        except Exception as e:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Unable to enrich usage dashboard: {e}",
                 },
                 status=400,
             )
