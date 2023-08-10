@@ -107,6 +107,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
+            "usage_dashboard_has_enriched_insights",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:

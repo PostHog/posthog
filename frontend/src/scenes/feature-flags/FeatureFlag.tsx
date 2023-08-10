@@ -611,10 +611,9 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     return (
         <div>
             {!hasEnrichedAnalytics && (
-                <LemonBanner type="warning" className="mb-1">
+                <LemonBanner type="warning" className="mb-3">
                     Get richer insights automatically by{' '}
                     <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
-                        {' '}
                         enabling enriched analytics for flags{' '}
                     </Link>
                 </LemonBanner>
