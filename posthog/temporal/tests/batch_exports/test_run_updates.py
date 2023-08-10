@@ -49,7 +49,6 @@ def destination(team):
             "bucket_name": "bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "key_id",
             "aws_secret_access_key": "secret",
         },
