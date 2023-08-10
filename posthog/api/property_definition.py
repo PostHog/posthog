@@ -103,6 +103,7 @@ class QueryContext:
     team_id: int
     table: str
     property_definition_fields: str
+    property_definition_table: str
 
     limit: int
     offset: int
@@ -218,7 +219,7 @@ class QueryContext:
         )
         return dataclasses.replace(
             self,
-            excluded_properties_filter="AND posthog_propertydefinition.name NOT IN %(excluded_properties)s"
+            excluded_properties_filter=f"AND {self.property_definition_table}.name NOT IN %(excluded_properties)s"
             if len(excluded_list) > 0
             else "",
             params={
@@ -230,20 +231,20 @@ class QueryContext:
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
         query = f"""
-            WITH {self.table} AS (
+            WITH {self.property_definition_table} AS (
                 SELECT *, {QueryContext.__property_name_aliases()}
-                FROM {self.table}
+                FROM {self.property_definition_table}
             )
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = %(team_id)s
+            WHERE {self.property_definition_table}.team_id = %(team_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} posthog_propertydefinition.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -251,14 +252,14 @@ class QueryContext:
 
     def as_count_sql(self):
         query = f"""
-            WITH {self.table} AS (
+            WITH {self.property_definition_table} AS (
                 SELECT *, {QueryContext.__property_name_aliases()}
-                FROM {self.table}
+                FROM {self.property_definition_table}
             )
             SELECT count(*) as full_count
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = %(team_id)s
+            WHERE {self.property_definition_table}.team_id = %(team_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
              {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
@@ -477,6 +478,7 @@ class PropertyDefinitionViewSet(
                     else "posthog_propertydefinition"
                 ),
                 property_definition_fields=property_definition_fields,
+                property_definition_table="posthog_propertydefinition",
                 limit=limit,
                 offset=offset,
             )
