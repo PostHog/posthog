@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import {
     Breadcrumb,
+    ChartDisplayType,
     FeatureFlagFilters,
     PluginType,
     PropertyFilterType,
@@ -119,9 +120,20 @@ export const getSurveyDataVizQuery = (survey: Survey): InsightVizNode => {
         kind: NodeKind.InsightVizNode,
         source: {
             kind: NodeKind.TrendsQuery,
-            // dateRange: { date_from: dayjs(survey.created_at).format('YYYY-MM-DD') },
-            //  properties: [{ type: PropertyFilterType.Event, key: '$survey_id', operator: PropertyOperator.Exact, value: survey.id }],
+            dateRange: {
+                date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
+                date_to: dayjs().format('YYYY-MM-DD'),
+            },
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$survey_id',
+                    operator: PropertyOperator.Exact,
+                    value: survey.id,
+                },
+            ],
             series: [{ event: surveyEventName, kind: NodeKind.EventsNode }],
+            trendsFilter: { display: ChartDisplayType.ActionsBarValue },
             breakdown: { breakdown: '$survey_response', breakdown_type: 'event' },
         },
         showHeader: true,
