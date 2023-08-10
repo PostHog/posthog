@@ -76,18 +76,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
         },
 
-        insertAfterLastNodeOfType: ({ content, nodeType }) => {
+        insertAfterLastNodeOfType: ({ nodeType, content }) => {
+            const insertionPosition = props.getPos()
             const logic = values.notebookLogic
-
-            let insertionPosition = props.getPos()
-            let nextNode = logic?.values.editor?.nextNode(insertionPosition)
-
-            while (nextNode && logic.values.editor?.hasChildOfType(nextNode.node, nodeType)) {
-                insertionPosition = nextNode.position
-                nextNode = logic?.values.editor?.nextNode(insertionPosition)
-            }
-
-            logic.values.editor?.insertContentAfterNode(insertionPosition, content)
+            logic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
         },
 
         setExpanded: ({ expanded }) => {
