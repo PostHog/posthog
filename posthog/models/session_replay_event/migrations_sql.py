@@ -65,3 +65,26 @@ ADD_SIZE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_SIZE
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
 )
+
+# migration to add size column to the session replay table
+ALTER_SESSION_REPLAY_ADD_EVENT_COUNT_COLUMN = """
+    ALTER TABLE {table_name} on CLUSTER '{cluster}'
+        ADD COLUMN IF NOT EXISTS event_count SimpleAggregateFunction(sum, Int64)
+"""
+
+ADD_EVENT_COUNT_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_EVENT_COUNT_COLUMN.format(
+        table_name="session_replay_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+)
+
+ADD_EVENT_COUNT_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_EVENT_COUNT_COLUMN.format(
+    table_name="writable_session_replay_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
+ADD_EVENT_COUNT_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_EVENT_COUNT_COLUMN.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)

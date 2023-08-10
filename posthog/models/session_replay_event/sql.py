@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     console_log_count Int64,
     console_warn_count Int64,
     console_error_count Int64,
-    size Int64
+    size Int64,
+    event_count Int64
 ) ENGINE = {engine}
 """
 
@@ -53,7 +54,10 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     console_warn_count SimpleAggregateFunction(sum, Int64),
     console_error_count SimpleAggregateFunction(sum, Int64),
     -- this column allows us to estimate the amount of data that is being ingested
-    size SimpleAggregateFunction(sum, Int64)
+    size SimpleAggregateFunction(sum, Int64),
+    -- this allows us to count the number of events in a session
+    -- often very useful in incidents or debugging
+    event_count SimpleAggregateFunction(sum, Int64)
 ) ENGINE = {engine}
 """
 
@@ -117,7 +121,10 @@ sum(active_milliseconds) as active_milliseconds,
 sum(console_log_count) as console_log_count,
 sum(console_warn_count) as console_warn_count,
 sum(console_error_count) as console_error_count,
-sum(size) as size
+sum(size) as size,
+-- we can count the number of kafka messages
+-- as a proxy for the number of events
+count(*) as event_count
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
