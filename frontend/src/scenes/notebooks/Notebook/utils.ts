@@ -33,6 +33,7 @@ export interface NotebookEditor {
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
     findNode: (position: number) => Node | null
+    findNodePositionByAttrs: (attrs: Record<string, any>) => any
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
 }

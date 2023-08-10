@@ -1,6 +1,6 @@
 import {
-    SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -26,7 +26,7 @@ export function PlayerMetaLinks(): JSX.Element {
     const nodeLogic = useNotebookNode()
 
     const getCurrentPlayerTime = (): number => {
-        // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
+        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
         const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         return Math.floor(playerTime / 1000)
     }
@@ -36,11 +36,17 @@ export function PlayerMetaLinks(): JSX.Element {
             const currentPlayerTime = getCurrentPlayerTime() * 1000
             openNotebook(notebookShortId, NotebookTarget.Popover, null, [
                 (theNotebookLogic) => {
-                    // TODO I don't want to have to know the position? Or how do I find it?
+                    const ed = theNotebookLogic.values.editor
+                    if (ed === null) {
+                        // TODO what should we do here?
+                        console.error('Editor is null, and so we could not add the content')
+                        return
+                    }
+                    const recordingPosition = ed.findNodePositionByAttrs({ id: sessionRecordingId })
                     theNotebookLogic.actions.insertAfterLastNodeOfType(
                         NotebookNodeType.ReplayTimestamp,
                         [buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)],
-                        0
+                        recordingPosition
                     )
                 },
             ])
