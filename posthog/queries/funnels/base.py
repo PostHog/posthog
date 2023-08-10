@@ -267,6 +267,7 @@ class ClickhouseFunnelBase(ABC):
             return self._format_single_funnel(results[0])
 
     def _exec_query(self) -> List[Tuple]:
+        self._filter.team = self._team
         query = self.get_query()
         return insight_sync_execute(
             query,
