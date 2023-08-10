@@ -14,7 +14,7 @@ export const scene: SceneExport = {
 }
 
 export function BatchExportsScene(): JSX.Element {
-    const { batchExportConfigs, batchExportConfigsLoading } = useValues(batchExportsListLogic)
+    const { batchExportConfigs, batchExportConfigsLoading, pagination } = useValues(batchExportsListLogic)
     const { loadBatchExports } = useActions(batchExportsListLogic)
 
     useEffect(() => {
@@ -36,8 +36,9 @@ export function BatchExportsScene(): JSX.Element {
             <p>Batch exports allow you to export your data to a destination of your choice.</p>
 
             <LemonTable
-                dataSource={batchExportConfigs}
+                dataSource={batchExportConfigs?.results}
                 loading={batchExportConfigsLoading}
+                pagination={pagination}
                 columns={[
                     {
                         title: 'Name',

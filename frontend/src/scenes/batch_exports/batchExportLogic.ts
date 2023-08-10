@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
 import { BatchExportConfiguration, BatchExportRun, Breadcrumb } from '~/types'
@@ -10,12 +10,14 @@ import { urls } from 'scenes/urls'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { forms } from 'kea-forms'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { lemonToast } from '@posthog/lemon-ui'
 
 export type BatchExportLogicProps = {
     id: string
 }
 
 const RUNS_PAGE_SIZE = 100
+const RUNS_REFRESH_INTERVAL = 5000
 
 export const batchExportLogic = kea<batchExportLogicType>([
     props({} as BatchExportLogicProps),
@@ -76,12 +78,25 @@ export const batchExportLogic = kea<batchExportLogicType>([
             }),
             submit: async ({ start_at, end_at }) => {
                 await new Promise((resolve) => setTimeout(resolve, 1000))
-                await api.batchExports.createBackfill(props.id, {
-                    start_at: start_at?.toISOString() ?? null,
-                    end_at: end_at?.toISOString() ?? null,
-                })
+                await api.batchExports
+                    .createBackfill(props.id, {
+                        start_at: start_at?.toISOString() ?? null,
+                        end_at: end_at?.toISOString() ?? null,
+                    })
+                    .catch((e) => {
+                        if (e.detail) {
+                            actions.setBackfillFormManualErrors({
+                                [e.attr ?? 'start_at']: e.detail,
+                            })
+                        } else {
+                            lemonToast.error('Unknown error occurred')
+                        }
+
+                        throw e
+                    })
 
                 actions.closeBackfillModal()
+                actions.loadBatchExportRuns()
 
                 return
             },
@@ -115,4 +130,18 @@ export const batchExportLogic = kea<batchExportLogicType>([
             ],
         ],
     })),
+
+    listeners(({ actions, cache }) => ({
+        loadBatchExportRunsSuccess: () => {
+            clearTimeout(cache.refreshTimeout)
+
+            cache.refreshTimeout = setTimeout(() => {
+                actions.loadBatchExportRuns()
+            }, RUNS_REFRESH_INTERVAL)
+        },
+    })),
+
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.refreshTimeout)
+    }),
 ])

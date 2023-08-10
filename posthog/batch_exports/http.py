@@ -1,7 +1,6 @@
 import datetime as dt
 from typing import Any
 
-from django.db.models import Prefetch
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated, NotFound, ValidationError

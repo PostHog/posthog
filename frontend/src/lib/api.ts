@@ -1259,8 +1259,8 @@ const api = {
     },
 
     batchExports: {
-        async list(): Promise<PaginatedResponse<BatchExportConfiguration>> {
-            return await new ApiRequest().batchExports().get()
+        async list(params: Record<string, any> = {}): Promise<CountedPaginatedResponse<BatchExportConfiguration>> {
+            return await new ApiRequest().batchExports().withQueryString(toParams(params)).get()
         },
         async get(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).get()

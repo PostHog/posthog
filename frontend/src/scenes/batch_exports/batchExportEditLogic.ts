@@ -79,7 +79,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
         cancelEditing: true,
     }),
 
-    forms(({ props }) => ({
+    forms(({ props, actions }) => ({
         batchExportConfigForm: {
             defaults: {
                 name: '',
@@ -113,6 +113,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
 
                 await new Promise((resolve) => setTimeout(resolve, 1000))
 
+                actions.resetBatchExportConfigForm()
                 router.actions.replace(urls.batchExport(result.id))
 
                 return
