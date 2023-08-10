@@ -97,6 +97,9 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicP
     playerRef?: RefObject<HTMLDivElement>
 }
 
+const isDomElementPlaying = (domEl): boolean =>
+    !!(domEl.currentTime > 0 && !domEl.paused && !domEl.ended && domEl.readyState > 2)
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -164,6 +167,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
+        pauseIframePlayback: true,
+        restartIframePlayback: true,
         setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
         setRootFrame: (frame: HTMLDivElement) => ({ frame }),
         checkBufferingCompleted: true,
@@ -629,6 +634,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.loadRecordingSnapshots()
             }
             actions.stopAnimation()
+            actions.restartIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
 
             // Use the start of the current segment if there is no currentTimestamp
@@ -648,6 +654,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setPause: () => {
             actions.stopAnimation()
+            actions.pauseIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
@@ -817,6 +824,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
             }
+        },
+        pauseIframePlayback: () => {
+            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframeDocument = iframe?.contentWindow?.document
+            if (!iframeDocument) {
+                return
+            }
+
+            const videoElements = Array.from(iframeDocument.getElementsByTagName('video'))
+            const playingElements = videoElements.filter(isDomElementPlaying)
+
+            playingElements.forEach((el) => el.pause())
+            cache.pausedElements = playingElements
+        },
+        restartIframePlayback: () => {
+            cache.pausedElements.forEach((el) => el.play())
+            cache.pausedElements = []
         },
 
         exportRecordingToFile: async () => {
