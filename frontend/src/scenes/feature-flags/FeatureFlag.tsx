@@ -610,16 +610,18 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 
     return (
         <div>
-            {!hasEnrichedAnalytics && (
-                <LemonBanner type="warning" className="mb-3">
-                    Get richer insights automatically by{' '}
-                    <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
-                        enabling enriched analytics for flags{' '}
-                    </Link>
-                </LemonBanner>
-            )}
             {connectedDashboardExists ? (
-                <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+                <>
+                    {!hasEnrichedAnalytics && (
+                        <LemonBanner type="warning" className="mb-3">
+                            Get richer insights automatically by{' '}
+                            <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
+                                enabling enriched analytics for flags{' '}
+                            </Link>
+                        </LemonBanner>
+                    )}
+                    <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+                </>
             ) : (
                 <div>
                     <b>Dashboard</b>
