@@ -31,7 +31,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
-import { PromiseManager } from './worker/vm/promise-manager' /** Re-export Element from scaffolding, for backwards compat. */
+import { PromiseManager } from './worker/vm/promise-manager'
 
 /** Re-export Element from scaffolding, for backwards compat. */
 export { Element } from '@posthog/plugin-scaffold'
