@@ -173,6 +173,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
+        setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
         toggleAutoplayDirection: true,
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
@@ -226,6 +227,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 toggleAutoplayDirection: (state) => {
                     return !state ? 'older' : state === 'older' ? 'newer' : null
                 },
+            },
+        ],
+        hideViewedRecordings: [
+            false,
+            { persist: true },
+            {
+                setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
             },
         ],
 
