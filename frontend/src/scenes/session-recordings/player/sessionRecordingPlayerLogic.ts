@@ -97,8 +97,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicP
     playerRef?: RefObject<HTMLDivElement>
 }
 
-const isDomElementPlaying = (domEl): boolean =>
-    !!(domEl.currentTime > 0 && !domEl.paused && !domEl.ended && domEl.readyState > 2)
+const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
+    !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
@@ -832,15 +832,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const videoElements = Array.from(iframeDocument.getElementsByTagName('video'))
-            const playingElements = videoElements.filter(isDomElementPlaying)
+            const mediaElements: HTMLMediaElement[] = Array.from(iframeDocument.getElementsByTagName('audio'))
+            const playingElements = mediaElements.filter(isMediaElementPlaying)
 
             playingElements.forEach((el) => el.pause())
-            cache.pausedElements = playingElements
+            cache.pausedMediaElements = playingElements
         },
         restartIframePlayback: () => {
-            cache.pausedElements.forEach((el) => el.play())
-            cache.pausedElements = []
+            cache.pausedMediaElements.forEach((el: HTMLMediaElement) => el.play())
+            cache.pausedMediaElements = []
         },
 
         exportRecordingToFile: async () => {
@@ -945,6 +945,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.hasInitialized = false
         clearTimeout(cache.consoleWarnDebounceTimer)
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
+        cache.pausedMediaElements = []
         values.player?.replayer?.pause()
         actions.setPlayer(null)
 
