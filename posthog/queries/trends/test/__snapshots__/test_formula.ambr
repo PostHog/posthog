@@ -740,17 +740,17 @@
                day_start
         FROM
           (SELECT toUInt16(0) AS total,
-                  toStartOfHour(toDateTime('2020-01-03 13:06:01', 'UTC') - toIntervalHour(number)) AS day_start
-           FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 13:05:02', 'UTC')), toDateTime('2020-01-03 13:06:01', 'UTC')))
+                  toStartOfHour(toDateTime('2020-01-03 13:59:59', 'UTC') - toIntervalHour(number)) AS day_start
+           FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC')), toDateTime('2020-01-03 13:59:59', 'UTC')))
            UNION ALL SELECT toUInt16(0) AS total,
-                            toStartOfHour(toDateTime('2020-01-02 13:05:02', 'UTC'))
+                            toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC'))
            UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,
                             toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
            FROM events e
            WHERE team_id = 2
              AND event = 'session start'
-             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-02 13:05:02', 'UTC')), 'UTC')
-             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 13:06:01', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 13:59:59', 'UTC')
            GROUP BY date)
         GROUP BY day_start
         ORDER BY day_start)) as sub_A
@@ -762,17 +762,119 @@
                day_start
         FROM
           (SELECT toUInt16(0) AS total,
-                  toStartOfHour(toDateTime('2020-01-03 13:06:01', 'UTC') - toIntervalHour(number)) AS day_start
-           FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 13:05:02', 'UTC')), toDateTime('2020-01-03 13:06:01', 'UTC')))
+                  toStartOfHour(toDateTime('2020-01-03 13:59:59', 'UTC') - toIntervalHour(number)) AS day_start
+           FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC')), toDateTime('2020-01-03 13:59:59', 'UTC')))
            UNION ALL SELECT toUInt16(0) AS total,
-                            toStartOfHour(toDateTime('2020-01-02 13:05:02', 'UTC'))
+                            toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC'))
            UNION ALL SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,
                             toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
            FROM events e
            WHERE team_id = 2
              AND event = 'session start'
-             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-02 13:05:02', 'UTC')), 'UTC')
-             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 13:06:01', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 13:59:59', 'UTC')
+           GROUP BY date)
+        GROUP BY day_start
+        ORDER BY day_start)) as sub_B
+  '
+---
+# name: TestFormula.test_hour_interval_day_level_relative
+  '
+  SELECT sub_A.date,
+         arrayMap((A, B) -> A + B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
+         arrayMax([length(sub_A.total), length(sub_B.total)]) as max_length
+  FROM
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) AS total
+     FROM
+       (SELECT SUM(total) AS count,
+               day_start
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  toStartOfHour(toDateTime('2020-01-03 13:59:59', 'UTC') - toIntervalHour(number)) AS day_start
+           FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 00:00:00', 'UTC')), toDateTime('2020-01-03 13:59:59', 'UTC')))
+           UNION ALL SELECT toUInt16(0) AS total,
+                            toStartOfHour(toDateTime('2020-01-02 00:00:00', 'UTC'))
+           UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,
+                            toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'session start'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 13:59:59', 'UTC')
+           GROUP BY date)
+        GROUP BY day_start
+        ORDER BY day_start)) as sub_A
+  CROSS JOIN
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) AS total
+     FROM
+       (SELECT SUM(total) AS count,
+               day_start
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  toStartOfHour(toDateTime('2020-01-03 13:59:59', 'UTC') - toIntervalHour(number)) AS day_start
+           FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 00:00:00', 'UTC')), toDateTime('2020-01-03 13:59:59', 'UTC')))
+           UNION ALL SELECT toUInt16(0) AS total,
+                            toStartOfHour(toDateTime('2020-01-02 00:00:00', 'UTC'))
+           UNION ALL SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,
+                            toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'session start'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 13:59:59', 'UTC')
+           GROUP BY date)
+        GROUP BY day_start
+        ORDER BY day_start)) as sub_B
+  '
+---
+# name: TestFormula.test_hour_interval_hour_level_relative
+  '
+  SELECT sub_A.date,
+         arrayMap((A, B) -> A + B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
+         arrayMax([length(sub_A.total), length(sub_B.total)]) as max_length
+  FROM
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) AS total
+     FROM
+       (SELECT SUM(total) AS count,
+               day_start
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  toStartOfHour(toDateTime('2020-01-03 13:59:59', 'UTC') - toIntervalHour(number)) AS day_start
+           FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC')), toDateTime('2020-01-03 13:59:59', 'UTC')))
+           UNION ALL SELECT toUInt16(0) AS total,
+                            toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC'))
+           UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,
+                            toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'session start'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 13:59:59', 'UTC')
+           GROUP BY date)
+        GROUP BY day_start
+        ORDER BY day_start)) as sub_A
+  CROSS JOIN
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) AS total
+     FROM
+       (SELECT SUM(total) AS count,
+               day_start
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  toStartOfHour(toDateTime('2020-01-03 13:59:59', 'UTC') - toIntervalHour(number)) AS day_start
+           FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC')), toDateTime('2020-01-03 13:59:59', 'UTC')))
+           UNION ALL SELECT toUInt16(0) AS total,
+                            toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC'))
+           UNION ALL SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,
+                            toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'session start'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-02 13:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 13:59:59', 'UTC')
            GROUP BY date)
         GROUP BY day_start
         ORDER BY day_start)) as sub_B
