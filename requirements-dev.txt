@@ -19,7 +19,6 @@ attrs==21.4.0
     #   -c requirements.txt
     #   jsonschema
     #   openapi-schema-validator
-    #   pytest
     #   syrupy
 black==22.8.0
     # via
@@ -86,6 +85,8 @@ docopt==0.6.2
     # via pytest-watch
 email-validator==1.3.1
     # via pydantic
+exceptiongroup==1.1.2
+    # via pytest
 faker==17.5.0
     # via -r requirements-dev.in
 fakeredis[lua]==2.11.0
@@ -173,8 +174,6 @@ prance==0.22.2.22.0
     #   -c requirements.txt
     #   -r requirements-dev.in
     #   datamodel-code-generator
-py==1.11.0
-    # via pytest
 pycparser==2.20
     # via
     #   -c requirements.txt
@@ -199,7 +198,7 @@ pysocks==1.7.1
     # via
     #   -c requirements.txt
     #   urllib3
-pytest==6.2.5
+pytest==7.4.0
     # via
     #   -r requirements-dev.in
     #   pytest-asyncio
@@ -211,19 +210,19 @@ pytest==6.2.5
     #   pytest-split
     #   pytest-watch
     #   syrupy
-pytest-asyncio==0.20.3
+pytest-asyncio==0.21.1
     # via -r requirements-dev.in
 pytest-cov==4.1.0
     # via -r requirements-dev.in
-pytest-django==4.1.0
+pytest-django==4.5.2
     # via -r requirements-dev.in
-pytest-env==0.6.2
+pytest-env==0.8.2
     # via -r requirements-dev.in
-pytest-icdiff==0.5
+pytest-icdiff==0.6
     # via -r requirements-dev.in
-pytest-mock==3.5.1
+pytest-mock==3.11.1
     # via -r requirements-dev.in
-pytest-split==0.6.0
+pytest-split==0.8.1
     # via -r requirements-dev.in
 pytest-watch==4.2.0
     # via -r requirements-dev.in
@@ -279,19 +278,19 @@ sqlparse==0.4.4
     # via
     #   -c requirements.txt
     #   django
-syrupy==1.4.6
+syrupy==1.7.4
     # via -r requirements-dev.in
 toml==0.10.1
     # via
     #   coverage
     #   datamodel-code-generator
-    #   pytest
 tomli==1.2.3
     # via
     #   black
     #   build
     #   mypy
     #   pyproject-hooks
+    #   pytest
 typed-ast==1.5.4
     # via datamodel-code-generator
 types-freezegun==1.1.10
