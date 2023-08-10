@@ -499,8 +499,8 @@
       (SELECT id
        FROM person
        WHERE team_id = 2
-         AND (("pmat_email" ILIKE '%00000000-0000-4000-8000-000000000000%')
-              OR (id = '00000000-0000-4000-8000-000000000000'
+         AND (("pmat_email" ILIKE '%00000000-0000-4000-8000-000000000001%')
+              OR (id = '00000000-0000-4000-8000-000000000001'
                   OR id IN
                     (SELECT person_id
                      FROM
@@ -510,7 +510,7 @@
                         WHERE team_id = 2
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
+                     WHERE distinct_id = '00000000-0000-4000-8000-000000000001' ))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
