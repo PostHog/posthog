@@ -35,6 +35,7 @@ const formFields = ({
     interval,
     start_at,
     end_at,
+    paused,
     ...config
 }: BatchExportConfigurationFrom): Record<string, any> => {
     // Important! All fields that are required must be checked here as it is used also to sanitise the existing
@@ -42,6 +43,7 @@ const formFields = ({
         name: !name ? 'Please enter a name' : '',
         destination: !destination ? 'Please select a destination' : '',
         interval: !interval ? 'Please select a frequency' : '',
+        paused: '',
         start_at: '',
         end_at: '',
         ...(destination === 'S3'

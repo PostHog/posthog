@@ -4,9 +4,11 @@ import { useActions, useValues } from 'kea'
 import { BatchExportsEditLogicProps, batchExportsEditLogic } from './batchExportEditLogic'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Field } from 'lib/forms/Field'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
@@ -44,7 +46,17 @@ export function BatchExportsEditScene(): JSX.Element {
                             </Field>
 
                             <div className="flex gap-2 items-start flex-wrap">
-                                <Field name="interval" label="Frequency" className="flex-1">
+                                <Field
+                                    name="interval"
+                                    label="Batch interval"
+                                    className="flex-1"
+                                    info={
+                                        <>
+                                            The intervals of data exports. For example, if you select hourly, every hour
+                                            a run will be created to export that hours data.
+                                        </>
+                                    }
+                                >
                                     <LemonSelect
                                         options={[
                                             { value: 'hour', label: 'Hourly' },
@@ -52,7 +64,7 @@ export function BatchExportsEditScene(): JSX.Element {
                                         ]}
                                     />
                                 </Field>
-                                <Field
+                                {/* <Field
                                     name="start_at"
                                     label="Start Date"
                                     className="flex-1"
@@ -70,7 +82,7 @@ export function BatchExportsEditScene(): JSX.Element {
                                             placeholder="Select start date (optional)"
                                         />
                                     )}
-                                </Field>
+                                </Field> */}
 
                                 <Field
                                     name="end_at"
@@ -88,130 +100,142 @@ export function BatchExportsEditScene(): JSX.Element {
                                             value={value}
                                             onChange={onChange}
                                             placeholder="Select end date (optional)"
+                                            clearable
                                         />
                                     )}
                                 </Field>
                             </div>
-                        </div>
 
-                        <div className="flex gap-2 items-start flex-wrap">
-                            <div className="space-y-4 max-w-200 w-full shrink-0">
-                                <LemonDivider />
-                                <Field name="destination" label="Destination">
-                                    <LemonSelect
-                                        options={[
-                                            { value: 'S3', label: 'S3' },
-                                            { value: 'Snowflake', label: 'Snowflake' },
-                                        ]}
+                            <LemonBanner type="info">
+                                This batch exporter will schedule regular batch exports at your indicated interval until
+                                the end date. Once you have conigured your exporter, you can trigger a manual export for
+                                historic data.
+                            </LemonBanner>
+
+                            {isNew ? (
+                                <Field name="paused">
+                                    <LemonCheckbox
+                                        bordered
+                                        label={
+                                            <span className="flex items-center gap-2">
+                                                Create in paused state
+                                                <Tooltip
+                                                    title={
+                                                        "If selected, the Batch Exporter will be created but will be 'paused' allowing you to resumed it at a later date."
+                                                    }
+                                                >
+                                                    <IconInfo className=" text-lg text-muted-alt" />
+                                                </Tooltip>
+                                            </span>
+                                        }
                                     />
                                 </Field>
+                            ) : null}
+                        </div>
 
-                                {!batchExportConfigForm.destination ? (
-                                    <p className="text-muted-alt italic">
-                                        Select a destination to continue configuring
-                                    </p>
-                                ) : batchExportConfigForm.destination === 'S3' ? (
-                                    <>
-                                        <div className="flex gap-4">
-                                            <Field name="bucket_name" label="Bucket" className="flex-1">
-                                                <LemonInput placeholder="e.g. my-bucket" />
-                                            </Field>
-                                            <Field name="region" label="Region" className="flex-1">
-                                                <LemonSelect
-                                                    options={[
-                                                        { value: 'us-east-1', label: 'US East (N. Virginia)' },
-                                                        { value: 'us-east-2', label: 'US East (Ohio)' },
-                                                        { value: 'us-west-1', label: 'US West (N. California)' },
-                                                        { value: 'us-west-2', label: 'US West (Oregon)' },
-                                                        { value: 'af-south-1', label: 'Africa (Cape Town)' },
-                                                        { value: 'ap-east-1', label: 'Asia Pacific (Hong Kong)' },
-                                                        { value: 'ap-south-1', label: 'Asia Pacific (Mumbai)' },
-                                                        {
-                                                            value: 'ap-northeast-3',
-                                                            label: 'Asia Pacific (Osaka-Local)',
-                                                        },
-                                                        { value: 'ap-northeast-2', label: 'Asia Pacific (Seoul)' },
-                                                        { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
-                                                        { value: 'ap-southeast-2', label: 'Asia Pacific (Sydney)' },
-                                                        { value: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)' },
-                                                        { value: 'ca-central-1', label: 'Canada (Central)' },
-                                                        { value: 'cn-north-1', label: 'China (Beijing)' },
-                                                        { value: 'cn-northwest-1', label: 'China (Ningxia)' },
-                                                        { value: 'eu-central-1', label: 'Europe (Frankfurt)' },
-                                                        { value: 'eu-west-1', label: 'Europe (Ireland)' },
-                                                        { value: 'eu-west-2', label: 'Europe (London)' },
-                                                        { value: 'eu-south-1', label: 'Europe (Milan)' },
-                                                        { value: 'eu-west-3', label: 'Europe (Paris)' },
-                                                        { value: 'eu-north-1', label: 'Europe (Stockholm)' },
-                                                        { value: 'me-south-1', label: 'Middle East (Bahrain)' },
-                                                        { value: 'sa-east-1', label: 'South America (São Paulo)' },
-                                                    ]}
-                                                />
-                                            </Field>
-                                        </div>
-                                        <Field name="prefix" label="Key prefix">
-                                            <LemonInput placeholder="e.g. posthog-events/" />
-                                        </Field>
-                                        <div className="flex gap-4">
-                                            <Field
-                                                name="aws_access_key_id"
-                                                label="AWS Access Key ID"
-                                                className="flex-1"
-                                            >
-                                                <LemonInput placeholder="e.g. AKIAIOSFODNN7EXAMPLE" />
-                                            </Field>
-                                            <Field
-                                                name="aws_secret_access_key"
-                                                label="AWS Secret Access Key"
-                                                className="flex-1"
-                                            >
-                                                <LemonInput placeholder="secret-key" type="password" />
-                                            </Field>
-                                        </div>
-                                    </>
-                                ) : batchExportConfigForm.destination === 'Snowflake' ? (
-                                    <>
-                                        <Field name="user" label="User">
-                                            <LemonInput placeholder="my-user" />
-                                        </Field>
+                        <div className="space-y-4 max-w-200 w-full ">
+                            <LemonDivider />
+                            <Field name="destination" label="Destination">
+                                <LemonSelect
+                                    options={[
+                                        { value: 'S3', label: 'S3' },
+                                        { value: 'Snowflake', label: 'Snowflake' },
+                                    ]}
+                                />
+                            </Field>
 
-                                        <Field name="password" label="Password">
-                                            <LemonInput placeholder="my-password" type="password" />
+                            {!batchExportConfigForm.destination ? (
+                                <p className="text-muted-alt italic">Select a destination to continue configuring</p>
+                            ) : batchExportConfigForm.destination === 'S3' ? (
+                                <>
+                                    <div className="flex gap-4">
+                                        <Field name="bucket_name" label="Bucket" className="flex-1">
+                                            <LemonInput placeholder="e.g. my-bucket" />
                                         </Field>
-
-                                        <Field name="account" label="Account">
-                                            <LemonInput placeholder="my-account" />
+                                        <Field name="region" label="Region" className="flex-1">
+                                            <LemonSelect
+                                                options={[
+                                                    { value: 'us-east-1', label: 'US East (N. Virginia)' },
+                                                    { value: 'us-east-2', label: 'US East (Ohio)' },
+                                                    { value: 'us-west-1', label: 'US West (N. California)' },
+                                                    { value: 'us-west-2', label: 'US West (Oregon)' },
+                                                    { value: 'af-south-1', label: 'Africa (Cape Town)' },
+                                                    { value: 'ap-east-1', label: 'Asia Pacific (Hong Kong)' },
+                                                    { value: 'ap-south-1', label: 'Asia Pacific (Mumbai)' },
+                                                    {
+                                                        value: 'ap-northeast-3',
+                                                        label: 'Asia Pacific (Osaka-Local)',
+                                                    },
+                                                    { value: 'ap-northeast-2', label: 'Asia Pacific (Seoul)' },
+                                                    { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
+                                                    { value: 'ap-southeast-2', label: 'Asia Pacific (Sydney)' },
+                                                    { value: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)' },
+                                                    { value: 'ca-central-1', label: 'Canada (Central)' },
+                                                    { value: 'cn-north-1', label: 'China (Beijing)' },
+                                                    { value: 'cn-northwest-1', label: 'China (Ningxia)' },
+                                                    { value: 'eu-central-1', label: 'Europe (Frankfurt)' },
+                                                    { value: 'eu-west-1', label: 'Europe (Ireland)' },
+                                                    { value: 'eu-west-2', label: 'Europe (London)' },
+                                                    { value: 'eu-south-1', label: 'Europe (Milan)' },
+                                                    { value: 'eu-west-3', label: 'Europe (Paris)' },
+                                                    { value: 'eu-north-1', label: 'Europe (Stockholm)' },
+                                                    { value: 'me-south-1', label: 'Middle East (Bahrain)' },
+                                                    { value: 'sa-east-1', label: 'South America (São Paulo)' },
+                                                ]}
+                                            />
                                         </Field>
-
-                                        <Field name="database" label="Database">
-                                            <LemonInput placeholder="my-database" />
+                                    </div>
+                                    <Field name="prefix" label="Key prefix">
+                                        <LemonInput placeholder="e.g. posthog-events/" />
+                                    </Field>
+                                    <div className="flex gap-4">
+                                        <Field name="aws_access_key_id" label="AWS Access Key ID" className="flex-1">
+                                            <LemonInput placeholder="e.g. AKIAIOSFODNN7EXAMPLE" />
                                         </Field>
-
-                                        <Field name="warehouse" label="Warehouse">
-                                            <LemonInput placeholder="my-warehouse" />
+                                        <Field
+                                            name="aws_secret_access_key"
+                                            label="AWS Secret Access Key"
+                                            className="flex-1"
+                                        >
+                                            <LemonInput placeholder="secret-key" type="password" />
                                         </Field>
+                                    </div>
+                                </>
+                            ) : batchExportConfigForm.destination === 'Snowflake' ? (
+                                <>
+                                    <Field name="user" label="User">
+                                        <LemonInput placeholder="my-user" />
+                                    </Field>
 
-                                        <Field name="schema" label="Schema">
-                                            <LemonInput placeholder="my-schema" />
-                                        </Field>
+                                    <Field name="password" label="Password">
+                                        <LemonInput placeholder="my-password" type="password" />
+                                    </Field>
 
-                                        <Field name="table_name" label="Table name">
-                                            <LemonInput placeholder="events" />
-                                        </Field>
+                                    <Field name="account" label="Account">
+                                        <LemonInput placeholder="my-account" />
+                                    </Field>
 
-                                        <Field name="role" label="Role" showOptional>
-                                            <LemonInput placeholder="my-role" />
-                                        </Field>
-                                    </>
-                                ) : null}
-                            </div>
+                                    <Field name="database" label="Database">
+                                        <LemonInput placeholder="my-database" />
+                                    </Field>
 
-                            <div className="border rounded mt-14 mx-6 flex-1 p-4">
-                                <h2>
-                                    <IconInfo /> About {batchExportConfigForm.destination} batch exports
-                                </h2>
-                                <p> Batch exports will blah blah</p>
-                            </div>
+                                    <Field name="warehouse" label="Warehouse">
+                                        <LemonInput placeholder="my-warehouse" />
+                                    </Field>
+
+                                    <Field name="schema" label="Schema">
+                                        <LemonInput placeholder="my-schema" />
+                                    </Field>
+
+                                    <Field name="table_name" label="Table name">
+                                        <LemonInput placeholder="events" />
+                                    </Field>
+
+                                    <Field name="role" label="Role" showOptional>
+                                        <LemonInput placeholder="my-role" />
+                                    </Field>
+                                </>
+                            ) : null}
                         </div>
 
                         <div className="flex gap-4">
