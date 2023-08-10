@@ -389,6 +389,8 @@ export interface ActionType {
     verified?: boolean
     is_action?: true
     action_id?: number // alias of id to make it compatible with event definitions uuid
+    bytecode?: any[]
+    bytecode_error?: string
 }
 
 /** Sync with plugin-server/src/types.ts */
