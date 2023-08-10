@@ -1,5 +1,6 @@
 import { delay } from '../../src/utils/utils'
 import { PromiseManager } from '../../src/worker/vm/promise-manager'
+import { pluginConfig39 } from '../helpers/plugins'
 import { Hub } from './../../src/types'
 import { ExportEventsBuffer } from './../../src/worker/vm/upgrades/utils/export-events-buffer'
 
@@ -48,7 +49,7 @@ describe('ExportEventsBuffer', () => {
     beforeEach(() => {
         promiseManager = new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as any)
         mockHub = { promiseManager } as any
-        exportEventsBuffer = new ExportEventsBuffer(mockHub, { limit: 2 })
+        exportEventsBuffer = new ExportEventsBuffer(mockHub, pluginConfig39, { limit: 2 })
     })
 
     test('add and flush work as expected', async () => {
