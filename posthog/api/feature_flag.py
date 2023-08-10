@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
@@ -361,10 +362,11 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
 
         except Exception as e:
+            capture_exception(e)
             return Response(
                 {
                     "success": False,
-                    "error": f"Unable to generate usage dashboard: {e}",
+                    "error": f"Unable to generate usage dashboard",
                 },
                 status=400,
             )
@@ -405,10 +407,11 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         try:
             add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
         except Exception as e:
+            capture_exception(e)
             return Response(
                 {
                     "success": False,
-                    "error": f"Unable to enrich usage dashboard: {e}",
+                    "error": f"Unable to enrich usage dashboard",
                 },
                 status=400,
             )
