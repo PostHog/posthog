@@ -103,7 +103,7 @@ export async function createHub(
     const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
     status.info('👍', `Kafka ready`)
 
-    const postgres = new PostgresRouter(serverConfig)
+    const postgres = new PostgresRouter(serverConfig, statsd)
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
     status.info('👍', `Postgres Router ready`)
 

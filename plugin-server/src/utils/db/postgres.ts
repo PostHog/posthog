@@ -19,8 +19,9 @@ export enum PostgresUse {
 
 export class PostgresRouter {
     pools: Map<PostgresUse, Pool>
+    statsd: StatsD | undefined
 
-    constructor(serverConfig: PluginsServerConfig) {
+    constructor(serverConfig: PluginsServerConfig, statsd: StatsD | undefined) {
         status.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = createPostgresPool(serverConfig.DATABASE_URL)
         status.info('👍', `Common Postgresql ready`)
@@ -31,6 +32,7 @@ export class PostgresRouter {
             [PostgresUse.COMMON_READ, commonClient],
             [PostgresUse.PLUGIN_STORAGE, commonClient],
         ])
+        this.statsd = statsd
 
         if (serverConfig.DATABASE_READONLY_URL) {
             status.info('🤔', `Connecting to read-only common Postgresql...`)
@@ -48,11 +50,10 @@ export class PostgresRouter {
         usage: PostgresUse,
         queryString: string | QueryConfig<I>,
         values: I | undefined,
-        tag: string,
-        statsd?: StatsD
+        tag: string
     ): Promise<QueryResult<R>> {
         const wrappedTag = `${PostgresUse[usage]}<${tag}>`
-        return postgresQuery(this.pools.get(usage)!, queryString, values, wrappedTag, statsd)
+        return postgresQuery(this.pools.get(usage)!, queryString, values, wrappedTag, this.statsd)
     }
 
     public async bulkInsert<T extends Array<any>>(
@@ -60,8 +61,7 @@ export class PostgresRouter {
         // Should have {VALUES} as a placeholder
         queryWithPlaceholder: string,
         values: Array<T>,
-        tag: string,
-        statsd?: StatsD
+        tag: string
     ): Promise<void> {
         if (values.length === 0) {
             return
@@ -75,23 +75,16 @@ export class PostgresRouter {
             })
             .join(', ')
 
-        await this.query(
-            usage,
-            queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders),
-            values.flat(),
-            tag,
-            statsd
-        )
+        await this.query(usage, queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders), values.flat(), tag)
     }
 
     public transaction<ReturnType>(
         usage: PostgresUse,
         tag: string,
-        transaction: (client: PoolClient) => Promise<ReturnType>,
-        statsd?: StatsD
+        transaction: (client: PoolClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
         const wrappedTag = `${PostgresUse[usage]}<${tag}>`
-        return instrumentQuery(statsd, 'query.postgres_transation', wrappedTag, async () => {
+        return instrumentQuery(this.statsd, 'query.postgres_transation', wrappedTag, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
             const client = await this.pools.get(usage)!.connect()
             try {
