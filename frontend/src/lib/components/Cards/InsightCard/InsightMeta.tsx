@@ -105,8 +105,6 @@ export function InsightMeta({
                             {name || <i>{summary}</i>}
                         </h4>
                     </Link>
-
-                    {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
                 </>
             }

@@ -307,6 +307,12 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
     }
     return (
         <div className="InsightDetails" ref={ref}>
+            {!!insight.description && (
+                <>
+                    <h5>Description</h5>
+                    <section>{insight.description}</section>
+                </>
+            )}
             <QuerySummary filters={filters} />
             <FiltersSummary filters={filters} />
             {filters.breakdown_type && <BreakdownSummary filters={filters} />}
