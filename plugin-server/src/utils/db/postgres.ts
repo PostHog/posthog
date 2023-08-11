@@ -17,6 +17,16 @@ export enum PostgresUse {
     PLUGIN_STORAGE_RW, // Plugin Storage table, no read replica for it
 }
 
+export class TransactionClient {
+    target: PostgresUse
+    client: PoolClient
+
+    constructor(target: PostgresUse, client: PoolClient) {
+        this.target = target
+        this.client = client
+    }
+}
+
 export class PostgresRouter {
     pools: Map<PostgresUse, Pool>
     statsd: StatsD | undefined
@@ -47,13 +57,19 @@ export class PostgresRouter {
     }
 
     public query<R extends QueryResultRow = any, I extends any[] = any[]>(
-        usage: PostgresUse,
+        target: PostgresUse,
         queryString: string | QueryConfig<I>,
         values: I | undefined,
-        tag: string
+        tag: string,
+        tx?: TransactionClient
     ): Promise<QueryResult<R>> {
-        const wrappedTag = `${PostgresUse[usage]}<${tag}>`
-        return postgresQuery(this.pools.get(usage)!, queryString, values, wrappedTag, this.statsd)
+        if (tx) {
+            const wrappedTag = `${PostgresUse[tx.target]}<${tag}>`
+            return postgresQuery(tx.client, queryString, values, wrappedTag, this.statsd)
+        } else {
+            const wrappedTag = `${PostgresUse[target]}<${tag}>`
+            return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag, this.statsd)
+        }
     }
 
     public async bulkInsert<T extends Array<any>>(
@@ -81,7 +97,7 @@ export class PostgresRouter {
     public transaction<ReturnType>(
         usage: PostgresUse,
         tag: string,
-        transaction: (client: PoolClient) => Promise<ReturnType>
+        transaction: (client: TransactionClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
         const wrappedTag = `${PostgresUse[usage]}<${tag}>`
         return instrumentQuery(this.statsd, 'query.postgres_transation', wrappedTag, async () => {
@@ -89,7 +105,7 @@ export class PostgresRouter {
             const client = await this.pools.get(usage)!.connect()
             try {
                 await client.query('BEGIN')
-                const response = await transaction(client)
+                const response = await transaction(new TransactionClient(usage, client))
                 await client.query('COMMIT')
                 return response
             } catch (e) {
