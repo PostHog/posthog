@@ -10,14 +10,14 @@ import { createPostgresPool } from '../utils'
 import { POSTGRES_UNAVAILABLE_ERROR_MESSAGES } from './db'
 import { DependencyUnavailableError } from './error'
 
-export enum PostgresUsage {
+export enum PostgresUse {
     COMMON, // Main PG master with common tables, we need to move as many queries away from it as possible
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
     PLUGIN_STORAGE, // Plugin Storage table, no read replica for it
 }
 
 export class PostgresRouter {
-    pools: Map<PostgresUsage, Pool>
+    pools: Map<PostgresUse, Pool>
 
     constructor(serverConfig: PluginsServerConfig) {
         status.info('🤔', `Connecting to common Postgresql...`)
@@ -26,31 +26,31 @@ export class PostgresRouter {
         // We fill the pools maps with the default client by default as a safe fallback for hobby,
         // the rest of the constructor overrides entries if more database URLs are passed.
         this.pools = new Map([
-            [PostgresUsage.COMMON, commonClient],
-            [PostgresUsage.COMMON_READ, commonClient],
-            [PostgresUsage.PLUGIN_STORAGE, commonClient],
+            [PostgresUse.COMMON, commonClient],
+            [PostgresUse.COMMON_READ, commonClient],
+            [PostgresUse.PLUGIN_STORAGE, commonClient],
         ])
 
         if (serverConfig.DATABASE_READONLY_URL) {
             status.info('🤔', `Connecting to read-only common Postgresql...`)
-            this.pools.set(PostgresUsage.COMMON_READ, createPostgresPool(serverConfig.DATABASE_READONLY_URL))
+            this.pools.set(PostgresUse.COMMON_READ, createPostgresPool(serverConfig.DATABASE_READONLY_URL))
             status.info('👍', `Read-only common Postgresql ready`)
         }
         if (serverConfig.PLUGIN_STORAGE_DATABASE_URL) {
             status.info('🤔', `Connecting to plugin-storage Postgresql...`)
-            this.pools.set(PostgresUsage.PLUGIN_STORAGE, createPostgresPool(serverConfig.PLUGIN_STORAGE_DATABASE_URL))
+            this.pools.set(PostgresUse.PLUGIN_STORAGE, createPostgresPool(serverConfig.PLUGIN_STORAGE_DATABASE_URL))
             status.info('👍', `Plugin-storage Postgresql ready`)
         }
     }
 
     public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
-        usage: PostgresUsage,
+        usage: PostgresUse,
         queryString: string | QueryConfig<I>,
         values: I | undefined,
         tag: string,
         statsd?: StatsD
     ): Promise<QueryResult<R>> {
-        const wrappedTag = `${PostgresUsage[usage]}<${tag}>`
+        const wrappedTag = `${PostgresUse[usage]}<${tag}>`
         return postgresQuery(this.pools.get(usage)!, queryString, values, wrappedTag, statsd)
     }
 }
