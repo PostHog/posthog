@@ -156,7 +156,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             for r in response_data["results"]
         ] == [
             (
-                "2",
+                session_id_two,
                 "user2",
                 base_time + relativedelta(seconds=20),
                 base_time + relativedelta(seconds=20),
@@ -164,7 +164,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 False,
                 user2.pk,
             ),
-            ("1", "user", base_time, base_time + relativedelta(seconds=30), 30, False, user.pk),
+            (session_id_one, "user", base_time, base_time + relativedelta(seconds=30), 30, False, user.pk),
         ]
 
     @patch("posthog.api.session_recording.SessionRecordingListFromReplaySummary")
@@ -371,7 +371,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         num_snapshots = DEFAULT_RECORDING_CHUNK_LIMIT + 10
 
         for _ in range(num_snapshots):
-            self.create_snapshot("user", "1", base_time)
+            self.create_snapshot("user", "1", base_time, use_recording_table=True, use_replay_table=False)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
         response_data = response.json()
