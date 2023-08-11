@@ -12,8 +12,6 @@ interface NotebookCommentButtonProps extends Pick<LemonButtonProps, 'size'>, Pic
     onCommentInExistingNotebook: (notebookShortId: string) => void
 }
 
-/** A wrapper for the button, that lets you open a new or an existing recording
- */
 export function NotebookCommentButton({
     sessionRecordingId,
     onCommentInNewNotebook,
