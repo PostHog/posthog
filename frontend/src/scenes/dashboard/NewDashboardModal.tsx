@@ -173,10 +173,10 @@ export function NewDashboardModal(): JSX.Element {
             title={activeDashboardTemplate ? 'Choose your events' : 'Create a dashboard'}
             description={
                 activeDashboardTemplate ? (
-                    <>
+                    <p>
                         The <i>{activeDashboardTemplate.template_name}</i> template requires you to choose{' '}
                         {pluralize((activeDashboardTemplate.variables || []).length, 'event', 'events', true)}.
-                    </>
+                    </p>
                 ) : (
                     'Choose a template or start with a blank slate'
                 )
