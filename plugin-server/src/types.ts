@@ -31,7 +31,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
-import { PromiseManager } from './worker/vm/promise-manager'
+import { PromiseManager } from './worker/vm/promise-manager' /** Re-export Element from scaffolding, for backwards compat. */
 
 /** Re-export Element from scaffolding, for backwards compat. */
 export { Element } from '@posthog/plugin-scaffold'
@@ -96,6 +96,8 @@ export interface PluginsServerConfig {
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
+    DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
+    PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string

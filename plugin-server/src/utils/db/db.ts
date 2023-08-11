@@ -6,7 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
@@ -69,7 +69,7 @@ import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
-import { postgresQuery } from './postgres'
+import { PostgresRouter } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
     safeClickhouseString,
@@ -144,8 +144,8 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
 
 /** The recommended way of accessing the database. */
 export class DB {
-    /** Postgres connection pool for primary database access. */
-    postgres: Pool
+    /** Postgres connection router for database access. */
+    postgres: PostgresRouter
     /** Redis used for various caches. */
     redisPool: GenericPool<Redis.Redis>
 
@@ -170,7 +170,7 @@ export class DB {
     promiseManager: PromiseManager
 
     constructor(
-        postgres: Pool,
+        postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,

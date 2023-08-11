@@ -16,6 +16,8 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/posthog'
             : '',
+        DATABASE_READONLY_URL: '',
+        PLUGIN_STORAGE_DATABASE_URL: '',
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
         POSTHOG_DB_PASSWORD: '',

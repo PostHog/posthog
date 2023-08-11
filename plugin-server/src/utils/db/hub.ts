@@ -29,12 +29,13 @@ import { OrganizationManager } from '../../worker/ingestion/organization-manager
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { status } from '../status'
-import { createPostgresPool, createRedisPool, UUIDT } from '../utils'
+import { createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
+import { PostgresRouter } from './postgres'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -102,9 +103,9 @@ export async function createHub(
     const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
     status.info('👍', `Kafka ready`)
 
-    status.info('🤔', `Connecting to Postgresql...`)
-    const postgres = createPostgresPool(serverConfig.DATABASE_URL)
-    status.info('👍', `Postgresql ready`)
+    const postgres = new PostgresRouter(serverConfig)
+    // TODO: assert tables are reachable (async calls that cannot be in a constructor)
+    status.info('👍', `Postgres Router ready`)
 
     status.info('🤔', `Connecting to Redis...`)
     const redisPool = createRedisPool(serverConfig)
