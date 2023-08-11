@@ -171,19 +171,34 @@ def test_create_batch_export_from_app_dry_run(plugin_config):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "interval,plugin_config",
-    [("hour", "S3"), ("day", "S3"), ("hour", "Snowflake"), ("day", "Snowflake")],
+    "interval,plugin_config,disable_plugin_config",
+    [
+        ("hour", "S3", True),
+        ("hour", "S3", False),
+        ("day", "S3", True),
+        ("day", "S3", False),
+        ("hour", "Snowflake", True),
+        ("hour", "Snowflake", False),
+        ("day", "Snowflake", True),
+        ("day", "Snowflake", False),
+    ],
     indirect=["plugin_config"],
 )
-def test_create_batch_export_from_app(interval, plugin_config):
+def test_create_batch_export_from_app(interval, plugin_config, disable_plugin_config):
     """Test a dry_run of the create_batch_export_from_app command."""
-
-    output = call_command(
-        "create_batch_export_from_app",
+    args = [
         f"--plugin-config-id={plugin_config.id}",
         f"--team-id={plugin_config.team.id}",
         f"--interval={interval}",
-    )
+    ]
+    if disable_plugin_config:
+        args.append("--disable-plugin-config")
+
+    output = call_command("create_batch_export_from_app", *args)
+
+    plugin_config.refresh_from_db()
+    assert plugin_config.enabled is not disable_plugin_config
+
     export_type, config = map_plugin_config_to_destination(plugin_config)
 
     batch_export_data = json.loads(output)

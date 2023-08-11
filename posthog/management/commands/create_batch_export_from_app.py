@@ -90,7 +90,7 @@ class Command(BaseCommand):
 
         if options.get("disable_plugin_config", False) and dry_run is False:
             plugin_config.enabled = False
-            plugin_config.saved()
+            plugin_config.save()
             self.stdout.write("Disabled existing PluginConfig.")
 
         if options.get("backfill_batch_export", False) and dry_run is False:
