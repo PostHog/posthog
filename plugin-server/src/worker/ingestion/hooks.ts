@@ -1,10 +1,9 @@
 import { captureException } from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { Client, Pool } from 'pg'
 import { format } from 'util'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
-import { postgresQuery } from '../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
@@ -233,7 +232,7 @@ export function getFormattedMessage(
 }
 
 export class HookCommander {
-    postgres: Client | Pool
+    postgres: PostgresRouter
     teamManager: TeamManager
     organizationManager: OrganizationManager
     statsd: StatsD | undefined
@@ -243,7 +242,7 @@ export class HookCommander {
     EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
 
     constructor(
-        postgres: Client | Pool,
+        postgres: PostgresRouter,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
         statsd?: StatsD
@@ -362,6 +361,13 @@ export class HookCommander {
     }
 
     private async deleteRestHook(hookId: Hook['id']): Promise<void> {
-        await postgresQuery(this.postgres, `DELETE FROM ee_hook WHERE id = $1`, [hookId], 'deleteRestHook')
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE
+             FROM ee_hook
+             WHERE id = $1`,
+            [hookId],
+            'deleteRestHook'
+        )
     }
 }
