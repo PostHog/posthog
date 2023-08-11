@@ -6,7 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { PoolClient, QueryResult } from 'pg'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
@@ -67,7 +67,6 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
-import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter } from './postgres'
 import {
@@ -185,72 +184,6 @@ export class DB {
         this.statsd = statsd
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
         this.promiseManager = promiseManager
-    }
-
-    // Postgres
-
-    public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
-        queryString: string | QueryConfig<I>,
-        values: I | undefined,
-        tag: string,
-        client?: PoolClient
-    ): Promise<QueryResult<R>> {
-        return postgresQuery(client ?? this.postgres, queryString, values, tag, this.statsd)
-    }
-
-    public postgresTransaction<ReturnType>(
-        tag: string,
-        transaction: (client: PoolClient) => Promise<ReturnType>
-    ): Promise<ReturnType> {
-        return instrumentQuery(this.statsd, 'query.postgres_transation', undefined, async () => {
-            const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
-            const client = await this.postgres.connect()
-            try {
-                await client.query('BEGIN')
-                const response = await transaction(client)
-                await client.query('COMMIT')
-                return response
-            } catch (e) {
-                await client.query('ROLLBACK')
-
-                // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
-                if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
-                    throw new DependencyUnavailableError(e.message, 'Postgres', e)
-                }
-
-                throw e
-            } finally {
-                client.release()
-                clearTimeout(timeout)
-            }
-        })
-    }
-
-    public async postgresBulkInsert<T extends Array<any>>(
-        // Should have {VALUES} as a placeholder
-        queryWithPlaceholder: string,
-        values: Array<T>,
-        tag: string,
-        client?: PoolClient
-    ): Promise<void> {
-        if (values.length === 0) {
-            return
-        }
-
-        const valuesWithPlaceholders = values
-            .map((array, index) => {
-                const len = array.length
-                const valuesWithIndexes = array.map((_, subIndex) => `$${index * len + subIndex + 1}`)
-                return `(${valuesWithIndexes.join(', ')})`
-            })
-            .join(', ')
-
-        await this.postgresQuery(
-            queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders),
-            values.flat(),
-            tag,
-            client
-        )
     }
 
     // ClickHouse

@@ -9,6 +9,7 @@ import { status } from '../status'
 import { createPostgresPool } from '../utils'
 import { POSTGRES_UNAVAILABLE_ERROR_MESSAGES } from './db'
 import { DependencyUnavailableError } from './error'
+import { timeoutGuard } from './utils'
 
 export enum PostgresUse {
     COMMON, // Main PG master with common tables, we need to move as many queries away from it as possible
@@ -43,7 +44,7 @@ export class PostgresRouter {
         }
     }
 
-    public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
+    public query<R extends QueryResultRow = any, I extends any[] = any[]>(
         usage: PostgresUse,
         queryString: string | QueryConfig<I>,
         values: I | undefined,
@@ -52,6 +53,66 @@ export class PostgresRouter {
     ): Promise<QueryResult<R>> {
         const wrappedTag = `${PostgresUse[usage]}<${tag}>`
         return postgresQuery(this.pools.get(usage)!, queryString, values, wrappedTag, statsd)
+    }
+
+    public async bulkInsert<T extends Array<any>>(
+        usage: PostgresUse,
+        // Should have {VALUES} as a placeholder
+        queryWithPlaceholder: string,
+        values: Array<T>,
+        tag: string,
+        statsd?: StatsD
+    ): Promise<void> {
+        if (values.length === 0) {
+            return
+        }
+
+        const valuesWithPlaceholders = values
+            .map((array, index) => {
+                const len = array.length
+                const valuesWithIndexes = array.map((_, subIndex) => `$${index * len + subIndex + 1}`)
+                return `(${valuesWithIndexes.join(', ')})`
+            })
+            .join(', ')
+
+        await this.query(
+            usage,
+            queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders),
+            values.flat(),
+            tag,
+            statsd
+        )
+    }
+
+    public transaction<ReturnType>(
+        usage: PostgresUse,
+        tag: string,
+        transaction: (client: PoolClient) => Promise<ReturnType>,
+        statsd?: StatsD
+    ): Promise<ReturnType> {
+        const wrappedTag = `${PostgresUse[usage]}<${tag}>`
+        return instrumentQuery(statsd, 'query.postgres_transation', wrappedTag, async () => {
+            const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
+            const client = await this.pools.get(usage)!.connect()
+            try {
+                await client.query('BEGIN')
+                const response = await transaction(client)
+                await client.query('COMMIT')
+                return response
+            } catch (e) {
+                await client.query('ROLLBACK')
+
+                // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
+                if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
+                    throw new DependencyUnavailableError(e.message, 'Postgres', e)
+                }
+
+                throw e
+            } finally {
+                client.release()
+                clearTimeout(timeout)
+            }
+        })
     }
 }
 
