@@ -1,5 +1,5 @@
 import { LemonButton, LemonDivider, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useActions, useValues, BindLogic } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -387,17 +387,29 @@ interface PersonsTableByFilterProps {
     emptyState?: JSX.Element
 }
 
-function PersonsTableByFilter({ properties, emptyState }: PersonsTableByFilterProps): JSX.Element {
-    const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
-
+export function PersonsTableByFilter({ properties, emptyState }: PersonsTableByFilterProps): JSX.Element {
     const personsLogicProps: PersonsLogicProps = {
         cohort: undefined,
         syncWithUrl: false,
         fixedProperties: properties,
     }
-    const logic = personsLogic(personsLogicProps)
-    const { persons, personsLoading, listFilters } = useValues(logic)
-    const { loadPersons, setListFilters } = useActions(logic)
+
+    return (
+        <BindLogic logic={personsLogic} props={personsLogicProps}>
+            <PersonsTableByFilterScene emptyState={emptyState} />
+        </BindLogic>
+    )
+}
+
+interface PersonsTableByFilterSceneProps {
+    emptyState?: JSX.Element
+}
+
+function PersonsTableByFilterScene({ emptyState }: PersonsTableByFilterSceneProps): JSX.Element {
+    const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
+
+    const { persons, personsLoading, listFilters } = useValues(personsLogic)
+    const { loadPersons, setListFilters } = useActions(personsLogic)
 
     return (
         <div className="space-y-2">
