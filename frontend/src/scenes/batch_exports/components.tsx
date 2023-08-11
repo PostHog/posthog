@@ -57,33 +57,3 @@ export function BatchExportRunIcon({ batchExportRun }: { batchExportRun: BatchEx
         </Tooltip>
     )
 }
-
-export function BatchExportRunStatus({ batchExportRun }: { batchExportRun: BatchExportRun }): JSX.Element {
-    let status = batchExportRun.status
-
-    if (batchExportRun.status === 'Running') {
-        return (
-            <LemonTag type="primary" className="uppercase">
-                Running
-            </LemonTag>
-        )
-    } else if (batchExportRun.status === 'Completed') {
-        return (
-            <LemonTag type="success" className="uppercase">
-                Completed
-            </LemonTag>
-        )
-    } else if (batchExportRun.status === 'Starting') {
-        return (
-            <LemonTag type="default" className="uppercase">
-                Starting
-            </LemonTag>
-        )
-    } else {
-        return (
-            <LemonTag type="danger" className="uppercase">
-                Error
-            </LemonTag>
-        )
-    }
-}
