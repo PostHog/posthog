@@ -136,7 +136,7 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
         config = {
             "bucket_name": plugin_config.config["s3BucketName"],
             "region": plugin_config.config["awsRegion"],
-            "prefix": plugin_config.config["prefix"],
+            "prefix": plugin_config.config.get("prefix", ""),
             "aws_access_key_id": plugin_config.config["awsAccessKey"],
             "aws_secret_access_key": plugin_config.config["awsSecretAccessKey"],
         }
