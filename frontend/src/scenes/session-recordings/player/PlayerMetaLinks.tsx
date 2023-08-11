@@ -34,22 +34,20 @@ export function PlayerMetaLinks(): JSX.Element {
     const commentInExistingNotebook = useCallback(
         async (notebookShortId) => {
             const currentPlayerTime = getCurrentPlayerTime() * 1000
-            await openNotebook(notebookShortId, NotebookTarget.Popover, null, [
-                (theNotebookLogic) => {
-                    const ed = theNotebookLogic.values.editor
-                    if (ed === null) {
-                        // TODO what should we do here?
-                        console.error('Editor is null, and so we could not add the content')
-                        return
-                    }
-                    const recordingPosition = ed.findNodePositionByAttrs({ id: sessionRecordingId })
-                    theNotebookLogic.actions.insertAfterLastNodeOfType(
-                        NotebookNodeType.ReplayTimestamp,
-                        [buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)],
-                        recordingPosition
-                    )
-                },
-            ])
+            await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
+                const ed = theNotebookLogic.values.editor
+                if (ed === null) {
+                    // TODO what should we do here?
+                    console.error('Editor is null, and so we could not add the content')
+                    return
+                }
+                const recordingPosition = ed.findNodePositionByAttrs({ id: sessionRecordingId })
+                theNotebookLogic.actions.insertAfterLastNodeOfType(
+                    NotebookNodeType.ReplayTimestamp,
+                    [buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)],
+                    recordingPosition
+                )
+            })
         },
         [nodeLogic]
     )

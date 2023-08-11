@@ -32,8 +32,8 @@ export const openNotebook = async (
     notebookId: string,
     target: NotebookTarget = NotebookTarget.Auto,
     focus: EditorFocusPosition = null,
-    // a list of commands to run against the notebook logic after it's opened
-    commandsAfterOpen: ((logic: BuiltLogic<notebookLogicType>) => void)[] = []
+    // operations to run against the notebook once it has opened and the editor is ready
+    onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
 ): Promise<void> => {
     const popoverLogic = notebookPopoverLogic.findMounted()
 
@@ -50,6 +50,7 @@ export const openNotebook = async (
     popoverLogic?.actions.setInitialAutofocus(focus)
 
     const theMountedNotebookLogic = notebookLogic({ shortId: notebookId })
+
     // there's a race here between opening up the notebook and mounting its logic
     // and that logic having an editor ready to receive commands
     let retryCount = 0
@@ -57,7 +58,7 @@ export const openNotebook = async (
         await new Promise((r) => setTimeout(r, 10))
         retryCount += 1
     }
-    commandsAfterOpen.forEach((command) => command(theMountedNotebookLogic))
+    onOpen(theMountedNotebookLogic)
 }
 
 export const notebooksListLogic = kea<notebooksListLogicType>([
