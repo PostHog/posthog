@@ -244,24 +244,22 @@ export function ActionsTable(): JSX.Element {
                     }
                 />
             )}
-            {!shouldShowEmptyState && (
+            {(shouldShowEmptyState && filterByMe) || !shouldShowEmptyState ? (
+                <div className="flex items-center justify-between gap-2 mb-4">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for actions"
+                        onChange={setSearchTerm}
+                        value={searchTerm}
+                    />
+                    <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
+                        <Radio.Button value={false}>All actions</Radio.Button>
+                        <Radio.Button value={true}>My actions</Radio.Button>
+                    </Radio.Group>
+                </div>
+            ) : null}
+            {(!shouldShowEmptyState || filterByMe) && (
                 <>
-                    <div className="flex items-center justify-between gap-2 mb-4">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search for actions"
-                            onChange={setSearchTerm}
-                            value={searchTerm}
-                        />
-                        <Radio.Group
-                            buttonStyle="solid"
-                            value={filterByMe}
-                            onChange={(e) => setFilterByMe(e.target.value)}
-                        >
-                            <Radio.Button value={false}>All actions</Radio.Button>
-                            <Radio.Button value={true}>My actions</Radio.Button>
-                        </Radio.Group>
-                    </div>
                     <LemonTable
                         columns={columns}
                         loading={actionsLoading}

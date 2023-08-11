@@ -261,7 +261,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return {
             description: (
                 <>
-                    deleted {asNotification && ' your flag '}
+                    deleted {asNotification && ' the flag '}
                     {logItem.detail.name}
                 </>
             ),
@@ -271,7 +271,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         let changes: Description[] = []
         let changeSuffix: Description = (
             <>
-                on {asNotification && ' your flag '}
+                on {asNotification && ' the flag '}
                 {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
             </>
         )

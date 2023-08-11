@@ -97,7 +97,11 @@ describe('dateFilterLogic', () => {
         const withoutDateFrom = dateFilterLogic(props)
         withoutDateFrom.mount()
 
-        await expectLogic(withoutDateFrom).toMatchValues({ dateFrom: null, dateTo: null, label: 'Custom' })
+        await expectLogic(withoutDateFrom).toMatchValues({
+            dateFrom: null,
+            dateTo: null,
+            label: 'No date range override',
+        })
         expect(onChange).not.toHaveBeenCalled()
     })
 })

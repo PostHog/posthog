@@ -100,18 +100,6 @@ interface RecordingViewedProps {
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
-export interface RecordingViewedSummaryAnalytics {
-    viewed_time_ms?: number
-    recording_duration_ms?: number
-    recording_age_days?: number
-    meta_data_load_time_ms?: number
-    first_snapshot_load_time_ms?: number
-    first_snapshot_and_meta_load_time_ms?: number
-    all_snapshots_load_time_ms?: number
-    rrweb_warning_count: number
-    error_count_during_recording_playback: number
-}
-
 function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
@@ -376,9 +364,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
-            recordingViewedSummary,
-        }),
         reportRecordingInspectorTabViewed: (tab: SessionRecordingPlayerTab) => ({ tab }),
         reportRecordingInspectorItemExpanded: (tab: SessionRecordingPlayerTab, index: number) => ({ tab, index }),
         reportRecordingInspectorMiniFilterViewed: (tab: SessionRecordingPlayerTab, minifilterKey: string) => ({
@@ -409,8 +394,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             duration,
             significant,
         }),
-        reportPrimaryDashboardModalOpened: true,
-        reportPrimaryDashboardChanged: true,
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -909,9 +892,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
         },
-        reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
-            posthog.capture('recording viewed summary', { ...recordingViewedSummary })
-        },
         reportRecordingInspectorTabViewed: ({ tab }) => {
             posthog.capture('recording inspector tab viewed', { tab })
         },
@@ -1003,12 +983,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
             posthog.capture('inner match property group filters type changed', { type, filtersLength })
-        },
-        reportPrimaryDashboardModalOpened: () => {
-            posthog.capture('primary dashboard modal opened')
-        },
-        reportPrimaryDashboardChanged: () => {
-            posthog.capture('primary dashboard changed')
         },
         reportDataManagementDefinitionHovered: ({ type }) => {
             posthog.capture('definition hovered', { type })
@@ -1200,12 +1174,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 name: survey.name,
                 id: survey.id,
                 questions_length: survey.questions.length,
+                question_types: survey.questions.map((question) => question.type),
             })
         },
         reportSurveyLaunched: ({ survey }) => {
             posthog.capture('survey launched', {
                 name: survey.name,
                 id: survey.id,
+                question_types: survey.questions.map((question) => question.type),
                 created_at: survey.created_at,
                 start_date: survey.start_date,
             })

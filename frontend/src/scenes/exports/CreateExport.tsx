@@ -170,7 +170,6 @@ export function CreateS3Export({ startAt, endAt }: ExportCommonProps): JSX.Eleme
                     bucket_name: bucket,
                     region: region,
                     prefix: prefix,
-                    batch_window_size: 3600,
                     aws_access_key_id: accessKeyId,
                     aws_secret_access_key: secretAccessKey,
                 },

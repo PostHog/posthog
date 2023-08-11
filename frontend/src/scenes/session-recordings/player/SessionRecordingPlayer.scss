@@ -64,13 +64,6 @@
         }
     }
 
-    &--explorer-mode {
-        .SessionRecordingPlayer__main,
-        .SessionRecordingPlayer__inspector {
-            display: none;
-        }
-    }
-
     .SessionRecordingPlayer__main {
         padding-right: var(--inspector-peek-width);
     }

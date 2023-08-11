@@ -1,8 +1,10 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import ANY, patch
+from typing import List
+from unittest.mock import ANY, patch, MagicMock, call
 from urllib.parse import urlencode
 
+from parameterized import parameterized
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -45,6 +47,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         has_full_snapshot=True,
         type=2,
         snapshot_data=None,
+        use_replay_table=True,
+        use_recording_table=False,
     ):
         if team_id is None:
             team_id = self.team.pk
@@ -66,10 +70,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             session_id=session_id,
             window_id=window_id,
             snapshots=[snapshot],
+            use_replay_table=use_replay_table,
+            use_recording_table=use_recording_table,
         )
 
     def create_snapshots(
-        self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True, window_id=""
+        self,
+        snapshot_count,
+        distinct_id,
+        session_id,
+        timestamp,
+        has_full_snapshot=True,
+        window_id="",
+        use_replay_table=True,
+        use_recording_table=False,
     ):
         snapshots = []
         for index in range(snapshot_count):
@@ -106,6 +120,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             session_id=session_id,
             window_id=window_id,
             snapshots=snapshots,
+            use_replay_table=use_replay_table,
+            use_recording_table=use_recording_table,
         )
 
     def test_get_session_recordings(self):
@@ -116,20 +132,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        produce_replay_summary(
-            session_id="1",
-            team_id=self.team.pk,
-            first_timestamp=base_time.isoformat(),
-            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
-            distinct_id="user",
-        )
-        produce_replay_summary(
-            session_id="2",
-            team_id=self.team.pk,
-            first_timestamp=(base_time + relativedelta(seconds=20)).isoformat(),
-            last_timestamp=(base_time + relativedelta(seconds=20)).isoformat(),
-            distinct_id="user2",
-        )
+        session_id_one = f"test_get_session_recordings-1-{uuid.uuid4()}"
+        self.create_snapshot("user", session_id_one, base_time)
+        self.create_snapshot("user", session_id_one, base_time + relativedelta(seconds=10))
+        self.create_snapshot("user", session_id_one, base_time + relativedelta(seconds=30))
+        session_id_two = f"test_get_session_recordings-2-{uuid.uuid4()}"
+        self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -170,30 +178,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_listing_recordings_is_not_nplus1_for_persons(self):
         with freeze_time("2022-06-03T12:00:00.000Z"):
             # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
-            zeroth_load = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-            assert zeroth_load.status_code == status.HTTP_200_OK
-            assert len(zeroth_load.json()["results"]) == 0
+            self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
             num_queries = FuzzyInt(12, 19)  # PoE on or off adds queries here :shrug:
 
-            self._person_with_snapshots(base_time=base_time, distinct_id="user", session_id="1")
-            with self.assertNumQueries(num_queries):
-                first_load = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-                assert first_load.status_code == status.HTTP_200_OK
-                assert len(first_load.json()["results"]) == 1
-
-            self._person_with_snapshots(base_time=base_time, distinct_id="user2", session_id="2")
-            with self.assertNumQueries(num_queries):
-                second_load = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-                assert second_load.status_code == status.HTTP_200_OK
-                assert len(second_load.json()["results"]) == 2
-
-            self._person_with_snapshots(base_time=base_time, distinct_id="user3", session_id="3")
-            with self.assertNumQueries(num_queries):
-                third_load = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-                assert third_load.status_code == status.HTTP_200_OK
-                assert len(third_load.json()["results"]) == 3
+            # loop from 1 to 10
+            for i in range(1, 11):
+                self._person_with_snapshots(
+                    base_time=base_time,
+                    distinct_id=f"user{i}",
+                    session_id=f"{i}",
+                )
+                with self.assertNumQueries(num_queries):
+                    self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
     def _person_with_snapshots(self, base_time: datetime, distinct_id: str = "user", session_id: str = "1") -> None:
         Person.objects.create(
@@ -201,24 +199,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         self.create_snapshot(distinct_id, session_id, base_time)
         self.create_snapshot(distinct_id, session_id, base_time + relativedelta(seconds=10))
-        produce_replay_summary(
-            session_id="1",
-            team_id=self.team.pk,
-            first_timestamp=base_time.isoformat(),
-            last_timestamp=base_time.isoformat(),
-            distinct_id=distinct_id,
-        )
-        produce_replay_summary(
-            session_id=session_id,
-            team_id=self.team.pk,
-            first_timestamp=base_time.isoformat(),
-            last_timestamp=(base_time + relativedelta(seconds=10)).isoformat(),
-            distinct_id=distinct_id,
-        )
-
         flush_persons_and_events()
 
-    def test_session_recordings_dont_leak_teams(self):
+    def test_session_recordings_dont_leak_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
         Person.objects.create(
             team=another_team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
@@ -228,20 +211,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        produce_replay_summary(
-            session_id="1",
-            team_id=another_team.pk,
-            first_timestamp=base_time.isoformat(),
-            last_timestamp=base_time.isoformat(),
-            distinct_id="user",
-        )
-        produce_replay_summary(
-            session_id="2",
-            team_id=self.team.pk,
-            first_timestamp=base_time.isoformat(),
-            last_timestamp=base_time.isoformat(),
-            distinct_id="user",
-        )
+        self.create_snapshot("user", "1", base_time, team_id=another_team.pk)
+        self.create_snapshot("user", "2", base_time)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -249,55 +220,45 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(len(response_data["results"]), 1)
         self.assertEqual(response_data["results"][0]["id"], "2")
 
-    def test_session_recording_for_user_with_multiple_distinct_ids(self):
+    def test_session_recording_for_user_with_multiple_distinct_ids(self) -> None:
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
         p = Person.objects.create(
             team=self.team,
             distinct_ids=["d1", "d2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-        produce_replay_summary(
-            session_id="1",
-            team_id=self.team.pk,
-            first_timestamp=base_time.isoformat(),
-            last_timestamp=base_time.isoformat(),
-            distinct_id="d1",
-        )
-        produce_replay_summary(
-            session_id="2",
-            team_id=self.team.pk,
-            first_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
-            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
-            distinct_id="d2",
-        )
-
+        self.create_snapshot("d1", "1", base_time)
+        self.create_snapshot("d2", "2", base_time + relativedelta(seconds=30))
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 2)
         self.assertEqual(response_data["results"][0]["person"]["id"], p.pk)
         self.assertEqual(response_data["results"][1]["person"]["id"], p.pk)
 
-    def test_viewed_state_of_session_recording(self):
+    def test_viewed_state_of_session_recording_version_1(self):
         Person.objects.create(
             team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
-        produce_replay_summary(
-            session_id="1",
-            team_id=self.team.pk,
-            first_timestamp=base_time.isoformat(),
-            last_timestamp=base_time.isoformat(),
-            distinct_id="u1",
-        )
-        produce_replay_summary(
-            session_id="2",
-            team_id=self.team.pk,
-            first_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
-            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
-            distinct_id="u1",
-        )
+        self.create_snapshot("u1", "1", base_time, use_recording_table=True)
+        self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30), use_recording_table=True)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 2)
+        self.assertEqual(response_data["results"][0]["id"], "2")
+        self.assertEqual(response_data["results"][0]["viewed"], False)
+        self.assertEqual(response_data["results"][1]["id"], "1")
+        self.assertEqual(response_data["results"][1]["viewed"], True)
 
+    def test_viewed_state_of_session_recording_version_3(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+        )
+        base_time = (now() - timedelta(days=1)).replace(microsecond=0)
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
+        self.create_snapshot("u1", "1", base_time)
+        self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30))
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 2)
@@ -421,7 +382,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         num_snapshots = 2  # small contents aren't compressed, needs to be enough data to trigger compression
 
         for _ in range(num_snapshots):
-            self.create_snapshot("user", "1", base_time)
+            self.create_snapshot("user", "1", base_time, use_recording_table=True)
 
         custom_headers = {"HTTP_ACCEPT_ENCODING": "gzip"}
         response = self.client.get(
@@ -450,6 +411,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     chunked_session_id,
                     start_time + relativedelta(minutes=s),
                     window_id="1" if index % 2 == 0 else "2",
+                    use_recording_table=True,
+                    use_replay_table=False,
                 )
 
             next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots"
@@ -509,56 +472,31 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(f"/api/projects/{another_team.pk}/session_recordings/id_no_team_leaking")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_session_ids_filter(self):
+    @parameterized.expand(
+        [
+            (False, 3),
+            (True, 1),
+        ]
+    )
+    def test_session_ids_filter(self, use_recording_events: bool, api_version: int):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             Person.objects.create(
                 team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
             )
-            self.create_snapshot("user", "1", now() - relativedelta(days=1))
-            self.create_snapshot("user", "2", now() - relativedelta(days=2))
-            self.create_snapshot("user", "3", now() - relativedelta(days=3))
-
-            produce_replay_summary(
-                session_id="a",
-                team_id=self.team.pk,
-                first_timestamp=(now() - relativedelta(days=1)).isoformat(),
-                last_timestamp=(now() - relativedelta(days=1)).isoformat(),
-                distinct_id="user",
-            )
-            produce_replay_summary(
-                session_id="b",
-                team_id=self.team.pk,
-                first_timestamp=(now() - relativedelta(days=2)).isoformat(),
-                last_timestamp=(now() - relativedelta(days=2)).isoformat(),
-                distinct_id="user",
-            )
-            produce_replay_summary(
-                session_id="c",
-                team_id=self.team.pk,
-                first_timestamp=(now() - relativedelta(days=3)).isoformat(),
-                last_timestamp=(now() - relativedelta(days=3)).isoformat(),
-                distinct_id="user",
-            )
+            self.create_snapshot("user", "1", now() - relativedelta(days=1), use_recording_table=use_recording_events)
+            self.create_snapshot("user", "2", now() - relativedelta(days=2), use_recording_table=use_recording_events)
+            self.create_snapshot("user", "3", now() - relativedelta(days=3), use_recording_table=use_recording_events)
 
             # Fetch playlist
-            params_string = urlencode({"session_ids": '["a", "b", "c"]'})
+            params_string = urlencode({"session_ids": '["1", "2", "3"]', "version": api_version})
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
 
             self.assertEqual(len(response_data["results"]), 3)
-            self.assertEqual(response_data["results"][0]["id"], "a")
-            self.assertEqual(response_data["results"][1]["id"], "b")
-            self.assertEqual(response_data["results"][2]["id"], "c")
-
-            params_string = urlencode({"session_ids": '["b", "c"]'})
-            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-
-            self.assertEqual(len(response_data["results"]), 2)
-            self.assertEqual(response_data["results"][0]["id"], "b")
-            self.assertEqual(response_data["results"][1]["id"], "c")
+            self.assertEqual(response_data["results"][0]["id"], "1")
+            self.assertEqual(response_data["results"][1]["id"], "2")
+            self.assertEqual(response_data["results"][2]["id"], "3")
 
     def test_empty_list_session_ids_filter_returns_no_recordings(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -587,7 +525,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "user",
                 "1",
                 now() - relativedelta(days=1),
+                # TODO do we need a version of this that writes to blob storage?
                 snapshot_data={"texts": ["\\ud83d\udc83\\ud83c\\udffb"]},  # This is an invalid encoded emoji
+                use_recording_table=True,
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
@@ -650,7 +590,64 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 },
             ]
         }
-        mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/")
+        mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data")
+
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.api.session_recording.object_storage.list_objects")
+    def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock) -> None:
+        session_id = str(uuid.uuid4())
+        timestamp = round(now().timestamp() * 1000)
+
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_id,
+            deleted=False,
+            storage_version="2023-08-01",
+            object_storage_path="an lts stored object path",
+        )
+
+        def list_objects_func(path: str) -> List[str]:
+            # this mock simulates a recording whose blob storage has been deleted by TTL
+            # but which has been stored in LTS blob storage
+            if path == "an lts stored object path":
+                return [
+                    f"an lts stored object path/{timestamp - 10000}-{timestamp - 5000}",
+                    f"an lts stored object path/{timestamp - 5000}-{timestamp}",
+                ]
+            else:
+                return []
+
+        mock_list_objects.side_effect = list_objects_func
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
+        response_data = response.json()
+
+        assert response_data == {
+            "sources": [
+                {
+                    "source": "blob",
+                    "start_timestamp": "2022-12-31T23:59:50Z",
+                    "end_timestamp": "2022-12-31T23:59:55Z",
+                    "blob_key": "1672531190000-1672531195000",
+                },
+                {
+                    "source": "blob",
+                    "start_timestamp": "2022-12-31T23:59:55Z",
+                    "end_timestamp": "2023-01-01T00:00:00Z",
+                    "blob_key": "1672531195000-1672531200000",
+                },
+                {
+                    "source": "realtime",
+                    "start_timestamp": "2022-12-31T23:59:55Z",
+                    "end_timestamp": None,
+                    "blob_key": None,
+                },
+            ]
+        }
+        assert mock_list_objects.call_args_list == [
+            call(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data"),
+            call("an lts stored object path"),
+        ]
 
     @freeze_time("2023-01-01T00:00:00Z")
     @patch("posthog.api.session_recording.object_storage.list_objects")
@@ -729,19 +726,24 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_get_via_sharing_token(self):
+    @parameterized.expand(
+        [
+            (False, 3),
+            (True, 1),
+        ]
+    )
+    def test_get_via_sharing_token(self, use_recording_events: bool, api_version: int) -> None:
         other_team = create_team(organization=self.organization)
 
         session_id = str(uuid.uuid4())
         with freeze_time("2023-01-01T12:00:00Z"):
-            produce_replay_summary(
-                session_id=session_id,
+            self.create_snapshot(
+                "user",
+                session_id,
+                now() - relativedelta(days=1),
                 team_id=self.team.pk,
-                first_timestamp=(now() - relativedelta(days=1)).isoformat(),
-                last_timestamp=(now() - relativedelta(days=1)).isoformat(),
-                distinct_id="user",
+                use_recording_table=use_recording_events,
             )
-            self.create_snapshot("user", session_id, now() - relativedelta(days=1), team_id=self.team.pk)
 
         token = self.client.patch(
             f"/api/projects/{self.team.id}/session_recordings/{session_id}/sharing", {"enabled": True}
@@ -755,6 +757,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?sharing_access_token={token}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.get(f"/api/projects/12345/session_recordings?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.get(
             f"/api/projects/{other_team.id}/session_recordings/{session_id}?sharing_access_token={token}"
         )
@@ -772,7 +775,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "end_time": "2022-12-31T12:00:00Z",
         }
 
+        # if api_version is three then we should request snapshots with version 2
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}"
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&version={api_version-1}"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)

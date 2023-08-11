@@ -346,5 +346,6 @@ async def get_client() -> collections.abc.AsyncIterator[ClickHouseClient]:
                 database=settings.CLICKHOUSE_DATABASE,
                 # TODO: make this a setting.
                 max_execution_time=0,
+                max_block_size=10000,
             ) as client:
                 yield client

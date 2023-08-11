@@ -1,8 +1,9 @@
-from datetime import datetime
-from typing import List
+from datetime import datetime, timedelta, timezone
 from unittest import mock
+from unittest.mock import patch, MagicMock
 from uuid import uuid4
 
+from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -11,9 +12,15 @@ from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FE
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
-from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.test.test_factory import create_session_recording_events
+
+TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
 
+@override_settings(
+    OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET,
+    OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER=f"{TEST_BUCKET}_lts",
+)
 class TestSessionRecordingPlaylist(APILicensedTest):
     def setUp(self):
         super().setUp()
@@ -154,21 +161,22 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         session_one = f"test_get_pinned_recordings_for_playlist-session1-{uuid4()}"
         session_two = f"test_get_pinned_recordings_for_playlist-session2-{uuid4()}"
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
 
-        produce_replay_summary(
-            session_id=session_one,
-            team_id=self.team.pk,
-            first_timestamp=(datetime.utcnow()).isoformat(),
-            last_timestamp=(datetime.utcnow()).isoformat(),
+        create_session_recording_events(
+            team_id=self.team.id,
             distinct_id="123",
+            timestamp=three_days_ago,
+            session_id=session_one,
+            window_id="1234",
         )
 
-        produce_replay_summary(
-            session_id=session_two,
-            team_id=self.team.pk,
-            first_timestamp=(datetime.utcnow()).isoformat(),
-            last_timestamp=(datetime.utcnow()).isoformat(),
+        create_session_recording_events(
+            team_id=self.team.id,
             distinct_id="123",
+            timestamp=three_days_ago,
+            session_id=session_two,
+            window_id="1234",
         )
 
         # Create playlist items
@@ -190,7 +198,12 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert {x["id"] for x in result["results"]} == {session_one, session_two}
         assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
-    def test_fetch_playlist_recordings(self):
+    @patch("ee.models.session_recording_extensions.object_storage.list_objects")
+    @patch("ee.models.session_recording_extensions.object_storage.copy_objects")
+    def test_fetch_playlist_recordings(self, mock_copy_objects: MagicMock, mock_list_objects: MagicMock) -> None:
+        # all sessions have been blob ingested and had data to copy into the LTS storage location
+        mock_copy_objects.return_value = 1
+
         playlist1 = SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="test_fetch_playlist_recordings-playlist1",
@@ -202,128 +215,121 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             created_by=self.user,
         )
 
-        session_one = f"test_fetch_playlist_recordings-session-one-{uuid4()}"
-        session_two = f"test_fetch_playlist_recordings-session-two-{uuid4()}"
+        session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
+        session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
 
         for id in [session_one, session_two]:
-            produce_replay_summary(
-                session_id=id,
-                team_id=self.team.pk,
-                first_timestamp=(datetime.utcnow()).isoformat(),
-                last_timestamp=(datetime.utcnow()).isoformat(),
+            create_session_recording_events(
+                team_id=self.team.id,
                 distinct_id="123",
+                timestamp=three_days_ago,
+                session_id=id,
+                window_id="1234",
             )
 
-        add_one_response = self.client.post(
+        self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{session_one}",
         )
-        assert add_one_response.status_code == 200
-        assert add_one_response.json() == {"success": True}
-        self._assert_playlist_session_ids(playlist1.short_id, expected=[session_one])
-
-        add_two_response = self.client.post(
+        self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{session_two}",
         )
-        assert add_two_response.status_code == 200
-        self._assert_playlist_session_ids(playlist1.short_id, expected=[session_one, session_two])
-
-        add_one_to_playlist_two_response = self.client.post(
+        self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{session_one}",
         )
-        assert add_one_to_playlist_two_response.status_code == 200
 
-        # adding to playlist 2 should not affect playlist 1
-        self._assert_playlist_session_ids(playlist1.short_id, expected=[session_one, session_two])
-        self._assert_playlist_session_ids(playlist2.short_id, expected=[session_one])
-
-    def _assert_playlist_session_ids(self, playlist_short_id: str, expected: List[str]) -> None:
-        playlist_response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist_short_id}/recordings",
-        )
-        assert playlist_response.status_code == 200
-        assert [r["id"] for r in playlist_response.json()["results"]] == expected
-
-    def test_add_remove_static_playlist_items(self):
-        playlist1 = SessionRecordingPlaylist.objects.create(
-            team=self.team,
-            name="playlist1",
-            created_by=self.user,
-        )
-        playlist2 = SessionRecordingPlaylist.objects.create(
-            team=self.team,
-            name="playlist2",
-            created_by=self.user,
-        )
-
-        recording1_session_id = "1"
-        recording2_session_id = "2"
-
-        # Add recording 1 to playlist 1
-        result = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording1_session_id}",
+        result = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings",
         ).json()
-        assert result["success"]
-        playlist_item = SessionRecordingPlaylistItem.objects.filter(
-            playlist_id=playlist1.id, session_id=recording1_session_id
-        )
-        assert playlist_item is not None
 
-        # Add recording 2 to playlist 1
-        result = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording2_session_id}",
-        ).json()
-        assert result["success"]
-        playlist_item = SessionRecordingPlaylistItem.objects.filter(
-            playlist_id=playlist1.id, session_id=recording2_session_id
-        )
-        assert playlist_item is not None
+        assert len(result["results"]) == 2
+        assert result["results"][0]["id"] == session_one
+        assert result["results"][1]["id"] == session_two
 
-        # Add recording 2 to playlist 2
-        result = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording2_session_id}",
+        # Test get recordings
+        result = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings",
         ).json()
-        assert result["success"]
-        playlist_item = SessionRecordingPlaylistItem.objects.filter(
-            playlist_id=playlist2.id, session_id=recording2_session_id
-        )
-        assert playlist_item is not None
 
-        session_recording_obj_1 = SessionRecording.get_or_build(team=self.team, session_id=recording1_session_id)
-        assert session_recording_obj_1
-        assert session_recording_obj_1.pinned_count == 1
+        assert len(result["results"]) == 1
+        assert result["results"][0]["id"] == session_one
 
-        session_recording_obj_2 = SessionRecording.get_or_build(team=self.team, session_id=recording2_session_id)
-        assert session_recording_obj_2
-        assert session_recording_obj_2.pinned_count == 2
 
-        # Delete playlist items
-        result = self.client.delete(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording1_session_id}",
-        ).json()
-        assert result["success"]
-        assert (
-            SessionRecordingPlaylistItem.objects.filter(
-                playlist_id=playlist1.id, session_id=recording1_session_id
-            ).count()
-            == 0
-        )
-        result = self.client.delete(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording2_session_id}",
-        ).json()
-        assert result["success"]
-        assert (
-            SessionRecordingPlaylistItem.objects.filter(
-                playlist_id=playlist1.id, session_id=recording2_session_id
-            ).count()
-            == 0
-        )
-        result = self.client.delete(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording2_session_id}",
-        ).json()
-        assert result["success"]
-        assert (
-            SessionRecordingPlaylistItem.objects.filter(
-                playlist_id=playlist2.id, session_id=recording1_session_id
-            ).count()
-            == 0
-        )
+def test_add_remove_static_playlist_items(self):
+    playlist1 = SessionRecordingPlaylist.objects.create(
+        team=self.team,
+        name="playlist1",
+        created_by=self.user,
+    )
+    playlist2 = SessionRecordingPlaylist.objects.create(
+        team=self.team,
+        name="playlist2",
+        created_by=self.user,
+    )
+
+    recording1_session_id = "1"
+    recording2_session_id = "2"
+
+    # Add recording 1 to playlist 1
+    result = self.client.post(
+        f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording1_session_id}",
+    ).json()
+    assert result["success"]
+    playlist_item = SessionRecordingPlaylistItem.objects.filter(
+        playlist_id=playlist1.id, session_id=recording1_session_id
+    )
+    assert playlist_item is not None
+
+    # Add recording 2 to playlist 1
+    result = self.client.post(
+        f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording2_session_id}",
+    ).json()
+    assert result["success"]
+    playlist_item = SessionRecordingPlaylistItem.objects.filter(
+        playlist_id=playlist1.id, session_id=recording2_session_id
+    )
+    assert playlist_item is not None
+
+    # Add recording 2 to playlist 2
+    result = self.client.post(
+        f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording2_session_id}",
+    ).json()
+    assert result["success"]
+    playlist_item = SessionRecordingPlaylistItem.objects.filter(
+        playlist_id=playlist2.id, session_id=recording2_session_id
+    )
+    assert playlist_item is not None
+
+    session_recording_obj_1 = SessionRecording.get_or_build(team=self.team, session_id=recording1_session_id)
+    assert session_recording_obj_1
+    assert session_recording_obj_1.pinned_count == 1
+
+    session_recording_obj_2 = SessionRecording.get_or_build(team=self.team, session_id=recording2_session_id)
+    assert session_recording_obj_2
+    assert session_recording_obj_2.pinned_count == 2
+
+    # Delete playlist items
+    result = self.client.delete(
+        f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording1_session_id}",
+    ).json()
+    assert result["success"]
+    assert (
+        SessionRecordingPlaylistItem.objects.filter(playlist_id=playlist1.id, session_id=recording1_session_id).count()
+        == 0
+    )
+    result = self.client.delete(
+        f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording2_session_id}",
+    ).json()
+    assert result["success"]
+    assert (
+        SessionRecordingPlaylistItem.objects.filter(playlist_id=playlist1.id, session_id=recording2_session_id).count()
+        == 0
+    )
+    result = self.client.delete(
+        f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording2_session_id}",
+    ).json()
+    assert result["success"]
+    assert (
+        SessionRecordingPlaylistItem.objects.filter(playlist_id=playlist2.id, session_id=recording1_session_id).count()
+        == 0
+    )

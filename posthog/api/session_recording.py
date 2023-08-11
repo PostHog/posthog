@@ -230,13 +230,17 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         if not source:
             sources: List[dict] = []
-            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
+            blob_prefix = recording.build_blob_ingestion_storage_path()
             blob_keys = object_storage.list_objects(blob_prefix)
+
+            if not blob_keys and recording.storage_version == "2023-08-01":
+                blob_prefix = recording.object_storage_path
+                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
 
             if blob_keys:
                 for full_key in blob_keys:
                     # Keys are like 1619712000-1619712060
-                    blob_key = full_key.replace(blob_prefix, "")
+                    blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
                     time_range = [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
 
                     sources.append(
@@ -347,7 +351,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             )
             recording.start_time = recording_start_time
 
-        recording.load_snapshots(limit, offset)
+        try:
+            recording.load_snapshots(limit, offset)
+        except NotImplementedError as e:
+            capture_exception(e)
+            raise exceptions.NotFound("Storage version 2023-08-01 can only be accessed via V2 of this endpoint")
 
         if offset == 0:
             if not recording.snapshot_data_by_window_id:

@@ -28,6 +28,22 @@ interface Params {
     sessionRecordingId?: SessionRecordingId
 }
 
+interface NoEventsToMatch {
+    matchType: 'none'
+}
+
+interface SimpleEventsMatching {
+    matchType: 'simple'
+    eventNames: string[]
+}
+
+interface BackendEventsMatching {
+    matchType: 'backend'
+    filters: RecordingFilters
+}
+
+export type MatchingEventsMatchType = NoEventsToMatch | SimpleEventsMatching | BackendEventsMatching
+
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
@@ -61,6 +77,29 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
 
 const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+}
+
+const addedAdvancedFilters = (filters: RecordingFilters | undefined, defaultFilters: RecordingFilters): boolean => {
+    if (!filters) {
+        return false
+    }
+
+    const hasActions = filters.actions ? filters.actions.length > 0 : false
+    const hasChangedDateFrom = filters.date_from != defaultFilters.date_from
+    const hasChangedDateTo = filters.date_to != defaultFilters.date_to
+    const hasConsoleLogsFilters = filters.console_logs ? filters.console_logs.length > 0 : false
+    const hasChangedDuration = !equal(filters.session_recording_duration, defaultFilters.session_recording_duration)
+    const eventsFilters = filters.events || []
+    const hasAdvancedEvents = eventsFilters.length > 1 || (!!eventsFilters[0] && eventsFilters[0].name != '$pageview')
+
+    return (
+        hasActions ||
+        hasAdvancedEvents ||
+        hasChangedDuration ||
+        hasChangedDateFrom ||
+        hasChangedDateTo ||
+        hasConsoleLogsFilters
+    )
 }
 
 export const defaultPageviewPropertyEntityFilter = (
@@ -141,10 +180,18 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
         ],
-        values: [featureFlagLogic, ['featureFlags'], playerSettingsLogic, ['autoplayDirection']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            playerSettingsLogic,
+            ['autoplayDirection', 'hideViewedRecordings'],
+        ],
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
+        setShowFilters: (showFilters: boolean) => ({ showFilters }),
+        setShowAdvancedFilters: (showAdvancedFilters: boolean) => ({ showAdvancedFilters }),
+        setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -257,6 +304,32 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     ...filters,
                 }),
                 resetFilters: () => null,
+            },
+        ],
+        showFilters: [
+            true,
+            {
+                persist: true,
+            },
+            {
+                setShowFilters: (_, { showFilters }) => showFilters,
+                setShowSettings: () => false,
+            },
+        ],
+        showSettings: [
+            false,
+            {
+                persist: true,
+            },
+            {
+                setShowSettings: (_, { showSettings }) => showSettings,
+                setShowFilters: () => false,
+            },
+        ],
+        showAdvancedFilters: [
+            addedAdvancedFilters(props.filters, getDefaultFilters(props.personUUID)),
+            {
+                setShowAdvancedFilters: (_, { showAdvancedFilters }) => showAdvancedFilters,
             },
         ],
         sessionRecordings: [
@@ -406,6 +479,42 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 }
             },
         ],
+
+        matchingEventsMatchType: [
+            (s) => [s.filters],
+            (filters: RecordingFilters | undefined): MatchingEventsMatchType => {
+                if (!filters) {
+                    return { matchType: 'none' }
+                }
+
+                const hasActions = !!filters.actions?.length
+                const hasEvents = !!filters.events?.length
+                const simpleEvents = (filters.events || [])
+                    .filter((e) => !e.properties || !e.properties.length)
+                    .map((e) => e.name.toString())
+                const hasSimpleEvents = !!simpleEvents.length
+
+                if (hasActions) {
+                    return { matchType: 'backend', filters }
+                } else {
+                    if (!hasEvents) {
+                        return { matchType: 'none' }
+                    }
+
+                    if (hasEvents && hasSimpleEvents && simpleEvents.length === filters.events?.length) {
+                        return {
+                            matchType: 'simple',
+                            eventNames: simpleEvents,
+                        }
+                    } else {
+                        return {
+                            matchType: 'backend',
+                            filters,
+                        }
+                    }
+                }
+            },
+        ],
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings, (_, props) => props.autoPlay],
             (selectedRecordingId, sessionRecordings, autoPlay): Partial<SessionRecordingType> | undefined => {
@@ -455,6 +564,19 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         : 1) +
                     (filters.console_logs?.length || 0)
                 )
+            },
+        ],
+        hasAdvancedFilters: [
+            (s) => [s.filters, (_, props) => props.personUUID],
+            (filters, personUUID) => {
+                const defaultFilters = getDefaultFilters(personUUID)
+                return addedAdvancedFilters(filters, defaultFilters)
+            },
+        ],
+        visibleRecordings: [
+            (s) => [s.sessionRecordings, s.hideViewedRecordings],
+            (sessionRecordings, hideViewedRecordings) => {
+                return hideViewedRecordings ? sessionRecordings.filter((r) => !r.viewed) : sessionRecordings
             },
         ],
     }),
