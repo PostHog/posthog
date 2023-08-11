@@ -16,12 +16,12 @@ import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
-import { Pool } from 'pg'
 import { VM } from 'vm2'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
+import { PostgresRouter } from './utils/db/postgres' /** Re-export Element from scaffolding, for backwards compat. */
 import { UUID } from './utils/utils'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
@@ -31,7 +31,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
-import { PromiseManager } from './worker/vm/promise-manager' /** Re-export Element from scaffolding, for backwards compat. */
+import { PromiseManager } from './worker/vm/promise-manager'
 
 /** Re-export Element from scaffolding, for backwards compat. */
 export { Element } from '@posthog/plugin-scaffold'
@@ -223,7 +223,7 @@ export interface Hub extends PluginsServerConfig {
     capabilities: PluginServerCapabilities
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
-    postgres: Pool
+    postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     clickhouse: ClickHouse
     kafka: Kafka

@@ -107,6 +107,14 @@ export class PostgresRouter {
             }
         })
     }
+
+    async end() {
+        // Close all the connection pools
+        const uniquePools: Set<Pool> = new Set(this.pools.values())
+        for (const pool of uniquePools) {
+            await pool.end()
+        }
+    }
 }
 
 function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
