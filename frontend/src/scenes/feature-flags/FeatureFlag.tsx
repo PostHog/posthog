@@ -1087,7 +1087,7 @@ export function FeatureFlagReleaseConditions({
         return !!(
             featureFlag.features?.length &&
             featureFlag.features?.length > 0 &&
-            group.properties.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
+            group.properties?.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
         )
     }
 
@@ -1153,7 +1153,7 @@ export function FeatureFlagReleaseConditions({
 
                     {readOnly ? (
                         <>
-                            {group.properties.map((property, idx) => (
+                            {group.properties?.map((property, idx) => (
                                 <>
                                     <div className="feature-flag-property-display" key={idx}>
                                         {idx === 0 ? (
