@@ -32,21 +32,22 @@ export function NotebookCommentButton({
                     items: notebooksLoading
                         ? [
                               {
-                                  sideIcon: <Spinner />,
-                                  active: true,
-                                  label: 'Finding notebooks with this recording...',
-                                  onClick: () => {
-                                      // noop
-                                  },
+                                  label: () => (
+                                      <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
+                                          <Spinner />
+                                          <span>Finding notebooks with this recording...</span>
+                                      </div>
+                                  ),
+                                  custom: true,
                               },
                           ]
                         : notebooks.length === 0
                         ? [
                               {
-                                  label: 'This recording is not already in any notebooks.',
-                                  onClick: () => {
-                                      // noop
-                                  },
+                                  label: () => (
+                                      <div className={'px-2 py-1'}>This recording is not already in any notebooks.</div>
+                                  ),
+                                  custom: true,
                               },
                           ]
                         : notebooks.map((notebook) => ({

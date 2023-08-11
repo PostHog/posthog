@@ -11,7 +11,8 @@ const Template: ComponentStory<typeof NotebookCommentButton> = (props) => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/notebooks/': (req, res, ctx) => {
-                const sessionRecordingId = req.url.searchParams.get('has_recordings')
+                const contains = req.url.searchParams.get('contains')
+                const sessionRecordingId = contains?.split(':')[1]
                 return res(
                     ctx.delay(sessionRecordingId === 'very_slow' ? 'infinite' : 100),
                     ctx.status(200),
