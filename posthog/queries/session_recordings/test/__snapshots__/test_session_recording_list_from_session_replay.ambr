@@ -33,7 +33,7 @@
             AND timestamp >= '2022-12-27 12:00:00'
             AND timestamp <= '2023-01-04 12:00:00'
             AND (((event = 'custom-event'
-                   AND (has(['Firefox'], "mat_$browser")
+                   AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
                         AND has(['test_action_filter-session-one'], "$session_id")
                         AND has(['test_action_filter-window-id'], "$window_id")))))
           GROUP BY `$session_id`
@@ -130,7 +130,7 @@
             AND (((event = 'custom-event'
                    AND (has(['test_action_filter-session-one'], "$session_id")
                         AND has(['test_action_filter-window-id'], "$window_id"))))
-                 AND (has(['Firefox'], "mat_$browser")))
+                 AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
           HAVING 1=1
           AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
@@ -178,7 +178,7 @@
             AND (((event = 'custom-event'
                    AND (has(['test_action_filter-session-one'], "$session_id")
                         AND has(['test_action_filter-window-id'], "$window_id"))))
-                 AND (has(['Chrome'], "mat_$browser")))
+                 AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
           HAVING 1=1
           AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
