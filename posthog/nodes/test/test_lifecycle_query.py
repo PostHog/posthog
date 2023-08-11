@@ -29,7 +29,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         return random_uuid
 
     def test_query(self):
-        with freeze_time("2020-01-10"):
+        with freeze_time("2023-08-10"):
             self._create_random_events()
             response = run_lifecycle_query(
                 query=LifecycleQuery.parse_obj(
@@ -43,4 +43,114 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ),
                 team=self.team,
             )
-            self.assertEqual(response, [])
+            self.assertEqual(
+                response,
+                [
+                    [
+                        {
+                            "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                            "count": 0.0,
+                            "labels": [
+                                "2-Aug-2023",
+                                "3-Aug-2023",
+                                "4-Aug-2023",
+                                "5-Aug-2023",
+                                "6-Aug-2023",
+                                "7-Aug-2023",
+                                "8-Aug-2023",
+                                "9-Aug-2023",
+                            ],
+                            "days": [
+                                "2023-08-02",
+                                "2023-08-03",
+                                "2023-08-04",
+                                "2023-08-05",
+                                "2023-08-06",
+                                "2023-08-07",
+                                "2023-08-08",
+                                "2023-08-09",
+                            ],
+                            "label": " - new",
+                            "status": "new",
+                        },
+                        {
+                            "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                            "count": 0.0,
+                            "labels": [
+                                "2-Aug-2023",
+                                "3-Aug-2023",
+                                "4-Aug-2023",
+                                "5-Aug-2023",
+                                "6-Aug-2023",
+                                "7-Aug-2023",
+                                "8-Aug-2023",
+                                "9-Aug-2023",
+                            ],
+                            "days": [
+                                "2023-08-02",
+                                "2023-08-03",
+                                "2023-08-04",
+                                "2023-08-05",
+                                "2023-08-06",
+                                "2023-08-07",
+                                "2023-08-08",
+                                "2023-08-09",
+                            ],
+                            "label": " - dormant",
+                            "status": "dormant",
+                        },
+                        {
+                            "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                            "count": 0.0,
+                            "labels": [
+                                "2-Aug-2023",
+                                "3-Aug-2023",
+                                "4-Aug-2023",
+                                "5-Aug-2023",
+                                "6-Aug-2023",
+                                "7-Aug-2023",
+                                "8-Aug-2023",
+                                "9-Aug-2023",
+                            ],
+                            "days": [
+                                "2023-08-02",
+                                "2023-08-03",
+                                "2023-08-04",
+                                "2023-08-05",
+                                "2023-08-06",
+                                "2023-08-07",
+                                "2023-08-08",
+                                "2023-08-09",
+                            ],
+                            "label": " - resurrecting",
+                            "status": "resurrecting",
+                        },
+                        {
+                            "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                            "count": 0.0,
+                            "labels": [
+                                "2-Aug-2023",
+                                "3-Aug-2023",
+                                "4-Aug-2023",
+                                "5-Aug-2023",
+                                "6-Aug-2023",
+                                "7-Aug-2023",
+                                "8-Aug-2023",
+                                "9-Aug-2023",
+                            ],
+                            "days": [
+                                "2023-08-02",
+                                "2023-08-03",
+                                "2023-08-04",
+                                "2023-08-05",
+                                "2023-08-06",
+                                "2023-08-07",
+                                "2023-08-08",
+                                "2023-08-09",
+                            ],
+                            "label": " - returning",
+                            "status": "returning",
+                        },
+                    ]
+                ],
+            )
