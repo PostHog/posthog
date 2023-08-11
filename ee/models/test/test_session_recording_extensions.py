@@ -73,7 +73,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
         assert not recording.object_storage_path
 
-    def test_persists_recording(self):
+    def test_persists_recording_with_original_version_when_not_in_blob_storage(self):
         two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=timezone.utc)
         with freeze_time(two_minutes_ago):
             recording = SessionRecording.objects.create(
@@ -97,7 +97,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
         assert (
             recording.object_storage_path
-            == f"session_recordings_lts/team_id/{self.team.pk}/session_id/{recording.session_id}/data"
+            == f"session_recordings_lts/team-{self.team.pk}/session-{recording.session_id}"
         )
         assert recording.start_time == recording.created_at - timedelta(hours=48)
         assert recording.end_time == recording.created_at - timedelta(hours=46)
@@ -128,6 +128,23 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
         }
+
+    def test_can_build_different_object_storage_paths(self) -> None:
+        produce_replay_summary(
+            session_id="test_can_build_different_object_storage_paths-s1",
+            team_id=self.team.pk,
+        )
+        recording: SessionRecording = SessionRecording.objects.create(
+            team=self.team, session_id="test_can_build_different_object_storage_paths-s1"
+        )
+        assert (
+            recording.build_object_storage_path("2022-12-22")
+            == f"session_recordings_lts/team-{self.team.pk}/session-test_can_build_different_object_storage_paths-s1"
+        )
+        assert (
+            recording.build_object_storage_path("2023-08-01")
+            == f"session_recordings_lts/team_id/{self.team.pk}/session_id/test_can_build_different_object_storage_paths-s1/data"
+        )
 
     def test_persists_recording_from_blob_ingested_storage(self):
         with self.settings(OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET):
@@ -176,11 +193,11 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             # recordings which were blob ingested can not be loaded with this mechanism
             assert load_persisted_recording(recording) is None
 
-            stored_objects = list_objects(recording.build_object_storage_path())
+            stored_objects = list_objects(recording.build_object_storage_path("2023-08-01"))
             assert stored_objects == [
-                f"{recording.build_object_storage_path()}/a",
-                f"{recording.build_object_storage_path()}/b",
-                f"{recording.build_object_storage_path()}/c",
+                f"{recording.build_object_storage_path('2023-08-01')}/a",
+                f"{recording.build_object_storage_path('2023-08-01')}/b",
+                f"{recording.build_object_storage_path('2023-08-01')}/c",
             ]
 
     @patch("ee.models.session_recording_extensions.report_team_action")

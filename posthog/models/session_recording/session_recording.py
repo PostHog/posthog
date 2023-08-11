@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Literal
 
 from django.db import models
 from django.db.models import Count
@@ -173,19 +173,18 @@ class SessionRecording(UUIDModel):
             SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
             self.viewed = True
 
-    def build_object_storage_path(self) -> str:
-        """
-        In the original version of LTS recordings we used a different format of path.
-        But changed this alongside the introduction of 2023-08-01 versioned recordings
-        So that the blob ingester and the django app use the same format path
-        Originally
-        path_parts: List[str] = [
-            settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
-            f"team-{self.team_id}",
-            f"session-{self.session_id}",
-        ]
-        """
-        return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
+    def build_object_storage_path(self, version: Literal["2023-08-01", "2022-12-22"]) -> str:
+        if version == "2022-12-22":
+            path_parts: List[str] = [
+                settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
+                f"team-{self.team_id}",
+                f"session-{self.session_id}",
+            ]
+            return "/".join(path_parts)
+        elif version == "2023-08-01":
+            return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
+        else:
+            raise NotImplementedError(f"Unknown session replay object storage version {version}")
 
     def build_blob_ingestion_storage_path(self) -> str:
         return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER)

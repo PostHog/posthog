@@ -65,7 +65,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
 
     # if snapshots are already in blob storage, then we can just copy the files between buckets
     with SNAPSHOT_PERSIST_TIME_HISTOGRAM.labels(source="S3").time():
-        target_prefix = recording.build_object_storage_path()
+        target_prefix = recording.build_object_storage_path("2023-08-01")
         source_prefix = recording.build_blob_ingestion_storage_path()
         copied_count = object_storage.copy_objects(source_prefix, target_prefix)
 
@@ -92,7 +92,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
             logger.info("Persisting recording: writing to S3...", recording_id=recording_id, team_id=team_id)
 
             try:
-                object_path = recording.build_object_storage_path()
+                object_path = recording.build_object_storage_path("2022-12-22")
                 object_storage.write(object_path, string_content.encode("utf-8"))
                 recording.object_storage_path = object_path
                 recording.save()
