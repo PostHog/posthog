@@ -3,7 +3,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -13,7 +13,8 @@ import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { intervalToFrequency, isRunInProgress } from './utils'
 import { TZLabel } from '@posthog/apps-common'
 import { UUIDShortener } from 'lib/components/UUIDShortener'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -34,6 +35,8 @@ export function BatchExportScene(): JSX.Element {
     } = useValues(batchExportLogic)
     const { loadBatchExportConfig, loadBatchExportRuns, loadNextBatchExportRuns, openBackfillModal, setRunsDateRange } =
         useActions(batchExportLogic)
+
+    const [dateRangeVisible, setDateRangeVisible] = useState(false)
 
     useEffect(() => {
         loadBatchExportConfig()
@@ -105,23 +108,36 @@ export function BatchExportScene(): JSX.Element {
                     <div className="flex-1 space-y-2">
                         <div className="flex justify-between items-center">
                             <h2 className="flex-1">Latest Runs</h2>
-                            <DateFilter
-                                dateFrom={runsDateRange.from}
-                                dateTo={runsDateRange.to}
-                                onChange={(changedDateFrom, changedDateTo) => {
-                                    setRunsDateRange({
-                                        from: changedDateFrom,
-                                        to: changedDateTo,
-                                    })
+                            <Popover
+                                actionable
+                                onClickOutside={function noRefCheck() {
+                                    setDateRangeVisible(false)
                                 }}
-                                dateOptions={[
-                                    { key: 'Custom', values: [] },
-                                    { key: 'Last 24 hours', values: ['-24h'] },
-                                    { key: 'Last 7 days', values: ['-7d'] },
-                                    { key: 'Last 30 days', values: ['-21d'] },
-                                ]}
-                                dropdownPlacement="bottom-end"
-                            />
+                                visible={dateRangeVisible}
+                                overlay={
+                                    <LemonCalendarRange
+                                        value={[runsDateRange.from, runsDateRange.to]}
+                                        onChange={([start, end]) => {
+                                            setRunsDateRange({ from: start.startOf('day'), to: end.endOf('day') })
+                                            setDateRangeVisible(false)
+                                        }}
+                                        onClose={function noRefCheck() {
+                                            setDateRangeVisible(false)
+                                        }}
+                                    />
+                                }
+                            >
+                                <LemonButton
+                                    onClick={function onClick() {
+                                        setDateRangeVisible(!dateRangeVisible)
+                                    }}
+                                    type="secondary"
+                                    status="stealth"
+                                >
+                                    {runsDateRange.from.format('MMMM D, YYYY')} -{' '}
+                                    {runsDateRange.to.format('MMMM D, YYYY')}
+                                </LemonButton>
+                            </Popover>
                         </div>
                         <LemonTable
                             dataSource={batchExportRuns}

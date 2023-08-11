@@ -29,12 +29,12 @@ export const batchExportLogic = kea<batchExportLogicType>([
         openBackfillModal: true,
         closeBackfillModal: true,
         retryRun: (runId: BatchExportRun) => ({ runId }),
-        setRunsDateRange: (data: { from: string | null; to: string | null }) => data,
+        setRunsDateRange: (data: { from: Dayjs; to: Dayjs }) => data,
     }),
 
     reducers({
         runsDateRange: [
-            { from: '-24h' as string | null, to: null as string | null },
+            { from: dayjs().subtract(7, 'day').startOf('day'), to: dayjs().endOf('day') },
             {
                 setRunsDateRange: (_, { from, to }) => ({ from, to }),
             },
