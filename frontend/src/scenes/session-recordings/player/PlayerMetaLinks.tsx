@@ -37,8 +37,7 @@ export function PlayerMetaLinks(): JSX.Element {
             await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
                 const ed = theNotebookLogic.values.editor
                 if (ed === null) {
-                    // TODO what should we do here?
-                    console.error('Editor is null, and so we could not add the content')
+                    // this should never happen, `openNotebook` waits until the logic's editor is not null
                     return
                 }
                 const recordingPosition = ed.findNodePositionByAttrs({ id: sessionRecordingId })
