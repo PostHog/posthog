@@ -109,7 +109,7 @@ export class TeamManager {
     public async setTeamIngestedEvent(team: Team, properties: Properties) {
         if (team && !team.ingested_event) {
             await this.postgres.query(
-                PostgresUse.COMMON,
+                PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
                 [true, team.id],
                 'setTeamIngestedEvent'
@@ -117,7 +117,7 @@ export class TeamManager {
 
             // First event for the team captured
             const organizationMembers = await this.postgres.query(
-                PostgresUse.COMMON,
+                PostgresUse.COMMON_WRITE,
                 'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
                 [team.organization_id],
                 'posthog_organizationmembership'

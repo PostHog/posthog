@@ -39,7 +39,7 @@ describe('TeamManager()', () => {
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:55Z').getTime())
             await postgres.query(
-                PostgresUse.COMMON,
+                PostgresUse.COMMON_WRITE,
                 "UPDATE posthog_team SET name = 'Updated Name!'",
                 undefined,
                 'testTag'
@@ -70,7 +70,7 @@ describe('TeamManager()', () => {
         it('caches positive lookups for 2 minutes', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:05Z').getTime())
             await postgres.query(
-                PostgresUse.COMMON,
+                PostgresUse.COMMON_WRITE,
                 "UPDATE posthog_team SET api_token = 'my_token'",
                 undefined,
                 'testTag'
@@ -85,7 +85,7 @@ describe('TeamManager()', () => {
 
             // Settings are updated
             await postgres.query(
-                PostgresUse.COMMON,
+                PostgresUse.COMMON_WRITE,
                 'UPDATE posthog_team SET anonymize_ips = true',
                 undefined,
                 'testTag'

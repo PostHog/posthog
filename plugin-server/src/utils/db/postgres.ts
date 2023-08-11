@@ -12,9 +12,9 @@ import { DependencyUnavailableError } from './error'
 import { timeoutGuard } from './utils'
 
 export enum PostgresUse {
-    COMMON, // Main PG master with common tables, we need to move as many queries away from it as possible
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
-    PLUGIN_STORAGE, // Plugin Storage table, no read replica for it
+    COMMON_WRITE, // Main PG master with common tables, we need to move as many queries away from it as possible
+    PLUGIN_STORAGE_RW, // Plugin Storage table, no read replica for it
 }
 
 export class PostgresRouter {
@@ -28,9 +28,9 @@ export class PostgresRouter {
         // We fill the pools maps with the default client by default as a safe fallback for hobby,
         // the rest of the constructor overrides entries if more database URLs are passed.
         this.pools = new Map([
-            [PostgresUse.COMMON, commonClient],
+            [PostgresUse.COMMON_WRITE, commonClient],
             [PostgresUse.COMMON_READ, commonClient],
-            [PostgresUse.PLUGIN_STORAGE, commonClient],
+            [PostgresUse.PLUGIN_STORAGE_RW, commonClient],
         ])
         this.statsd = statsd
 
@@ -41,7 +41,7 @@ export class PostgresRouter {
         }
         if (serverConfig.PLUGIN_STORAGE_DATABASE_URL) {
             status.info('🤔', `Connecting to plugin-storage Postgresql...`)
-            this.pools.set(PostgresUse.PLUGIN_STORAGE, createPostgresPool(serverConfig.PLUGIN_STORAGE_DATABASE_URL))
+            this.pools.set(PostgresUse.PLUGIN_STORAGE_RW, createPostgresPool(serverConfig.PLUGIN_STORAGE_DATABASE_URL))
             status.info('👍', `Plugin-storage Postgresql ready`)
         }
     }
