@@ -205,7 +205,14 @@ def serialize_fields(field_input) -> List[SerializedField]:
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append({"key": field_key, "type": "array"})
         elif isinstance(field, LazyJoin):
-            field_output.append({"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()})
+            field_output.append(
+                {
+                    "key": field_key,
+                    "type": "lazy_table",
+                    "table": field.join_table.to_printed_hogql(),
+                    "fields": list(field.join_table.fields.keys()),
+                }
+            )
         elif isinstance(field, VirtualTable):
             field_output.append(
                 {

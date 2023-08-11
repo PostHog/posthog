@@ -69,6 +69,8 @@ export function DatabaseTable({ table, tables }: DatabaseTableProps): JSX.Elemen
                             return (
                                 <>
                                     To table: <code>{String((field as any).table)}</code>
+                                    <br />
+                                    Fields: <code>{(field as any).fields.join(', ')}</code>
                                 </>
                             )
                         } else if (type === 'field_traverser' && Array.isArray((field as any).chain)) {
