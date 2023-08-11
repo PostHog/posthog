@@ -186,6 +186,7 @@ tableExpr
     | tableFunctionExpr                  # TableExprFunction
     | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
+    | PLACEHOLDER                        # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? identifier;

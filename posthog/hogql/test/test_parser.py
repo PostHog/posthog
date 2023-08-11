@@ -629,6 +629,22 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_select_from_placeholder(self):
+        self.assertEqual(
+            self._select("select 1 from {placeholder}"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Placeholder(field="placeholder")),
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from {placeholder}", {"placeholder": ast.Field(chain=["events"])}),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            ),
+        )
+
     def test_select_from_join(self):
         self.assertEqual(
             self._select("select 1 from events JOIN events2 ON 1"),
@@ -725,6 +741,55 @@ class TestParser(BaseTest):
                                     right=ast.Field(chain=["pdi", "person_id"]),
                                 )
                             ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    def test_select_from_cross_join(self):
+        self.assertEqual(
+            self._select("select 1 from events CROSS JOIN events2"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="CROSS JOIN",
+                        table=ast.Field(chain=["events2"]),
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from events CROSS JOIN events2 CROSS JOIN events3"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="CROSS JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        next_join=ast.JoinExpr(
+                            join_type="CROSS JOIN",
+                            table=ast.Field(chain=["events3"]),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from events, events2 CROSS JOIN events3"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="CROSS JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        next_join=ast.JoinExpr(
+                            join_type="CROSS JOIN",
+                            table=ast.Field(chain=["events3"]),
                         ),
                     ),
                 ),
