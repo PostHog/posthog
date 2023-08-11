@@ -523,6 +523,8 @@ class SelectQuery(Expr):
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
+    array_join_op: Optional[str] = None
+    array_join_list: Optional[List[Expr]] = None
     window_exprs: Optional[Dict[str, WindowExpr]] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
