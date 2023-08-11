@@ -6,7 +6,7 @@ from django.db.models import QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_view
+from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_view, OpenApiExample
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -169,14 +169,24 @@ class NotebookSerializer(serializers.ModelSerializer):
                 required=False,
             ),
             OpenApiParameter(
-                "has_recording",
-                OpenApiTypes.DATETIME,
-                description="Filter for notebooks created before this date & time",
-                required=False,
-            ),
-            OpenApiParameter(
-                "has_recording",
-                description="Filter for notebooks that have (or do not have) at least one recording attached to them by sending 'true' or 'false'. Filter for notebooks with a specific recording by sending its ID.",
+                "contains",
+                description="""Filter for notebooks that match a provided filter.
+                Each match pair is separated by a colon,
+                multiple match pairs can be sent separated by a space or a comma""",
+                examples=[
+                    OpenApiExample(
+                        "Filter for notebooks that have any recording",
+                        value="recording:true",
+                    ),
+                    OpenApiExample(
+                        "Filter for notebooks that do not have any recording",
+                        value="recording:false",
+                    ),
+                    OpenApiExample(
+                        "Filter for notebooks that have a specific recording",
+                        value="recording:the-session-recording-id",
+                    ),
+                ],
                 required=False,
             ),
         ],
@@ -222,19 +232,23 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
-            elif key == "has_recording":
-                has_recording = request.GET["has_recording"]
+            elif key == "contains":
+                contains = request.GET["contains"]
+                match_pairs = contains.replace(",", " ").split(" ")
                 # content is a JSONB field that has an array of objects under the key "content"
                 # each of those (should) have a "type" field
                 # and for recordings that type is "ph-recording"
                 # each of those objects can have attrs which is a dict with id for the recording
-                if has_recording == "true":
-                    queryset = queryset.filter(content__content__contains=[{"type": "ph-recording"}])
-                elif has_recording == "false":
-                    queryset = queryset.exclude(content__content__contains=[{"type": "ph-recording"}])
-                else:
-                    # it could be a recording id
-                    queryset = queryset.filter(content__content__contains=[{"attrs": {"id": has_recording}}])
+                for match_pair in match_pairs:
+                    target, match = match_pair.split(":")
+                    if target == "recording":
+                        if match == "true":
+                            queryset = queryset.filter(content__content__contains=[{"type": "ph-recording"}])
+                        elif match == "false":
+                            queryset = queryset.exclude(content__content__contains=[{"type": "ph-recording"}])
+                        else:
+                            # it could be a recording id
+                            queryset = queryset.filter(content__content__contains=[{"attrs": {"id": match}}])
 
         return queryset
 

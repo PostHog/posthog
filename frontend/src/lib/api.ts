@@ -1235,7 +1235,7 @@ const api = {
         async list(sessionRecordingId?: string): Promise<PaginatedResponse<NotebookType>> {
             const apiRequest = new ApiRequest().notebooks()
             if (sessionRecordingId) {
-                apiRequest.withQueryString({ has_recording: sessionRecordingId })
+                apiRequest.withQueryString({ contains: `recording:${sessionRecordingId}` })
             }
             return await apiRequest.get()
         },

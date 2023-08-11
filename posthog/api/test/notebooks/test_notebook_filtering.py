@@ -44,10 +44,12 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
             ]
         )
 
-        filter_present_response = self.client.get(f"/api/projects/{self.team.id}/notebooks?has_recording=true")
+        filter_present_response = self.client.get(f"/api/projects/{self.team.id}/notebooks?contains=recording:true")
         assert [n["id"] for n in filter_present_response.json()["results"]] == [with_recording_id]
 
-        filter_not_present_response = self.client.get(f"/api/projects/{self.team.id}/notebooks?has_recording=false")
+        filter_not_present_response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks?contains=recording:false"
+        )
         assert [n["id"] for n in filter_not_present_response.json()["results"]] == [without_recording_id]
 
     def test_notebook_with_specific_recording(self) -> None:
@@ -78,7 +80,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         )
 
         filter_recording_one_response = self.client.get(
-            f"/api/projects/{self.team.id}/notebooks?has_recording=recording_one"
+            f"/api/projects/{self.team.id}/notebooks?contains=recording:recording_one"
         )
         assert [n["id"] for n in filter_recording_one_response.json()["results"]] == [
             with_recording_one_id,
@@ -86,7 +88,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         ]
 
         filter_recording_two_response = self.client.get(
-            f"/api/projects/{self.team.id}/notebooks?has_recording=recording_two"
+            f"/api/projects/{self.team.id}/notebooks?contains=recording:recording_two"
         )
         assert [n["id"] for n in filter_recording_two_response.json()["results"]] == [
             with_recording_two_id,
@@ -94,6 +96,20 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         ]
 
         filter_unmatched_recordings_response = self.client.get(
-            f"/api/projects/{self.team.id}/notebooks?has_recording=recording_three"
+            f"/api/projects/{self.team.id}/notebooks?contains=recording:recording_three"
         )
         assert [n["id"] for n in filter_unmatched_recordings_response.json()["results"]] == []
+
+        # with multiple match pairs
+        filter_recording_should_not_match_response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks?contains=recording:false,recording:recording_two"
+        )
+        assert [n["id"] for n in filter_recording_should_not_match_response.json()["results"]] == []
+
+        filter_recording_should_match_response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks?contains=recording:true recording:recording_two"
+        )
+        assert [n["id"] for n in filter_recording_should_match_response.json()["results"]] == [
+            with_recording_two_id,
+            with_both_recording_id,
+        ]
