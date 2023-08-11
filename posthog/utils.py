@@ -171,17 +171,22 @@ def relative_date_parse_with_delta_mapping(
     try:
         # This supports a few formats, but we primarily care about:
         # YYYY-MM-DD, YYYY-MM-DD[T]hh:mm, YYYY-MM-DD[T]hh:mm:ss, YYYY-MM-DD[T]hh:mm:ss.ssssss
-        # (timezone offsets are recognized as well)
-        return parser.isoparse(input).astimezone(timezone_info), None
+        # (if a timezone offset is specified, we use it, otherwise we assume project timezone)
+        parsed_dt = parser.isoparse(input)
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=timezone_info)
+        else:
+            parsed_dt = parsed_dt.astimezone(timezone_info)
+        return parsed_dt, None
     except ValueError:
         pass
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = dt.datetime.now().astimezone(timezone_info)
+    parsed_dt = dt.datetime.now().astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
-        return date, delta_mapping
+        return parsed_dt, delta_mapping
     if match.group("type") == "h":
         delta_mapping["hours"] = int(match.group("number"))
     elif match.group("type") == "d":
@@ -219,13 +224,13 @@ def relative_date_parse_with_delta_mapping(
         elif match.group("position") == "End":
             delta_mapping["month"] = 12
             delta_mapping["day"] = 31
-    date -= relativedelta(**delta_mapping)  # type: ignore
+    parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
     # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
     if "hours" in delta_mapping:
-        date = date.replace(minute=0, second=0, microsecond=0)
+        parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
     else:
-        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
-    return date, delta_mapping
+        parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return parsed_dt, delta_mapping
 
 
 def relative_date_parse(input: str, timezone_info: ZoneInfo) -> datetime.datetime:
