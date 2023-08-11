@@ -239,7 +239,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.joinExpr())
 
     def visitJoinExprCrossOp(self, ctx: HogQLParser.JoinExprCrossOpContext):
-        raise NotImplementedException(f"Unsupported node: JoinExprCrossOp")
+        join1: ast.JoinExpr = self.visit(ctx.joinExpr(0))
+        join2: ast.JoinExpr = self.visit(ctx.joinExpr(1))
+        join2.join_type = "CROSS JOIN"
+        last_join = join1
+        while last_join.next_join is not None:
+            last_join = last_join.next_join
+        last_join.next_join = join2
+        return join1
 
     def visitJoinOpInner(self, ctx: HogQLParser.JoinOpInnerContext):
         tokens = []

@@ -747,6 +747,55 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_select_from_cross_join(self):
+        self.assertEqual(
+            self._select("select 1 from events CROSS JOIN events2"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="CROSS JOIN",
+                        table=ast.Field(chain=["events2"]),
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from events CROSS JOIN events2 CROSS JOIN events3"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="CROSS JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        next_join=ast.JoinExpr(
+                            join_type="CROSS JOIN",
+                            table=ast.Field(chain=["events3"]),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from events, events2 CROSS JOIN events3"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        join_type="CROSS JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        next_join=ast.JoinExpr(
+                            join_type="CROSS JOIN",
+                            table=ast.Field(chain=["events3"]),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
     def test_select_array_join(self):
         self.assertEqual(
             self._select("select a from events ARRAY JOIN [1,2,3] a"),
