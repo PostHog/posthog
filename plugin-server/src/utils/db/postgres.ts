@@ -18,8 +18,8 @@ export enum PostgresUse {
 }
 
 export class TransactionClient {
-    target: PostgresUse
-    client: PoolClient
+    private readonly target: PostgresUse
+    private readonly client: PoolClient
 
     constructor(target: PostgresUse, client: PoolClient) {
         this.target = target
@@ -28,12 +28,12 @@ export class TransactionClient {
 }
 
 export class PostgresRouter {
-    pools: Map<PostgresUse, Pool>
-    statsd: StatsD | undefined
+    private pools: Map<PostgresUse, Pool>
+    private readonly statsd: StatsD | undefined
 
     constructor(serverConfig: PluginsServerConfig, statsd: StatsD | undefined) {
         status.info('🤔', `Connecting to common Postgresql...`)
-        const commonClient = createPostgresPool(serverConfig.DATABASE_URL)
+        const commonClient = createPostgresPool(serverConfig.DATABASE_URL, serverConfig.POSTGRES_CONNECTION_POOL_SIZE)
         status.info('👍', `Common Postgresql ready`)
         // We fill the pools maps with the default client by default as a safe fallback for hobby,
         // the rest of the constructor overrides entries if more database URLs are passed.
@@ -46,12 +46,18 @@ export class PostgresRouter {
 
         if (serverConfig.DATABASE_READONLY_URL) {
             status.info('🤔', `Connecting to read-only common Postgresql...`)
-            this.pools.set(PostgresUse.COMMON_READ, createPostgresPool(serverConfig.DATABASE_READONLY_URL))
+            this.pools.set(
+                PostgresUse.COMMON_READ,
+                createPostgresPool(serverConfig.DATABASE_READONLY_URL, serverConfig.POSTGRES_CONNECTION_POOL_SIZE)
+            )
             status.info('👍', `Read-only common Postgresql ready`)
         }
         if (serverConfig.PLUGIN_STORAGE_DATABASE_URL) {
             status.info('🤔', `Connecting to plugin-storage Postgresql...`)
-            this.pools.set(PostgresUse.PLUGIN_STORAGE_RW, createPostgresPool(serverConfig.PLUGIN_STORAGE_DATABASE_URL))
+            this.pools.set(
+                PostgresUse.PLUGIN_STORAGE_RW,
+                createPostgresPool(serverConfig.PLUGIN_STORAGE_DATABASE_URL, serverConfig.POSTGRES_CONNECTION_POOL_SIZE)
+            )
             status.info('👍', `Plugin-storage Postgresql ready`)
         }
     }

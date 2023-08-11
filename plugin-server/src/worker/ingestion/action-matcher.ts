@@ -3,7 +3,6 @@ import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
-import { Client, Pool } from 'pg'
 import RE2 from 're2'
 
 import {
@@ -21,7 +20,7 @@ import {
     StringMatching,
 } from '../../types'
 import { extractElements } from '../../utils/db/elements-chain'
-import { postgresQuery } from '../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
@@ -127,11 +126,11 @@ export function matchString(actual: string, expected: string, matching: StringMa
 }
 
 export class ActionMatcher {
-    private postgres: Client | Pool
+    private postgres: PostgresRouter
     private actionManager: ActionManager
     private statsd: StatsD | undefined
 
-    constructor(postgres: Client | Pool, actionManager: ActionManager, statsd?: StatsD) {
+    constructor(postgres: PostgresRouter, actionManager: ActionManager, statsd?: StatsD) {
         this.postgres = postgres
         this.actionManager = actionManager
         this.statsd = statsd
@@ -382,8 +381,8 @@ export class ActionMatcher {
     }
 
     public async doesPersonBelongToCohort(cohortId: number, personUuid: string, teamId: number): Promise<boolean> {
-        const psqlResult = await postgresQuery(
-            this.postgres,
+        const psqlResult = await this.postgres.query(
+            PostgresUse.COMMON_READ,
             `
         SELECT count(1) AS count
         FROM posthog_cohortpeople
