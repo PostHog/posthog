@@ -18,8 +18,8 @@ export enum PostgresUse {
 }
 
 export class TransactionClient {
-    private readonly target: PostgresUse
-    private readonly client: PoolClient
+    readonly target: PostgresUse
+    readonly client: PoolClient
 
     constructor(target: PostgresUse, client: PoolClient) {
         this.target = target
