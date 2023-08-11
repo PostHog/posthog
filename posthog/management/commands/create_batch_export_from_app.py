@@ -96,8 +96,8 @@ class Command(BaseCommand):
         if options.get("backfill_batch_export", False) and dry_run is False:
             client = sync_connect()
             end_at = dt.datetime.utcnow()
-            start_at = end_at - (dt.timedelta(hours=1) if interval == "hourly" else dt.timedelta(days=1))
-            backfill_export(client, batch_export_id=batch_export.id, start_at=start_at, end_at=end_at)
+            start_at = end_at - (dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1))
+            backfill_export(client, batch_export_id=str(batch_export.id), start_at=start_at, end_at=end_at)
             self.stdout.write(f"Triggered backfill for BatchExport '{name}'.")
 
         self.stdout.write("Done!")

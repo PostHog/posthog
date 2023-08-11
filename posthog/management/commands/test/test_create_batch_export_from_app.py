@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from posthog.api.test.batch_exports.conftest import describe_schedule
+from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.management.commands.create_batch_export_from_app import (
@@ -185,7 +185,7 @@ def test_create_batch_export_from_app_dry_run(plugin_config):
     indirect=["plugin_config"],
 )
 def test_create_batch_export_from_app(interval, plugin_config, disable_plugin_config):
-    """Test a dry_run of the create_batch_export_from_app command."""
+    """Test a live run of the create_batch_export_from_app command."""
     args = [
         f"--plugin-config-id={plugin_config.id}",
         f"--team-id={plugin_config.team.id}",
@@ -229,3 +229,49 @@ def test_create_batch_export_from_app(interval, plugin_config, disable_plugin_co
     # Type specific inputs
     for key, expected in config.items():
         assert args[key] == expected
+
+
+@async_to_sync
+async def list_workflows(temporal, schedule_id: str):
+    """List Workflows scheduled by given Schedule."""
+    workflows = []
+
+    while len(workflows) == 0:
+        workflows = [workflow async for workflow in temporal.list_workflows(f'TemporalScheduledById="{schedule_id}"')]
+
+    return workflows
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "interval,plugin_config",
+    [
+        ("hour", "S3"),
+        ("day", "S3"),
+        ("hour", "Snowflake"),
+        ("day", "Snowflake"),
+    ],
+    indirect=["plugin_config"],
+)
+def test_create_batch_export_from_app_with_backfill(interval, plugin_config):
+    """Test a live run of the create_batch_export_from_app command with the backfill flag set."""
+    args = (
+        f"--plugin-config-id={plugin_config.id}",
+        f"--team-id={plugin_config.team.id}",
+        f"--interval={interval}",
+        "--backfill-batch-export",
+    )
+    export_type, _ = map_plugin_config_to_destination(plugin_config)
+
+    temporal = sync_connect()
+
+    with start_test_worker(temporal):
+        output = call_command("create_batch_export_from_app", *args)
+
+        batch_export_data = json.loads(output)
+        # time.sleep(10)
+        workflows = list_workflows(temporal, str(batch_export_data["id"]))
+
+        assert len(workflows) == 1
+        workflow_execution = workflows[0]
+        assert workflow_execution.workflow_type == f"{export_type.lower()}-export"
