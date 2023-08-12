@@ -252,7 +252,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
 
         return queryset
 
-    @action(methods=["GET"], url_path="activity", detail=False, name="load all notebook activity history")
+    @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
