@@ -15,6 +15,7 @@ import { TZLabel } from '@posthog/apps-common'
 import { UUIDShortener } from 'lib/components/UUIDShortener'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
+import { NotFound } from 'lib/components/NotFound'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -42,6 +43,10 @@ export function BatchExportScene(): JSX.Element {
         loadBatchExportConfig()
         loadBatchExportRuns()
     }, [])
+
+    if (!batchExportConfig && !batchExportConfigLoading) {
+        return <NotFound object={'Batch Export'} />
+    }
 
     return (
         <>

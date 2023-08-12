@@ -9,22 +9,24 @@ from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportServiceError,
     BatchExportServiceRPCError,
     backfill_export,
-    create_batch_export,
     delete_schedule,
     pause_batch_export,
     reset_batch_export_run,
+    sync_batch_export,
     unpause_batch_export,
-    update_batch_export,
 )
+from django.db import transaction
+
 from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.temporal.client import sync_connect
-from posthog.utils import relative_date_parse, relative_date_parse_with_delta_mapping
+from posthog.utils import relative_date_parse
 
 
 def validate_date_input(date_input: Any) -> dt.datetime:
@@ -139,7 +141,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
     destination = BatchExportDestinationSerializer()
     latest_runs = BatchExportRunSerializer(many=True, read_only=True)
-    trigger_immediately = serializers.BooleanField(default=False)
+    interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
 
     class Meta:
         model = BatchExport
@@ -154,47 +156,43 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "last_paused_at",
             "start_at",
             "end_at",
-            "trigger_immediately",
             "latest_runs",
         ]
-        read_only_fields = ["id", "paused", "created_at", "last_updated_at", "latest_runs"]
+        read_only_fields = ["id", "created_at", "last_updated_at", "latest_runs"]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
-        interval = validated_data.pop("interval")
-        name = validated_data.pop("name")
-        start_at = validated_data.get("start_at", None)
-        end_at = validated_data.get("end_at", None)
-        trigger_immediately = validated_data.get("trigger_immediately", False)
 
-        return create_batch_export(
-            team_id=team_id,
-            interval=interval,
-            name=name,
-            destination_data=destination_data,
-            start_at=start_at,
-            end_at=end_at,
-            trigger_immediately=trigger_immediately,
-        )
+        destination = BatchExportDestination(**destination_data)
+        batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
 
-    def update(self, instance: BatchExport, validated_data: dict) -> BatchExport:
+        sync_batch_export(batch_export, created=True)
+
+        with transaction.atomic():
+            destination.save()
+            batch_export.save()
+
+        return batch_export
+
+    def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)
-        interval = validated_data.get("interval", None)
-        name = validated_data.get("name", None)
-        start_at = validated_data.get("start_at", None)
-        end_at = validated_data.get("end_at", None)
 
-        return update_batch_export(
-            batch_export=instance,
-            interval=interval,
-            name=name,
-            destination_data=destination_data,
-            start_at=start_at,
-            end_at=end_at,
-        )
+        sync_batch_export(batch_export, created=False)
+
+        with transaction.atomic():
+            if destination_data:
+                batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
+                batch_export.destination.config = {
+                    **batch_export.destination.config,
+                    **destination_data.get("config", {}),
+                }
+
+            instance = super().update(batch_export, validated_data)
+
+        return instance
 
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

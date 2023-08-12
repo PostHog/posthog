@@ -1,4 +1,5 @@
 from django.db import models
+from datetime import timedelta
 
 from posthog.models.utils import UUIDModel
 
@@ -87,6 +88,9 @@ class BatchExportRun(UUIDModel):
     )
 
 
+BATCH_EXPORT_INTERVALS = [("hour", "hour"), ("day", "day"), ("week", "week")]
+
+
 class BatchExport(UUIDModel):
     """
     Defines the configuration of PostHog to export data to a destination,
@@ -103,7 +107,7 @@ class BatchExport(UUIDModel):
     interval = models.CharField(
         max_length=64,
         null=False,
-        choices=[("hour", "hour"), ("day", "day"), ("week", "week")],
+        choices=BATCH_EXPORT_INTERVALS,
         default="hour",
         help_text="The interval at which to export data.",
     )
@@ -128,3 +132,13 @@ class BatchExport(UUIDModel):
     @property
     def latest_runs(self):
         return self.batchexportrun_set.all().order_by("-created_at")[:10]
+
+    @property
+    def interval_time_delta(self) -> timedelta:
+        if self.interval == "hour":
+            return timedelta(hours=1)
+        elif self.interval == "day":
+            return timedelta(days=1)
+        elif self.interval == "week":
+            return timedelta(days=1)
+        raise ValueError("Invalid interval")
