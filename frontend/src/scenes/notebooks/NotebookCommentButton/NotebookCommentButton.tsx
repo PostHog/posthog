@@ -50,17 +50,7 @@ export function NotebookCommentButton({
     const commentInExistingNotebook = async (notebookShortId: string): Promise<void> => {
         const currentPlayerTime = getCurrentPlayerTime() * 1000
         await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
-            const ed = theNotebookLogic.values.editor
-            if (ed === null) {
-                // this should never happen, `openNotebook` waits until the logic's editor is not null
-                return
-            }
-            const recordingPosition = ed.findNodePositionByAttrs({ id: sessionRecordingId })
-            theNotebookLogic.actions.insertAfterLastNodeOfType(
-                NotebookNodeType.ReplayTimestamp,
-                [buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)],
-                recordingPosition
-            )
+            theNotebookLogic.actions.insertReplayCommentByTimestamp(currentPlayerTime, sessionRecordingId)
         })
     }
 

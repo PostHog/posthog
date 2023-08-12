@@ -1,16 +1,21 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
-import { openNotebook, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { notebooksListLogic, openNotebook, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
 
-// NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
+// NOTE: Annoyingly, if we import this then kea logic type-gen generates
+// two imports and fails so, we reimport it from a utils file
 import { JSONContent, NotebookEditor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import {
+    buildTimestampCommentContent,
+    NotebookNodeReplayTimestampAttrs,
+} from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 
 const SYNC_DELAY = 1000
 
@@ -43,6 +48,10 @@ export const notebookLogic = kea<notebookLogicType>([
             content,
             nodeType,
             desiredInsertPosition,
+        }),
+        insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
+            timestamp,
+            sessionRecordingId,
         }),
     }),
     reducers({
@@ -185,7 +194,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.clearLocalContent()
                     }
 
-                    openNotebook(response.short_id, NotebookTarget.Auto)
+                    await openNotebook(response.short_id, NotebookTarget.Auto)
 
                     return response
                 },
@@ -274,6 +283,32 @@ export const notebookLogic = kea<notebookLogicType>([
             }
 
             values.editor?.insertContentAfterNode(insertionPosition, content)
+        },
+        insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
+            const ed = values.editor
+            if (ed === null) {
+                // this should never happen, `openNotebook` waits until the logic's editor is not null
+                // TODO this should be safely handled in here
+                throw new Error('action called too early, editor is not ready yet')
+            }
+            let insertionPosition = ed.findNodePositionByAttrs({ id: sessionRecordingId })
+            let nextNode = values.editor?.nextNode(insertionPosition)
+            while (nextNode && values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.ReplayTimestamp)) {
+                const candidateTimestampAttributes = nextNode.node.content.firstChild
+                    ?.attrs as NotebookNodeReplayTimestampAttrs
+                const nextNodePlaybackTime = candidateTimestampAttributes.playbackTime || -1
+                if (nextNodePlaybackTime <= timestamp) {
+                    insertionPosition = nextNode.position
+                    nextNode = values.editor?.nextNode(insertionPosition)
+                } else {
+                    nextNode = null
+                }
+            }
+
+            values.editor?.insertContentAfterNode(
+                insertionPosition,
+                buildTimestampCommentContent(timestamp, sessionRecordingId)
+            )
         },
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
