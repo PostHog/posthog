@@ -1,16 +1,16 @@
 import {
-    kea,
-    props,
-    key,
-    path,
-    BuiltLogic,
-    selectors,
     actions,
-    listeners,
-    reducers,
-    defaults,
     afterMount,
     beforeUnmount,
+    BuiltLogic,
+    defaults,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
 } from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
@@ -78,8 +78,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
             const insertionPosition = props.getPos()
-            const logic = values.notebookLogic
-            logic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
+            values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
         },
 
         setExpanded: ({ expanded }) => {
