@@ -78,7 +78,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
                 loadBatchExportRuns: async () => {
                     const res = await api.batchExports.listRuns(props.id, {
                         after: values.runsDateRange.from,
-                        before: values.runsDateRange.to,
+                        before: values.runsDateRange.to.add(1, 'day'),
                     })
 
                     return res
