@@ -37,8 +37,7 @@ const Template: ComponentStory<typeof NotebookCommentButton> = (props) => {
         <div className={'min-h-50'}>
             <NotebookCommentButton
                 sessionRecordingId={props.sessionRecordingId}
-                onCommentInNewNotebook={() => {}}
-                onCommentInExistingNotebook={() => {}}
+                getCurrentPlayerTime={() => 0}
                 visible={true}
             />
         </div>
