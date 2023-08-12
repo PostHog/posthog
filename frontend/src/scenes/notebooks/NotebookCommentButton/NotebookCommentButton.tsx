@@ -3,25 +3,67 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { notebookCommentButtonLogic } from 'scenes/notebooks/NotebookCommentButton/notebookCommentButtonLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { dayjs } from 'lib/dayjs'
+import { NotebookNodeType, NotebookTarget } from '~/types'
+import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
+import { notebooksListLogic, openNotebook } from 'scenes/notebooks/Notebook/notebooksListLogic'
 
 interface NotebookCommentButtonProps extends Pick<LemonButtonProps, 'size'>, Pick<LemonMenuProps, 'visible'> {
     sessionRecordingId: string
-    onCommentInNewNotebook: () => void
-    onCommentInExistingNotebook: (notebookShortId: string) => void
+    getCurrentPlayerTime: () => number
 }
 
 export function NotebookCommentButton({
     sessionRecordingId,
-    onCommentInNewNotebook,
-    onCommentInExistingNotebook,
+    getCurrentPlayerTime,
     size = 'small',
     // allows a caller to determine whether the pop-over starts open or closed
     visible = undefined,
 }: NotebookCommentButtonProps): JSX.Element {
     const logic = notebookCommentButtonLogic({ sessionRecordingId })
     const { notebooksLoading, notebooks } = useValues(logic)
+    const { createNotebook } = useActions(notebooksListLogic)
+
+    const commentInNewNotebook = (): void => {
+        const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
+        const currentPlayerTime = getCurrentPlayerTime() * 1000
+        createNotebook(
+            title,
+            NotebookTarget.Popover,
+            [
+                {
+                    type: NotebookNodeType.Recording,
+                    attrs: { id: sessionRecordingId },
+                },
+                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
+            ],
+            () => {
+                // refresh the comment button so that it includes the new notebook
+                // after the new notebook is created
+                notebookCommentButtonLogic.findMounted({ sessionRecordingId })?.actions.loadNotebooks()
+            }
+        )
+    }
+
+    const commentInExistingNotebook = async (notebookShortId: string): Promise<void> => {
+        const currentPlayerTime = getCurrentPlayerTime() * 1000
+        await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
+            const ed = theNotebookLogic.values.editor
+            if (ed === null) {
+                // this should never happen, `openNotebook` waits until the logic's editor is not null
+                return
+            }
+            const recordingPosition = ed.findNodePositionByAttrs({ id: sessionRecordingId })
+            theNotebookLogic.actions.insertAfterLastNodeOfType(
+                NotebookNodeType.ReplayTimestamp,
+                [buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)],
+                recordingPosition
+            )
+        })
+    }
+
     return (
         <LemonMenu
             visible={visible}
@@ -51,15 +93,13 @@ export function NotebookCommentButton({
                         : notebooks.map((notebook) => ({
                               label: notebook.title || 'unknown title',
                               onClick: () => {
-                                  onCommentInExistingNotebook(notebook.short_id)
+                                  commentInExistingNotebook(notebook.short_id)
                               },
                           })),
                 },
                 {
                     label: 'Comment in a new notebook',
-                    onClick: () => {
-                        onCommentInNewNotebook()
-                    },
+                    onClick: commentInNewNotebook,
                 },
             ]}
         >
