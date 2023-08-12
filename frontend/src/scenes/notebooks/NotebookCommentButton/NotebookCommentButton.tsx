@@ -75,7 +75,7 @@ export function NotebookCommentButton({
                         ? [
                               {
                                   label: () => (
-                                      <div className={'px-2 py-1'}>This recording is not already in any notebooks.</div>
+                                      <div className={'px-2 py-1'}>This recording is not already in any notebooks</div>
                                   ),
                                   custom: true,
                               },
@@ -93,7 +93,11 @@ export function NotebookCommentButton({
                 },
             ]}
         >
-            <LemonButton icon={notebooksLoading ? <Spinner /> : <IconComment />} size={size}>
+            <LemonButton
+                icon={notebooksLoading ? <Spinner /> : <IconComment />}
+                size={size}
+                data-attr={'notebooks-replay-comment-button'}
+            >
                 Comment
             </LemonButton>
         </LemonMenu>
