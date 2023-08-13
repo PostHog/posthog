@@ -9,6 +9,7 @@
     color: var(--default);
     line-height: 1rem;
     white-space: nowrap;
+    max-width: 100%;
 
     &.primary {
         background-color: var(--primary);
