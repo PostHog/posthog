@@ -118,10 +118,10 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                     : 'warning'
             },
         ],
-        hasHiddenElements: [
+        hiddenParentLevels: [
             (s) => [s.elements, s.visibleElements],
             (elements, visibleElements) => {
-                return elements.length > visibleElements
+                return Math.max(elements.length - visibleElements, 0)
             },
         ],
         parsedElements: [

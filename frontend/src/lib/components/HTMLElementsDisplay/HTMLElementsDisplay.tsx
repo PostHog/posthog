@@ -104,7 +104,7 @@ export function HTMLElementsDisplay({
         chosenSelector,
         chosenSelectorMatchCount,
         messageStatus,
-        hasHiddenElements,
+        hiddenParentLevels,
         parsedElements,
     } = useValues(logic)
     const { setParsedSelectors, showMoreOfElementsChain } = useActions(logic)
@@ -129,13 +129,13 @@ export function HTMLElementsDisplay({
             <div className="px-4 rounded bg-default">
                 {parsedElements.length ? (
                     <>
-                        {hasHiddenElements && (
+                        {hiddenParentLevels > 0 && (
                             <pre
                                 className="py-2 px-0 m-0 italic text-white text-sm opacity-50 cursor-pointer"
                                 data-attr="elements-display-show-more-of-chain"
                                 onClick={showMoreOfElementsChain}
                             >
-                                Show hidden elements
+                                Show 3 more parents ({hiddenParentLevels} hidden)
                             </pre>
                         )}
                         <Tags
