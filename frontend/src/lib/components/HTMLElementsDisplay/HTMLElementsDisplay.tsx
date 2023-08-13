@@ -147,7 +147,8 @@ export function HTMLElementsDisplay({
                                 data-attr="elements-display-show-more-of-chain"
                                 onClick={showMoreOfElementsChain}
                             >
-                                Show 3 more parents ({hiddenParentLevels} hidden)
+                                Show {Math.min(3, hiddenParentLevels)} more parent{hiddenParentLevels > 1 && 's'} (
+                                {hiddenParentLevels} hidden)
                             </pre>
                         )}
                         <Tags
