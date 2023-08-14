@@ -68,13 +68,13 @@
 
         .LineGraph {
             width: calc(100% - 2rem);
-            height: calc(100% - 3rem);
+            height: calc(100% - 2rem) !important;
+            margin-top: 1rem;
         }
     }
 
     .insights-graph-header {
         margin-top: 0 !important;
-        margin-bottom: 0 !important;
         padding-left: 1rem;
         padding-right: 1rem;
         min-height: 48px;

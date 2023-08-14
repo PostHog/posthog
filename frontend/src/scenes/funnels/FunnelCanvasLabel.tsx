@@ -1,4 +1,3 @@
-import './FunnelCanvasLabel.scss'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 
