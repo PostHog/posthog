@@ -225,7 +225,7 @@ function Pages(): JSX.Element {
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
-                            <div className="SideBar__heading">Apps & Exports</div>
+                            <div className="SideBar__heading">Apps</div>
                             {canViewPlugins(currentOrganization) && (
                                 <PageButton
                                     title="Browse Apps"
@@ -235,12 +235,6 @@ function Pages(): JSX.Element {
                                 />
                             )}
 
-                            <PageButton
-                                title="Batch Exports"
-                                icon={<IconExport />}
-                                identifier={Scene.BatchExports}
-                                to={urls.batchExports()}
-                            />
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
