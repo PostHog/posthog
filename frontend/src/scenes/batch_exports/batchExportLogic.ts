@@ -1,7 +1,7 @@
 import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
-import { BatchExportConfiguration, BatchExportRun, Breadcrumb } from '~/types'
+import { BatchExportConfiguration, BatchExportRun, Breadcrumb, GroupedBatchExportRuns } from '~/types'
 
 import api, { PaginatedResponse } from 'lib/api'
 
@@ -28,7 +28,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
         loadNextBatchExportRuns: true,
         openBackfillModal: true,
         closeBackfillModal: true,
-        retryRun: (runId: BatchExportRun) => ({ runId }),
+        retryRun: (run: BatchExportRun) => ({ run }),
         setRunsDateRange: (data: { from: Dayjs; to: Dayjs }) => data,
     }),
 
@@ -136,6 +136,29 @@ export const batchExportLogic = kea<batchExportLogicType>([
     })),
 
     selectors(({}) => ({
+        groupedRuns: [
+            (s) => [s.batchExportRuns],
+            (runs): GroupedBatchExportRuns[] => {
+                // Runs are grouped by the date range they cover
+                const groupedRuns: Record<string, GroupedBatchExportRuns> = {}
+
+                runs.forEach((run) => {
+                    const key = `${run.data_interval_start}-${run.data_interval_end}`
+                    if (!groupedRuns[key]) {
+                        groupedRuns[key] = {
+                            data_interval_start: dayjs(run.data_interval_start),
+                            data_interval_end: dayjs(run.data_interval_end),
+                            runs: [],
+                            last_run_at: dayjs(run.created_at),
+                        }
+                    }
+
+                    groupedRuns[key].runs.push(run)
+                })
+
+                return Object.values(groupedRuns).sort((a, b) => b.data_interval_end.diff(a.data_interval_end))
+            },
+        ],
         breadcrumbs: [
             (s) => [s.batchExportConfig],
             (config): Breadcrumb[] => [
@@ -150,7 +173,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
         ],
     })),
 
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, cache, props }) => ({
         setRunsDateRange: () => {
             actions.loadBatchExportRuns()
         },
@@ -161,6 +184,17 @@ export const batchExportLogic = kea<batchExportLogicType>([
             // cache.refreshTimeout = setTimeout(() => {
             //     actions.loadBatchExportRuns()
             // }, RUNS_REFRESH_INTERVAL)
+        },
+
+        retryRun: async ({ run }) => {
+            await api.batchExports.createBackfill(props.id, {
+                start_at: run.data_interval_start,
+                end_at: run.data_interval_end,
+            })
+
+            lemonToast.success('Retry has been scheduled.')
+
+            actions.loadBatchExportRuns()
         },
     })),
 

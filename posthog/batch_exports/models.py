@@ -140,5 +140,5 @@ class BatchExport(UUIDModel):
         elif self.interval == "day":
             return timedelta(days=1)
         elif self.interval == "week":
-            return timedelta(days=1)
+            return timedelta(weeks=1)
         raise ValueError("Invalid interval")

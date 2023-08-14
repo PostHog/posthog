@@ -517,8 +517,15 @@ class ApiRequest {
         return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
     }
 
-    // Request finalization
+    public batchExportRun(
+        id: BatchExportConfiguration['id'],
+        runId: BatchExportRun['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.batchExportRuns(id, teamId).addPathComponent(runId)
+    }
 
+    // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
     }
@@ -1290,6 +1297,9 @@ const api = {
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+        },
+        async resetRun(id: BatchExportConfiguration['id'], runId: BatchExportRun['id']): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExportRun(id, runId).withAction('reset').create()
         },
     },
 

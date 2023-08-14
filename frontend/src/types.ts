@@ -3115,3 +3115,10 @@ export type BatchExportRun = {
     data_interval_end: string
     last_updated_at?: string
 }
+
+export type GroupedBatchExportRuns = {
+    last_run_at: Dayjs
+    data_interval_start: Dayjs
+    data_interval_end: Dayjs
+    runs: BatchExportRun[]
+}

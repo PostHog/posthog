@@ -13,46 +13,61 @@ export function BatchExportTag({ batchExportConfig }: { batchExportConfig: Batch
     )
 }
 
-export function BatchExportRunIcon({ batchExportRun }: { batchExportRun: BatchExportRun }): JSX.Element {
-    let color = 'default'
-    const runCount = 1 // TODO
-
-    switch (batchExportRun.status) {
+export const colorForStatus = (
+    status: BatchExportRun['status']
+): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
+    switch (status) {
         case 'Completed':
-            color = 'success'
-            break
+            return 'success'
         case 'ContinuedAsNew':
         case 'Running':
         case 'Starting':
-            color = 'primary'
-            break
+            return 'primary'
         case 'Cancelled':
         case 'Terminated':
         case 'TimedOut':
-            color = 'warning'
-            break
+            return 'warning'
         case 'Failed':
-            color = 'danger'
-            break
+            return 'danger'
+        default:
+            return 'default'
     }
+}
+
+export function BatchExportRunIcon({
+    runs,
+    showLabel = false,
+}: {
+    runs: BatchExportRun[]
+    showLabel?: boolean
+}): JSX.Element {
+    // We assume these are pre-sorted
+    const latestRun = runs[0]
+
+    const color = colorForStatus(latestRun.status)
 
     return (
         <Tooltip
             title={
                 <>
-                    Run status: {batchExportRun.status}
-                    <br />
-                    Attempts: {runCount}
+                    Run status: {latestRun.status}
+                    {runs.length > 1 && (
+                        <>
+                            <br />
+                            Attempts: {runs.length}
+                        </>
+                    )}
                 </>
             }
         >
             <span
                 className={clsx(
-                    `h-6 w-6 border-2 flex items-center justify-center rounded-full font-semibold text-xs text-muted border-${color} select-none`,
-                    color === 'primary' && 'BatchExportRunIcon--pulse'
+                    `h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs text-muted border-${color} select-none`,
+                    color === 'primary' && 'BatchExportRunIcon--pulse',
+                    showLabel ? '' : 'w-6'
                 )}
             >
-                {runCount}
+                {showLabel ? <span className="text-center">{latestRun.status}</span> : runs.length}
             </span>
         </Tooltip>
     )

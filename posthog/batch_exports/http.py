@@ -180,8 +180,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)
 
-        sync_batch_export(batch_export, created=False)
-
         with transaction.atomic():
             if destination_data:
                 batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
@@ -190,9 +188,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     **destination_data.get("config", {}),
                 }
 
-            instance = super().update(batch_export, validated_data)
+            batch_export = super().update(batch_export, validated_data)
 
-        return instance
+            sync_batch_export(batch_export, created=False)
+
+        return batch_export
 
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

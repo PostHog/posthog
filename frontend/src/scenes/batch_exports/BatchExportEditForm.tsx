@@ -100,8 +100,8 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
 
                             <LemonBanner type="info">
                                 This batch exporter will schedule regular batch exports at your indicated interval until
-                                the end date. Once you have conigured your exporter, you can trigger a manual export for
-                                historic data.
+                                the end date. Once you have configured your exporter, you can trigger a manual export
+                                for historic data.
                             </LemonBanner>
 
                             {isNew ? (

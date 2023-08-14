@@ -1,18 +1,17 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonDivider, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { IconEdit, IconEllipsis, IconPause, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconEdit, IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
 import { identifierToHuman } from 'lib/utils'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { intervalToFrequency, isRunInProgress } from './utils'
 import { TZLabel } from '@posthog/apps-common'
-import { UUIDShortener } from 'lib/components/UUIDShortener'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { NotFound } from 'lib/components/NotFound'
@@ -31,12 +30,18 @@ export function BatchExportScene(): JSX.Element {
         batchExportRunsResponse,
         batchExportConfig,
         batchExportConfigLoading,
-        batchExportRuns,
+        groupedRuns,
         batchExportRunsResponseLoading,
         runsDateRange,
     } = useValues(batchExportLogic)
-    const { loadBatchExportConfig, loadBatchExportRuns, loadNextBatchExportRuns, openBackfillModal, setRunsDateRange } =
-        useActions(batchExportLogic)
+    const {
+        loadBatchExportConfig,
+        loadBatchExportRuns,
+        loadNextBatchExportRuns,
+        openBackfillModal,
+        setRunsDateRange,
+        retryRun,
+    } = useActions(batchExportLogic)
 
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
 
@@ -163,7 +168,7 @@ export function BatchExportScene(): JSX.Element {
                             </Popover>
                         </div>
                         <LemonTable
-                            dataSource={batchExportRuns}
+                            dataSource={groupedRuns}
                             loading={batchExportRunsResponseLoading}
                             loadingSkeletonRows={5}
                             footer={
@@ -180,29 +185,43 @@ export function BatchExportScene(): JSX.Element {
                                     </div>
                                 )
                             }
+                            expandable={{
+                                noIndent: true,
+                                expandedRowRender: (groupedRuns) => {
+                                    return (
+                                        <LemonTable
+                                            dataSource={groupedRuns.runs}
+                                            embedded={true}
+                                            size="small"
+                                            columns={[
+                                                {
+                                                    title: 'Status',
+                                                    key: 'status',
+                                                    width: 0,
+                                                    render: (_, run) => <BatchExportRunIcon runs={[run]} showLabel />,
+                                                },
+                                                {
+                                                    title: 'ID',
+                                                    key: 'runId',
+                                                    render: (_, run) => run.id,
+                                                },
+                                                {
+                                                    title: 'Run start',
+                                                    key: 'runStart',
+                                                    tooltip: 'Date and time when this BatchExport run started',
+                                                    render: (_, run) => <TZLabel time={run.created_at} />,
+                                                },
+                                            ]}
+                                        />
+                                    )
+                                },
+                            }}
                             columns={[
                                 {
                                     key: 'icon',
                                     width: 0,
-                                    render: (_, run) => {
-                                        return <BatchExportRunIcon batchExportRun={run} />
-                                    },
-                                },
-                                {
-                                    title: 'ID',
-                                    key: 'runId',
-                                    width: 0,
-                                    render: (_, run) => {
-                                        return (
-                                            <Link
-                                                className="font-semibold"
-                                                to={urls.batchExport(batchExportConfig.id, {
-                                                    runId: run.id,
-                                                })}
-                                            >
-                                                <UUIDShortener uuid={run.id} />
-                                            </Link>
-                                        )
+                                    render: (_, groupedRun) => {
+                                        return <BatchExportRunIcon runs={groupedRun.runs} />
                                     },
                                 },
 
@@ -215,7 +234,7 @@ export function BatchExportScene(): JSX.Element {
                                             <TZLabel
                                                 time={run.data_interval_start}
                                                 formatDate="MMMM DD, YYYY"
-                                                formatTime="hh:mm:ss"
+                                                formatTime="HH:mm:ss"
                                             />
                                         )
                                     },
@@ -229,39 +248,32 @@ export function BatchExportScene(): JSX.Element {
                                             <TZLabel
                                                 time={run.data_interval_end}
                                                 formatDate="MMMM DD, YYYY"
-                                                formatTime="hh:mm:ss"
+                                                formatTime="HH:mm:ss"
                                             />
                                         )
                                     },
                                 },
                                 {
-                                    title: 'Run start',
+                                    title: 'Latest run start',
                                     key: 'runStart',
                                     tooltip: 'Date and time when this BatchExport run started',
-                                    render: (_, run) => {
-                                        return <TZLabel time={run.created_at} />
+                                    render: (_, groupedRun) => {
+                                        return <TZLabel time={groupedRun.last_run_at} />
                                     },
                                 },
                                 {
                                     // title: 'Actions',
                                     key: 'actions',
                                     width: 0,
-                                    render: function RenderName(_, run) {
+                                    render: function RenderName(_, groupedRun) {
                                         return (
                                             <span className="flex items-center gap-1">
-                                                {isRunInProgress(run) ? (
-                                                    <LemonButton
-                                                        size="small"
-                                                        type="secondary"
-                                                        icon={<IconPause />}
-                                                        onClick={() => alert('TODO')}
-                                                    />
-                                                ) : (
+                                                {!isRunInProgress(groupedRun.runs[0]) && (
                                                     <LemonButton
                                                         size="small"
                                                         type="secondary"
                                                         icon={<IconRefresh />}
-                                                        onClick={() => alert('TODO')}
+                                                        onClick={() => retryRun(groupedRun.runs[0])}
                                                     />
                                                 )}
                                             </span>
@@ -274,7 +286,7 @@ export function BatchExportScene(): JSX.Element {
                                     No runs yet. Your exporter runs every <b>{batchExportConfig.interval}</b>.
                                     <br />
                                     <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                        Schedule historic export
+                                        Create historic export
                                     </LemonButton>
                                 </>
                             }

@@ -67,7 +67,7 @@ export function BatchExportsScene(): JSX.Element {
                                             className="flex gap-1"
                                             noPadding
                                         >
-                                            <BatchExportRunIcon batchExportRun={run} />
+                                            <BatchExportRunIcon runs={[run]} />
                                         </LemonButton>
                                     ))}
                                 </div>
