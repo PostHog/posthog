@@ -60,7 +60,6 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                   {
                       title: 'Display',
                       items: [
-                          ...(showCompare ? [{ label: () => <CompareFilter /> }] : []),
                           ...(showValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(showPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
@@ -120,6 +119,12 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 {showPaths && (
                     <ConfigFilter>
                         <PathStepPicker />
+                    </ConfigFilter>
+                )}
+
+                {showCompare && (
+                    <ConfigFilter>
+                        <CompareFilter />
                     </ConfigFilter>
                 )}
             </div>
