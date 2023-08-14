@@ -192,7 +192,6 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
     attributes: Record<keyof T, Partial<Attribute>>
 }
 
-// TODO: Correct return type
 export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
     Component,
     pasteOptions,
