@@ -238,7 +238,8 @@ export const batchExportLogic = kea<batchExportLogicType>([
         loadBatchExportRunsSuccess: () => {
             clearTimeout(cache.refreshTimeout)
 
-            // NOTE: Here we should load only newer runs and refresh any in a non-complete state...
+            // NOTE: This isn't perfect - it assumes that the first page will contain the currently running run.
+            // In practice the in progress runs are almost always in the first page
             cache.refreshTimeout = setTimeout(() => {
                 actions.loadBatchExportRuns()
             }, RUNS_REFRESH_INTERVAL)
