@@ -205,7 +205,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
                     }
 
                     groupedRuns[key].runs.push(run)
-                    Object.values(groupedRuns[key].runs).sort((a, b) => b.created_at.diff(a.created_at))
+                    groupedRuns[key].runs.sort((a, b) => b.created_at.diff(a.created_at))
                     groupedRuns[key].last_run_at = groupedRuns[key].runs[0].created_at
                 })
 
@@ -253,7 +253,10 @@ export const batchExportLogic = kea<batchExportLogicType>([
 
             lemonToast.success('Retry has been scheduled.')
 
-            actions.loadBatchExportRuns()
+            clearTimeout(cache.refreshTimeout)
+            cache.refreshTimeout = setTimeout(() => {
+                actions.loadBatchExportRuns()
+            }, 2000)
         },
     })),
 
