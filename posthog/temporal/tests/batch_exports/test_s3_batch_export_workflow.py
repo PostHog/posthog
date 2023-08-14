@@ -27,6 +27,7 @@ from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
+    get_s3_key,
     insert_into_s3_activity,
 )
 
@@ -321,7 +322,8 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name):
+@pytest.mark.parametrize("interval", ["hour", "day"])
+async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name, interval):
     """Test that S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     The workflow should update the batch export run status to completed and produce the expected
@@ -341,7 +343,6 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": prefix,
-            "batch_window_size": 3600,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
         },
@@ -350,7 +351,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
     batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
-        "interval": "hour",
+        "interval": interval,
     }
 
     organization = await acreate_organization("test")
@@ -393,6 +394,26 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
         },
     ]
 
+    if interval == "day":
+        # Add an event outside the hour range but within the day range to ensure it's exported too.
+        events_outside_hour: list[EventValues] = [
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-25 00:30:00.000000",
+                "created_at": "2023-04-25 00:30:00.000000",
+                "inserted_at": "2023-04-25 00:30:00.000000",
+                "_timestamp": "2023-04-25 00:30:00",
+                "person_id": str(uuid4()),
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "team_id": team.pk,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "distinct_id": str(uuid4()),
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            }
+        ]
+        events += events_outside_hour
+
     # Insert some data into the `sharded_events` table.
     await insert_events(
         client=ch_client,
@@ -404,6 +425,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
         team_id=team.pk,
         batch_export_id=str(batch_export.id),
         data_interval_end="2023-04-25 14:30:00.000000",
+        interval=interval,
         **batch_export.destination.config,
     )
 
@@ -456,7 +478,6 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(client: Ht
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": prefix,
-            "batch_window_size": 3600,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
         },
@@ -558,7 +579,6 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(clie
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": prefix,
-            "batch_window_size": 3600,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
         },
@@ -672,7 +692,6 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(client
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": prefix,
-            "batch_window_size": 3600,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
         },
@@ -781,7 +800,6 @@ async def test_s3_export_workflow_continues_on_json_decode_error(client: HttpCli
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": prefix,
-            "batch_window_size": 3600,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
         },
@@ -931,7 +949,6 @@ async def test_s3_export_workflow_continues_on_multiple_json_decode_error(client
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": prefix,
-            "batch_window_size": 3600,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
         },
@@ -1094,7 +1111,6 @@ async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(clien
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": prefix,
-            "batch_window_size": 3600,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
         },
@@ -1203,3 +1219,94 @@ async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(clien
         assert run.status == "Completed"
 
     assert_events_in_s3(s3_client, bucket_name, prefix, events)
+
+
+# We don't care about these for the next test, just need something to be defined.
+base_inputs = {
+    "bucket_name": "test",
+    "region": "test",
+    "team_id": 1,
+}
+
+
+@pytest.mark.parametrize(
+    "inputs,expected",
+    [
+        (
+            S3InsertInputs(
+                prefix="/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="my-fancy-prefix",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/my-fancy-prefix",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="my-fancy-prefix-with-a-forwardslash/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "my-fancy-prefix-with-a-forwardslash/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/my-fancy-prefix-with-a-forwardslash/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "my-fancy-prefix-with-a-forwardslash/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+    ],
+)
+def test_get_s3_key(inputs, expected):
+    """Test the get_s3_key function renders the expected S3 key given inputs."""
+    result = get_s3_key(inputs)
+    assert result == expected

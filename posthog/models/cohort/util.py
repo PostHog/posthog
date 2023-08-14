@@ -389,7 +389,12 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     return [*cohort_ids, *static_cohort_ids]
 
 
-def get_dependent_cohorts(cohort: Cohort) -> List[Cohort]:
+def get_dependent_cohorts(
+    cohort: Cohort, using_database: str = "default", seen_cohorts_cache: Optional[Dict[str, Cohort]] = None
+) -> List[Cohort]:
+    if seen_cohorts_cache is None:
+        seen_cohorts_cache = {}
+
     cohorts = []
     seen_cohort_ids = set()
     seen_cohort_ids.add(cohort.id)
@@ -399,7 +404,12 @@ def get_dependent_cohorts(cohort: Cohort) -> List[Cohort]:
     while queue:
         cohort_id = queue.pop()
         try:
-            cohort = Cohort.objects.get(pk=cohort_id)
+            parsed_cohort_id = str(cohort_id)
+            if parsed_cohort_id in seen_cohorts_cache:
+                cohort = seen_cohorts_cache[parsed_cohort_id]
+            else:
+                cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
+                seen_cohorts_cache[parsed_cohort_id] = cohort
             if cohort.id not in seen_cohort_ids:
                 cohorts.append(cohort)
                 seen_cohort_ids.add(cohort.id)

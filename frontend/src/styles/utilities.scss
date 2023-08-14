@@ -230,6 +230,10 @@
     }
 }
 
+.-mt-px {
+    margin-top: -1px;
+}
+
 // Border
 .border-0 {
     border-width: 0px;
@@ -527,6 +531,10 @@ $decorations: underline, overline, line-through, no-underline;
 
 .flex-wrap {
     flex-wrap: wrap;
+}
+
+.flex-wrap-reverse {
+    flex-wrap: wrap-reverse;
 }
 
 .flex-nowrap {

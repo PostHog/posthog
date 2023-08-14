@@ -550,6 +550,7 @@ class HogQLMetadataResponse(BaseModel):
     inputExpr: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None
+    isValidView: Optional[bool] = None
     notices: List[HogQLNotice]
     warnings: List[HogQLNotice]
 

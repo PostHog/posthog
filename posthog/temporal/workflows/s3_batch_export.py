@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import json
+import posixpath
 import tempfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
@@ -19,6 +20,7 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
+    get_data_interval,
     get_results_iterator,
     get_rows_count,
 )
@@ -42,6 +44,19 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
         "data_interval_end": inputs.data_interval_end,
         "table": "events",
     }
+
+
+def get_s3_key(inputs) -> str:
+    """Return an S3 key given S3InsertInputs."""
+    template_variables = get_allowed_template_variables(inputs)
+    key_prefix = inputs.prefix.format(**template_variables)
+    key = posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl")
+
+    if posixpath.isabs(key):
+        # Keys are relative to root dir, so this would add an extra "/"
+        key = posixpath.relpath(key, "/")
+
+    return key
 
 
 @dataclass
@@ -91,22 +106,20 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 "Nothing to export in batch %s - %s. Exiting.",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
-                count,
             )
             return
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         # Create a multipart upload to S3
-        template_variables = get_allowed_template_variables(inputs)
-        key_prefix = inputs.prefix.format(**template_variables)
-        key = f"{key_prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
+        key = get_s3_key(inputs)
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
         )
+
         details = activity.info().heartbeat_details
 
         parts: List[CompletedPartTypeDef] = []
@@ -255,7 +268,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         workflow.logger.info("Starting S3 export")
 
-        data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(inputs)
+        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -320,52 +333,3 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError"],
                 ),
             )
-
-
-def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple[dt.datetime, dt.datetime]:
-    """Return the start and end of an export's data interval.
-
-    Args:
-        inputs: The S3 BatchExport inputs.
-
-    Raises:
-        TypeError: If when trying to obtain the data interval end we run into non-str types.
-
-    Returns:
-        A tuple of two dt.datetime indicating start and end of the data_interval.
-    """
-    data_interval_end_str = inputs.data_interval_end
-
-    if not data_interval_end_str:
-        data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
-
-        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
-        # So, they exist to make mypy happy.
-        if data_interval_end_search_attr is None:
-            msg = (
-                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
-                "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
-            )
-            raise TypeError(msg)
-
-        # Failing here would perhaps be a bug in Temporal.
-        if isinstance(data_interval_end_search_attr[0], str):
-            data_interval_end_str = data_interval_end_search_attr[0]
-            data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-        elif isinstance(data_interval_end_search_attr[0], dt.datetime):
-            data_interval_end = data_interval_end_search_attr[0]
-
-        else:
-            msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
-                f"of type '{type(data_interval_end_search_attr[0])}'."
-            )
-            raise TypeError(msg)
-    else:
-        data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-    data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
-
-    return (data_interval_start, data_interval_end)

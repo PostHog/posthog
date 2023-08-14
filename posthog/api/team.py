@@ -16,7 +16,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
-from posthog.models.team.util import delete_bulky_postgres_data
+from posthog.models.team.util import delete_bulky_postgres_data, delete_batch_exports
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
@@ -296,7 +296,10 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
+
         delete_bulky_postgres_data(team_ids=[team_id])
+        delete_batch_exports(team_ids=[team_id])
+
         with mute_selected_signals():
             super().perform_destroy(team)
         # Once the project is deleted, queue deletion of associated data

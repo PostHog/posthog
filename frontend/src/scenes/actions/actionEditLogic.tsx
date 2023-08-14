@@ -7,11 +7,13 @@ import { ActionStepType, ActionType } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { tagsModel } from '~/models/tagsModel'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
@@ -32,7 +34,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     path(['scenes', 'actions', 'actionEditLogic']),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
-    connect({ actions: [tagsModel, ['loadTags']] }),
+    connect({ actions: [tagsModel, ['loadTags']], values: [sceneLogic, ['activeScene']] }),
     actions({
         setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
             action,
@@ -52,6 +54,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
             false,
             {
                 setCreateNew: (_, { createNew }) => createNew,
+            },
+        ],
+        wasDeleted: [
+            false,
+            {
+                deleteAction: () => true,
             },
         ],
     }),
@@ -169,5 +177,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 throw new Error('Could not parse action to copy from URL')
             }
         },
+    })),
+
+    beforeUnload(({ values }) => ({
+        enabled: () => values.activeScene !== Scene.Action && values.actionChanged && !values.wasDeleted,
+        message: `Leave action?\nChanges you made will be discarded.`,
     })),
 ])

@@ -7,10 +7,12 @@ import { Breadcrumb, Group, PropertyFilterType, PropertyOperator } from '~/types
 import type { groupLogicType } from './groupLogicType'
 import { urls } from 'scenes/urls'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { isDataTableNode } from '~/queries/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
     return {
@@ -34,7 +36,16 @@ function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTabl
 
 export const groupLogic = kea<groupLogicType>({
     path: ['groups', 'groupLogic'],
-    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'aggregationLabel']] },
+    connect: {
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
+    },
     actions: () => ({
         setGroup: (groupTypeIndex: number, groupKey: string, groupTab?: string | null) => ({
             groupTypeIndex,
@@ -85,6 +96,10 @@ export const groupLogic = kea<groupLogicType>({
         ],
     },
     selectors: {
+        showCustomerSuccessDashboards: [
+            (s) => [s.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.CS_DASHBOARDS],
+        ],
         groupTypeName: [
             (s) => [s.aggregationLabel, s.groupTypeIndex],
             (aggregationLabel, index): string => aggregationLabel(index).singular,

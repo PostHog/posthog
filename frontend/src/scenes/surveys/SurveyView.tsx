@@ -21,8 +21,15 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries, showSurveyAppWarning } =
-        useValues(surveyLogic)
+    const {
+        survey,
+        dataTableQuery,
+        surveyLoading,
+        surveyPlugin,
+        surveyMetricsQueries,
+        surveyDataVizQuery,
+        showSurveyAppWarning,
+    } = useValues(surveyLogic)
     // TODO: survey results logic
     // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
@@ -132,6 +139,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                       <div className="flex-1">
                                                           <Query query={surveyMetricsQueries.surveysDismissed} />
                                                       </div>
+                                                  </div>
+                                              )}
+                                              {survey.questions[0].type === SurveyQuestionType.Rating && (
+                                                  <div className="mb-4">
+                                                      <Query query={surveyDataVizQuery} />
                                                   </div>
                                               )}
                                               {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}

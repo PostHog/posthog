@@ -4,7 +4,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { SceneExport } from 'scenes/sceneTypes'
-import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { Group as IGroup, PersonsTabType, PropertyDefinitionType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -13,6 +13,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { Query } from '~/queries/Query/Query'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { GroupDashboard } from 'scenes/groups/GroupDashboard'
 
 export const scene: SceneExport = {
     component: Group,
@@ -53,6 +54,7 @@ export function Group(): JSX.Element {
         groupType,
         groupTab,
         groupEventsQuery,
+        showCustomerSuccessDashboards,
     } = useValues(groupLogic)
     const { setGroupTab, setGroupEventsQuery } = useActions(groupLogic)
 
@@ -108,6 +110,13 @@ export function Group(): JSX.Element {
                             <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupType]: groupKey }} />
                         ),
                     },
+                    showCustomerSuccessDashboards
+                        ? {
+                              key: PersonsTabType.DASHBOARD,
+                              label: 'Dashboard',
+                              content: <GroupDashboard groupData={groupData} />,
+                          }
+                        : null,
                 ]}
             />
         </>

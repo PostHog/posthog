@@ -29,10 +29,11 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1']
+    AND min_first_timestamp >= '2021-01-20 00:00:00'
+    AND max_last_timestamp <= '2021-01-22 23:59:59'
   '
 ---
 # name: TestPerson.test_person_query_does_not_include_recording_events_if_flag_not_set

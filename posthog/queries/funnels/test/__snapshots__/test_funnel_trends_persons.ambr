@@ -144,10 +144,22 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1b']
+    AND min_first_timestamp >= '2021-04-30 00:00:00'
+    AND max_last_timestamp <= '2021-05-08 23:59:59'
+  '
+---
+# name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings.2
+  '
+  
+  SELECT DISTINCT session_id
+  FROM session_replay_events
+  WHERE team_id = 2
+    and session_id in ['s1b']
+    AND min_first_timestamp >= '2021-04-30 00:00:00'
+    AND max_last_timestamp <= '2021-05-08 23:59:59'
   '
 ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off
@@ -297,10 +309,22 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1a']
+    AND min_first_timestamp >= '2021-04-30 00:00:00'
+    AND max_last_timestamp <= '2021-05-08 23:59:59'
+  '
+---
+# name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off.2
+  '
+  
+  SELECT DISTINCT session_id
+  FROM session_replay_events
+  WHERE team_id = 2
+    and session_id in ['s1a']
+    AND min_first_timestamp >= '2021-04-30 00:00:00'
+    AND max_last_timestamp <= '2021-05-08 23:59:59'
   '
 ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step
@@ -449,9 +473,21 @@
   '
   
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1c']
+    AND min_first_timestamp >= '2021-04-30 00:00:00'
+    AND max_last_timestamp <= '2021-05-08 23:59:59'
+  '
+---
+# name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step.2
+  '
+  
+  SELECT DISTINCT session_id
+  FROM session_replay_events
+  WHERE team_id = 2
+    and session_id in ['s1c']
+    AND min_first_timestamp >= '2021-04-30 00:00:00'
+    AND max_last_timestamp <= '2021-05-08 23:59:59'
   '
 ---

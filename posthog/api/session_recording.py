@@ -10,7 +10,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse, HttpResponse
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import JSONRenderer
@@ -234,13 +234,17 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         if not source:
             sources: List[dict] = []
-            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
+            blob_prefix = recording.build_blob_ingestion_storage_path()
             blob_keys = object_storage.list_objects(blob_prefix)
+
+            if not blob_keys and recording.storage_version == "2023-08-01":
+                blob_prefix = recording.object_storage_path
+                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
 
             if blob_keys:
                 for full_key in blob_keys:
                     # Keys are like 1619712000-1619712060
-                    blob_key = full_key.replace(blob_prefix, "")
+                    blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
                     time_range = [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
 
                     sources.append(
@@ -339,6 +343,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
 
+        if recording.storage_version:
+            # we're only expected recordings with no snapshot version here
+            # but a bad assumption about when we could create recordings with a snapshot version
+            # of 2023-08-01 means we need to "force upgrade" these requests to version 2 of the API
+            # so, we issue a temporary redirect to the same URL request but with version 2 in the query params
+            params = request.GET.copy()
+            params["version"] = "2"
+            return Response(status=status.HTTP_302_FOUND, headers={"Location": f"{request.path}?{params.urlencode()}"})
+
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
@@ -351,7 +364,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             )
             recording.start_time = recording_start_time
 
-        recording.load_snapshots(limit, offset)
+        try:
+            recording.load_snapshots(limit, offset)
+        except NotImplementedError as e:
+            capture_exception(e)
+            raise exceptions.NotFound("Storage version 2023-08-01 can only be accessed via V2 of this endpoint")
 
         if offset == 0:
             if not recording.snapshot_data_by_window_id:

@@ -11,7 +11,6 @@ from sentry_sdk.api import capture_exception
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
@@ -114,7 +113,9 @@ class FeatureFlag(models.Model):
                 ],
             }
 
-    def transform_cohort_filters_for_easy_evaluation(self):
+    def transform_cohort_filters_for_easy_evaluation(
+        self, using_database: str = "default", seen_cohorts_cache: Optional[Dict[str, Cohort]] = None
+    ):
         """
         Expands cohort filters into person property filters when possible.
         This allows for easy local flag evaluation.
@@ -126,7 +127,10 @@ class FeatureFlag(models.Model):
         # Few more edge cases are possible here, where expansion is possible, but it doesn't seem
         # worth it trying to catch all of these.
 
-        if len(self.cohort_ids) != 1:
+        if seen_cohorts_cache is None:
+            seen_cohorts_cache = {}
+
+        if len(self.get_cohort_ids(using_database=using_database, seen_cohorts_cache=seen_cohorts_cache)) != 1:
             return self.conditions
 
         cohort_group_rollout = None
@@ -146,7 +150,12 @@ class FeatureFlag(models.Model):
                             # We cannot expand this cohort condition if it's not the only property in its group.
                             return self.conditions
                         try:
-                            cohort = Cohort.objects.get(pk=cohort_id)
+                            parsed_cohort_id = str(cohort_id)
+                            if parsed_cohort_id in seen_cohorts_cache:
+                                cohort = seen_cohorts_cache[parsed_cohort_id]
+                            else:
+                                cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
+                                seen_cohorts_cache[parsed_cohort_id] = cohort
                         except Cohort.DoesNotExist:
                             return self.conditions
             if not cohort_condition:
@@ -223,9 +232,13 @@ class FeatureFlag(models.Model):
 
         return parsed_conditions
 
-    @cached_property
-    def cohort_ids(self) -> List[int]:
+    def get_cohort_ids(
+        self, using_database: str = "default", seen_cohorts_cache: Optional[Dict[str, Cohort]] = None
+    ) -> List[int]:
         from posthog.models.cohort.util import get_dependent_cohorts
+
+        if seen_cohorts_cache is None:
+            seen_cohorts_cache = {}
 
         cohort_ids = set()
         for condition in self.conditions:
@@ -234,9 +247,22 @@ class FeatureFlag(models.Model):
                 if prop.get("type") == "cohort":
                     cohort_id = prop.get("value")
                     try:
-                        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+                        parsed_cohort_id = str(cohort_id)
+                        if parsed_cohort_id in seen_cohorts_cache:
+                            cohort: Cohort = seen_cohorts_cache[parsed_cohort_id]
+                        else:
+                            cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
+                            seen_cohorts_cache[parsed_cohort_id] = cohort
+
                         cohort_ids.add(cohort.pk)
-                        cohort_ids.update([dependent_cohort.pk for dependent_cohort in get_dependent_cohorts(cohort)])
+                        cohort_ids.update(
+                            [
+                                dependent_cohort.pk
+                                for dependent_cohort in get_dependent_cohorts(
+                                    cohort, using_database=using_database, seen_cohorts_cache=seen_cohorts_cache
+                                )
+                            ]
+                        )
                     except Cohort.DoesNotExist:
                         continue
 
@@ -290,14 +316,16 @@ class FeatureFlagOverride(models.Model):
 
 
 def set_feature_flags_for_team_in_cache(
-    team_id: int, feature_flags: Optional[List[FeatureFlag]] = None
+    team_id: int, feature_flags: Optional[List[FeatureFlag]] = None, using_database: str = "default"
 ) -> List[FeatureFlag]:
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
     if feature_flags is not None:
         all_feature_flags = feature_flags
     else:
-        all_feature_flags = list(FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False))
+        all_feature_flags = list(
+            FeatureFlag.objects.using(using_database).filter(team_id=team_id, active=True, deleted=False)
+        )
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 

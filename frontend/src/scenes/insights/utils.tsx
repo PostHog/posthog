@@ -29,7 +29,12 @@ import { urls } from 'scenes/urls'
 import { examples } from '~/queries/examples'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
-    return filter !== null && filter.type === EntityTypes.EVENTS && filter.id === null && !filter.name
+    return (
+        filter !== null &&
+        filter.type === EntityTypes.EVENTS &&
+        filter.id === null &&
+        (!filter.name || filter.name === 'All events')
+    )
 }
 
 export const getDisplayNameFromEntityFilter = (

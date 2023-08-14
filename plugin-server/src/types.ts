@@ -267,6 +267,7 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
+    transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     http?: boolean
     mmdb?: boolean
 }
@@ -886,6 +887,8 @@ export interface RawAction {
     is_calculating: boolean
     updated_at: string
     last_calculated_at: string
+    bytecode?: any[]
+    bytecode_error?: string
 }
 
 /** Usable Action model. */

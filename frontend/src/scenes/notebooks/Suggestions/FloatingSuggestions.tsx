@@ -1,3 +1,4 @@
+import './FloatingSuggestions.scss'
 import { Editor as TTEditor } from '@tiptap/core'
 import { FloatingMenu } from '@tiptap/react'
 import { useActions, useValues } from 'kea'
@@ -21,7 +22,11 @@ export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Eleme
     return (
         <FloatingMenu
             editor={editor}
-            tippyOptions={{ duration: [100, 0], placement: 'left', offset: [0, 0] }}
+            tippyOptions={{
+                duration: [100, 0],
+                placement: 'right',
+                offset: [0, 0],
+            }}
             className="NotebookFloatingButton"
             shouldShow={({ editor }: { editor: TTEditor }) => {
                 if (!editor) {
@@ -39,7 +44,9 @@ export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Eleme
                 return false
             }}
         >
-            {Component && <Component previousNode={previousNode} />}
+            <div className="FloatingSuggestion flex items-center justify-content">
+                {Component && <Component previousNode={previousNode} editor={notebookEditor} />}
+            </div>
         </FloatingMenu>
     )
 }
