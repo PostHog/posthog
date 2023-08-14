@@ -16,6 +16,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -41,6 +42,9 @@ export function BatchExportScene(): JSX.Element {
         openBackfillModal,
         setRunsDateRange,
         retryRun,
+        pause,
+        unpause,
+        archive,
     } = useActions(batchExportLogic)
 
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
@@ -68,13 +72,31 @@ export function BatchExportScene(): JSX.Element {
                             <LemonMenu
                                 items={[
                                     {
-                                        label: 'Pause',
-                                        onClick: () => alert('TODO'),
+                                        label: batchExportConfig.paused ? 'Unpause' : 'Pause',
+                                        onClick: () => {
+                                            batchExportConfig.paused ? unpause() : pause()
+                                        },
+                                        disabledReason: batchExportConfigLoading ? 'Loading...' : undefined,
                                     },
                                     {
                                         label: 'Archive',
                                         status: 'danger',
-                                        onClick: () => alert('TODO'),
+                                        onClick: () =>
+                                            LemonDialog.open({
+                                                title: 'Archive Batch Export?',
+                                                description:
+                                                    'Are you sure you want to archive this Batch Export? This will stop all future runs',
+
+                                                primaryButton: {
+                                                    children: 'Archive',
+                                                    status: 'danger',
+                                                    onClick: () => archive(),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            }),
+                                        disabledReason: batchExportConfigLoading ? 'Loading...' : undefined,
                                     },
                                 ]}
                             >
@@ -122,19 +144,9 @@ export function BatchExportScene(): JSX.Element {
                                 </li>
                             ))}
                         </ul>
-
-                        <LemonButton
-                            icon={<IconEdit />}
-                            type="secondary"
-                            center
-                            to={urls.batchExportEdit(batchExportConfig.id)}
-                        >
-                            Edit
-                        </LemonButton>
                     </div>
-
                     <div className="flex-1 space-y-2">
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-start">
                             <h2 className="flex-1">Latest Runs</h2>
                             <Popover
                                 actionable
@@ -161,6 +173,7 @@ export function BatchExportScene(): JSX.Element {
                                     }}
                                     type="secondary"
                                     status="stealth"
+                                    size="small"
                                 >
                                     {runsDateRange.from.format('MMMM D, YYYY')} -{' '}
                                     {runsDateRange.to.format('MMMM D, YYYY')}

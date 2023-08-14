@@ -1286,6 +1286,14 @@ const api = {
             return await new ApiRequest().batchExport(id).delete()
         },
 
+        async pause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).withAction('pause').create()
+        },
+
+        async unpause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).withAction('unpause').create()
+        },
+
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
@@ -1298,9 +1306,10 @@ const api = {
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
         },
-        async resetRun(id: BatchExportConfiguration['id'], runId: BatchExportRun['id']): Promise<BatchExportRun> {
-            return await new ApiRequest().batchExportRun(id, runId).withAction('reset').create()
-        },
+        // NOTE: The below is not used atm, but we might want to add it back in the future
+        // async resetRun(id: BatchExportConfiguration['id'], runId: BatchExportRun['id']): Promise<BatchExportRun> {
+        //     return await new ApiRequest().batchExportRun(id, runId).withAction('reset').create()
+        // },
     },
 
     earlyAccessFeatures: {

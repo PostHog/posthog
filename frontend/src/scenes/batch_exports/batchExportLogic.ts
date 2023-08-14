@@ -10,6 +10,7 @@ import { forms } from 'kea-forms'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 import type { batchExportLogicType } from './batchExportLogicType'
+import { router } from 'kea-router'
 
 export type BatchExportLogicProps = {
     id: string
@@ -68,6 +69,38 @@ export const batchExportLogic = kea<batchExportLogicType>([
                 loadBatchExportConfig: async () => {
                     const res = await api.batchExports.get(props.id)
                     return res
+                },
+
+                pause: async () => {
+                    if (!values.batchExportConfig) {
+                        return null
+                    }
+                    await api.batchExports.pause(props.id)
+                    lemonToast.success('Batch export paused. No future runs will be scheduled')
+                    return {
+                        ...values.batchExportConfig,
+                        paused: true,
+                    }
+                },
+                unpause: async () => {
+                    if (!values.batchExportConfig) {
+                        return null
+                    }
+                    await api.batchExports.unpause(props.id)
+                    lemonToast.success('Batch export unpaused. Future runs will be scheduled')
+                    return {
+                        ...values.batchExportConfig,
+                        paused: false,
+                    }
+                },
+                archive: async () => {
+                    if (!values.batchExportConfig) {
+                        return null
+                    }
+                    await api.batchExports.delete(props.id)
+
+                    router.actions.replace(urls.batchExports())
+                    return null
                 },
             },
         ],
