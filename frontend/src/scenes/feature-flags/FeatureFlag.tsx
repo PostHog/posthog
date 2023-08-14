@@ -1087,7 +1087,7 @@ export function FeatureFlagReleaseConditions({
         return !!(
             featureFlag.features?.length &&
             featureFlag.features?.length > 0 &&
-            group.properties.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
+            group.properties?.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
         )
     }
 
@@ -1139,7 +1139,7 @@ export function FeatureFlagReleaseConditions({
                         )}
                     </Row>
                     <LemonDivider className="my-3" />
-                    {!readOnly && hasNonInstantProperty(group.properties) && (
+                    {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">
                             These properties aren't immediately available on first page load for unidentified persons.
                             This feature flag requires that at least one event is sent prior to becoming available to
@@ -1153,7 +1153,7 @@ export function FeatureFlagReleaseConditions({
 
                     {readOnly ? (
                         <>
-                            {group.properties.map((property, idx) => (
+                            {group.properties?.map((property, idx) => (
                                 <>
                                     <div className="feature-flag-property-display" key={idx}>
                                         {idx === 0 ? (
@@ -1218,7 +1218,7 @@ export function FeatureFlagReleaseConditions({
                                 sendAllKeyUpdates
                                 errorMessages={
                                     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
-                                        ? propertySelectErrors[index].properties.map((message, index) => {
+                                        ? propertySelectErrors[index].properties?.map((message, index) => {
                                               return message.value ? (
                                                   <div
                                                       key={index}
@@ -1235,7 +1235,9 @@ export function FeatureFlagReleaseConditions({
                             />
                         </div>
                     )}
-                    {(!readOnly || (readOnly && group.properties?.length > 0)) && <LemonDivider className="my-3" />}
+                    {(!readOnly || (readOnly && (group.properties?.length || 0) > 0)) && (
+                        <LemonDivider className="my-3" />
+                    )}
                     {readOnly ? (
                         <LemonTag
                             type={
@@ -1369,7 +1371,7 @@ export function FeatureFlagReleaseConditions({
                     </Row>
                     <LemonDivider className="my-3" />
 
-                    {group.properties?.length > 0 && (
+                    {(group.properties?.length || 0) > 0 && (
                         <>
                             <div className="feature-flag-property-display">
                                 <LemonButton

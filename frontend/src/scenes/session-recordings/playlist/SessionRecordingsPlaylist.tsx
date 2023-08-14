@@ -11,15 +11,14 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
-import { IconMagnifier, IconPause, IconPlay, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { IconFilter, IconMagnifier, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -30,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SessionRecordingsPlaylistSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
@@ -73,19 +73,29 @@ export function RecordingsLists({
     const {
         filters,
         hasNext,
-        sessionRecordings,
+        visibleRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecording,
+        showFilters,
+        showSettings,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
         sessionRecordingsAPIErrored,
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
+        showAdvancedFilters,
+        hasAdvancedFilters,
     } = useValues(logic)
-    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, resetFilters } = useActions(logic)
-    const { autoplayDirection, showFilters } = useValues(playerSettingsLogic)
-    const { toggleAutoplayDirection, setShowFilters } = useActions(playerSettingsLogic)
+    const {
+        setSelectedRecordingId,
+        setFilters,
+        maybeLoadSessionRecordings,
+        setShowFilters,
+        setShowSettings,
+        resetFilters,
+        setShowAdvancedFilters,
+    } = useActions(logic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -146,12 +156,12 @@ export function RecordingsLists({
                     title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                     titleRight={
                         <>
-                            {sessionRecordings.length ? (
+                            {visibleRecordings.length ? (
                                 <Tooltip
                                     placement="bottom"
                                     title={
                                         <>
-                                            Showing {sessionRecordings.length} results.
+                                            Showing {visibleRecordings.length} results.
                                             <br />
                                             Scrolling to the bottom or the top of the list will load older or newer
                                             recordings respectively.
@@ -159,53 +169,37 @@ export function RecordingsLists({
                                     }
                                 >
                                     <span>
-                                        <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                        <CounterBadge>{Math.min(999, visibleRecordings.length)}+</CounterBadge>
                                     </span>
                                 </Tooltip>
                             ) : null}
-
-                            <Tooltip
-                                title={
-                                    <div className="text-center">
-                                        Autoplay next recording
-                                        <br />({!autoplayDirection ? 'disabled' : autoplayDirection})
-                                    </div>
-                                }
-                                placement="bottom"
-                            >
-                                <span>
-                                    <LemonSwitch
-                                        aria-label="Autoplay next recording"
-                                        checked={!!autoplayDirection}
-                                        onChange={toggleAutoplayDirection}
-                                        handleContent={
-                                            <span
-                                                className={clsx(
-                                                    'transition-all flex items-center',
-                                                    !autoplayDirection && 'text-border text-sm',
-                                                    !!autoplayDirection && 'text-white text-xs pl-px',
-                                                    autoplayDirection === 'newer' && 'rotate-180'
-                                                )}
-                                            >
-                                                {autoplayDirection ? <IconPlay /> : <IconPause />}
-                                            </span>
-                                        }
-                                    />
-                                </span>
-                            </Tooltip>
-
+                        </>
+                    }
+                    titleActions={
+                        <>
                             <LemonButton
                                 tooltip={'filter recordings'}
                                 size="small"
                                 status={showFilters ? 'primary' : 'primary-alt'}
-                                type={showFilters ? 'tertiary' : 'tertiary'}
+                                type="tertiary"
                                 active={showFilters}
                                 icon={
                                     <IconWithCount count={totalFiltersCount}>
-                                        <IconMagnifier />
+                                        <IconFilter />
                                     </IconWithCount>
                                 }
                                 onClick={() => setShowFilters(!showFilters)}
+                            >
+                                Filter
+                            </LemonButton>
+                            <LemonButton
+                                tooltip={'playlist settings'}
+                                size="small"
+                                status={showSettings ? 'primary' : 'primary-alt'}
+                                type="tertiary"
+                                active={showSettings}
+                                icon={<IconSettings />}
+                                onClick={() => setShowSettings(!showSettings)}
                             />
                         </>
                     }
@@ -216,7 +210,12 @@ export function RecordingsLists({
                                 setFilters={setFilters}
                                 showPropertyFilters={!personUUID}
                                 onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                                hasAdvancedFilters={hasAdvancedFilters}
+                                showAdvancedFilters={showAdvancedFilters}
+                                setShowAdvancedFilters={setShowAdvancedFilters}
                             />
+                        ) : showSettings ? (
+                            <SessionRecordingsPlaylistSettings />
                         ) : null
                     }
                     onRecordingClick={onRecordingClick}
@@ -225,7 +224,7 @@ export function RecordingsLists({
                     onCollapse={
                         !!playlistShortId ? () => setCollapsed({ ...collapsed, other: !collapsed.other }) : undefined
                     }
-                    recordings={sessionRecordings}
+                    recordings={visibleRecordings}
                     loading={sessionRecordingsResponseLoading}
                     loadingSkeletonCount={RECORDINGS_LIMIT}
                     empty={

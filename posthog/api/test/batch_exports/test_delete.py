@@ -1,8 +1,8 @@
-from django.test.client import Client as HttpClient
 import pytest
-
+from django.test.client import Client as HttpClient
 from rest_framework import status
 from temporalio.service import RPCError
+
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
@@ -13,13 +13,8 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-
-
 from posthog.batch_exports.service import describe_schedule
-
-
 from posthog.temporal.client import sync_connect
-
 
 pytestmark = [
     pytest.mark.django_db,
@@ -36,7 +31,6 @@ def test_delete_batch_export(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -74,7 +68,6 @@ def test_cannot_delete_export_of_other_organizations(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -117,7 +110,6 @@ def test_deletes_are_partitioned_by_team_id(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
