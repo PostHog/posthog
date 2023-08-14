@@ -19,6 +19,33 @@ export type BatchExportLogicProps = {
 // TODO: Fix this
 const RUNS_REFRESH_INTERVAL = 5000
 
+const convert = (run: BatchExportRun): BatchExportRun => {
+    return {
+        ...run,
+        data_interval_start: dayjs(run.data_interval_start),
+        data_interval_end: dayjs(run.data_interval_end),
+        created_at: dayjs(run.created_at),
+        last_updated_at: run.last_updated_at ? dayjs(run.last_updated_at) : undefined,
+    }
+}
+
+const mergeRuns = (oldRuns: BatchExportRun[], newRuns: BatchExportRun[]): BatchExportRun[] => {
+    const runs = [...oldRuns]
+
+    newRuns.forEach((rawRun) => {
+        const newRun = convert(rawRun)
+        const index = runs.findIndex((run) => run.id === newRun.id)
+
+        if (index > -1) {
+            runs[index] = newRun
+        } else {
+            runs.push(newRun)
+        }
+    })
+
+    return runs
+}
+
 export const batchExportLogic = kea<batchExportLogicType>([
     props({} as BatchExportLogicProps),
     key(({ id }) => id),
@@ -45,19 +72,6 @@ export const batchExportLogic = kea<batchExportLogicType>([
             {
                 openBackfillModal: () => true,
                 closeBackfillModal: () => false,
-            },
-        ],
-
-        batchExportRuns: [
-            [] as BatchExportRun[],
-
-            {
-                loadBatchExportRunsSuccess: (_, { batchExportRunsResponse }) => {
-                    return batchExportRunsResponse.results
-                },
-                loadNextBatchExportRunsSuccess: (state, { batchExportRunsResponse }) => {
-                    return [...state, ...(batchExportRunsResponse?.results ?? [])]
-                },
             },
         ],
     }),
@@ -114,6 +128,8 @@ export const batchExportLogic = kea<batchExportLogicType>([
                         before: values.runsDateRange.to.add(1, 'day'),
                     })
 
+                    res.results = mergeRuns(values.batchExportRunsResponse?.results ?? [], res.results)
+
                     return res
                 },
                 loadNextBatchExportRuns: async () => {
@@ -124,6 +140,8 @@ export const batchExportLogic = kea<batchExportLogicType>([
                     }
 
                     const res = await api.get<PaginatedResponse<BatchExportRun>>(nextUrl)
+
+                    res.results = mergeRuns(values.batchExportRunsResponse?.results ?? [], res.results)
 
                     return res
                 },
@@ -179,14 +197,16 @@ export const batchExportLogic = kea<batchExportLogicType>([
                     const key = `${run.data_interval_start}-${run.data_interval_end}`
                     if (!groupedRuns[key]) {
                         groupedRuns[key] = {
-                            data_interval_start: dayjs(run.data_interval_start),
-                            data_interval_end: dayjs(run.data_interval_end),
+                            data_interval_start: run.data_interval_start,
+                            data_interval_end: run.data_interval_end,
                             runs: [],
-                            last_run_at: dayjs(run.created_at),
+                            last_run_at: run.created_at,
                         }
                     }
 
                     groupedRuns[key].runs.push(run)
+                    Object.values(groupedRuns[key].runs).sort((a, b) => b.created_at.diff(a.created_at))
+                    groupedRuns[key].last_run_at = groupedRuns[key].runs[0].created_at
                 })
 
                 return Object.values(groupedRuns).sort((a, b) => b.data_interval_end.diff(a.data_interval_end))
@@ -204,6 +224,11 @@ export const batchExportLogic = kea<batchExportLogicType>([
                 },
             ],
         ],
+
+        batchExportRuns: [
+            (s) => [s.batchExportRunsResponse],
+            (batchExportRunsResponse): BatchExportRun[] => batchExportRunsResponse?.results ?? [],
+        ],
     })),
 
     listeners(({ actions, cache, props }) => ({
@@ -214,15 +239,15 @@ export const batchExportLogic = kea<batchExportLogicType>([
             clearTimeout(cache.refreshTimeout)
 
             // NOTE: Here we should load only newer runs and refresh any in a non-complete state...
-            // cache.refreshTimeout = setTimeout(() => {
-            //     actions.loadBatchExportRuns()
-            // }, RUNS_REFRESH_INTERVAL)
+            cache.refreshTimeout = setTimeout(() => {
+                actions.loadBatchExportRuns()
+            }, RUNS_REFRESH_INTERVAL)
         },
 
         retryRun: async ({ run }) => {
             await api.batchExports.createBackfill(props.id, {
-                start_at: run.data_interval_start,
-                end_at: run.data_interval_end,
+                start_at: run.data_interval_start.toISOString(),
+                end_at: run.data_interval_end.toISOString(),
             })
 
             lemonToast.success('Retry has been scheduled.')

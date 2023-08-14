@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { IconEdit, IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
 import { identifierToHuman } from 'lib/utils'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { intervalToFrequency, isRunInProgress } from './utils'
@@ -286,7 +286,32 @@ export function BatchExportScene(): JSX.Element {
                                                         size="small"
                                                         type="secondary"
                                                         icon={<IconRefresh />}
-                                                        onClick={() => retryRun(groupedRun.runs[0])}
+                                                        onClick={() =>
+                                                            LemonDialog.open({
+                                                                title: 'Retry export?',
+                                                                description: (
+                                                                    <>
+                                                                        <p>
+                                                                            This will schedule a new run for the same
+                                                                            interval. Any changes to the configuration
+                                                                            will be applied to the new run.
+                                                                        </p>
+                                                                        <p>
+                                                                            <b>Please note -</b> there may be a slight
+                                                                            delay before the new run appears.
+                                                                        </p>
+                                                                    </>
+                                                                ),
+                                                                width: '20rem',
+                                                                primaryButton: {
+                                                                    children: 'Retry',
+                                                                    onClick: () => retryRun(groupedRun.runs[0]),
+                                                                },
+                                                                secondaryButton: {
+                                                                    children: 'Cancel',
+                                                                },
+                                                            })
+                                                        }
                                                     />
                                                 )}
                                             </span>

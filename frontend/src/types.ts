@@ -3110,10 +3110,10 @@ export type BatchExportConfiguration = {
 export type BatchExportRun = {
     id: string
     status: 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut' | 'Running' | 'Starting'
-    created_at: string
-    data_interval_start: string
-    data_interval_end: string
-    last_updated_at?: string
+    created_at: Dayjs
+    data_interval_start: Dayjs
+    data_interval_end: Dayjs
+    last_updated_at?: Dayjs
 }
 
 export type GroupedBatchExportRuns = {
