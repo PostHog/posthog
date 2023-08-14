@@ -16,6 +16,7 @@ import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { router } from 'kea-router'
 import { useState } from 'react'
 import clsx from 'clsx'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export const Export = (): JSX.Element => {
     // Displays a single export. We use the useCurrentTeamId hook to get the
@@ -37,7 +38,9 @@ export const Export = (): JSX.Element => {
         return (
             <div>
                 <h1>Export</h1>
-                <p>Fetching export...</p>
+                <p>
+                    <Spinner /> Fetching export...
+                </p>
             </div>
         )
     }

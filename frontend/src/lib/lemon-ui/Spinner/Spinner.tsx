@@ -10,7 +10,7 @@ export interface SpinnerProps {
 export function Spinner({ textColored = false, className }: SpinnerProps): JSX.Element {
     return (
         <svg
-            className={clsx('Spinner', textColored && `Spinner--textColored`, className)}
+            className={clsx('LemonIcon Spinner', textColored && `Spinner--textColored`, className)}
             viewBox="0 0 48 48"
             xmlns="http://www.w3.org/2000/svg"
         >

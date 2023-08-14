@@ -79,6 +79,11 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "last_calculated_at",
             "team_id",
             "is_action",
+            "bytecode_error",
+        ]
+        read_only_fields = [
+            "team_id",
+            "bytecode_error",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
 
@@ -144,6 +149,8 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
                         **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
                     )
 
+        # bytecode might have been altered in the action steps
+        instance.refresh_from_db(fields=["bytecode", "bytecode_error"])
         instance = super().update(instance, validated_data)
         instance.refresh_from_db()
         report_user_action(

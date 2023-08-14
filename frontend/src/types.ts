@@ -26,8 +26,16 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext, HogQLQuery } from './queries/schema'
+import {
+    DatabaseSchemaQueryResponseField,
+    HogQLQuery,
+    InsightQueryNode,
+    InsightVizNode,
+    Node,
+    QueryContext,
+} from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -149,6 +157,15 @@ export interface UserBasicType extends UserBaseType {
     id: number
 }
 
+/**
+ * A user can have scene dashboard choices for multiple teams
+ * TODO does this only have the current team's choices?
+ */
+export interface SceneDashboardChoice {
+    scene: DashboardCompatibleScenes
+    dashboard: number | DashboardBasicType
+}
+
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
@@ -169,6 +186,7 @@ export interface UserType extends UserBaseType {
     is_2fa_enabled: boolean
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
+    scene_personalisation?: SceneDashboardChoice[]
 }
 
 export interface NotificationSettings {
@@ -371,6 +389,8 @@ export interface ActionType {
     verified?: boolean
     is_action?: true
     action_id?: number // alias of id to make it compatible with event definitions uuid
+    bytecode?: any[]
+    bytecode_error?: string
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -921,6 +941,7 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+    DASHBOARD = 'dashboard',
 }
 
 export enum LayoutView {
@@ -1369,7 +1390,7 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType> | null | undefined
+    default: Record<string, JsonType>
     required: boolean
 }
 
@@ -2029,6 +2050,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    /** query when used as ad-hoc insight */
+    query?: InsightVizNode
 }
 
 export interface SetInsightOptions {
@@ -2116,7 +2139,7 @@ export enum SurveyQuestionType {
 }
 
 export interface FeatureFlagGroupType {
-    properties: AnyPropertyFilter[]
+    properties?: AnyPropertyFilter[]
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
@@ -2280,6 +2303,8 @@ export enum DashboardPlacement {
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
+    Person = 'person', // When the dashboard is being viewed on a person page
+    Group = 'group', // When the dashboard is being viewed on a group page
 }
 
 export enum DashboardMode { // Default mode is null

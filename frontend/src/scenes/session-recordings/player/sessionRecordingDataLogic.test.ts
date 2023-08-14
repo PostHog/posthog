@@ -39,7 +39,25 @@ describe('sessionRecordingDataLogic', () => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
             get: {
-                '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
+                '/api/projects/:team/session_recordings/:id/snapshots': (req) => {
+                    if (req.params.id === 'forced_upgrade') {
+                        // the API will 302 to the version 2 endpoint, which (in production) fetch auto-follows
+                        return [
+                            200,
+                            {
+                                sources: [
+                                    {
+                                        source: 'blob',
+                                        start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                        end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                        blob_key: '1691755416097-1691755492268',
+                                    },
+                                ],
+                            },
+                        ]
+                    }
+                    return [200, recordingSnapshotsJson]
+                },
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
             },
             post: {
@@ -202,6 +220,38 @@ describe('sessionRecordingDataLogic', () => {
             )
 
             expect(logic.values.sessionEventsData).toHaveLength(recordingEventsJson.results.length)
+        })
+    })
+
+    describe('force upgrade of session recording snapshots endpoint', () => {
+        it('can force upgrade by returning 302', async () => {
+            logic = sessionRecordingDataLogic({ sessionRecordingId: 'forced_upgrade' })
+            logic.mount()
+            // Most of these tests assume the metadata is being loaded upfront which is the typical case
+            logic.actions.loadRecordingMeta()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
+            })
+                .toDispatchActions([
+                    'loadRecordingSnapshotsV1Success',
+                    'loadRecordingSnapshotsV2',
+                    'loadRecordingSnapshotsV2Success',
+                ])
+                .toMatchValues({
+                    sessionPlayerSnapshotData: {
+                        snapshots: [],
+                        sources: [
+                            {
+                                loaded: true,
+                                source: 'blob',
+                                start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                blob_key: '1691755416097-1691755492268',
+                            },
+                        ],
+                    },
+                })
         })
     })
 

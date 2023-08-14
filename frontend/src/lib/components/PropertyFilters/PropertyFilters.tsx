@@ -25,6 +25,7 @@ interface PropertyFiltersProps {
     addText?: string | null
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
+    allowNew?: boolean
     errorMessages?: JSX.Element[] | null
 }
 
@@ -44,10 +45,11 @@ export function PropertyFilters({
     addText = null,
     hasRowOperator = true,
     sendAllKeyUpdates = false,
+    allowNew = true,
     errorMessages = null,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
-    const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
+    const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
     // Update the logic's internal filters when the props change
@@ -60,7 +62,7 @@ export function PropertyFilters({
             {showNestedArrow && !disablePopover && <div className="PropertyFilters__prefix">{<>&#8627;</>}</div>}
             <div className="PropertyFilters__content">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                    {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
+                    {(allowNew ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
                         return (
                             <React.Fragment key={index}>
                                 {logicalRowDivider && index > 0 && index !== filtersWithNew.length - 1 && (
