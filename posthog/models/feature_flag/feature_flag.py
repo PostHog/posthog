@@ -316,16 +316,14 @@ class FeatureFlagOverride(models.Model):
 
 
 def set_feature_flags_for_team_in_cache(
-    team_id: int, feature_flags: Optional[List[FeatureFlag]] = None, using_database: str = "default"
+    team_id: int, feature_flags: Optional[List[FeatureFlag]] = None
 ) -> List[FeatureFlag]:
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
     if feature_flags is not None:
         all_feature_flags = feature_flags
     else:
-        all_feature_flags = list(
-            FeatureFlag.objects.using(using_database).filter(team_id=team_id, active=True, deleted=False)
-        )
+        all_feature_flags = list(FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False))
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 

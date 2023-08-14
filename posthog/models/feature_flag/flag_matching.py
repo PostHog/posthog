@@ -592,7 +592,7 @@ def get_all_feature_flags(
 
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
     if all_feature_flags is None:
-        all_feature_flags = set_feature_flags_for_team_in_cache(team_id, using_database=DATABASE_FOR_FLAG_MATCHING)
+        all_feature_flags = set_feature_flags_for_team_in_cache(team_id)
 
     flags_have_experience_continuity_enabled = any(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags

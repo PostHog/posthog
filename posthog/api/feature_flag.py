@@ -30,10 +30,6 @@ from posthog.models.feature_flag import (
     get_all_feature_flags,
     get_user_blast_radius,
 )
-from posthog.models.feature_flag.feature_flag import (
-    get_feature_flags_for_team_in_cache,
-    set_feature_flags_for_team_in_cache,
-)
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -404,19 +400,11 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
     @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
 
-        feature_flags = get_feature_flags_for_team_in_cache(self.team_id)
-        if feature_flags is None:
-            feature_flags = set_feature_flags_for_team_in_cache(
-                self.team_id, using_database=DATABASE_FOR_LOCAL_EVALUATION
-            )
-
+        feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+            team_id=self.team_id, deleted=False
+        )
         cohorts = {}
-        seen_cohorts_cache: Dict[str, Cohort] = {
-            str(cohort.pk): cohort
-            for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                team_id=self.team_id, deleted=False
-            )
-        }
+        seen_cohorts_cache: Dict[str, Cohort] = {}
 
         parsed_flags = []
         for feature_flag in feature_flags:
