@@ -371,6 +371,10 @@ def test_get_events_summary_from_snapshot_data():
             "timestamp": "it was about a hundred years ago, that I remember this happening",
             "data": {"source": 3},
         },
+        # we can see malformed packets
+        {"data": {}},
+        {},
+        None,
     ]
 
     assert get_events_summary_from_snapshot_data(snapshot_events) == [
