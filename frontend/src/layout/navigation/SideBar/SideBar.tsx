@@ -10,7 +10,6 @@ import {
     IconComment,
     IconDatabase,
     IconExperiment,
-    IconExport,
     IconFlag,
     IconGauge,
     IconLive,
