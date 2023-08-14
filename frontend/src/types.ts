@@ -683,11 +683,6 @@ export interface SessionPlayerSnapshotData {
     sources?: SessionRecordingSnapshotSource[]
     next?: string
     blob_keys?: string[]
-
-    // TODO: remove this once we're sure we don't need to support v1 anymore
-    // need to be able to return from loadSnapshotsV1 without triggering success
-    // when redirecting to v2
-    redirected_to_v2?: boolean
 }
 
 export interface SessionPlayerData {
