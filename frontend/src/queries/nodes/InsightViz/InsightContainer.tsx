@@ -28,7 +28,6 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { FunnelInsight } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
@@ -51,7 +50,6 @@ export function InsightContainer({
     disableCorrelationTable,
     disableLastComputation,
     disableLastComputationRefresh,
-    disableLegendButton,
     insightMode,
     context,
 }: {
@@ -60,7 +58,6 @@ export function InsightContainer({
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
     disableLastComputationRefresh?: boolean
-    disableLegendButton?: boolean
     insightMode?: ItemMode
     context?: QueryContext
 }): JSX.Element {
@@ -238,10 +235,7 @@ export function InsightContainer({
                                 />
                             </div>
 
-                            <div>
-                                {isPaths ? <PathCanvasLabel /> : null}
-                                {!disableLegendButton && <InsightLegendButton />}
-                            </div>
+                            <div>{isPaths ? <PathCanvasLabel /> : null}</div>
                         </div>
                     )}
 
