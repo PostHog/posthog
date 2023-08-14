@@ -12,7 +12,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/events/EventDefinitionsTable'),
     [Scene.Events]: () => import('./events/Events'),
-    [Scene.BatchExports]: () => import('./batch_exports/BatchExportsScene'),
+    [Scene.BatchExports]: () => import('./batch_exports/BatchExportsListScene'),
     [Scene.BatchExportEdit]: () => import('./batch_exports/BatchExportEditScene'),
     [Scene.BatchExport]: () => import('./batch_exports/BatchExportScene'),
     [Scene.Actions]: () => import('./actions/ActionsTable'),

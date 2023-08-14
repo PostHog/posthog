@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { BatchExportConfiguration, BatchExportRun } from '~/types'
 
-import './batch-exports.scss'
+import './BatchExports.scss'
 
 export function BatchExportTag({ batchExportConfig }: { batchExportConfig: BatchExportConfiguration }): JSX.Element {
     return (

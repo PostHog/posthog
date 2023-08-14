@@ -9,10 +9,10 @@ import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { BatchExportRunIcon, BatchExportTag } from './components'
 
 export const scene: SceneExport = {
-    component: BatchExportsScene,
+    component: BatchExportsListScene,
 }
 
-export function BatchExportsScene(): JSX.Element {
+export function BatchExportsListScene(): JSX.Element {
     const { batchExportConfigs, batchExportConfigsLoading, pagination } = useValues(batchExportsListLogic)
 
     return (
