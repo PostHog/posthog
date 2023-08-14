@@ -234,6 +234,7 @@ class QueryContext:
             WITH {self.property_definition_table} AS (
                 SELECT *, {QueryContext.__property_name_aliases()}
                 FROM {self.property_definition_table}
+                WHERE {self.property_definition_table}.team_id = %(team_id)s
             )
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
@@ -255,6 +256,7 @@ class QueryContext:
             WITH {self.property_definition_table} AS (
                 SELECT *, {QueryContext.__property_name_aliases()}
                 FROM {self.property_definition_table}
+                WHERE {self.property_definition_table}.team_id = %(team_id)s
             )
             SELECT count(*) as full_count
             FROM {self.table}
