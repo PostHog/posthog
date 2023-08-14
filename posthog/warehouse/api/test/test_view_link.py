@@ -127,7 +127,9 @@ class TestViewLinkQuery(APIBaseTest):
                 "kind": "DatabaseSchemaQuery",
             },
         )
-        self.assertIn({"key": "fake", "type": "string"}, query_response["events"])
+        self.assertIn(
+            {"key": "event_view", "type": "view", "table": "event_view", "fields": ["fake"]}, query_response["events"]
+        )
 
     def test_view_link_columns_query(self):
         response = self.client.post(
