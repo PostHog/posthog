@@ -195,9 +195,19 @@ class _Printer(Visitor):
         having = self.visit(node.having) if node.having else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
+        array_join = ""
+        if node.array_join_op is not None:
+            if node.array_join_op not in ("ARRAY JOIN", "LEFT ARRAY JOIN", "INNER ARRAY JOIN"):
+                raise HogQLException(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
+            array_join = node.array_join_op
+            if len(node.array_join_list) == 0:
+                raise HogQLException(f"Invalid ARRAY JOIN without an array")
+            array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
+
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
             f"FROM {' '.join(joined_tables)}" if len(joined_tables) > 0 else None,
+            array_join,
             "PREWHERE " + prewhere if prewhere else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
@@ -273,6 +283,28 @@ class _Printer(Visitor):
                     sql = f"(SELECT * FROM {sql})"
             else:
                 sql = table_type.table.to_printed_hogql()
+
+            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
+                if node.table_args is None:
+                    raise HogQLException(f"Table function '{table_type.table.name}' requires arguments")
+
+                if table_type.table.min_args is not None and (
+                    node.table_args is None or len(node.table_args) < table_type.table.min_args
+                ):
+                    raise HogQLException(
+                        f"Table function '{table_type.table.name}' requires at least {table_type.table.min_args} argument{'s' if table_type.table.min_args > 1 else ''}"
+                    )
+                if table_type.table.max_args is not None and (
+                    node.table_args is None or len(node.table_args) > table_type.table.max_args
+                ):
+                    raise HogQLException(
+                        f"Table function '{table_type.table.name}' requires at most {table_type.table.max_args} argument{'s' if table_type.table.max_args > 1 else ''}"
+                    )
+                if node.table_args is not None and len(node.table_args) > 0:
+                    sql = f"{sql}({', '.join([self.visit(arg) for arg in node.table_args])})"
+            elif node.table_args is not None:
+                raise HogQLException(f"Table '{table_type.table.to_printed_hogql()}' does not accept arguments")
+
             join_strings.append(sql)
 
             if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:

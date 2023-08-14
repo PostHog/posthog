@@ -18,7 +18,8 @@ from posthog.models.property_definition import PropertyType
 from posthog.schema import HogQLPropertyFilter, PropertyOperator
 from posthog.test.base import BaseTest
 
-elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
+elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
+elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
 
 
@@ -348,11 +349,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.icontains)),
-            clear_locations(elements_chain_match('(?i)(href="[^"]*boo\\.\\.[^"]*")')),
+            clear_locations(elements_chain_imatch('(href="[^"]*boo\\.\\.[^"]*")')),
         )
         self.assertEqual(
             clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.not_icontains)),
-            clear_locations(not_call(elements_chain_match('(?i)(href="[^"]*boo\\.\\.[^"]*")'))),
+            clear_locations(not_call(elements_chain_imatch('(href="[^"]*boo\\.\\.[^"]*")'))),
         )
         self.assertEqual(
             clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.regex)),
@@ -377,7 +378,7 @@ class TestProperty(BaseTest):
         self.assertEqual(
             clear_locations(action_to_expr(action1)),
             self._parse_expr(
-                "event = '$autocapture' and match(elements_chain, {regex1}) and match(elements_chain, {regex2})",
+                "event = '$autocapture' and elements_chain =~ {regex1} and elements_chain =~ {regex2}",
                 {
                     "regex1": ast.Constant(
                         value='a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
@@ -402,9 +403,7 @@ class TestProperty(BaseTest):
             self._parse_expr(
                 "{s1} or {s2}",
                 {
-                    "s1": self._parse_expr(
-                        "event = '$pageview' and match(properties.$current_url, 'https://example2.com')"
-                    ),
+                    "s1": self._parse_expr("event = '$pageview' and properties.$current_url =~ 'https://example2.com'"),
                     "s2": self._parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
                 },
             ),

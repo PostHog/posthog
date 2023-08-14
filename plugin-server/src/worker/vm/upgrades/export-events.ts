@@ -74,7 +74,7 @@ export function upgradeExportEvents(
             : null
     )
 
-    meta.global.exportEventsBuffer = new ExportEventsBuffer(hub, {
+    meta.global.exportEventsBuffer = new ExportEventsBuffer(hub, pluginConfig, {
         limit: uploadBytes,
         timeoutSeconds: uploadSeconds,
         onFlush: async (batch) => {

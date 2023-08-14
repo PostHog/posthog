@@ -22,6 +22,7 @@ export type SessionRecordingsListProps = {
     listKey: string
     title: React.ReactNode
     titleRight?: React.ReactNode
+    titleActions?: React.ReactNode
     info?: React.ReactNode
     recordings?: SessionRecordingType[]
     onRecordingClick: (recording: SessionRecordingType) => void
@@ -43,6 +44,7 @@ export type SessionRecordingsListProps = {
 export function SessionRecordingsList({
     listKey,
     titleRight,
+    titleActions,
     recordings,
     collapsed,
     onCollapse,
@@ -67,7 +69,7 @@ export function SessionRecordingsList({
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
 
     const titleContent = (
-        <span className="font-bold uppercase text-xs my-1 tracking-wide flex-1 flex gap-1 items-center">
+        <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
             {title}
             {info ? (
                 <Tooltip title={info}>
@@ -130,9 +132,12 @@ export function SessionRecordingsList({
                             {titleContent}
                         </LemonButton>
                     ) : (
-                        <span className="px-2 py-1 flex-1">{titleContent}</span>
+                        <span className="px-2 py-1 flex flex-1 gap-2">
+                            {titleContent}
+                            {titleRight}
+                        </span>
                     )}
-                    {titleRight}
+                    {titleActions}
                     <LemonTableLoader loading={loading} />
                 </div>
             </DraggableToNotebook>

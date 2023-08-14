@@ -9,6 +9,7 @@ import { useCurrentTeamId, useExports, useExportAction, useDeleteExport, BatchEx
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export const scene: SceneExport = {
     component: Exports,
@@ -241,7 +242,9 @@ export function Exports(): JSX.Element {
         return (
             <div>
                 <h1>Exports</h1>
-                <p>Fetching exports...</p>
+                <p>
+                    <Spinner /> Fetching exports...
+                </p>
             </div>
         )
     }

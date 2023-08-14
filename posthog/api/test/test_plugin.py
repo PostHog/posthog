@@ -9,7 +9,7 @@ import pytz
 from django.core.files.uploadedfile import SimpleUploadedFile
 from freezegun import freeze_time
 from rest_framework import status
-from semantic_version import Version
+from posthog.constants import FROZEN_POSTHOG_VERSION
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from posthog.models.organization import Organization, OrganizationMembership
@@ -28,7 +28,6 @@ from posthog.plugins.test.plugin_archives import (
 )
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from posthog.version import VERSION
 
 
 def mocked_plugin_reload(*args, **kwargs):
@@ -151,21 +150,27 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(list_response_other_org_2_data["count"], 1)
         self.assertEqual(list_response_other_org_2.status_code, 200)
 
-    def test_no_longer_globally_managed_still_visible_to_org_if_enabled(self, mock_get, mock_reload):
+    def test_no_longer_globally_managed_still_visible_to_org_iff_has_config(self, mock_get, mock_reload):
         other_org: Organization = Organization.objects.create(
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.CONFIG
+        )
+        no_plugins_org: Organization = Organization.objects.create(
+            name="NoPlugins", plugins_access_level=Organization.PluginsAccessLevel.CONFIG
         )
         other_team: Team = Team.objects.create(organization=other_org, name="FooBar2")
         OrganizationMembership.objects.create(user=self.user, organization=other_org)
         plugin = Plugin.objects.create(organization=self.organization)
-        PluginConfig.objects.create(plugin=plugin, enabled=True, team=other_team, order=0)
-        # The plugin is NOT global BUT it was before and it was enabled for one of the projects back then,
+        PluginConfig.objects.create(plugin=plugin, enabled=False, team=other_team, order=0)
+        # The plugin is NOT global and it has a config for one of the projects,
         # so it should still show up for the other org
         list_response = self.client.get(f"/api/organizations/{other_org.id}/plugins/")
         self.assertEqual(list_response.status_code, 200, list_response.json())
         list_response_data = list_response.json()
         self.assertEqual(list_response_data["count"], 1)
         self.assertEqual(list_response_data["results"][0]["id"], plugin.id)
+        # but org without any plugin configs won't have access
+        list_response = self.client.get(f"/api/organizations/{no_plugins_org.id}/plugins/")
+        self.assertEqual(list_response.status_code, 403, list_response.json())
 
     def test_globally_managed_only_manageable_by_owner_org(self, mock_get, mock_reload):
         my_org = self.organization
@@ -479,7 +484,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
-                {"url": f"https://github.com/posthog-plugin/version-equals/commit/{VERSION}"},
+                {"url": f"https://github.com/posthog-plugin/version-equals/commit/{FROZEN_POSTHOG_VERSION}"},
             )
             self.assertEqual(response.status_code, 201)
 
@@ -487,12 +492,14 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
-                {"url": f"https://github.com/posthog-plugin/version-equals/commit/{Version(VERSION).next_minor()}"},
+                {
+                    "url": f"https://github.com/posthog-plugin/version-equals/commit/{FROZEN_POSTHOG_VERSION.next_minor()}"
+                },
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
                 cast(Dict[str, str], response.json())["detail"],
-                f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{Version(VERSION).next_minor()}".',
+                f'Currently running PostHog version {FROZEN_POSTHOG_VERSION} does not match this plugin\'s semantic version requirement "{FROZEN_POSTHOG_VERSION.next_minor()}".',
             )
 
     def test_create_plugin_version_range_gt_current(self, mock_get, mock_reload):
@@ -508,32 +515,34 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {
-                    "url": f"https://github.com/posthog-plugin/version-greater-than/commit/{Version(VERSION).next_major()}"
+                    "url": f"https://github.com/posthog-plugin/version-greater-than/commit/{FROZEN_POSTHOG_VERSION.next_major()}"
                 },
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
                 cast(Dict[str, str], response.json())["detail"],
-                f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement ">= {Version(VERSION).next_major()}".',
+                f'Currently running PostHog version {FROZEN_POSTHOG_VERSION} does not match this plugin\'s semantic version requirement ">= {FROZEN_POSTHOG_VERSION.next_major()}".',
             )
 
     def test_create_plugin_version_range_lt_current(self, mock_get, mock_reload):
         with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
-                {"url": f"https://github.com/posthog-plugin/version-less-than/commit/{VERSION}"},
+                {"url": f"https://github.com/posthog-plugin/version-less-than/commit/{FROZEN_POSTHOG_VERSION}"},
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
                 cast(Dict[str, str], response.json())["detail"],
-                f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "< {VERSION}".',
+                f'Currently running PostHog version {FROZEN_POSTHOG_VERSION} does not match this plugin\'s semantic version requirement "< {FROZEN_POSTHOG_VERSION}".',
             )
 
     def test_create_plugin_version_range_lt_next_major(self, mock_get, mock_reload):
         with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
-                {"url": f"https://github.com/posthog-plugin/version-less-than/commit/{Version(VERSION).next_major()}"},
+                {
+                    "url": f"https://github.com/posthog-plugin/version-less-than/commit/{FROZEN_POSTHOG_VERSION.next_major()}"
+                },
             )
             self.assertEqual(response.status_code, 201)
 
@@ -553,7 +562,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {
-                    "url": f"https://github.com/posthog-plugin/version-greater-than/commit/{Version(VERSION).next_major()}"
+                    "url": f"https://github.com/posthog-plugin/version-greater-than/commit/{FROZEN_POSTHOG_VERSION.next_major()}"
                 },
             )
             self.assertEqual(response.status_code, 201)
