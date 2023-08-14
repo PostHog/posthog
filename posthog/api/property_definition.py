@@ -231,7 +231,7 @@ class QueryContext:
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
         query = f"""
-            SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events, {QueryContext.__property_name_aliases()}
+            SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
             {self._join_on_event_property()}
             WHERE {self.property_definition_table}.team_id = %(team_id)s
@@ -272,17 +272,6 @@ class QueryContext:
             """
             if self.should_join_event_property
             else ""
-        )
-
-    @staticmethod
-    def __property_name_aliases():
-        """
-        Generates a SQL CASE statement that aliases property names to their label.
-        """
-        return (
-            "CASE name "
-            + " ".join(f"WHEN '{k}' THEN '{v}'" for (k, v) in PROPERTY_NAME_ALIASES.items())
-            + " ELSE name END as __name_alias"
         )
 
 
