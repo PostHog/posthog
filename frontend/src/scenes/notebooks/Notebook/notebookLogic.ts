@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic, openNotebook, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
@@ -33,10 +33,10 @@ export const notebookLogic = kea<notebookLogicType>([
     }),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
+        editorIsReady: true,
         onEditorUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearLocalContent: true,
-        setReady: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         exportJSON: true,
@@ -338,6 +338,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         setEditor: ({ editor }) => {
             editor?.setEditable(values.isEditable)
+            actions.editorIsReady()
         },
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
@@ -351,6 +352,13 @@ export const notebookLogic = kea<notebookLogicType>([
             )
 
             downloadFile(file)
+        },
+    })),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            if (values.editor !== null) {
+                actions.editorIsReady()
+            }
         },
     })),
 ])
