@@ -226,11 +226,11 @@ $_lifecycle_dormant: $_danger;
     --lifecycle-dormant-hover: #{darken($_lifecycle_dormant, 20%)};
 
     // Funnels
+    // TODO: unify with lib/colors.ts, getGraphColors()
     --funnel-default: var(--primary);
     --funnel-background: var(--border-light);
-    --funnel-axis-zero: var(--default);
-    --funnel-axis: var(--border-bold);
-    --funnel-axis-label: var(--muted);
+    --funnel-axis: var(--border);
+    --funnel-grid: #ddd;
     --antd-table-background-dark: #fafafa;
 
     // Session Recording

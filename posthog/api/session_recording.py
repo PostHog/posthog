@@ -10,7 +10,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse, HttpResponse
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import JSONRenderer
@@ -342,6 +342,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
+
+        if recording.storage_version:
+            # we're only expected recordings with no snapshot version here
+            # but a bad assumption about when we could create recordings with a snapshot version
+            # of 2023-08-01 means we need to "force upgrade" these requests to version 2 of the API
+            # so, we issue a temporary redirect to the same URL request but with version 2 in the query params
+            params = request.GET.copy()
+            params["version"] = "2"
+            return Response(status=status.HTTP_302_FOUND, headers={"Location": f"{request.path}?{params.urlencode()}"})
 
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
