@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { viewLinkLogicType } from './viewLinkLogicType'
+import type { viewLinkLogicType } from './viewLinkLogicType'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
