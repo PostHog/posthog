@@ -337,8 +337,10 @@ export const notebookLogic = kea<notebookLogicType>([
             values.editor?.setEditable(editable)
         },
         setEditor: ({ editor }) => {
-            editor?.setEditable(values.isEditable)
-            actions.editorIsReady()
+            if (editor) {
+                editor.setEditable(values.isEditable)
+                actions.editorIsReady()
+            }
         },
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
