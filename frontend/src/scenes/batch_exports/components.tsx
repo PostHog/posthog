@@ -62,7 +62,7 @@ export function BatchExportRunIcon({
         >
             <span
                 className={clsx(
-                    `h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs text-muted border-${color} select-none`,
+                    `h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs border-${color} text-${color}-dark select-none`,
                     color === 'primary' && 'BatchExportRunIcon--pulse',
                     showLabel ? '' : 'w-6'
                 )}
