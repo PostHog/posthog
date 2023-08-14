@@ -128,7 +128,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
+            <div className="flex items-center space-x-2 flex-wrap my-2 grow justify-end">
                 {showChart && (
                     <ConfigFilter>
                         <ChartFilter />
