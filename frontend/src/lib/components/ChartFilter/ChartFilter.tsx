@@ -30,38 +30,38 @@ export function ChartFilter(): JSX.Element {
 
     const options: LemonSelectOptions<ChartDisplayType> = [
         {
-            title: 'Time Series',
+            title: 'Time series',
             options: [
                 {
                     value: ChartDisplayType.ActionsLineGraph,
                     icon: <IconShowChart />,
-                    label: 'Line',
+                    label: 'Line chart',
                 },
                 {
                     value: ChartDisplayType.ActionsBar,
                     icon: <IconBarChart />,
-                    label: 'Bar',
+                    label: 'Bar chart',
                 },
                 {
                     value: ChartDisplayType.ActionsAreaGraph,
                     icon: <IconAreaChart />,
-                    label: 'Area',
+                    label: 'Area chart',
                 },
             ],
         },
         {
-            title: 'Cumulative Time Series',
+            title: 'Cumulative time series',
             options: [
                 {
                     value: ChartDisplayType.ActionsLineGraphCumulative,
                     icon: <IconCumulativeChart />,
-                    label: 'Line',
+                    label: 'Line chart',
                     disabledReason: trendsOnlyDisabledReason,
                 },
             ],
         },
         {
-            title: 'Total Value',
+            title: 'Total value',
             options: [
                 {
                     value: ChartDisplayType.BoldNumber,
@@ -72,13 +72,13 @@ export function ChartFilter(): JSX.Element {
                 {
                     value: ChartDisplayType.ActionsPie,
                     icon: <IconPieChart />,
-                    label: 'Pie',
+                    label: 'Pie chart',
                     disabledReason: trendsOnlyDisabledReason,
                 },
                 {
                     value: ChartDisplayType.ActionsBarValue,
                     icon: <IconBarChart className="rotate-90" />,
-                    label: 'Bar',
+                    label: 'Bar chart',
                     disabledReason: trendsOnlyDisabledReason,
                 },
                 {
@@ -89,7 +89,7 @@ export function ChartFilter(): JSX.Element {
                 {
                     value: ChartDisplayType.WorldMap,
                     icon: <IconPublic />,
-                    label: 'World Map',
+                    label: 'World map',
                     tooltip: 'Visualize data by country.',
                     disabledReason:
                         trendsOnlyDisabledReason ||
@@ -106,21 +106,18 @@ export function ChartFilter(): JSX.Element {
     ]
 
     return (
-        <>
-            <span>Chart type</span>
-            <LemonSelect
-                key="2"
-                value={chartFilter || ChartDisplayType.ActionsLineGraph}
-                onChange={(value) => {
-                    setChartFilter(value as ChartDisplayType)
-                }}
-                dropdownPlacement="bottom-end"
-                optionTooltipPlacement="left"
-                dropdownMatchSelectWidth={false}
-                data-attr="chart-filter"
-                options={options}
-                size="small"
-            />
-        </>
+        <LemonSelect
+            key="2"
+            value={chartFilter || ChartDisplayType.ActionsLineGraph}
+            onChange={(value) => {
+                setChartFilter(value as ChartDisplayType)
+            }}
+            dropdownPlacement="bottom-end"
+            optionTooltipPlacement="left"
+            dropdownMatchSelectWidth={false}
+            data-attr="chart-filter"
+            options={options}
+            size="small"
+        />
     )
 }

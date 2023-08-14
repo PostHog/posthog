@@ -129,6 +129,20 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 )}
             </div>
             <div className="flex items-center space-x-2 flex-wrap my-2 grow justify-end">
+                {advancedOptions.length > 0 && (
+                    <LemonMenu items={advancedOptions} closeOnClickInside={false}>
+                        <LemonButton size="small" status="stealth">
+                            <span className="font-medium">
+                                Options
+                                {advancedOptionsCount ? (
+                                    <>
+                                        &nbsp;<span className="text-muted">({advancedOptionsCount})</span>
+                                    </>
+                                ) : null}
+                            </span>
+                        </LemonButton>
+                    </LemonMenu>
+                )}
                 {showChart && (
                     <ConfigFilter>
                         <ChartFilter />
@@ -143,20 +157,6 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>
-                )}
-                {advancedOptions.length > 0 && (
-                    <LemonMenu items={advancedOptions} closeOnClickInside={false}>
-                        <LemonButton size="small" status="stealth">
-                            <span className="font-medium">
-                                Options
-                                {advancedOptionsCount ? (
-                                    <>
-                                        &nbsp;<span className="text-muted">({advancedOptionsCount})</span>
-                                    </>
-                                ) : null}
-                            </span>
-                        </LemonButton>
-                    </LemonMenu>
                 )}
             </div>
         </div>
