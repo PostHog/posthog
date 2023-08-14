@@ -3,7 +3,7 @@ import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'
+import { AnyPropertyFilter, AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -416,13 +416,16 @@ export function groupFilters(
 
     if (groups.length === 1) {
         const { properties, rollout_percentage = null } = groups[0]
-        if (properties?.length > 0) {
+        if ((properties?.length || 0) > 0) {
             return stringOnly ? (
                 `${rollout_percentage ?? 100}% of one group`
             ) : (
                 <div className="flex items-center">
                     <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
-                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, flexDirection: 'column' }} />
+                    <PropertyFiltersDisplay
+                        filters={properties as AnyPropertyFilter[]}
+                        style={{ margin: 0, flexDirection: 'column' }}
+                    />
                 </div>
             )
         } else if (rollout_percentage !== null) {

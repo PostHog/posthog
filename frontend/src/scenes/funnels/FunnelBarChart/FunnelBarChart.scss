@@ -7,10 +7,14 @@
     overflow: hidden;
     .InsightCard & {
         height: 100%;
+        table {
+            margin: 0;
+        }
     }
     table {
         --bar-width: 0.5rem; // This should be overriden from React
         --bar-row-height: 18rem;
+        margin: 0 1rem;
         width: 100%;
         > tbody {
             > tr {

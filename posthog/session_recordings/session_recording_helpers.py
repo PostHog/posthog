@@ -404,7 +404,7 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
     events_summary = []
 
     for event in snapshot_data:
-        if "timestamp" not in event or "type" not in event:
+        if not event or "timestamp" not in event or "type" not in event:
             continue
 
         # Get all top level data values

@@ -187,6 +187,20 @@ export const KEY_MAPPING: KeyMappingInterface = {
             ),
             examples: ['beta-feature'],
         },
+        $survey_response: {
+            label: 'Survey Response',
+            description: 'What the user responded with to the survey',
+            examples: ['I love it!', 5, "['choice 1', 'choice 3']"],
+        },
+        $survey_name: {
+            label: 'Survey Name',
+            description: 'The name of the survey',
+            examples: ['Product Feedback for New Product', 'Home page NPS'],
+        },
+        $survey_id: {
+            label: 'Survey ID',
+            description: 'The unique identifier for the survey',
+        },
         $device: {
             label: 'Device',
             description: 'The mobile device that was used.',
