@@ -1,10 +1,13 @@
-import { actions, connect, kea, selectors, listeners, reducers, path } from 'kea'
+import { actions, connect, kea, selectors, listeners, reducers, path, afterMount } from 'kea'
 import { dataWarehouseSavedQueriesLogic } from './saved_queries/dataWarehouseSavedQueriesLogic'
 import { DataWarehouseSceneRow } from './types'
 import { viewLinkLogicType } from './viewLinkLogicType'
 import { DataWarehouseViewLink } from '~/types'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
+import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
+import { loaders } from 'kea-loaders'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
@@ -18,6 +21,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
     connect({
         values: [dataWarehouseSavedQueriesLogic, ['savedQueries']],
+        actions: [databaseSceneLogic, ['loadDatabase']],
     }),
     actions({
         selectView: (selectedView) => ({ selectedView }),
@@ -25,6 +29,16 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectTable: (selectedTable) => ({ selectedTable }),
         toggleFieldModal: true,
         saveViewLink: (viewLink) => ({ viewLink }),
+        deleteViewLink: (table, column) => ({ table, column }),
+    }),
+    loaders({
+        viewLinks: {
+            __default: [] as DataWarehouseViewLink[],
+            loadViewLinks: async () => {
+                const response = await api.dataWarehouseViewLinks.list()
+                return response.results
+            },
+        },
     }),
     reducers({
         selectedView: [
@@ -54,15 +68,16 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 to_join_key: !to_join_key ? 'Must select a join key' : undefined,
                 from_join_key: !from_join_key ? 'Must select a join key' : undefined,
             }),
-            submit: ({ saved_query_id, to_join_key, from_join_key }) => {
+            submit: async ({ saved_query_id, to_join_key, from_join_key }) => {
                 if (values.selectedTable) {
-                    api.dataWarehouseViewLinks.create({
+                    await api.dataWarehouseViewLinks.create({
                         table: values.selectedTable.name,
                         saved_query_id,
                         to_join_key,
                         from_join_key,
                     })
                     actions.toggleFieldModal()
+                    actions.loadDatabase()
                 }
             },
         },
@@ -70,6 +85,20 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     listeners(({ values, actions }) => ({
         selectView: ({ selectedView }) => {
             actions.setView(values.mappedViewOptions[selectedView])
+        },
+        deleteViewLink: async ({ table, column }) => {
+            const matchedSavedQuery = values.savedQueries.find((savedQuery) => {
+                return savedQuery.name === column
+            })
+            const matchedViewLink = values.viewLinks.find((viewLink) => {
+                return viewLink.table === table && matchedSavedQuery && matchedSavedQuery.id === viewLink.saved_query
+            })
+            if (!matchedViewLink) {
+                lemonToast.error(`Error deleting view link`)
+                return
+            }
+            await api.dataWarehouseViewLinks.delete(matchedViewLink.id)
+            actions.loadDatabase()
         },
     })),
     selectors({
@@ -113,5 +142,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 }))
             },
         ],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadViewLinks()
     }),
 ])

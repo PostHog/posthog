@@ -183,6 +183,8 @@ def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
 
 
 def serialize_fields(field_input) -> List[SerializedField]:
+    from posthog.hogql.database.models import SavedQuery
+
     field_output: List[SerializedField] = []
     for field_key, field in field_input.items():
         if field_key == "team_id":
@@ -205,10 +207,11 @@ def serialize_fields(field_input) -> List[SerializedField]:
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append({"key": field_key, "type": "array"})
         elif isinstance(field, LazyJoin):
+            is_view = isinstance(field.join_table, SavedQuery)
             field_output.append(
                 {
                     "key": field_key,
-                    "type": "lazy_table",
+                    "type": "view" if is_view else "lazy_table",
                     "table": field.join_table.to_printed_hogql(),
                     "fields": list(field.join_table.fields.keys()),
                 }
