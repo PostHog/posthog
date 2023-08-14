@@ -3014,7 +3014,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(3, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(3, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -3022,7 +3022,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # Captured queries for replica DB:
             # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
             # E   2. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", "posthog_featureflag"."name", "posthog_featureflag"."filters", -- get flags
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name" -- get all cohorts, even if in this specific case they do nothing.
             # E   3. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
 
             response = self.client.get(
@@ -3352,14 +3351,14 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         client.logout()
         self.client.logout()
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(3, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(3, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
             # E   3. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id", - user org permissions check
             # Captured queries for replica DB:
             # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
-            # get flags from cache
+            # E   2. SELECT feature flags
             # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select all cohorts
             # E   5. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
 
