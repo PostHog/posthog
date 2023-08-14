@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { HTMLProps, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useState } from 'react'
 import { Tooltip } from '../Tooltip'
 import { TableRow } from './TableRow'
 import './LemonTable.scss'
@@ -83,6 +83,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     display?: 'stealth' | 'default'
     /** Footer to be shown below the table. */
     footer?: React.ReactNode
+    /** Whether the first column should always remain visible when scrolling horizontally. */
     firstColumnSticky?: boolean
 }
 
@@ -204,9 +205,9 @@ export function LemonTable<T extends Record<string, any>>({
         }
     }, [paginationState.currentPage, scrollRef.current])
 
-    if (firstColumnSticky && (rowRibbonColor || expandable)) {
+    if (firstColumnSticky && expandable) {
         // Due to CSS, for firstColumnSticky to work the first column needs to be a content column
-        throw new Error('firstColumnSticky cannot be used with rowRibbonColor or expandable')
+        throw new Error('LemonTable `firstColumnSticky` prop cannot be used with `expandable`')
     }
 
     return (
@@ -218,7 +219,8 @@ export function LemonTable<T extends Record<string, any>>({
                 inset && 'LemonTable--inset',
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
-                !borderedRows && 'LemonTable--borderlessRows',
+                rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
+                !borderedRows && 'LemonTable--borderless-rows',
                 display === 'stealth' && 'LemonTable--stealth',
                 isScrollableLeft && 'scrollable--left',
                 isScrollableRight && 'scrollable--right',
@@ -231,7 +233,6 @@ export function LemonTable<T extends Record<string, any>>({
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
-                            {!!rowRibbonColor && <col style={{ width: 4 }} /> /* Ribbon column */}
                             {!!expandable && <col style={{ width: 0 }} /> /* Expand/collapse column */}
                             {columns.map((column, index) => (
                                 <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
@@ -245,21 +246,31 @@ export function LemonTable<T extends Record<string, any>>({
                             >
                                 {columnGroups.some((group) => group.title) && (
                                     <tr className="LemonTable__row--grouping">
-                                        {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon */}
                                         {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
-                                        {columnGroups.map((columnGroup, columnGroupIndex) => (
-                                            <th
-                                                key={`LemonTable-th-group-${columnGroupIndex}`}
-                                                colSpan={columnGroup.children.length}
-                                                className="LemonTable__boundary"
-                                            >
-                                                {columnGroup.title}
-                                            </th>
-                                        ))}
+                                        {columnGroups.map((columnGroup, columnGroupIndex) =>
+                                            columnGroupIndex === 0 && firstColumnSticky ? (
+                                                <React.Fragment key={`LemonTable-th-group-${columnGroupIndex}`}>
+                                                    <th
+                                                        colSpan={1}
+                                                        className="LemonTable__boundary LemonTable__header--sticky"
+                                                    >
+                                                        {columnGroup.title}
+                                                    </th>
+                                                    <th colSpan={columnGroup.children.length - 1} />
+                                                </React.Fragment>
+                                            ) : (
+                                                <th
+                                                    key={`LemonTable-th-group-${columnGroupIndex}`}
+                                                    colSpan={columnGroup.children.length}
+                                                    className="LemonTable__boundary"
+                                                >
+                                                    {columnGroup.title}
+                                                </th>
+                                            )
+                                        )}
                                     </tr>
                                 )}
                                 <tr>
-                                    {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon */}
                                     {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
                                     {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                         columnGroup.children.map((column, columnIndex) => (

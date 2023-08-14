@@ -308,30 +308,37 @@ class LegacyCohortViewSet(CohortViewSet):
 def will_create_loops(cohort: Cohort) -> bool:
     # Loops can only be formed when trying to update a Cohort, not when creating one
     team_id = cohort.team_id
-    cohorts_seen = {cohort.pk}
-    cohorts_queue = [property.value for property in cohort.properties.flat if property.type == "cohort"]
-    while cohorts_queue:
-        current_cohort_id = cohorts_queue.pop()
 
-        if current_cohort_id in cohorts_seen:
-            return True
+    # We can model this as a directed graph, where each node is a Cohort and each edge is a reference to another Cohort
+    # There's a loop only if there's a cycle in the directed graph. The "directed" bit is important.
+    # For example, if Cohort A exists, and Cohort B references Cohort A, and Cohort C references both Cohort A & B
+    # then, there's no cycle, because we can compute cohort A, using which we can compute cohort B, using which we can compute cohort C.
 
-        cohorts_seen.add(current_cohort_id)
+    # However, if cohort A depended on Cohort C, then we'd have a cycle, because we can't compute Cohort A without computing Cohort C, and on & on.
 
-        try:
-            current_cohort: Cohort = Cohort.objects.get(pk=current_cohort_id, team_id=team_id)
-        except Cohort.DoesNotExist:
-            raise ValidationError("Invalid Cohort ID in filter")
+    # For a good explainer of this algorithm, see: https://www.geeksforgeeks.org/detect-cycle-in-a-graph/
 
-        properties = current_cohort.properties.flat
-        for property in properties:
+    def dfs_loop_helper(current_cohort: Cohort, seen_cohorts, cohorts_on_path):
+        seen_cohorts.add(current_cohort.pk)
+        cohorts_on_path.add(current_cohort.pk)
+
+        for property in current_cohort.properties.flat:
             if property.type == "cohort":
-                if property.value in cohorts_seen:
+                if property.value in cohorts_on_path:
                     return True
-                else:
-                    cohorts_queue.append(property.value)
+                elif property.value not in seen_cohorts:
+                    try:
+                        nested_cohort = Cohort.objects.get(pk=property.value, team_id=team_id)
+                    except Cohort.DoesNotExist:
+                        raise ValidationError("Invalid Cohort ID in filter")
 
-    return False
+                    if dfs_loop_helper(nested_cohort, seen_cohorts, cohorts_on_path):
+                        return True
+
+        cohorts_on_path.remove(current_cohort.pk)
+        return False
+
+    return dfs_loop_helper(cohort, set(), set())
 
 
 def insert_cohort_people_into_pg(cohort: Cohort):

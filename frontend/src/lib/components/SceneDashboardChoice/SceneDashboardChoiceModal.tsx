@@ -1,29 +1,34 @@
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
-import { IconCottage } from 'lib/lemon-ui/icons'
+import {
+    sceneDashboardChoiceModalLogic,
+    SceneDashboardChoiceModalProps,
+    sceneDescription,
+} from './sceneDashboardChoiceModalLogic'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { SceneIcon } from 'lib/components/SceneDashboardChoice/SceneIcon'
 
-export function PrimaryDashboardModal(): JSX.Element {
-    const { isOpen, primaryDashboardId, dashboards, searchTerm } = useValues(primaryDashboardModalLogic)
-    const { closePrimaryDashboardModal, setPrimaryDashboard, setSearchTerm } = useActions(primaryDashboardModalLogic)
+export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalProps): JSX.Element {
+    const modalLogic = sceneDashboardChoiceModalLogic({ scene })
+    const { isOpen, currentDashboardId, dashboards, searchTerm } = useValues(modalLogic)
+    const { closeSceneDashboardChoiceModal, setSceneDashboardChoice, setSearchTerm } = useActions(modalLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={closePrimaryDashboardModal}
-            title="Select a default dashboard for the project"
+            onClose={closeSceneDashboardChoiceModal}
+            title={<>Select a default dashboard for {sceneDescription[scene]}</>}
             footer={
                 <>
                     <LemonButton
                         type="secondary"
-                        data-attr="close-primary-dashboard-modal"
-                        onClick={closePrimaryDashboardModal}
+                        data-attr="close-scene-dashboard-choice-modal"
+                        onClick={closeSceneDashboardChoiceModal}
                     >
                         Close
                     </LemonButton>
@@ -40,7 +45,7 @@ export function PrimaryDashboardModal(): JSX.Element {
                         type="search"
                         placeholder="Search for dashboards"
                         onChange={setSearchTerm}
-                        value={searchTerm}
+                        value={searchTerm ?? undefined}
                         fullWidth={true}
                         allowClear={true}
                         className="mb-4"
@@ -48,7 +53,7 @@ export function PrimaryDashboardModal(): JSX.Element {
                     <LemonDivider />
                     <div className="space-y-2 min-h-100">
                         {dashboards.map((dashboard) => {
-                            const isPrimary = dashboard.id === primaryDashboardId
+                            const isCurrentChoice = dashboard.id === currentDashboardId
                             const rowContents = (
                                 <div className="flex flex-1 items-center justify-between overflow-hidden">
                                     <div className="flex-1 flex flex-col justify-center overflow-hidden">
@@ -57,17 +62,16 @@ export function PrimaryDashboardModal(): JSX.Element {
                                             {dashboard.description}
                                         </span>
                                     </div>
-                                    {isPrimary ? (
+                                    {isCurrentChoice ? (
                                         <>
-                                            <IconCottage className="mr-2 text-warning text-lg" />
-                                            <span>Default</span>
+                                            <SceneIcon scene={scene} size={'small'} /> <span>Default</span>
                                         </>
                                     ) : (
                                         <strong className="set-default-text">Set as default</strong>
                                     )}
                                 </div>
                             )
-                            if (isPrimary) {
+                            if (isCurrentChoice) {
                                 return (
                                     <LemonRow key={dashboard.id} fullWidth status="muted" className="dashboard-row">
                                         {rowContents}
@@ -80,9 +84,9 @@ export function PrimaryDashboardModal(): JSX.Element {
                                     fullWidth
                                     className="dashboard-row"
                                     onClick={() => {
-                                        setPrimaryDashboard(dashboard.id)
+                                        setSceneDashboardChoice(dashboard.id)
                                         setSearchTerm('')
-                                        closePrimaryDashboardModal()
+                                        closeSceneDashboardChoiceModal()
                                     }}
                                 >
                                     {rowContents}

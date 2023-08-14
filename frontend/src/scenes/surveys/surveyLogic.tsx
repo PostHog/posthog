@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import {
     Breadcrumb,
+    ChartDisplayType,
     FeatureFlagFilters,
     PluginType,
     PropertyFilterType,
@@ -16,7 +17,7 @@ import {
     SurveyType,
 } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema'
 import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -114,6 +115,32 @@ export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries 
     }
 }
 
+export const getSurveyDataVizQuery = (survey: Survey): InsightVizNode => {
+    return {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            dateRange: {
+                date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
+                date_to: dayjs().format('YYYY-MM-DD'),
+            },
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$survey_id',
+                    operator: PropertyOperator.Exact,
+                    value: survey.id,
+                },
+            ],
+            series: [{ event: surveyEventName, kind: NodeKind.EventsNode }],
+            trendsFilter: { display: ChartDisplayType.ActionsBarValue },
+            breakdown: { breakdown: '$survey_response', breakdown_type: 'event' },
+        },
+        showHeader: true,
+        showTable: true,
+    }
+}
+
 export interface SurveyLogicProps {
     id: string | 'new'
 }
@@ -152,6 +179,7 @@ export const surveyLogic = kea<surveyLogicType>([
         resumeSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
         setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
+        setSurveyDataVizQuery: (surveyDataVizQuery: InsightVizNode) => ({ surveyDataVizQuery }),
         setHasTargetingFlag: (hasTargetingFlag: boolean) => ({ hasTargetingFlag }),
     }),
     loaders(({ props, actions }) => ({
@@ -187,6 +215,7 @@ export const surveyLogic = kea<surveyLogicType>([
             if (survey.start_date && survey.id !== 'new') {
                 actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
                 actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
+                actions.setSurveyDataVizQuery(getSurveyDataVizQuery(survey as Survey))
             }
             if (survey.targeting_flag) {
                 actions.setHasTargetingFlag(true)
@@ -240,6 +269,12 @@ export const surveyLogic = kea<surveyLogicType>([
             null as SurveyMetricsQueries | null,
             {
                 setSurveyMetricsQueries: (_, { surveyMetricsQueries }) => surveyMetricsQueries,
+            },
+        ],
+        surveyDataVizQuery: [
+            null as InsightVizNode | null,
+            {
+                setSurveyDataVizQuery: (_, { surveyDataVizQuery }) => surveyDataVizQuery,
             },
         ],
         hasTargetingFlag: [

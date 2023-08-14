@@ -15,6 +15,8 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getCachedResults } from './utils'
 import { useState } from 'react'
 
+import './Insight.scss'
+
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {
     return `InsightViz.${keyForInsightLogicProps('new')(insightProps)}`
@@ -31,7 +33,7 @@ let uniqueNode = 0
 
 export function InsightViz({ query, setQuery, context, readOnly }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueNode++}`)
-    const insightProps: InsightLogicProps = context?.insightProps || { dashboardItemId: `new-AdHoc.${key}` }
+    const insightProps: InsightLogicProps = context?.insightProps || { dashboardItemId: `new-AdHoc.${key}`, query }
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: insightVizDataNodeKey(insightProps),

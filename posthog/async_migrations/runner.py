@@ -6,7 +6,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.async_migrations.setup import (
-    POSTHOG_VERSION,
+    FROZEN_POSTHOG_VERSION,
     get_async_migration_definition,
     get_async_migration_dependency,
 )
@@ -250,7 +250,7 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
 
 
 def is_posthog_version_compatible(posthog_min_version, posthog_max_version):
-    return get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION") or POSTHOG_VERSION in SimpleSpec(
+    return get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION") or FROZEN_POSTHOG_VERSION in SimpleSpec(
         f">={posthog_min_version},<={posthog_max_version}"
     )
 
