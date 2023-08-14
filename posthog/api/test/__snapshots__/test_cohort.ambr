@@ -81,37 +81,6 @@
          AND version < '2')
   '
 ---
-# name: TestCohort.test_async_deletion_of_cohort.12
-  '
-  /* celery:posthog.celery.clickhouse_clear_removed_data */
-  ALTER TABLE cohortpeople
-  DELETE
-  WHERE (team_id = 2
-         AND cohort_id = '1'
-         AND version < '2')
-  '
----
-# name: TestCohort.test_async_deletion_of_cohort.13
-  'OPTIMIZE TABLE cohortpeople FINAL SETTINGS mutations_sync = 2'
----
-# name: TestCohort.test_async_deletion_of_cohort.14
-  '
-  SELECT count()
-  FROM cohortpeople
-  WHERE cohort_id = 2
-  '
----
-# name: TestCohort.test_async_deletion_of_cohort.15
-  '
-  /* celery:posthog.celery.clickhouse_clear_removed_data */
-  SELECT DISTINCT team_id,
-                  cohort_id
-  FROM cohortpeople
-  WHERE (team_id = 2
-         AND cohort_id = '1'
-         AND version < '2')
-  '
----
 # name: TestCohort.test_async_deletion_of_cohort.2
   '
   /* user_id:106 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */

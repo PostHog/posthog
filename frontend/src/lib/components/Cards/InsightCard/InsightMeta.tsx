@@ -15,7 +15,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { DashboardPrivilegeLevel } from 'lib/constants'
@@ -109,7 +108,6 @@ export function InsightMeta({
 
                     {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
-                    <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
                 </>
             }
             metaDetails={<InsightDetails insight={insight} />}

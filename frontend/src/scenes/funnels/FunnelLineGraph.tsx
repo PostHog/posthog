@@ -12,7 +12,16 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { isInsightQueryNode } from '~/queries/utils'
 import { TrendsFilter } from '~/queries/schema'
 
+const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
+    if (inCardView) {
+        return <>{children}</>
+    }
+
+    return <div className="trends-insights-container">{children}</div>
+}
+
 export function FunnelLineGraph({
+    inCardView,
     inSharedMode,
     showPersonsModal = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
@@ -27,61 +36,63 @@ export function FunnelLineGraph({
     const aggregationGroupTypeIndex = querySource.aggregation_group_type_index
 
     return (
-        <LineGraph
-            data-attr="trend-line-graph-funnel"
-            type={GraphType.Line}
-            datasets={steps as unknown as GraphDataset[] /* TODO: better typing */}
-            labels={steps?.[0]?.labels ?? ([] as string[])}
-            isInProgress={incompletenessOffsetFromEnd < 0}
-            inSharedMode={!!inSharedMode}
-            showPersonsModal={showPersonsModal}
-            tooltip={{
-                showHeader: false,
-                hideColorCol: true,
-                renderSeries: (_, datum) => {
-                    if (!steps?.[0]?.days) {
-                        return 'Trend'
-                    }
-                    return (
-                        getFormattedDate(steps[0].days?.[datum.dataIndex], interval ?? undefined) +
-                        ' ' +
-                        (insightData?.timezone ? shortTimeZone(insightData.timezone) : 'UTC')
-                    )
-                },
-                renderCount: (count) => {
-                    return `${count}%`
-                },
-            }}
-            trendsFilter={{ aggregation_axis_format: 'percentage' } as TrendsFilter}
-            labelGroupType={aggregationGroupTypeIndex ?? 'people'}
-            incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
-            onClick={
-                !showPersonsModal
-                    ? undefined
-                    : (payload) => {
-                          const { points, index } = payload
-                          const dataset = points.clickedPointNotLine
-                              ? points.pointsIntersectingClick[0].dataset
-                              : points.pointsIntersectingLine[0].dataset
-                          const day = dataset?.days?.[index] ?? ''
-                          const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
+        <LineGraphWrapper inCardView={inCardView}>
+            <LineGraph
+                data-attr="trend-line-graph-funnel"
+                type={GraphType.Line}
+                datasets={steps as unknown as GraphDataset[] /* TODO: better typing */}
+                labels={steps?.[0]?.labels ?? ([] as string[])}
+                isInProgress={incompletenessOffsetFromEnd < 0}
+                inSharedMode={!!inSharedMode}
+                showPersonsModal={showPersonsModal}
+                tooltip={{
+                    showHeader: false,
+                    hideColorCol: true,
+                    renderSeries: (_, datum) => {
+                        if (!steps?.[0]?.days) {
+                            return 'Trend'
+                        }
+                        return (
+                            getFormattedDate(steps[0].days?.[datum.dataIndex], interval ?? undefined) +
+                            ' ' +
+                            (insightData?.timezone ? shortTimeZone(insightData.timezone) : 'UTC')
+                        )
+                    },
+                    renderCount: (count) => {
+                        return `${count}%`
+                    },
+                }}
+                trendsFilter={{ aggregation_axis_format: 'percentage' } as TrendsFilter}
+                labelGroupType={aggregationGroupTypeIndex ?? 'people'}
+                incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
+                onClick={
+                    !showPersonsModal
+                        ? undefined
+                        : (payload) => {
+                              const { points, index } = payload
+                              const dataset = points.clickedPointNotLine
+                                  ? points.pointsIntersectingClick[0].dataset
+                                  : points.pointsIntersectingLine[0].dataset
+                              const day = dataset?.days?.[index] ?? ''
+                              const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
-                          const filters = queryNodeToFilter(querySource) // for persons modal
-                          const personsUrl = buildPeopleUrl({
-                              filters,
-                              date_from: day ?? '',
-                              response: insightData,
-                          })
-                          if (personsUrl) {
-                              openPersonsModal({
-                                  url: personsUrl,
-                                  title: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${dayjs(
-                                      label
-                                  ).format('MMMM Do YYYY')}`,
+                              const filters = queryNodeToFilter(querySource) // for persons modal
+                              const personsUrl = buildPeopleUrl({
+                                  filters,
+                                  date_from: day ?? '',
+                                  response: insightData,
                               })
+                              if (personsUrl) {
+                                  openPersonsModal({
+                                      url: personsUrl,
+                                      title: `${capitalizeFirstLetter(
+                                          aggregationTargetLabel.plural
+                                      )} converted on ${dayjs(label).format('MMMM Do YYYY')}`,
+                                  })
+                              }
                           }
-                      }
-            }
-        />
+                }
+            />
+        </LineGraphWrapper>
     )
 }
