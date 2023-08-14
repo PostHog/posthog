@@ -54,7 +54,6 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
     const disableTable = query.showTable ? !query.showTable : !showIfFull
     const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
     const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
-    const disableLegendButton = query.showLegendButton ? !query.showLegendButton : !showIfFull
     const disableLastComputationRefresh = query.showLastComputationRefresh
         ? !query.showLastComputationRefresh
         : !showIfFull
@@ -84,7 +83,6 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
                             disableCorrelationTable={disableCorrelationTable}
                             disableLastComputation={disableLastComputation}
                             disableLastComputationRefresh={disableLastComputationRefresh}
-                            disableLegendButton={disableLegendButton}
                         />
                     </div>
                 </div>

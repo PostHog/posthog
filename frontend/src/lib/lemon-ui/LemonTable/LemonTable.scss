@@ -220,6 +220,9 @@ body:not(.storybook-test-runner) {
     .LemonTable__cell--sticky::before {
         background: var(--bg-light);
     }
+    tr.LemonTable__row--status-highlighted .LemonTable__cell--sticky::before {
+        background: #e8ecff; // TRICKY: This is a one-off opaque form of --primary-bg-hover, keep in sync with source
+    }
     .LemonTable__header--sticky::before {
         background: var(--mid);
     }
