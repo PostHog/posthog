@@ -1,13 +1,13 @@
 import { actions, connect, kea, selectors, listeners, reducers, path, afterMount } from 'kea'
 import { dataWarehouseSavedQueriesLogic } from './saved_queries/dataWarehouseSavedQueriesLogic'
 import { DataWarehouseSceneRow } from './types'
-import { viewLinkLogicType } from './viewLinkLogicType'
 import { DataWarehouseViewLink } from '~/types'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { viewLinkLogicType } from './viewLinkLogicType'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
