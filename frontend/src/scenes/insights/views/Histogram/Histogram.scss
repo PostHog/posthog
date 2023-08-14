@@ -34,9 +34,8 @@
         g#x-axis,
         g#y-axis {
             text {
-                font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial,
-                    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-                font-size: 12px;
+                font-family: var(--font-sans);
+                font-size: 0.75rem;
                 font-weight: 500;
                 fill: var(--primary-alt);
             }
