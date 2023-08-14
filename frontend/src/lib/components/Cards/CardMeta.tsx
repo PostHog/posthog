@@ -76,11 +76,7 @@ export function CardMeta({
         <CSSTransition in={areDetailsShown} timeout={200} classNames="CardMeta--expansion">
             {(transitionState) => (
                 <div
-                    className={clsx(
-                        'CardMeta',
-                        className,
-                        showDetailsControls ? 'CardMeta--WithDetails' : 'CardMeta--WithoutDetails'
-                    )}
+                    className={clsx('CardMeta', className, showDetailsControls && 'CardMeta--with-details')}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={transitionStyles[transitionState]}
                 >
