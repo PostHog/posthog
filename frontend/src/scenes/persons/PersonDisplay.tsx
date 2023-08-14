@@ -4,7 +4,7 @@ import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture
 import clsx from 'clsx'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { PersonPreview } from './PersonPreview'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { router } from 'kea-router'
 import { asDisplay, asLink } from './person-utils'
 
@@ -25,14 +25,18 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
     const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
 
+    const email: string | undefined = useMemo(() => {
+        // The email property could be correct but it could also be set strangely such as an array or not even a string
+        const possibleEmail = Array.isArray(person?.properties?.email)
+            ? person?.properties?.email[0]
+            : person?.properties?.email
+        return typeof possibleEmail === 'string' ? possibleEmail : undefined
+    }, [person?.properties?.email])
+
     let content = (
         <span className="flex items-center">
             {withIcon && (
-                <ProfilePicture
-                    name={display}
-                    email={person?.properties?.email}
-                    size={typeof withIcon === 'string' ? withIcon : 'md'}
-                />
+                <ProfilePicture name={display} email={email} size={typeof withIcon === 'string' ? withIcon : 'md'} />
             )}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>

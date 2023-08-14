@@ -226,7 +226,6 @@ export function InsightsTable({
             embedded={embedded}
             columns={columns}
             rowKey="id"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
             loading={insightDataLoading}
             emptyState="No insight results"
             data-attr="insights-table-graph"

@@ -150,21 +150,27 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(list_response_other_org_2_data["count"], 1)
         self.assertEqual(list_response_other_org_2.status_code, 200)
 
-    def test_no_longer_globally_managed_still_visible_to_org_if_enabled(self, mock_get, mock_reload):
+    def test_no_longer_globally_managed_still_visible_to_org_iff_has_config(self, mock_get, mock_reload):
         other_org: Organization = Organization.objects.create(
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.CONFIG
+        )
+        no_plugins_org: Organization = Organization.objects.create(
+            name="NoPlugins", plugins_access_level=Organization.PluginsAccessLevel.CONFIG
         )
         other_team: Team = Team.objects.create(organization=other_org, name="FooBar2")
         OrganizationMembership.objects.create(user=self.user, organization=other_org)
         plugin = Plugin.objects.create(organization=self.organization)
-        PluginConfig.objects.create(plugin=plugin, enabled=True, team=other_team, order=0)
-        # The plugin is NOT global BUT it was before and it was enabled for one of the projects back then,
+        PluginConfig.objects.create(plugin=plugin, enabled=False, team=other_team, order=0)
+        # The plugin is NOT global and it has a config for one of the projects,
         # so it should still show up for the other org
         list_response = self.client.get(f"/api/organizations/{other_org.id}/plugins/")
         self.assertEqual(list_response.status_code, 200, list_response.json())
         list_response_data = list_response.json()
         self.assertEqual(list_response_data["count"], 1)
         self.assertEqual(list_response_data["results"][0]["id"], plugin.id)
+        # but org without any plugin configs won't have access
+        list_response = self.client.get(f"/api/organizations/{no_plugins_org.id}/plugins/")
+        self.assertEqual(list_response.status_code, 403, list_response.json())
 
     def test_globally_managed_only_manageable_by_owner_org(self, mock_get, mock_reload):
         my_org = self.organization

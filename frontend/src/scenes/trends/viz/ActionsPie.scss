@@ -5,6 +5,10 @@
     // More padding at the bottom to give the number some breathing room
     padding: 0 1rem 2rem;
 
+    .InsightCard & {
+        padding-top: 1rem;
+    }
+
     .pie-chart {
         position: relative;
         width: 100%;
