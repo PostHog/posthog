@@ -39,10 +39,22 @@ describe('sessionRecordingDataLogic', () => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
             get: {
-                '/api/projects/:team/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    const version = req.url.searchParams.get('version')
-                    if (req.params.id === 'forced_upgrade' && version !== '2') {
-                        return res(ctx.status(302), ctx.set('Location', req.url.pathname.replace('version', '2')))
+                '/api/projects/:team/session_recordings/:id/snapshots': (req) => {
+                    if (req.params.id === 'forced_upgrade') {
+                        // the API will 302 to the version 2 endpoint, which (in production) fetch auto-follows
+                        return [
+                            200,
+                            {
+                                sources: [
+                                    {
+                                        source: 'blob',
+                                        start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                        end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                        blob_key: '1691755416097-1691755492268',
+                                    },
+                                ],
+                            },
+                        ]
                     }
                     return [200, recordingSnapshotsJson]
                 },
@@ -220,11 +232,26 @@ describe('sessionRecordingDataLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
-            }).toDispatchActions([
-                'loadRecordingSnapshotsV1Success',
-                'loadRecordingSnapshotsV2',
-                'loadRecordingSnapshotsV2Success',
-            ])
+            })
+                .toDispatchActions([
+                    'loadRecordingSnapshotsV1Success',
+                    'loadRecordingSnapshotsV2',
+                    'loadRecordingSnapshotsV2Success',
+                ])
+                .toMatchValues({
+                    sessionPlayerSnapshotData: {
+                        snapshots: [],
+                        sources: [
+                            {
+                                loaded: true,
+                                source: 'blob',
+                                start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                blob_key: '1691755416097-1691755492268',
+                            },
+                        ],
+                    },
+                })
         })
     })
 
