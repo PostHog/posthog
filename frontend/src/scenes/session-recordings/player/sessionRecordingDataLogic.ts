@@ -365,7 +365,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             // instead of reading the location header
                             return {
                                 redirected_to_v2: true,
-                            } satisfies SessionPlayerSnapshotData
+                            } as SessionPlayerSnapshotData
                         }
                         throw e
                     }
