@@ -1,13 +1,13 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { IconEdit, IconPause, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconEdit, IconEllipsis, IconPause, IconRefresh } from 'lib/lemon-ui/icons'
 import { identifierToHuman } from 'lib/utils'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { intervalToFrequency, isRunInProgress } from './utils'
@@ -16,6 +16,7 @@ import { UUIDShortener } from 'lib/components/UUIDShortener'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { NotFound } from 'lib/components/NotFound'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -59,6 +60,22 @@ export function BatchExportScene(): JSX.Element {
                 buttons={
                     batchExportConfig ? (
                         <>
+                            <LemonMenu
+                                items={[
+                                    {
+                                        label: 'Pause',
+                                        onClick: () => alert('TODO'),
+                                    },
+                                    {
+                                        label: 'Archive',
+                                        status: 'danger',
+                                        onClick: () => alert('TODO'),
+                                    },
+                                ]}
+                            >
+                                <LemonButton icon={<IconEllipsis />} status="stealth" size="small" />
+                            </LemonMenu>
+                            <LemonDivider vertical />
                             <LemonButton type="secondary" onClick={() => openBackfillModal()}>
                                 Create historic export
                             </LemonButton>
@@ -104,6 +121,7 @@ export function BatchExportScene(): JSX.Element {
                         <LemonButton
                             icon={<IconEdit />}
                             type="secondary"
+                            center
                             to={urls.batchExportEdit(batchExportConfig.id)}
                         >
                             Edit
