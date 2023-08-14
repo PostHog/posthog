@@ -968,6 +968,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
 
     afterMount(({ props, actions, cache }) => {
+        cache.pausedMediaElements = []
         cache.fullScreenListener = () => {
             actions.setIsFullScreen(document.fullscreenElement !== null)
         }
