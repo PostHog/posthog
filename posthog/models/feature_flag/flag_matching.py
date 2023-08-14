@@ -54,6 +54,13 @@ FLAG_HASH_KEY_WRITES_COUNTER = Counter(
 )
 
 
+FLAG_CACHE_HIT_COUNTER = Counter(
+    "flag_cache_hit_total",
+    "Whether we could get all flags from the cache or not.",
+    labelnames=[LABEL_TEAM_ID, "cache_hit"],
+)
+
+
 class FeatureFlagMatchReason(str, Enum):
     SUPER_CONDITION_VALUE = "super_condition_value"
     CONDITION_MATCH = "condition_match"
@@ -591,8 +598,12 @@ def get_all_feature_flags(
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
 
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
+    cache_hit = True
     if all_feature_flags is None:
+        cache_hit = False
         all_feature_flags = set_feature_flags_for_team_in_cache(team_id, using_database=DATABASE_FOR_FLAG_MATCHING)
+
+    FLAG_CACHE_HIT_COUNTER.labels(team_id=label_for_team_id_to_track(team_id), cache_hit=cache_hit).inc()
 
     flags_have_experience_continuity_enabled = any(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
