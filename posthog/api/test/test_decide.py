@@ -2351,14 +2351,14 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
         # this create fills up team cache^
 
-        with freeze_time("2021-01-01T00:00:00Z"), self.assertNumQueries(2, using="replica"), self.assertNumQueries(
-            0, using="default"
+        with freeze_time("2021-01-01T00:00:00Z"), self.assertNumQueries(1, using="replica"), self.assertNumQueries(
+            1, using="default"
         ):
             response = self._post_decide()
             # Replica queries:
             # E   1. SELECT 1
-            # E   1. SELECT "posthog_featureflag"."id", -- fill up feature flags cache
             # Main DB queries:
+            # E   1. SELECT "posthog_featureflag"."id", -- fill up feature flags cache
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual({}, response.json()["featureFlags"])
