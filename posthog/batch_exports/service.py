@@ -2,7 +2,7 @@ import datetime as dt
 from dataclasses import asdict, dataclass
 from uuid import UUID, uuid4
 
-from asgiref.sync import async_to_sync, sync_to_async
+from asgiref.sync import async_to_sync
 from temporalio.api.workflowservice.v1 import ResetWorkflowExecutionRequest
 from temporalio.client import (
     Client,
@@ -311,21 +311,6 @@ async def update_schedule(temporal: Client, id: str, schedule: Schedule) -> None
     return await handle.update(
         updater=updater,
     )
-
-
-async def acreate_batch_export(team_id: int, interval: str, name: str, destination_data: dict) -> BatchExport:
-    """Create a BatchExport and its underlying Schedule."""
-    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)  # type: ignore
-
-
-def fetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
-    """Fetch the BatchExportRuns for a given BatchExport."""
-    return list(BatchExportRun.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit])
-
-
-async def afetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
-    """Fetch the BatchExportRuns for a given BatchExport."""
-    return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)  # type: ignore
 
 
 @async_to_sync
