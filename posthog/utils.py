@@ -169,17 +169,22 @@ def relative_date_parse_with_delta_mapping(
 ) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
-        # This supports a few formats, but we primarily care about:
-        # YYYY-MM-DD, YYYY-MM-DD[T]hh:mm, YYYY-MM-DD[T]hh:mm:ss, YYYY-MM-DD[T]hh:mm:ss.ssssss
-        # (if a timezone offset is specified, we use it, otherwise we assume project timezone)
-        parsed_dt = parser.isoparse(input)
+        try:
+            # This supports a few formats, but we primarily care about:
+            # YYYY-MM-DD, YYYY-MM-DD[T]hh:mm, YYYY-MM-DD[T]hh:mm:ss, YYYY-MM-DD[T]hh:mm:ss.ssssss
+            # (if a timezone offset is specified, we use it, otherwise we assume project timezone)
+            parsed_dt = parser.isoparse(input)
+        except ValueError:
+            # Fallback to also parse dates without zero-padding, e.g. 2021-1-1 - parser.isoparse doesn't support this
+            parsed_dt = datetime.datetime.strptime(input, "%Y-%m-%d")
+    except ValueError:
+        pass
+    else:
         if parsed_dt.tzinfo is None:
             parsed_dt = parsed_dt.replace(tzinfo=timezone_info)
         else:
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None
-    except ValueError:
-        pass
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
