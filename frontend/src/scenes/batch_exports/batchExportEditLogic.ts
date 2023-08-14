@@ -21,7 +21,10 @@ export type BatchExportsEditLogicProps = {
     id: string | 'new'
 }
 
-type BatchExportConfigurationFrom = Omit<BatchExportConfiguration, 'id' | 'destination' | 'start_at' | 'end_at'> &
+export type BatchExportConfigurationForm = Omit<
+    BatchExportConfiguration,
+    'id' | 'destination' | 'start_at' | 'end_at'
+> &
     Partial<BatchExportDestinationS3['config']> &
     Partial<BatchExportDestinationSnowflake['config']> & {
         destination: 'S3' | 'Snowflake'
@@ -31,7 +34,7 @@ type BatchExportConfigurationFrom = Omit<BatchExportConfiguration, 'id' | 'desti
 
 const formFields = (
     props: BatchExportsEditLogicProps,
-    { name, destination, interval, start_at, end_at, paused, ...config }: BatchExportConfigurationFrom
+    { name, destination, interval, start_at, end_at, paused, ...config }: BatchExportConfigurationForm
 ): Record<string, any> => {
     // Important! All fields that are required must be checked here as it is used also to sanitise the existing
     const isNew = props.id === 'new'
@@ -83,26 +86,26 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
         batchExportConfigForm: {
             defaults: {
                 name: '',
-            } as BatchExportConfigurationFrom,
+            } as BatchExportConfigurationForm,
             errors: (form) => formFields(props, form),
             submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
                 const destinationObject: BatchExportDestination =
                     destination === 'S3'
-                        ? {
+                        ? ({
                               type: 'S3',
                               config: config,
-                          }
-                        : {
+                          } as unknown as BatchExportDestinationS3)
+                        : ({
                               type: 'Snowflake',
                               config: config,
-                          }
+                          } as unknown as BatchExportDestinationSnowflake)
 
                 const data: Omit<BatchExportConfiguration, 'id' | 'created_at'> = {
                     paused,
                     name,
                     interval,
-                    start_at,
-                    end_at,
+                    start_at: start_at?.toISOString() ?? null,
+                    end_at: end_at?.toISOString() ?? null,
                     destination: destinationObject,
                 }
 
@@ -137,7 +140,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
 
             const destination = batchExportConfig.destination.type
 
-            const transformedConfig: BatchExportConfigurationFrom = {
+            const transformedConfig: BatchExportConfigurationForm = {
                 ...batchExportConfig,
                 destination,
                 start_at: batchExportConfig.start_at ? dayjs(batchExportConfig.start_at) : null,
