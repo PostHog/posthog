@@ -75,6 +75,7 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
         batch_export_id=UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
+        status="RUNNING",
     )
 
     activity.logger.info(f"Created BatchExportRun {run.id} in team {inputs.team_id}.")

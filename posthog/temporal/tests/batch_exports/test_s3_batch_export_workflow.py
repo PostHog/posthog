@@ -2,13 +2,11 @@ import datetime as dt
 import functools
 import json
 from random import randint
-from typing import Literal, TypedDict
 from unittest import mock
 from uuid import uuid4
 
 import boto3
 import pytest
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import Client as HttpClient
 from django.test import override_settings
@@ -16,9 +14,13 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
+from posthog.temporal.tests.batch_exports.base import (
+    EventValues,
+    amaterialize,
+    insert_events,
+)
 from posthog.temporal.tests.batch_exports.fixtures import (
     acreate_batch_export,
     afetch_batch_export_runs,
@@ -35,69 +37,6 @@ from posthog.temporal.workflows.s3_batch_export import (
 )
 
 TEST_ROOT_BUCKET = "test-batch-exports"
-
-
-"""Events to be inserted for testing."""
-EventValues = TypedDict(
-    "EventValues",
-    {
-        "uuid": str,
-        "event": str,
-        "_timestamp": str,
-        "timestamp": str,
-        "inserted_at": str | None,
-        "created_at": str,
-        "distinct_id": str,
-        "person_id": str,
-        "person_properties": dict | None,
-        "team_id": int,
-        "properties": dict | None,
-        "elements_chain": str,
-    },
-)
-
-
-async def insert_events(client, events: list[EventValues]):
-    """Insert some events into the sharded_events table."""
-    await client.execute_query(
-        f"""
-        INSERT INTO `sharded_events` (
-            uuid,
-            event,
-            timestamp,
-            _timestamp,
-            person_id,
-            team_id,
-            properties,
-            elements_chain,
-            distinct_id,
-            inserted_at,
-            created_at,
-            person_properties
-        )
-        VALUES
-        """,
-        *[
-            (
-                event["uuid"],
-                event["event"],
-                event["timestamp"],
-                event["_timestamp"],
-                event["person_id"],
-                event["team_id"],
-                json.dumps(event["properties"]) if isinstance(event["properties"], dict) else event["properties"],
-                event["elements_chain"],
-                event["distinct_id"],
-                event["inserted_at"],
-                event["created_at"],
-                json.dumps(event["person_properties"])
-                if isinstance(event["person_properties"], dict)
-                else event["person_properties"],
-            )
-            for event in events
-        ],
-    )
-
 
 create_test_client = functools.partial(boto3.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
@@ -135,12 +74,6 @@ def s3_client(bucket_name):
     s3_client.delete_bucket(Bucket=bucket_name)
 
 
-@sync_to_async
-def amaterialize(table: Literal["events", "person", "groups"], column: str):
-    """Materialize a column in a table."""
-    return materialize(table, column)
-
-
 def assert_events_in_s3(s3_client, bucket_name, key_prefix, events):
     """Assert provided events written to JSON in key_prefix in S3 bucket_name."""
     # List the objects in the bucket with the prefix.
@@ -174,11 +107,7 @@ def assert_events_in_s3(s3_client, bucket_name, key_prefix, events):
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client, activity_environment):
-    """
-    Test that the insert_into_s3_activity function puts data into S3. We do not
-    assume anything about the Django models, and instead just check that the
-    data is in S3.
-    """
+    """Test that the insert_into_s3_activity function puts data into S3."""
 
     data_interval_start = "2023-04-20 14:00:00"
     data_interval_end = "2023-04-25 15:00:00"

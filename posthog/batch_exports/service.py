@@ -70,9 +70,28 @@ class SnowflakeBatchExportInputs:
     role: str | None = None
 
 
+@dataclass
+class PostgresBatchExportInputs:
+    """Inputs for Postgres export workflow."""
+
+    batch_export_id: str
+    team_id: int
+    user: str
+    password: str
+    host: str
+    database: str
+    table_name: str
+    interval: str = "hour"
+    schema: str = "public"
+    table_name: str = "events"
+    port: int = 5432
+    data_interval_end: str | None = None
+
+
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
+    "Postgres": ("postgres-export", PostgresBatchExportInputs),
 }
 
 
@@ -218,6 +237,7 @@ def create_batch_export_run(
     batch_export_id: UUID,
     data_interval_start: str,
     data_interval_end: str,
+    status: str = BatchExportRun.Status.STARTING,
 ):
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -230,7 +250,7 @@ def create_batch_export_run(
     """
     run = BatchExportRun(
         batch_export_id=batch_export_id,
-        status=BatchExportRun.Status.STARTING,
+        status=status,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start),
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
     )
