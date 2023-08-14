@@ -238,7 +238,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
@@ -249,6 +249,7 @@ REST_FRAMEWORK = {
         "posthog.rate_limit.BurstRateThrottle",
         "posthog.rate_limit.SustainedRateThrottle",
     ],
+    # The default STRICT_JSON fails the whole request if the data can't be strictly JSON-serialized
     "STRICT_JSON": False,
 }
 if DEBUG:

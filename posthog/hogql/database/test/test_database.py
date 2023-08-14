@@ -12,7 +12,6 @@ from posthog.hogql.query import execute_hogql_query
 
 
 class TestDatabase(BaseTest):
-    maxDiff = None
     snapshot: Any
 
     @pytest.mark.usefixtures("unittest_snapshot")

@@ -1,6 +1,8 @@
 from enum import Enum
 from typing import Literal
+from semantic_version import Version
 
+FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted version, just for backwards compat now
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
 
