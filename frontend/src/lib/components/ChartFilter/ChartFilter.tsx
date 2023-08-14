@@ -55,7 +55,8 @@ export function ChartFilter(): JSX.Element {
                 {
                     value: ChartDisplayType.ActionsLineGraphCumulative,
                     icon: <IconCumulativeChart />,
-                    label: 'Line chart',
+                    label: 'Line chart (cumulative)',
+                    labelInMenu: 'Line chart',
                     disabledReason: trendsOnlyDisabledReason,
                 },
             ],
