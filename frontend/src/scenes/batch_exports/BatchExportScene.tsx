@@ -8,15 +8,16 @@ import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
-import { identifierToHuman } from 'lib/utils'
+import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
-import { intervalToFrequency, isRunInProgress } from './utils'
+import { humanizeDestination, intervalToFrequency, isRunInProgress } from './utils'
 import { TZLabel } from '@posthog/apps-common'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -115,11 +116,53 @@ export function BatchExportScene(): JSX.Element {
                 }
             />
 
-            <div className="flex items-center gap-2">
+            <div>
                 {batchExportConfig ? (
                     <>
-                        <BatchExportTag batchExportConfig={batchExportConfig} />
-                        <LemonTag className="uppercase">{intervalToFrequency(batchExportConfig.interval)}</LemonTag>
+                        <div className="flex items-center gap-2">
+                            <BatchExportTag batchExportConfig={batchExportConfig} />
+                            <LemonTag>
+                                {capitalizeFirstLetter(intervalToFrequency(batchExportConfig.interval))}
+                            </LemonTag>
+
+                            <LemonTag>
+                                {batchExportConfig.end_at ? (
+                                    <>
+                                        <span className="flex gap-1">
+                                            Ends <TZLabel time={batchExportConfig.end_at} />
+                                        </span>
+                                    </>
+                                ) : (
+                                    'Indefinite'
+                                )}
+                            </LemonTag>
+
+                            <Tooltip
+                                title={
+                                    <>
+                                        <ul className="mb-4">
+                                            <li className="flex items-center justify-between gap-2">
+                                                <span>Destination:</span>
+                                                <span className="font-semibold">
+                                                    {batchExportConfig.destination.type}
+                                                </span>
+                                            </li>
+
+                                            {Object.keys(batchExportConfig.destination.config).map((x) => (
+                                                <li key={x} className="flex items-center justify-between gap-2">
+                                                    <span>{identifierToHuman(x)}:</span>
+                                                    <span className="font-semibold">
+                                                        {batchExportConfig.destination.config[x]}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </>
+                                }
+                            >
+                                <LemonTag>{humanizeDestination(batchExportConfig.destination)}</LemonTag>
+                            </Tooltip>
+                        </div>
                     </>
                 ) : (
                     <LemonSkeleton className="w-10" />
@@ -128,23 +171,6 @@ export function BatchExportScene(): JSX.Element {
 
             {batchExportConfig ? (
                 <div className="flex items-start mt-4 gap-8 flex-wrap">
-                    <div className="shrink-0 min-w-60">
-                        <h2>Configuration</h2>
-
-                        <ul className="mb-4">
-                            <li className="flex items-center justify-between gap-2">
-                                <span>Destination:</span>
-                                <span className="font-semibold">{batchExportConfig.destination.type}</span>
-                            </li>
-
-                            {Object.keys(batchExportConfig.destination.config).map((x) => (
-                                <li key={x} className="flex items-center justify-between gap-2">
-                                    <span>{identifierToHuman(x)}:</span>
-                                    <span className="font-semibold">{batchExportConfig.destination.config[x]}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
                     <div className="flex-1 space-y-2">
                         <div className="flex justify-between items-start">
                             <h2 className="flex-1">Latest Runs</h2>

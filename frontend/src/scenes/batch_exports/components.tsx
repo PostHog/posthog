@@ -7,9 +7,19 @@ import './batch-exports.scss'
 
 export function BatchExportTag({ batchExportConfig }: { batchExportConfig: BatchExportConfiguration }): JSX.Element {
     return (
-        <LemonTag type={batchExportConfig.paused ? 'default' : 'primary'} className="uppercase">
-            {batchExportConfig.paused ? 'Paused' : 'Active'}
-        </LemonTag>
+        <Tooltip
+            title={
+                <>
+                    {batchExportConfig.paused
+                        ? 'This export is paused - no future export runs will be scheduled '
+                        : 'This export is active - new runs will be triggered at the configured interval.'}
+                </>
+            }
+        >
+            <LemonTag type={batchExportConfig.paused ? 'default' : 'primary'}>
+                {batchExportConfig.paused ? 'Paused' : 'Active'}
+            </LemonTag>
+        </Tooltip>
     )
 }
 

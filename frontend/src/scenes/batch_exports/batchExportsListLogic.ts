@@ -1,4 +1,4 @@
-import { actions, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
 import { BatchExportConfiguration } from '~/types'
@@ -56,6 +56,10 @@ export const batchExportsListLogic = kea<batchExportsListLogicType>([
 
     beforeUnmount(({ cache }) => {
         clearTimeout(cache.refreshTimeout)
+    }),
+
+    afterMount(({ actions }) => {
+        actions.loadBatchExports()
     }),
 
     selectors(({ actions }) => ({
