@@ -235,7 +235,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.reportUsageIfFullyLoaded()
             }
         },
-        loadRecordingSnapshotsV1Success: () => {
+        loadRecordingSnapshotsV1Success: ({ sessionPlayerSnapshotData }) => {
+            if (sessionPlayerSnapshotData?.redirected_to_v2) {
+                // we don't have to handle anything here, the v2 logic will take over
+                actions.loadRecordingSnapshotsV2()
+                return
+            }
+
             actions.loadRecordingSnapshotsSuccess()
 
             if (!!values.sessionPlayerSnapshotData?.next) {
@@ -348,7 +354,21 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const apiUrl =
                         nextUrl ||
                         `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
-                    const response: SessionRecordingSnapshotResponse = await api.get(apiUrl)
+
+                    let response: SessionRecordingSnapshotResponse
+                    try {
+                        response = await api.get(apiUrl)
+                    } catch (e) {
+                        if ((e as any).status === 302) {
+                            // there's only one reason we would get a 302 here,
+                            // so we can safely assume that we need to use the new API
+                            // instead of reading the location header
+                            return {
+                                redirected_to_v2: true,
+                            } satisfies SessionPlayerSnapshotData
+                        }
+                        throw e
+                    }
                     breakpoint()
 
                     // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
