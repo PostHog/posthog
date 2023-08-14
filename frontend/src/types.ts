@@ -3069,6 +3069,7 @@ export interface DataWarehouseSavedQuery {
 export interface DataWarehouseViewLink {
     id: string
     saved_query_id?: string
+    saved_query?: string
     table?: string
     to_join_key?: string
     from_join_key?: string
