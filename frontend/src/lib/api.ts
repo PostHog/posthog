@@ -43,6 +43,7 @@ import {
     Survey,
     TeamType,
     UserType,
+    NotebookNodeType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -1232,10 +1233,23 @@ const api = {
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
-        async list(sessionRecordingId?: string): Promise<PaginatedResponse<NotebookType>> {
+        async list(
+            contains?: { type: NotebookNodeType; attrs: Record<string, string> }[]
+        ): Promise<PaginatedResponse<NotebookType>> {
             const apiRequest = new ApiRequest().notebooks()
-            if (sessionRecordingId) {
-                apiRequest.withQueryString({ contains: `recording:${sessionRecordingId}` })
+            if (!!contains?.length) {
+                const containsString = contains
+                    .map(({ type, attrs }) => {
+                        const target = type.replace(/^ph-/, '')
+                        if (target === 'recording') {
+                            return `${target}:${attrs['id']}`
+                        } else {
+                            // TODO add support for other types
+                            return ''
+                        }
+                    })
+                    .join(',')
+                apiRequest.withQueryString({ contains: containsString })
             }
             return await apiRequest.get()
         },

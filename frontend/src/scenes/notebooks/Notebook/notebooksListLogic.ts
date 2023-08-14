@@ -49,16 +49,18 @@ export const openNotebook = async (
 
     popoverLogic?.actions.setInitialAutofocus(focus)
 
-    const theMountedNotebookLogic = notebookLogic({ shortId: notebookId })
+    const theNotebookLogic = notebookLogic({ shortId: notebookId })
+    const unmount = theNotebookLogic.mount()
 
     // there's a race here between opening up the notebook and mounting its logic
     // and that logic having an editor ready to receive commands
     let retryCount = 0
-    while (theMountedNotebookLogic.values.editor === null && retryCount < 100) {
+    while (theNotebookLogic.values.editor === null && retryCount < 100) {
         await new Promise((r) => setTimeout(r, 10))
         retryCount += 1
     }
-    onOpen(theMountedNotebookLogic)
+    onOpen(theNotebookLogic)
+    unmount()
 }
 
 export const notebooksListLogic = kea<notebooksListLogicType>([

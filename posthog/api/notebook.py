@@ -243,12 +243,15 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                     target, match = match_pair.split(":")
                     if target == "recording":
                         if match == "true":
-                            queryset = queryset.filter(content__content__contains=[{"type": "ph-recording"}])
+                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}])
                         elif match == "false":
-                            queryset = queryset.exclude(content__content__contains=[{"type": "ph-recording"}])
+                            queryset = queryset.exclude(content__content__contains=[{"type": f"ph-{target}"}])
                         else:
+
                             # it could be a recording id
-                            queryset = queryset.filter(content__content__contains=[{"attrs": {"id": match}}])
+                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}]).filter(
+                                content__content__contains=[{"attrs": {"id": match}}]
+                            )
 
         return queryset
 
