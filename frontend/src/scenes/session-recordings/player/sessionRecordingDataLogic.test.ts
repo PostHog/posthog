@@ -39,7 +39,13 @@ describe('sessionRecordingDataLogic', () => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
             get: {
-                '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
+                '/api/projects/:team/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    const version = req.url.searchParams.get('version')
+                    if (req.params.id === 'forced_upgrade' && version !== '2') {
+                        return res(ctx.status(302), ctx.set('Location', req.url.pathname.replace('version', '2')))
+                    }
+                    return [200, recordingSnapshotsJson]
+                },
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
             },
             post: {
@@ -202,6 +208,23 @@ describe('sessionRecordingDataLogic', () => {
             )
 
             expect(logic.values.sessionEventsData).toHaveLength(recordingEventsJson.results.length)
+        })
+    })
+
+    describe('force upgrade of session recording snapshots endpoint', () => {
+        it('can force upgrade by returning 302', async () => {
+            logic = sessionRecordingDataLogic({ sessionRecordingId: 'forced_upgrade' })
+            logic.mount()
+            // Most of these tests assume the metadata is being loaded upfront which is the typical case
+            logic.actions.loadRecordingMeta()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
+            }).toDispatchActions([
+                'loadRecordingSnapshotsV1Success',
+                'loadRecordingSnapshotsV2',
+                'loadRecordingSnapshotsV2Success',
+            ])
         })
     })
 

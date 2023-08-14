@@ -2258,7 +2258,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
     then run this test:
 
-    POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='posthog' POSTHOG_DB_USER='posthog'  ./bin/tests posthog/api/test/test_decide.py::TestDecideUsesReadReplica
+    POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide,PersonalAPIKey,local_evaluation' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='posthog' POSTHOG_DB_USER='posthog'  ./bin/tests posthog/api/test/test_decide.py::TestDecideUsesReadReplica
 
     or run locally with the same env vars.
     For local run, also change postgres_config in data_stores.py so you can have a different user for the read replica.
@@ -2354,14 +2354,14 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
         # this create fills up team cache^
 
-        with freeze_time("2021-01-01T00:00:00Z"), self.assertNumQueries(1, using="replica"), self.assertNumQueries(
-            1, using="default"
+        with freeze_time("2021-01-01T00:00:00Z"), self.assertNumQueries(2, using="replica"), self.assertNumQueries(
+            0, using="default"
         ):
             response = self._post_decide()
             # Replica queries:
             # E   1. SELECT 1
-            # Main DB queries:
             # E   1. SELECT "posthog_featureflag"."id", -- fill up feature flags cache
+            # Main DB queries:
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual({}, response.json()["featureFlags"])
@@ -3000,6 +3000,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         client.logout()
         self.client.logout()
+        cache.clear()
+
         # `local_evaluation` is called by logged out clients!
 
         # missing API key
@@ -3011,7 +3013,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(3, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(3, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -3019,6 +3021,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # Captured queries for replica DB:
             # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
             # E   2. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", "posthog_featureflag"."name", "posthog_featureflag"."filters", -- get flags
+            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name" -- get all cohorts, even if in this specific case they do nothing.
             # E   3. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
 
             response = self.client.get(
@@ -3028,7 +3031,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
-        self.assertEqual(len(response_data["flags"]), 4)
+        self.assertEqual(len(response_data["flags"]), 3)
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
@@ -3077,17 +3080,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "ensure_experience_continuity": False,
             },
             sorted_flags[2],
-        )
-        self.assertDictContainsSubset(
-            {
-                "name": "Inactive feature",
-                "key": "inactive-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-                "deleted": False,
-                "active": False,
-                "ensure_experience_continuity": False,
-            },
-            sorted_flags[3],
         )
 
         self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})
@@ -3185,8 +3177,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        cache.clear()
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(3, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(3, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -3194,8 +3187,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # Captured queries for replica DB:
             # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
             # E   2. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", "posthog_featureflag"."name", "posthog_featureflag"."filters", -- get flags
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select first cohort
-            # E   4. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select second cohort
+            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select all cohorts
             # E   5. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
 
             response = self.client.get(
@@ -3359,16 +3351,15 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         client.logout()
         self.client.logout()
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(3, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(3, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
             # E   3. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id", - user org permissions check
             # Captured queries for replica DB:
             # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
-            # E   2. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", "posthog_featureflag"."name", "posthog_featureflag"."filters", -- get flags
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select first cohort
-            # E   4. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select second cohort
+            # get flags from cache
+            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select all cohorts
             # E   5. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
 
             response = self.client.get(
