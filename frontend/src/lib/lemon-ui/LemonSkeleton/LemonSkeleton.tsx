@@ -46,6 +46,10 @@ LemonSkeleton.Circle = function LemonSkeletonCircle({ className, ...props }: Lem
     return <LemonSkeleton className={clsx('rounded-full shrink-0', className || 'h-10 w-10')} {...props} />
 }
 
+LemonSkeleton.Square = function LemonSkeletonSquare({ className, ...props }: LemonSkeletonProps) {
+    return <LemonSkeleton className={clsx('shrink-0', className || 'h-10 w-10')} {...props} />
+}
+
 LemonSkeleton.Button = function LemonSkeletonButton({
     className,
     size,
@@ -55,7 +59,7 @@ LemonSkeleton.Button = function LemonSkeletonButton({
         <LemonSkeleton
             className={clsx(
                 'rounded px-3',
-                size === 'small' && 'h-10',
+                size === 'small' && 'h-8',
                 (!size || size === 'medium') && 'h-10',
                 className || 'w-20'
             )}

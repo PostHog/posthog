@@ -1,5 +1,5 @@
 import { CaretRightOutlined } from '@ant-design/icons'
-import { Button, Col, Empty, Row, Skeleton } from 'antd'
+import { Button, Col, Empty, Row } from 'antd'
 import { Subtitle } from 'lib/components/PageHeader'
 import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 import { useActions, useValues } from 'kea'
@@ -7,6 +7,7 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginTab } from 'scenes/plugins/types'
 import { canGloballyManagePlugins } from 'scenes/plugins/access'
 import { userLogic } from 'scenes/userLogic'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function PluginsEmptyState(): JSX.Element {
     const { setPluginTab } = useActions(pluginsLogic)
@@ -24,7 +25,7 @@ export function PluginsEmptyState(): JSX.Element {
                                 <CaretRightOutlined /> {'Enabled apps'}{' '}
                             </>
                         }
-                        buttons={<Skeleton.Button style={{ width: 150 }} />}
+                        buttons={<LemonSkeleton.Button className="w-40" size="small" />}
                     />
                     <PluginLoading />
                 </>

@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,7 +13,7 @@ export function DataAttributes(): JSX.Element {
     useEffect(() => setValue(currentTeam?.data_attributes || []), [currentTeam])
 
     if (!currentTeam) {
-        return <Skeleton paragraph={{ rows: 0 }} active />
+        return <LemonSkeleton className="w-1/2" />
     }
 
     return (
