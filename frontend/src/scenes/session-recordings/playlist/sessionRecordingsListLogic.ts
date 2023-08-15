@@ -231,7 +231,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
-                        version: '3',
                     }
 
                     if (direction === 'older') {
