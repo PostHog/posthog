@@ -31,7 +31,8 @@ def wait_for_runs(client, team_id, batch_export_id, timeout=10, number_of_runs=1
     start = dt.datetime.utcnow()
     batch_export_runs = get_batch_export_runs_ok(client, team_id, batch_export_id)
 
-    while batch_export_runs["count"] < number_of_runs:
+    while len(batch_export_runs["results"]) < number_of_runs:
+        print("Waiting for BatchExportRuns to be created...", batch_export_runs)
         batch_export_runs = get_batch_export_runs_ok(client, team_id, batch_export_id)
         time.sleep(1)
         if (dt.datetime.utcnow() - start).seconds > timeout:
@@ -76,17 +77,17 @@ def test_can_reset_export_run(client: HttpClient):
         )
 
         batch_export_runs = wait_for_runs(client, team.pk, batch_export["id"])
-        assert batch_export_runs["count"] == 1
+        assert len(batch_export_runs["results"]) == 1
 
         first_batch_export_run = batch_export_runs["results"][0]
         reset_batch_export_run_ok(client, team.pk, batch_export["id"], first_batch_export_run["id"])
 
         batch_export_runs = wait_for_runs(client, team.pk, batch_export["id"], number_of_runs=2)
-        assert batch_export_runs["count"] == 2
+        assert len(batch_export_runs["results"]) == 2
         assert batch_export_runs["results"][1] == first_batch_export_run
 
         reset_batch_export_run_ok(client, team.pk, batch_export["id"], first_batch_export_run["id"])
 
         batch_export_runs = wait_for_runs(client, team.pk, batch_export["id"], number_of_runs=3)
-        assert batch_export_runs["count"] == 3
+        assert len(batch_export_runs["results"]) == 3
         assert batch_export_runs["results"][2] == first_batch_export_run

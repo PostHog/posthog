@@ -188,6 +188,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     **destination_data.get("config", {}),
                 }
 
+            batch_export.destination.save()
             batch_export = super().update(batch_export, validated_data)
 
             sync_batch_export(batch_export, created=False)
