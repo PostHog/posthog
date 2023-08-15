@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+import re
 import typing
 from string import Template
 
@@ -64,7 +65,7 @@ elements_chain
 
 
 def get_results_iterator(
-    client, team_id: int, interval_start: str, interval_end: str, legacy: bool = False
+    client, team_id: int, interval_start: str, interval_end: str
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
@@ -82,23 +83,16 @@ def get_results_iterator(
             "data_interval_end": data_interval_end_ch,
         },
     ):
-        yield from iter_batch_records(batch, legacy=legacy)
+        yield from iter_batch_records(batch)
 
 
-def iter_batch_records(batch, legacy: bool = False) -> typing.Generator[dict[str, typing.Any], None, None]:
+def iter_batch_records(batch) -> typing.Generator[dict[str, typing.Any], None, None]:
     """Iterate over records of a batch.
 
-    The legacy parameter can be used to control whether the old schema is to be used, and by 'old' we
-    mean the schema used by PostHog Export apps. It is hardcoded here to assist with migrating
-    users over to BatchExports.
-
-    Once support for custom schemas is added, the legacy parameter can be dropped in favor of a custom
-    schema that can support the legacy schema used by PostHog Export apps. However, parsing the field
-    "elements" may be a blocker for this, so the legacy parameter may be here longer than intended.
+    During iteration, we yield dictionaries with all fields used by PostHog BatchExports.
 
     Args:
-        batch: The record batch of rows.
-        legacy: Whether this batch export is using the legacy (export apps) schema.
+        batch: A record batch of rows.
     """
 
     for record in batch.to_pylist():
@@ -106,56 +100,30 @@ def iter_batch_records(batch, legacy: bool = False) -> typing.Generator[dict[str
         person_properties = record.get("person_properties")
         properties = json.loads(properties) if properties else None
 
-        if legacy is True:
-            elements = []
-            for element in chain_to_elements(record.get("elements_chain").decode()):
-                element_dict = {
-                    "text": element.text,
-                    "tag_name": element.tag_name,
-                    "href": element.href,
-                    "attr_id": element.attr_id,
-                    "attr_class": element.attr_class,
-                    "nth_child": element.nth_child,
-                    "nth_of_type": element.nth_of_type,
-                    "attributes": element.attributes,
-                    "event_id": element.event.id if element.event is not None else None,
-                    "order": element.order,
-                    "group_id": element.group.id if element.group is not None else None,
-                }
-                elements.append({k: v for k, v in element_dict.items() if v is not None})
+        elements = elements_chain_to_elements(record.get("elements_chain").decode())
 
-            record = {
-                "uuid": record.get("uuid").decode(),
-                "event": record.get("event").decode(),
-                "properties": properties,
-                # I don't know why this is serialized as a string when stored in ClickHouse.
-                # Should have been kept as "elements" in properties.
-                # At least there is a function to parse it, although we need a dict not Django models.
-                "elements": elements,
-                "person_set": properties.get("$set", None) if properties else None,
-                "person_set_once": properties.get("$set_once", None) if properties else None,
-                "distinct_id": record.get("distinct_id").decode(),
-                "team_id": record.get("team_id"),
-                "ip": properties.get("$ip", None) if properties else None,
-                "site_url": properties.get("$current_url", None) if properties else None,
-                "timestamp": record.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
-            }
+        record = {
+            "created_at": record.get("created_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "distinct_id": record.get("distinct_id").decode(),
+            "elements": elements,
+            "elements_chain": record.get("elements_chain").decode(),
+            "event": record.get("event").decode(),
+            "inserted_at": record.get("inserted_at").strftime("%Y-%m-%d %H:%M:%S.%f")
+            if record.get("inserted_at")
+            else None,
+            "ip": properties.get("$ip", None) if properties else None,
+            "person_id": record.get("person_id").decode(),
+            "person_properties": json.loads(person_properties) if person_properties else None,
+            "set": properties.get("$set", None) if properties else None,
+            "set_once": properties.get("$set_once", None) if properties else None,
+            "properties": properties,
+            "site_url": properties.get("$current_url", None) if properties else None,
+            "team_id": record.get("team_id"),
+            "timestamp": record.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "uuid": record.get("uuid").decode(),
+        }
 
-        else:
-            record = {
-                "uuid": record.get("uuid").decode(),
-                "distinct_id": record.get("distinct_id").decode(),
-                "person_id": record.get("person_id").decode(),
-                "event": record.get("event").decode(),
-                "inserted_at": record.get("inserted_at").strftime("%Y-%m-%d %H:%M:%S.%f")
-                if record.get("inserted_at")
-                else None,
-                "created_at": record.get("created_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "timestamp": record.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "properties": properties,
-                "person_properties": json.loads(person_properties) if person_properties else None,
-                "elements_chain": record.get("elements_chain").decode(),
-            }
+        yield record
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
@@ -213,3 +181,60 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         raise ValueError(f"Unsupported interval: '{interval}'")
 
     return (data_interval_start_dt, data_interval_end_dt)
+
+
+def elements_chain_to_elements(elements_chain: str) -> list[dict]:
+    """Parses the elements_chain string into a list of dict.
+
+    The output format is built by observing how it is read by
+    https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/elements-chain.ts
+    This is not the same as the chain_to_elements function in posthog.models.elements.
+    """
+    elements = []
+
+    split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
+    split_class_attributes_regex = re.compile(r"(.*?)($|:([a-zA-Z\-_0-9]*=.*))", flags=re.MULTILINE)
+    parse_attributes_regex = re.compile(r'((.*?)="(.*?[^\\])")')
+
+    elements_chain = elements_chain.replace("\n", "")
+
+    for match in re.finditer(split_chain_regex, elements_chain):
+        class_attributes = re.search(split_class_attributes_regex, match.group(0))
+
+        attributes = {}
+        if class_attributes is not None and class_attributes.group(3):
+            try:
+                attributes = {m[2]: m[3] for m in re.finditer(parse_attributes_regex, class_attributes.group(3))}
+            except IndexError:
+                pass
+
+        element = {}
+
+        if class_attributes is not None and class_attributes.group(1):
+            try:
+                tag_and_class = class_attributes.group(1).split(".")
+            except IndexError:
+                pass
+            else:
+                element["tag_name"] = tag_and_class.pop(0)
+                if len(tag_and_class) > 0:
+                    element["attr__class"] = tag_and_class
+
+        for key, value in attributes.items():
+            match key:
+                case "href":
+                    element["attr__href"] = value
+                case "nth-child":
+                    element["nth_child"] = int(value)
+                case "nth-of-type":
+                    element["nth_of_type"] = int(value)
+                case "text":
+                    element["$el_text"] = value
+                case "attr_id":
+                    element["attr__id"] = value
+                case k:
+                    element[k] = value
+
+        elements.append(element)
+
+    return elements

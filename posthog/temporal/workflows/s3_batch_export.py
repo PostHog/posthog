@@ -194,8 +194,24 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 if not result:
                     break
 
+                content = json.dumps(
+                    {
+                        "created_at": result["created_at"],
+                        "distinct_id": result["distinct_id"],
+                        "elements_chain": result["elements_chain"],
+                        "event": result["event"],
+                        "inserted_at": result["inserted_at"],
+                        "person_id": result["person_id"],
+                        "person_properties": result["person_properties"],
+                        "properties": result["properties"],
+                        "team_id": result["team_id"],
+                        "timestamp": result["timestamp"],
+                        "uuid": result["uuid"],
+                    }
+                )
+
                 # Write the results to a local file
-                local_results_file.write(json.dumps(result).encode("utf-8"))
+                local_results_file.write(content.encode("utf-8"))
                 local_results_file.write("\n".encode("utf-8"))
 
                 # Write results to S3 when the file reaches 50MB and reset the

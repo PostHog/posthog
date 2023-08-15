@@ -70,7 +70,7 @@ class SnowflakeBatchExportInputs:
     table_name: str = "events"
     data_interval_end: str | None = None
     role: str | None = None
-    use_exports_schema: bool = True
+    use_apps_schema: bool = True
 
 
 DESTINATION_WORKFLOWS = {
