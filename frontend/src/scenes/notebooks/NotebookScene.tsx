@@ -160,12 +160,7 @@ export function NotebookScene(): JSX.Element {
                 </div>
             </div>
 
-            <Notebook
-                key={notebookId}
-                shortId={notebookId}
-                editable={editEnabled && mode === NotebookMode.Edit}
-                showNodeSettings={true}
-            />
+            <Notebook key={notebookId} shortId={notebookId} editable={editEnabled && mode === NotebookMode.Edit} />
         </div>
     )
 }

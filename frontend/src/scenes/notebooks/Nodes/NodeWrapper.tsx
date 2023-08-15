@@ -60,7 +60,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     widgets,
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const nodeId: string = node.attrs.nodeId
+    const nodeId = node.attrs.nodeId
 
     const nodeLogicProps = {
         node,

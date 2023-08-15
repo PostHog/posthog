@@ -16,19 +16,13 @@ import { EditorFocusPosition } from './utils'
 
 export type NotebookProps = {
     shortId: string
-    showNodeSettings: boolean
     editable?: boolean
     initialAutofocus?: EditorFocusPosition
 }
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({
-    shortId,
-    showNodeSettings,
-    editable = false,
-    initialAutofocus = null,
-}: NotebookProps): JSX.Element {
+export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
@@ -101,7 +95,7 @@ export function Notebook({
                 ) : null}
 
                 <div className="flex flex-1 justify-center">
-                    {editable && showNodeSettings && <div className={clsx(!isExpanded && 'flex flex-1')} />}
+                    <NotebookSidebar expanded={editable && !isExpanded} />
                     <div className={clsx(isExpanded && 'flex flex-1')}>
                         <Editor
                             initialContent={content}
@@ -121,11 +115,13 @@ export function Notebook({
                             }}
                         />
                     </div>
-                    {editable && showNodeSettings ? (
-                        <div className={clsx('NotebookSettings__portal', !isExpanded && 'flex flex-1')} />
-                    ) : null}
+                    <NotebookSidebar className="NotebookSettings__portal" expanded={editable && !isExpanded} />
                 </div>
             </div>
         </BindLogic>
     )
+}
+
+const NotebookSidebar = ({ className, expanded }: { className?: string; expanded: boolean }): JSX.Element => {
+    return <div className={clsx(className, expanded ? 'flex flex-1' : null)} />
 }

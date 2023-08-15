@@ -116,7 +116,6 @@ export function NotebookPopover(): JSX.Element {
                             shortId={selectedNotebook}
                             editable={isEditable}
                             initialAutofocus={initialAutofocus}
-                            showNodeSettings={false}
                         />
                     )}
                 </div>
