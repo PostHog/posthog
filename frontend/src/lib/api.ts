@@ -1236,6 +1236,7 @@ const api = {
         async list(
             contains?: { type: NotebookNodeType; attrs: Record<string, string> }[]
         ): Promise<PaginatedResponse<NotebookType>> {
+            // TODO attrs can be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
             if (!!contains?.length) {
                 const containsString = contains
