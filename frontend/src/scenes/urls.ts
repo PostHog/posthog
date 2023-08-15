@@ -140,6 +140,7 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     ingestion: (): string => '/ingestion',
+    products: (): string => '/products',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only

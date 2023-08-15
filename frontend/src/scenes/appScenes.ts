@@ -76,4 +76,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
     [Scene.Feedback]: () => import('./feedback/Feedback'),
     [Scene.Notebook]: () => import('./notebooks/NotebookScene'),
+    [Scene.Products]: () => import('./products/Products'),
 }
