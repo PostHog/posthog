@@ -68,7 +68,7 @@ elements_chain
 
 
 def get_results_iterator(
-    client, team_id: int, interval_start: str, interval_end: str, legacy: bool = False
+    client, team_id: int, interval_start: str, interval_end: str
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
