@@ -275,7 +275,8 @@ class QueryContext:
         )
 
 
-# See frontend/src/lib/taxonomy.tsx for where this came from
+# See frontend/src/lib/taxonomy.tsx for where this came from and see
+# frontend/scripts/print_property_name_aliases.ts for how to regenerate
 PROPERTY_NAME_ALIASES = {
     "$autocapture_disabled_server_side": "Autocapture Disabled Server-Side",
     "$console_log_recording_enabled_server_side": "Console Log Recording Enabled Server-Side",
