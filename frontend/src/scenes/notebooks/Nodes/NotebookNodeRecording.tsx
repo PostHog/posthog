@@ -56,6 +56,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
 
 type NotebookNodeRecordingAttributes = {
     id: string
+    noInspector: boolean
 }
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
@@ -77,7 +78,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
     pasteOptions: {
         find: urls.replaySingle('') + '(.+)',
         getAttributes: (match) => {
-            return { id: match[1] }
+            return { id: match[1], noInspector: false }
         },
     },
 })
