@@ -55,7 +55,7 @@ export function AggregationColumnTitle({
     )
     return (
         <Dropdown overlay={calcColumnMenu}>
-            <span className="cursor-pointer">
+            <span className="cursor-pointer whitespace-nowrap">
                 {CALC_COLUMN_LABELS[aggregation]}
                 <DownOutlined className="ml-1" />
             </span>

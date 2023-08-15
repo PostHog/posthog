@@ -8,13 +8,13 @@
     .InsightCard & {
         height: 100%;
         table {
-            margin: 0;
+            margin: 0.5rem 0 0;
         }
     }
     table {
         --bar-width: 0.5rem; // This should be overriden from React
         --bar-row-height: 18rem;
-        margin: 0 1rem;
+        margin: 0.5rem 1rem 0;
         width: 100%;
         > tbody {
             > tr {
@@ -22,6 +22,7 @@
                     border-bottom: 1px solid var(--border);
                     > td {
                         padding: 1.5rem 0;
+                        padding-top: 1rem;
                     }
                 }
                 > td {
