@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useResizeObserver } from './useResizeObserver'
 
 /** Determine whether an element is horizontally scrollable, on the left and on the right respectively. */
@@ -16,7 +16,7 @@ export function useScrollable(): [React.RefObject<HTMLDivElement>, [boolean, boo
         setIsScrollable([left, right])
     }
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         function handler(this: HTMLElement, _: Event): void {
             updateIsScrollable(this)

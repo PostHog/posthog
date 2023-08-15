@@ -31,7 +31,7 @@ export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
      * If you really need something more advanced than a button, this also allows providing a custom control component,
      * which takes an `onSelect` prop. Can be for example a textarea with an "Apply value" button. Use this sparingly!
      */
-    labelInMenu?: JSX.Element | LemonSelectCustomControl<T>
+    labelInMenu?: string | JSX.Element | LemonSelectCustomControl<T>
 }
 
 export interface LemonSelectOptionNode<T> extends LemonSelectOptionBase {

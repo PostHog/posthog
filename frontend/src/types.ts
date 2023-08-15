@@ -389,6 +389,8 @@ export interface ActionType {
     verified?: boolean
     is_action?: true
     action_id?: number // alias of id to make it compatible with event definitions uuid
+    bytecode?: any[]
+    bytecode_error?: string
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1388,7 +1390,7 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType> | null | undefined
+    default: Record<string, JsonType>
     required: boolean
 }
 
@@ -2137,7 +2139,7 @@ export enum SurveyQuestionType {
 }
 
 export interface FeatureFlagGroupType {
-    properties: AnyPropertyFilter[]
+    properties?: AnyPropertyFilter[]
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
