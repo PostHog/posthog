@@ -1,7 +1,7 @@
-import { actions, BuiltLogic, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType, NotebookTarget, NotebookType } from '~/types'
+import { NotebookListItemType, NotebookNodeType, NotebookTarget, NotebookType } from '~/types'
 
 import type { notebooksListLogicType } from './notebooksListLogicType'
 import { router } from 'kea-router'
@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo, objectClean, objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
 import { notebookPopoverLogic } from './notebookPopoverLogic'
@@ -60,6 +60,32 @@ export const openNotebook = async (
     }
 }
 
+export interface NotebooksListFilters {
+    search: string
+    // UUID of the user that created the notebook
+    createdBy: string
+    hasRecordings: boolean | string
+}
+
+export const DEFAULT_FILTERS: NotebooksListFilters = {
+    search: '',
+    createdBy: 'All users',
+    hasRecordings: false,
+}
+
+function filtersToContains(
+    filters: NotebooksListFilters
+): { type: NotebookNodeType; attrs: Record<string, string | boolean> }[] | undefined {
+    if (objectsEqual(filters, DEFAULT_FILTERS)) {
+        return undefined
+    }
+    if (filters.hasRecordings) {
+        return [{ type: NotebookNodeType.Recording, attrs: { present: filters.hasRecordings } }]
+    }
+
+    return undefined
+}
+
 export const notebooksListLogic = kea<notebooksListLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
     actions({
@@ -78,12 +104,24 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
+        setFilters: (filters: Partial<NotebooksListFilters>) => ({ filters }),
     }),
     connect({
         values: [teamLogic, ['currentTeamId']],
     }),
 
     reducers({
+        filters: [
+            DEFAULT_FILTERS as NotebooksListFilters,
+            {
+                setFilters: (state, { filters }) =>
+                    objectClean({
+                        ...(state || {}),
+                        ...filters,
+                    }),
+            },
+        ],
+
         scratchpadNotebook: [
             SCRATCHPAD_NOTEBOOK as NotebookListItemType,
             {
@@ -99,7 +137,10 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 loadNotebooks: async (_, breakpoint) => {
                     // TODO: Support pagination
                     await breakpoint(100)
-                    const res = await api.notebooks.list()
+                    const contains = filtersToContains(values.filters)
+                    const createdByForQuery =
+                        values.filters.createdBy === DEFAULT_FILTERS.createdBy ? undefined : values.filters.createdBy
+                    const res = await api.notebooks.list(contains, createdByForQuery)
                     return res.results
                 },
                 createNotebook: async ({ title, location, content, onCreate }, breakpoint) => {
@@ -148,6 +189,12 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
         ],
     })),
 
+    listeners(({ actions }) => ({
+        setFilters: () => {
+            actions.loadNotebooks()
+        },
+    })),
+
     selectors({
         fuse: [
             (s) => [s.notebooks],
@@ -156,6 +203,19 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                     keys: ['title'],
                     threshold: 0.3,
                 })
+            },
+        ],
+        filteredNotebooks: [
+            (s) => [s.notebooks, s.notebookTemplates, s.filters, s.fuse],
+            (notebooks, notebooksTemplates, filters, fuse): NotebookListItemType[] => {
+                const templatesToInclude: NotebookListItemType[] =
+                    filters.createdBy === DEFAULT_FILTERS.createdBy ? [...notebooksTemplates] : []
+                let haystack: NotebookListItemType[] = [...notebooks, ...templatesToInclude]
+                if (filters.search) {
+                    haystack = fuse.search(filters.search).map(({ item }) => item)
+                }
+
+                return haystack
             },
         ],
     }),

@@ -47,6 +47,7 @@ import {
     BatchExportConfiguration,
     BatchExportRun,
     NotebookNodeType,
+    UserBasicType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -1276,25 +1277,31 @@ const api = {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(
-            contains?: { type: NotebookNodeType; attrs: Record<string, string> }[]
+            contains?: { type: NotebookNodeType; attrs: Record<string, string | boolean> }[],
+            createdBy?: UserBasicType['uuid']
         ): Promise<PaginatedResponse<NotebookType>> {
             // TODO attrs can be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
+            let q = {}
             if (!!contains?.length) {
-                const containsString = contains
-                    .map(({ type, attrs }) => {
-                        const target = type.replace(/^ph-/, '')
-                        if (target === 'recording') {
-                            return `${target}:${attrs['id']}`
-                        } else {
-                            // TODO add support for other types
-                            return ''
-                        }
-                    })
-                    .join(',')
-                apiRequest.withQueryString({ contains: containsString })
+                const containsString =
+                    contains
+                        .map(({ type, attrs }) => {
+                            const target = type.replace(/^ph-/, '')
+                            if (target === 'recording') {
+                                return `${target}:${attrs['present'].toString() || attrs['id']}`
+                            } else {
+                                // TODO add support for other types
+                                return ''
+                            }
+                        })
+                        .join(',') || undefined
+                q = { ...q, contains: containsString, created_by: createdBy }
             }
-            return await apiRequest.get()
+            if (createdBy) {
+                q = { ...q, created_by: createdBy }
+            }
+            return await apiRequest.withQueryString(q).get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })

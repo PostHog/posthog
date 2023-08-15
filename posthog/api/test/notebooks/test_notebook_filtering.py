@@ -3,6 +3,8 @@ from typing import Dict, Any, List
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import User
+from posthog.models.notebook.notebook import Notebook
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 PLAYLIST_CONTENT = lambda: {
@@ -48,6 +50,26 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         return response.json()["id"]
+
+    def test_filters_based_on_params(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        notebook_one = Notebook.objects.create(team=self.team, created_by=self.user)
+        notebook_two = Notebook.objects.create(team=self.team, created_by=self.user)
+        other_users_notebook = Notebook.objects.create(team=self.team, created_by=other_user)
+
+        results = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks?user=true",
+        ).json()["results"]
+
+        assert [r["short_id"] for r in results] == [notebook_two.short_id, notebook_one.short_id]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks?created_by={other_user.uuid}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert [r["short_id"] for r in results] == [other_users_notebook.short_id]
 
     def test_filtering_by_types(self) -> None:
         playlist_content_notebook = self._create_notebook_with_content([PLAYLIST_CONTENT()])

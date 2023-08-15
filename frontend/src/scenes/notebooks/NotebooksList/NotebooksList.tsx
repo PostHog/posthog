@@ -4,25 +4,63 @@ import { NotebookListItemType } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
-import { notebooksListLogic } from '../Notebook/notebooksListLogic'
-import { useEffect, useMemo, useState } from 'react'
+import {
+    LemonButton,
+    LemonButtonWithDropdown,
+    LemonCheckbox,
+    LemonInput,
+    LemonSelect,
+    LemonTag,
+} from '@posthog/lemon-ui'
+import { DEFAULT_FILTERS, NotebooksListFilters, notebooksListLogic } from '../Notebook/notebooksListLogic'
+import { useEffect } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
 import { notebookPopoverLogic } from '../Notebook/notebookPopoverLogic'
+import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+
+function ContainsTypeFilters({
+    filters,
+    setFilters,
+}: {
+    filters: NotebooksListFilters
+    setFilters: (selection: Partial<NotebooksListFilters>) => void
+}): JSX.Element {
+    return (
+        <LemonButtonWithDropdown
+            status="stealth"
+            type="secondary"
+            data-attr={'notebooks-list-contains-filters'}
+            dropdown={{
+                sameWidth: true,
+                closeOnClickInside: false,
+                overlay: [
+                    <>
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={filters.hasRecordings === true}
+                            onChange={(checked) => {
+                                setFilters({ hasRecordings: checked })
+                            }}
+                            label={'session recording'}
+                        />
+                    </>,
+                ],
+                actionable: true,
+            }}
+        >
+            <span className={'text-muted'}>Notebooks containing...</span>
+        </LemonButtonWithDropdown>
+    )
+}
 
 export function NotebooksTable(): JSX.Element {
-    const { notebooks, notebooksLoading, fuse, notebookTemplates } = useValues(notebooksListLogic)
-    const { loadNotebooks } = useActions(notebooksListLogic)
-    const [searchTerm, setSearchTerm] = useState('')
-
+    const { filteredNotebooks, filters, notebooksLoading, notebookTemplates } = useValues(notebooksListLogic)
+    const { loadNotebooks, setFilters } = useActions(notebooksListLogic)
+    const { meFirstMembers } = useValues(membersLogic)
     const { setVisibility, selectNotebook } = useActions(notebookPopoverLogic)
-
-    const filteredNotebooks = useMemo(
-        () => (searchTerm ? fuse.search(searchTerm).map(({ item }) => item) : [...notebooks, ...notebookTemplates]),
-        [searchTerm, notebooks, fuse]
-    )
 
     useEffect(() => {
         loadNotebooks()
@@ -105,9 +143,32 @@ export function NotebooksTable(): JSX.Element {
                 <LemonInput
                     type="search"
                     placeholder="Search for notebooks"
-                    onChange={setSearchTerm}
-                    value={searchTerm}
+                    onChange={(s) => {
+                        setFilters({ search: s })
+                    }}
+                    value={filters.search}
                 />
+                <div className="flex items-center gap-4 flex-wrap">
+                    <ContainsTypeFilters filters={filters} setFilters={setFilters} />
+                    <div className="flex items-center gap-2">
+                        <span>Created by:</span>
+                        <LemonSelect
+                            options={[
+                                { value: DEFAULT_FILTERS.createdBy as string, label: DEFAULT_FILTERS.createdBy },
+                                ...meFirstMembers.map((x) => ({
+                                    value: x.user.uuid,
+                                    label: x.user.first_name,
+                                })),
+                            ]}
+                            size="small"
+                            value={filters.createdBy}
+                            onChange={(v): void => {
+                                setFilters({ createdBy: v || DEFAULT_FILTERS.createdBy })
+                            }}
+                            dropdownMatchSelectWidth={false}
+                        />
+                    </div>
+                </div>
             </div>
             <LemonTable
                 data-attr="dashboards-table"

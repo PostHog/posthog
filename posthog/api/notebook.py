@@ -161,7 +161,7 @@ class NotebookSerializer(serializers.ModelSerializer):
         parameters=[
             OpenApiParameter("short_id", exclude=True),
             OpenApiParameter(
-                "created_by", OpenApiTypes.INT, description="The user ID of the Notebook's creator", required=False
+                "created_by", OpenApiTypes.INT, description="The UUID of the Notebook's creator", required=False
             ),
             OpenApiParameter(
                 "user",
@@ -209,7 +209,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
     serializer_class = NotebookSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id", "created_by"]
+    filterset_fields = ["short_id"]
     # TODO: Remove this once we have released notebooks
     include_in_docs = DEBUG
     lookup_field = "short_id"
@@ -240,6 +240,8 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         for key in filters:
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "created_by":
+                queryset = queryset.filter(created_by__uuid=request.GET["created_by"])
             elif key == "date_from":
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
