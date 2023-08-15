@@ -141,7 +141,12 @@ export class ActionMatcher {
 
     public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
         // Matching bytecode first to assure returned action order does not change while awaiting.
-        const hogVMResponse = this.matchBytecode(event, elements)
+        let hogVMResponse: Action[] = []
+        try {
+            hogVMResponse = this.matchBytecode(event, elements)
+        } catch (e) {
+            captureException(e, { tags: { team_id: event.teamId }, extra: { event } })
+        }
         const legacyResponse = await this.matchLegacy(event, elements)
 
         if (
@@ -161,7 +166,7 @@ export class ActionMatcher {
     }
 
     /** Get all actions matched to the event. */
-    public matchBytecode(event: PostIngestionEvent, elements?: Element[]): (Action | undefined)[] {
+    public matchBytecode(event: PostIngestionEvent, elements?: Element[]): Action[] {
         const matchingStart = performance.now()
         // Replicate the fields available in a HogQL query
         const hogQLEvent: HogQLMatchingEvent = {
