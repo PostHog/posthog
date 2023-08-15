@@ -1,5 +1,5 @@
 .LemonWidget {
-    background: var(--white);
+    background: var(--bg-light);
     border-radius: var(--radius);
 
     .LemonWidget__header {
@@ -8,7 +8,7 @@
         justify-content: space-between;
         font-weight: 500;
         padding: 0.25rem;
-        color: var(--primary-alt, var(--primary));
+        color: var(--muted-alt-3000, var(--primary));
         font-size: 0.875rem;
     }
 }

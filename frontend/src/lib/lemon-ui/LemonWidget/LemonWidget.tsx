@@ -14,14 +14,13 @@ export function LemonWidget({ title, onClose, children }: LemonWidgetProps): JSX
     const [isExpanded, setIsExpanded] = useState<boolean>(true)
 
     return (
-        <Widget classNames="border">
+        <Widget className="border">
             <Header>
                 <LemonButton
                     onClick={() => setIsExpanded(!isExpanded)}
                     size="small"
                     status="primary-alt"
                     className="flex-1"
-                    sideIcon={null}
                 >
                     <span className="flex-1 cursor-pointer">{title}</span>
                 </LemonButton>
@@ -37,12 +36,12 @@ export function LemonWidget({ title, onClose, children }: LemonWidgetProps): JSX
     )
 }
 
-const Widget = ({ children, classNames }: { children: React.ReactNode; classNames?: string }): JSX.Element => {
-    return <div className={clsx('LemonWidget', classNames)}>{children}</div>
+const Widget = ({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element => {
+    return <div className={clsx('LemonWidget', className)}>{children}</div>
 }
 
-const Header = ({ children, classNames }: { children: React.ReactNode; classNames?: string }): JSX.Element => {
-    return <div className={clsx('LemonWidget__header', classNames)}>{children}</div>
+const Header = ({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element => {
+    return <div className={clsx('LemonWidget__header', className)}>{children}</div>
 }
 
 const Content = ({ children }: { children: React.ReactNode }): JSX.Element => {
