@@ -82,6 +82,7 @@ function filtersToContains(
     if (filters.hasRecordings) {
         return [{ type: NotebookNodeType.Recording, attrs: { present: filters.hasRecordings } }]
     }
+    // TODO add support for other filters
 
     return undefined
 }
