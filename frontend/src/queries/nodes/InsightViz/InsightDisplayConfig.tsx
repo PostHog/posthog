@@ -55,7 +55,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(showCompare || showValueOnSeries || showPercentStackView
+        ...(showValueOnSeries || showPercentStackView || hasLegend
             ? [
                   {
                       title: 'Display',
