@@ -17,7 +17,6 @@ from posthog.batch_exports.service import (
     backfill_export,
     delete_schedule,
     pause_batch_export,
-    reset_batch_export_run,
     sync_batch_export,
     unpause_batch_export,
 )
@@ -100,20 +99,6 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSe
         page = self.paginate_queryset(self.get_queryset(date_range=date_range))
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
-
-    @action(methods=["POST"], detail=True)
-    def reset(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Reset a BatchExportRun by resetting its associated Temporal Workflow."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
-            raise NotAuthenticated()
-
-        batch_export_run = self.get_object()
-        temporal = sync_connect()
-
-        scheduled_id = f"{batch_export_run.batch_export.id}-{batch_export_run.data_interval_end:%Y-%m-%dT%H:%M:%SZ}"
-        new_run_id = reset_batch_export_run(temporal, batch_export_id=scheduled_id)
-
-        return response.Response({"new_run_id": new_run_id})
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
