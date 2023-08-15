@@ -644,18 +644,6 @@ export interface PostIngestionEvent extends BaseIngestionEvent {
     person_properties: Properties
 }
 
-/** Event that replicates the HogQL fields and columns available for action matching */
-export interface HogQLMatchingEvent extends BaseEvent {
-    properties: Properties
-    timestamp: ISOTimestamp
-    elements_chain: string | null
-    person: {
-        id: string
-        created_at: ISOTimestamp | null
-        properties: Record<string, any>
-    }
-}
-
 export interface DeadLetterQueueEvent {
     id: string
     event_uuid: string
@@ -857,18 +845,7 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
-export interface HogQLPropertyFilter extends PropertyFilterWithOperator {
-    type: 'hogql'
-    key: string
-}
-
-/** Sync with posthog/frontend/src/types.ts */
-export type PropertyFilter =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | CohortPropertyFilter
-    | HogQLPropertyFilter
+export type PropertyFilter = EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {

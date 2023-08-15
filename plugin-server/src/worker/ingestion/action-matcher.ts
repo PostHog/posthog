@@ -1,4 +1,3 @@
-import { executeHogQLBytecode } from '@posthog/hogvm'
 import { Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
@@ -14,7 +13,6 @@ import {
     Element,
     ElementPropertyFilter,
     EventPropertyFilter,
-    HogQLMatchingEvent,
     PersonPropertyFilter,
     PostIngestionEvent,
     PropertyFilter,
@@ -22,7 +20,7 @@ import {
     PropertyOperator,
     StringMatching,
 } from '../../types'
-import { elementsToString, sanitizeElements } from '../../utils/db/elements-chain'
+import { extractElements } from '../../utils/db/elements-chain'
 import { postgresQuery } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
@@ -139,96 +137,16 @@ export class ActionMatcher {
         this.statsd = statsd
     }
 
+    /** Get all actions matched to the event. */
     public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
-        // Matching bytecode first to assure returned action order does not change while awaiting.
-        const hogVMResponse = this.matchBytecode(event, elements)
-        const legacyResponse = await this.matchLegacy(event, elements)
-
-        if (
-            legacyResponse.length !== hogVMResponse.length ||
-            !legacyResponse.every((action, index) => action.id == hogVMResponse[index]?.id)
-        ) {
-            if (hogVMResponse.length > legacyResponse.length) {
-                this.statsd?.increment('action_matches_hogvm_legacy_mismatch_hogvm_matched_more')
-            } else {
-                this.statsd?.increment('action_matches_hogvm_legacy_mismatch_hogvm_matched_less')
-            }
-        } else {
-            this.statsd?.increment('action_matches_hogvm_legacy_match')
-        }
-
-        return legacyResponse
-    }
-
-    /** Get all actions matched to the event. */
-    public matchBytecode(event: PostIngestionEvent, elements?: Element[]): (Action | undefined)[] {
-        const matchingStart = performance.now()
-        // Replicate the fields available in a HogQL query
-        const hogQLEvent: HogQLMatchingEvent = {
-            event: event.event,
-            properties: event.properties,
-            uuid: event.eventUuid,
-            team_id: event.teamId,
-            distinct_id: event.distinctId,
-            person_id: String(event.person_id),
-            timestamp: event.timestamp,
-            elements_chain: null,
-            person: {
-                id: String(event.person_id),
-                created_at: event.person_created_at,
-                properties: event.person_properties,
-            },
-        }
-        // Compute elements_chain only when requested
-        Object.defineProperty(hogQLEvent, 'elements_chain', {
-            get: () =>
-                elements
-                    ? elementsToString(elements)
-                    : event.elementsList
-                    ? elementsToString(event.elementsList)
-                    : event.properties?.['$elements']
-                    ? elementsToString(sanitizeElements(event.properties['$elements']))
-                    : null,
-        })
-
-        const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        const matches: Action[] = teamActions.filter((action) => this.checkActionBytecode(hogQLEvent, action))
-
-        this.statsd?.timing('action_matching_for_event_hogvm', performance.now() - matchingStart)
-        this.statsd?.increment('action_matches_found_hogvm', matches.length)
-        return matches
-    }
-
-    /**
-     * Base level of action matching (HogVM version).
-     *
-     * Return whether the event is a match for the action.
-     * The event is considered a match if any of the action's steps (match groups) is a match.
-     */
-    public checkActionBytecode(event: HogQLMatchingEvent, action: Action): boolean | undefined {
-        try {
-            if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
-                return Boolean(executeHogQLBytecode(action.bytecode, event))
-            }
-        } catch (error) {
-            console.error(error)
-            captureException(error, {
-                tags: { team_id: action.team_id },
-                extra: { event, action },
-            })
-        }
-    }
-
-    /** Get all actions matched to the event. */
-    public async matchLegacy(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
-        const matchingStart = performance.now()
+        const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
             const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
-            elements = rawElements ? sanitizeElements(rawElements) : []
+            elements = rawElements ? extractElements(rawElements) : []
         }
         const teamActionsMatching: boolean[] = await Promise.all(
-            teamActions.map((action) => this.checkActionLegacy(event, elements, action))
+            teamActions.map((action) => this.checkAction(event, elements, action))
         )
         const matches: Action[] = []
         for (let i = 0; i < teamActionsMatching.length; i++) {
@@ -236,28 +154,26 @@ export class ActionMatcher {
                 matches.push(teamActions[i])
             }
         }
-        this.statsd?.timing('action_matching_for_event', performance.now() - matchingStart)
+        this.statsd?.timing('action_matching_for_event', matchingStart)
         this.statsd?.increment('action_matches_found', matches.length)
         return matches
     }
 
     /**
-     * Base level of action matching (legacy version).
+     * Base level of action matching.
      *
      * Return whether the event is a match for the action.
      * The event is considered a match if any of the action's steps (match groups) is a match.
      */
-    public async checkActionLegacy(
+    public async checkAction(
         event: PostIngestionEvent,
         elements: Element[] | undefined,
         action: Action
     ): Promise<boolean> {
-        let response = false
         for (const step of action.steps) {
             try {
                 if (await this.checkStep(event, elements, step)) {
-                    response = true
-                    break
+                    return true
                 }
             } catch (error) {
                 captureException(error, {
@@ -266,7 +182,7 @@ export class ActionMatcher {
                 })
             }
         }
-        return response
+        return false
     }
 
     /**

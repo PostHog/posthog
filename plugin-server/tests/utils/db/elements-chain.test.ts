@@ -1,4 +1,4 @@
-import { chainToElements, elementsToString, sanitizeElements } from '../../../src/utils/db/elements-chain'
+import { chainToElements, elementsToString, extractElements } from '../../../src/utils/db/elements-chain'
 
 describe('elementsToString and chainToElements', () => {
     it('is reversible', () => {
@@ -31,7 +31,7 @@ describe('elementsToString and chainToElements', () => {
             ].join(';')
         )
 
-        const elements = chainToElements(elementsString, 33, { throwOnError: true })
+        const elements = chainToElements(elementsString, { throwOnError: true })
         expect(elements.length).toBe(4)
         expect(elements[0].tag_name).toEqual('a')
         expect(elements[0].href).toEqual('/a-url')
@@ -51,12 +51,12 @@ describe('elementsToString and chainToElements', () => {
     })
 
     it('handles empty strings', () => {
-        const elements = chainToElements('', 33, { throwOnError: true })
+        const elements = chainToElements('', { throwOnError: true })
         expect(elements).toEqual([])
     })
 
     it('handles broken class names', () => {
-        const elements = chainToElements('"a........small', 33, { throwOnError: true })
+        const elements = chainToElements('"a........small', { throwOnError: true })
         expect(elements).not.toEqual([])
         expect(elements[0]).toEqual(
             expect.objectContaining({
@@ -82,7 +82,7 @@ describe('elementsToString and chainToElements', () => {
             'a.small.xy:z:attr_class="xyz small\\""href="/a-url"nth-child="0"nth-of-type="0"'
         )
 
-        const elements = chainToElements(elementsString, 33, { throwOnError: true })
+        const elements = chainToElements(elementsString, { throwOnError: true })
         expect(elements.length).toEqual(1)
         expect(elements[0]).toEqual(
             expect.objectContaining({
@@ -107,13 +107,13 @@ describe('elementsToString and chainToElements', () => {
         const elementsString = elementsToString([element])
 
         expect(elementsString).toEqual('.another.something:attr__class="something another"nth-child="0"nth-of-type="0"')
-        expect(chainToElements(elementsString, 33)).toEqual([expect.objectContaining(element)])
+        expect(chainToElements(elementsString)).toEqual([expect.objectContaining(element)])
     })
 })
 
-describe('sanitizeElements()', () => {
+describe('extractElements()', () => {
     it('parses simple elements', () => {
-        const result = sanitizeElements([
+        const result = extractElements([
             { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
             { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
         ])
@@ -143,7 +143,7 @@ describe('sanitizeElements()', () => {
     })
 
     it('handles arrays for attr__class', () => {
-        const result = sanitizeElements([{ attr__class: ['btn', 'btn-sm'] }])
+        const result = extractElements([{ attr__class: ['btn', 'btn-sm'] }])
 
         expect(result[0]).toEqual(
             expect.objectContaining({

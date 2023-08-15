@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 
 import { Element, RawClickHouseEvent, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
-import { extractAttrClass } from '../../../../utils/db/elements-chain'
 import { parseRawClickHouseEvent } from '../../../../utils/event'
 import { status } from '../../../../utils/status'
 import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
@@ -96,7 +95,7 @@ const addHistoricalExportEventProperties = (event: HistoricalExportEvent): Histo
 export const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
     for (const element of elements) {
         if (element.attributes && element.attributes.attr__class) {
-            element.attr_class = extractAttrClass(element.attributes.attr__class)
+            element.attr_class = element.attributes.attr__class
         }
         if (element.text) {
             element.$el_text = element.text
