@@ -1,7 +1,7 @@
 import './PluginSource.scss'
 import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Skeleton } from 'antd'
+import { Button } from 'antd'
 import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
@@ -14,6 +14,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { Form } from 'kea-forms'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 interface PluginSourceProps {
     pluginId: number
@@ -107,7 +108,12 @@ export function PluginSource({
                         </p>
 
                         {pluginSourceLoading ? (
-                            <Skeleton />
+                            <div className="space-y-4">
+                                <LemonSkeleton className="w-1/2" />
+                                <LemonSkeleton />
+                                <LemonSkeleton />
+                                <LemonSkeleton className="w-3/4" />
+                            </div>
                         ) : (
                             <>
                                 <PluginSourceTabs logic={logic} />

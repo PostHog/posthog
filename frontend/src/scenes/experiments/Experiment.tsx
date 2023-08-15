@@ -48,6 +48,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentInsightCreator } from './MetricSelector'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -173,7 +174,16 @@ export function Experiment(): JSX.Element {
     }
 
     if (experimentLoading) {
-        return <Skeleton active />
+        return (
+            <div className="space-y-6 mt-4">
+                <LemonSkeleton active={true} className="w-1/2" />
+                <div className="space-y-4">
+                    <LemonSkeleton active={true} />
+                    <LemonSkeleton active={true} />
+                    <LemonSkeleton active={true} className="w-3/4" />
+                </div>
+            </div>
+        )
     }
 
     if (!experiment && experimentId !== 'new') {
