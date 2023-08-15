@@ -158,7 +158,10 @@ export function PersonsModal({
                                 ))}
                             </>
                         ) : actorsResponseLoading ? (
-                            <LemonSkeleton />
+                            <div className="space-y-2">
+                                <LemonSkeleton />
+                                <LemonSkeleton className="w-1/2" />
+                            </div>
                         ) : (
                             <div className="text-center p-5">
                                 We couldn't find any matching {actorLabel.plural} for this data point.
