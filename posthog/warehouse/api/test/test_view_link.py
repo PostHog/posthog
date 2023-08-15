@@ -2,7 +2,6 @@ from posthog.test.base import (
     APIBaseTest,
 )
 from posthog.warehouse.models import DataWarehouseViewLink, DataWarehouseSavedQuery
-from posthog.warehouse.query import get_view_link_columns
 from posthog.api.query import process_query
 
 
@@ -117,9 +116,6 @@ class TestViewLinkQuery(APIBaseTest):
             team=self.team,
             from_join_key="distinct_id",
         )
-
-        columns = get_view_link_columns(self.team)
-        self.assertDictEqual(columns, {"events": [{"key": "fake", "type": "string"}]})
 
         query_response = process_query(
             team=self.team,
