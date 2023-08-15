@@ -52,10 +52,12 @@ export const openNotebook = async (
     const theNotebookLogic = notebookLogic({ shortId: notebookId })
     const unmount = theNotebookLogic.mount()
 
-    await theNotebookLogic.asyncActions.editorIsReady()
-    onOpen(theNotebookLogic)
-
-    unmount()
+    try {
+        await theNotebookLogic.asyncActions.editorIsReady()
+        onOpen(theNotebookLogic)
+    } finally {
+        unmount()
+    }
 }
 
 export const notebooksListLogic = kea<notebooksListLogicType>([
