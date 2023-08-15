@@ -101,9 +101,7 @@ export function Notebook({
                 ) : null}
 
                 <div className="flex flex-1 justify-center">
-                    {editable && showNodeSettings && (
-                        <div className={clsx('Notebook__spacer', !isExpanded && 'flex flex-1')} />
-                    )}
+                    {editable && showNodeSettings && <div className={clsx(!isExpanded && 'flex flex-1')} />}
                     <div className={clsx(isExpanded && 'flex flex-1')}>
                         <Editor
                             initialContent={content}
@@ -124,7 +122,7 @@ export function Notebook({
                         />
                     </div>
                     {editable && showNodeSettings ? (
-                        <div className={clsx('mememe Notebook__spacer', !isExpanded && 'flex flex-1')} />
+                        <div className={clsx('NotebookSettings__portal', !isExpanded && 'flex flex-1')} />
                     ) : null}
                 </div>
             </div>
