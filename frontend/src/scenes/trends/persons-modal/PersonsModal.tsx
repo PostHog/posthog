@@ -19,7 +19,6 @@ import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SaveCohortModal } from './SaveCohortModal'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Skeleton } from 'antd'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -33,6 +32,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import './PersonsModal.scss'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
@@ -158,7 +158,7 @@ export function PersonsModal({
                                 ))}
                             </>
                         ) : actorsResponseLoading ? (
-                            <Skeleton title={false} />
+                            <LemonSkeleton />
                         ) : (
                             <div className="text-center p-5">
                                 We couldn't find any matching {actorLabel.plural} for this data point.
