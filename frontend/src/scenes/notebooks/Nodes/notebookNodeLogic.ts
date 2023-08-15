@@ -15,7 +15,7 @@ import {
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
-import { JSONContent, Node } from '../Notebook/utils'
+import { JSONContent, Node, NotebookNodeWidget } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 
@@ -28,6 +28,7 @@ export type NotebookNodeLogicProps = {
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     title: string
+    widgets: NotebookNodeWidget[]
 }
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -40,6 +41,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Record<string, any>) => ({ attributes }),
+        setActiveWidgetKeys: (widgetKeys: string[]) => ({ widgetKeys }),
+        addActiveWidget: (key: string) => ({ key }),
+        removeActiveWidget: (key: string) => ({ key }),
         deleteNode: true,
         // TODO: Implement this
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
@@ -62,14 +66,24 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setTitle: (_, { title }) => title,
             },
         ],
+        activeWidgetKeys: [
+            [] as string[],
+            {
+                setActiveWidgetKeys: (_, { widgetKeys }) => widgetKeys,
+            },
+        ],
     }),
 
     selectors({
         notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
-        hasSettings: [() => [(_, props) => props.nodeType], (nodeType) => nodeType === NotebookNodeType.Recording],
+        activeWidgets: [
+            (s) => [s.activeWidgetKeys, (_, props) => props.widgets],
+            (activeWidgetKeys, widgets: NotebookNodeWidget[]) =>
+                widgets.filter((widget) => activeWidgetKeys.includes(widget.key)),
+        ],
     }),
 
-    listeners(({ values, props }) => ({
+    listeners(({ values, actions, props }) => ({
         insertAfter: ({ content }) => {
             const logic = values.notebookLogic
             logic.values.editor?.insertContentAfterNode(props.getPos(), content)
@@ -96,7 +110,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         setExpanded: ({ expanded }) => {
             if (expanded) {
-                posthog.capture('notebook node selected', {
+                posthog.capture('notebook node expanded', {
                     node_type: props.nodeType,
                     short_id: props.notebookLogic.props.shortId,
                 })
@@ -105,6 +119,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
+        },
+
+        addActiveWidget: ({ key }) => {
+            actions.setActiveWidgetKeys(
+                [...values.activeWidgetKeys, key].filter((value, index, array) => array.indexOf(value) === index)
+            )
+        },
+        removeActiveWidget: ({ key }) => {
+            const index = values.activeWidgetKeys.indexOf(key)
+            const newActiveWidgetKeys = [...values.activeWidgetKeys]
+            newActiveWidgetKeys.splice(index, 1)
+            actions.setActiveWidgetKeys(newActiveWidgetKeys)
         },
     })),
 

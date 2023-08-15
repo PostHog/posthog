@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { LemonButton } from '../LemonButton'
-import { IconUnfoldLess, IconUnfoldMore } from '../icons'
+import { IconClose, IconUnfoldLess, IconUnfoldMore } from '../icons'
 import './LemonWidget.scss'
 import clsx from 'clsx'
 
 export interface LemonWidgetProps {
     title: string
+    onClose?: () => void
     children: React.ReactChild
 }
 
-export function LemonWidget({ title, children }: LemonWidgetProps): JSX.Element {
+export function LemonWidget({ title, onClose, children }: LemonWidgetProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState<boolean>(true)
 
     return (
@@ -29,6 +30,7 @@ export function LemonWidget({ title, children }: LemonWidgetProps): JSX.Element 
                     size="small"
                     icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                 />
+                {onClose && <LemonButton status="danger" onClick={onClose} size="small" icon={<IconClose />} />}
             </Header>
             {isExpanded && <Content>{children}</Content>}
         </Widget>

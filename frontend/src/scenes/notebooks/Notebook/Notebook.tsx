@@ -13,7 +13,6 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
-import { NotebookSettings } from './NotebookSettings'
 
 export type NotebookProps = {
     shortId: string
@@ -125,9 +124,7 @@ export function Notebook({
                         />
                     </div>
                     {editable && showNodeSettings ? (
-                        <div className={clsx('Notebook__spacer', !isExpanded && 'flex flex-1')}>
-                            <NotebookSettings />
-                        </div>
+                        <div className={clsx('mememe Notebook__spacer', !isExpanded && 'flex flex-1')} />
                     ) : null}
                 </div>
             </div>

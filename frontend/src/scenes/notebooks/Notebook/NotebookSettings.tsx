@@ -1,35 +1,24 @@
-import { useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
-import { Settings as RecordingSettings } from '../Nodes/NotebookNodeRecording'
-import { NotebookNodeType, NotebookNodeWidgetSettings } from '~/types'
 import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
+import { NotebookNodeWidget } from './utils'
 
-export const NotebookSettings = (): JSX.Element | null => {
-    const { selectedNodeLogic } = useValues(notebookLogic)
-
-    return selectedNodeLogic && selectedNodeLogic.values.hasSettings ? (
-        <div className="NotebookSettings space-y-2">
-            <LemonWidget title={selectedNodeLogic.values.title}>
-                <SelectedNodeSettingsWidget
-                    nodeType={selectedNodeLogic.props.nodeType}
-                    attributes={selectedNodeLogic.props.nodeAttributes}
-                    updateAttributes={selectedNodeLogic.actions.updateAttributes}
-                />
-            </LemonWidget>
-        </div>
-    ) : null
-}
-
-const SelectedNodeSettingsWidget = ({
-    nodeType,
-    ...props
+export const NotebookSettings = ({
+    widgets,
+    attributes,
+    updateAttributes,
+    onDismiss,
 }: {
-    nodeType: NotebookNodeType
-} & NotebookNodeWidgetSettings): JSX.Element | null => {
-    switch (nodeType) {
-        case NotebookNodeType.Recording:
-            return <RecordingSettings {...props} />
-        default:
-            return <></>
-    }
+    widgets: NotebookNodeWidget[]
+    attributes: any
+    updateAttributes: (attributes: Record<string, any>) => void
+    onDismiss: (key: string) => void
+}): JSX.Element | null => {
+    return (
+        <div className="NotebookSettings space-y-2">
+            {widgets.map(({ key, label, Component }) => (
+                <LemonWidget key={key} title={label} onClose={() => onDismiss(key)}>
+                    <Component attributes={attributes} updateAttributes={updateAttributes} />
+                </LemonWidget>
+            ))}
+        </div>
+    )
 }

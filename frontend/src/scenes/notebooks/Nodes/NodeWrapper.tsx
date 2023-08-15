@@ -15,13 +15,15 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, NotebookNodeWidgetSettings } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
-import { NotebookNodeAttributes, NotebookNodeViewProps } from '../Notebook/utils'
+import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
 import { NodeActions } from './NodeActions'
+import { NotebookSettings } from '../Notebook/NotebookSettings'
+import { createPortal } from 'react-dom'
 
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     title: string
@@ -37,6 +39,7 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
     autoHideMetadata?: boolean
+    widgets: NotebookNodeWidget[]
 }
 
 export function NodeWrapper<T extends NotebookNodeAttributes>({
@@ -54,6 +57,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     node,
     getPos,
     updateAttributes,
+    widgets,
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const nodeId: string = node.attrs.nodeId
@@ -67,11 +71,12 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
         notebookLogic: mountedNotebookLogic,
         getPos,
         title: defaultTitle,
+        widgets,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { isEditable } = useValues(mountedNotebookLogic)
-    const { title, expanded } = useValues(nodeLogic)
-    const { setExpanded, deleteNode } = useActions(nodeLogic)
+    const { title, expanded, activeWidgets, activeWidgetKeys } = useValues(nodeLogic)
+    const { setExpanded, deleteNode, addActiveWidget, removeActiveWidget } = useActions(nodeLogic)
 
     useEffect(() => {
         if (startExpanded) {
@@ -179,17 +184,33 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                                 </>
                             )}
                         </ErrorBoundary>
-                    </NodeViewWrapper>
-                    {isEditable && (
-                        <NodeActions
-                            onClickDelete={deleteNode}
-                            onClickSettings={() => {
-                                if (mountedNotebookLogic.values.editor) {
-                                    mountedNotebookLogic.values.editor.setSelection(getPos())
+                        {isEditable && (
+                            <NodeActions
+                                widgets={
+                                    selected
+                                        ? widgets.filter((widget) => !activeWidgetKeys.includes(widget.key))
+                                        : widgets
                                 }
-                            }}
-                        />
-                    )}
+                                onClickDelete={deleteNode}
+                                onSelectWidget={(key) => {
+                                    addActiveWidget(key)
+                                    if (mountedNotebookLogic.values.editor) {
+                                        mountedNotebookLogic.values.editor.setSelection(getPos())
+                                    }
+                                }}
+                            />
+                        )}
+                        {selected &&
+                            createPortal(
+                                <NotebookSettings
+                                    widgets={activeWidgets}
+                                    attributes={node.attrs}
+                                    updateAttributes={updateAttributes}
+                                    onDismiss={removeActiveWidget}
+                                />,
+                                document.getElementsByClassName('mememe')[0]
+                            )}
+                    </NodeViewWrapper>
                 </BindLogic>
             </NotebookNodeContext.Provider>
         </div>
@@ -204,6 +225,12 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
         getAttributes: (match: ExtendedRegExpMatchArray) => T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
+    widgets: Array<{
+        key: string
+        label: string
+        icon: JSX.Element
+        Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings) => JSX.Element
+    }>
 }
 
 export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({

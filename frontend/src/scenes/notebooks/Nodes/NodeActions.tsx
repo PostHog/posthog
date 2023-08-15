@@ -1,23 +1,28 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconClose, IconSettings } from 'lib/lemon-ui/icons'
+import { IconClose } from 'lib/lemon-ui/icons'
 
 export const NodeActions = ({
+    widgets,
     onClickDelete,
-    onClickSettings,
+    onSelectWidget,
 }: {
+    widgets: any[]
     onClickDelete: () => void
-    onClickSettings: () => void
+    onSelectWidget: (key: string) => void
 }): JSX.Element => {
     return (
         <div className="NotebookNodeActions space-y-1">
-            <LemonButton
-                type="secondary"
-                size="small"
-                tooltip="Settings"
-                tooltipPlacement="right"
-                icon={<IconSettings />}
-                onClick={onClickSettings}
-            />
+            {widgets.map((widget) => (
+                <LemonButton
+                    key={widget.key}
+                    type="secondary"
+                    size="small"
+                    tooltip={widget.label}
+                    tooltipPlacement="left"
+                    icon={widget.icon}
+                    onClick={() => onSelectWidget(widget.key)}
+                />
+            ))}
             <LemonButton
                 type="secondary"
                 status="danger"

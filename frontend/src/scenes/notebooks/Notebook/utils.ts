@@ -9,7 +9,7 @@ import {
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, NotebookNodeWidgetSettings } from '~/types'
 
 /* eslint-disable @typescript-eslint/no-empty-interface */
 export interface Node extends PMNode {}
@@ -33,6 +33,13 @@ type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
 
 export type NotebookNodeViewProps<T extends NotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
     node: NotebookNode<T>
+}
+
+export type NotebookNodeWidget = {
+    key: string
+    label: string
+    icon: JSX.Element
+    Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings) => JSX.Element
 }
 
 export interface NotebookEditor {
