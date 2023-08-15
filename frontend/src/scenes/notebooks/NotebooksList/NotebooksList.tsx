@@ -57,7 +57,7 @@ function ContainsTypeFilters({
 }
 
 export function NotebooksTable(): JSX.Element {
-    const { filteredNotebooks, filters, notebooksLoading, notebookTemplates } = useValues(notebooksListLogic)
+    const { searchFilteredNotebooks, filters, notebooksLoading, notebookTemplates } = useValues(notebooksListLogic)
     const { loadNotebooks, setFilters } = useActions(notebooksListLogic)
     const { meFirstMembers } = useValues(membersLogic)
     const { setVisibility, selectNotebook } = useActions(notebookPopoverLogic)
@@ -173,7 +173,7 @@ export function NotebooksTable(): JSX.Element {
             <LemonTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}
-                dataSource={filteredNotebooks as NotebookListItemType[]}
+                dataSource={searchFilteredNotebooks}
                 rowKey="short_id"
                 columns={columns}
                 loading={notebooksLoading}

@@ -74,9 +74,9 @@ export const DEFAULT_FILTERS: NotebooksListFilters = {
 }
 
 function filtersToContains(
-    filters: NotebooksListFilters
+    filters?: NotebooksListFilters
 ): { type: NotebookNodeType; attrs: Record<string, string | boolean> }[] | undefined {
-    if (objectsEqual(filters, DEFAULT_FILTERS)) {
+    if (filters === undefined || objectsEqual(filters, DEFAULT_FILTERS)) {
         return undefined
     }
     if (filters.hasRecordings) {
@@ -84,6 +84,14 @@ function filtersToContains(
     }
 
     return undefined
+}
+
+async function listNotebooksAPI(filters?: NotebooksListFilters): Promise<NotebookListItemType[]> {
+    // TODO: Support pagination
+    const contains = filtersToContains(filters)
+    const createdByForQuery = filters?.createdBy === DEFAULT_FILTERS.createdBy ? undefined : filters?.createdBy
+    const res = await api.notebooks.list(contains, createdByForQuery)
+    return res.results
 }
 
 export const notebooksListLogic = kea<notebooksListLogicType>([
@@ -103,6 +111,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
         }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
+        loadFilteredNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
         setFilters: (filters: Partial<NotebooksListFilters>) => ({ filters }),
     }),
@@ -128,20 +137,35 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 setScratchpadNotebook: (_, { notebook }) => notebook,
             },
         ],
+
+        filteredNotebooks: [
+            [] as NotebookListItemType[],
+            {
+                // if we already have filtered notebooks, don't replace them
+                loadNotebooksSuccess: (state, { notebooks }) => (!!state.length ? state : notebooks),
+            },
+        ],
     }),
 
     loaders(({ actions, values }) => ({
+        filteredNotebooks: [
+            [] as NotebookListItemType[],
+            {
+                loadFilteredNotebooks: async (_, breakpoint) => {
+                    // the notebooks list logic is used in several components
+                    // so, we can't just use the default loader when filtering
+                    await breakpoint(100)
+                    return await listNotebooksAPI(values.filters)
+                },
+            },
+        ],
         notebooks: [
             [] as NotebookListItemType[],
             {
                 loadNotebooks: async (_, breakpoint) => {
                     // TODO: Support pagination
                     await breakpoint(100)
-                    const contains = filtersToContains(values.filters)
-                    const createdByForQuery =
-                        values.filters.createdBy === DEFAULT_FILTERS.createdBy ? undefined : values.filters.createdBy
-                    const res = await api.notebooks.list(contains, createdByForQuery)
-                    return res.results
+                    return await listNotebooksAPI()
                 },
                 createNotebook: async ({ title, location, content, onCreate }, breakpoint) => {
                     await breakpoint(100)
@@ -191,7 +215,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
 
     listeners(({ actions }) => ({
         setFilters: () => {
-            actions.loadNotebooks()
+            actions.loadFilteredNotebooks()
         },
     })),
 
@@ -205,12 +229,13 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 })
             },
         ],
-        filteredNotebooks: [
-            (s) => [s.notebooks, s.notebookTemplates, s.filters, s.fuse],
-            (notebooks, notebooksTemplates, filters, fuse): NotebookListItemType[] => {
+        searchFilteredNotebooks: [
+            (s) => [s.filteredNotebooks, s.notebookTemplates, s.filters, s.fuse],
+            (filteredNotebooks, notebooksTemplates, filters, fuse): NotebookListItemType[] => {
                 const templatesToInclude: NotebookListItemType[] =
                     filters.createdBy === DEFAULT_FILTERS.createdBy ? [...notebooksTemplates] : []
-                let haystack: NotebookListItemType[] = [...notebooks, ...templatesToInclude]
+                let haystack: NotebookListItemType[] = [...filteredNotebooks, ...templatesToInclude]
+
                 if (filters.search) {
                     haystack = fuse.search(filters.search).map(({ item }) => item)
                 }
