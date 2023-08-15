@@ -57,7 +57,10 @@ export const batchExportLogic = kea<batchExportLogicType>([
         openBackfillModal: true,
         closeBackfillModal: true,
         retryRun: (run: BatchExportRun) => ({ run }),
-        setRunsDateRange: (data: { from: dayjs.Dayjs; to: dayjs.Dayjs }) => data,
+        setRunsDateRange: (data: {
+            from: BatchExportRun['data_interval_start']
+            to: BatchExportRun['data_interval_end']
+        }) => data,
     }),
 
     reducers({
@@ -152,8 +155,8 @@ export const batchExportLogic = kea<batchExportLogicType>([
     forms(({ props, actions }) => ({
         backfillForm: {
             defaults: { end_at: dayjs() } as {
-                start_at?: dayjs.Dayjs
-                end_at?: dayjs.Dayjs
+                start_at?: BatchExportRun['data_interval_start']
+                end_at?: BatchExportRun['data_interval_end']
             },
             errors: ({ start_at, end_at }) => ({
                 start_at: !start_at ? 'Start date is required' : undefined,
