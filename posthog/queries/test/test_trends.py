@@ -1301,6 +1301,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         breakdown_vals = [val["breakdown_value"] for val in daily_response]
         self.assertTrue("value_21" in breakdown_vals)
 
+    @snapshot_clickhouse_queries
     def test_trends_compare_day_interval_relative_range(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):

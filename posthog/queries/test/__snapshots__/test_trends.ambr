@@ -4106,6 +4106,84 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestTrends.test_trends_compare_day_interval_relative_range
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_trends_compare_day_interval_relative_range.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2019-12-28 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-21 00:00:00', 'UTC')), toDateTime('2019-12-28 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-21 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-21 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-28 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_trends_compare_day_interval_relative_range.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
 # name: TestTrends.test_trends_count_per_group_average_aggregated
   '
   
