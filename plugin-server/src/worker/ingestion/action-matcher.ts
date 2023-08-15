@@ -161,42 +161,49 @@ export class ActionMatcher {
     }
 
     /** Get all actions matched to the event. */
-    public matchBytecode(event: PostIngestionEvent, elements?: Element[]): (Action | undefined)[] {
-        const matchingStart = performance.now()
-        // Replicate the fields available in a HogQL query
-        const hogQLEvent: HogQLMatchingEvent = {
-            event: event.event,
-            properties: event.properties,
-            uuid: event.eventUuid,
-            team_id: event.teamId,
-            distinct_id: event.distinctId,
-            person_id: String(event.person_id),
-            timestamp: event.timestamp,
-            elements_chain: null,
-            person: {
-                id: String(event.person_id),
-                created_at: event.person_created_at,
-                properties: event.person_properties,
-            },
+    public matchBytecode(event: PostIngestionEvent, elements?: Element[]): Action[] {
+        try {
+            const matchingStart = performance.now()
+            // Replicate the fields available in a HogQL query
+            const hogQLEvent: HogQLMatchingEvent = {
+                event: event.event,
+                properties: event.properties,
+                uuid: event.eventUuid,
+                team_id: event.teamId,
+                distinct_id: event.distinctId,
+                person_id: String(event.person_id),
+                timestamp: event.timestamp,
+                elements_chain: null,
+                person: {
+                    id: String(event.person_id),
+                    created_at: event.person_created_at,
+                    properties: event.person_properties,
+                },
+            }
+            // Compute elements_chain only when requested
+            Object.defineProperty(hogQLEvent, 'elements_chain', {
+                get: () =>
+                    elements
+                        ? elementsToString(elements)
+                        : event.elementsList
+                        ? elementsToString(event.elementsList)
+                        : event.properties?.['$elements']
+                        ? elementsToString(sanitizeElements(event.properties['$elements']))
+                        : null,
+            })
+
+            const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
+            const matches: Action[] = teamActions.filter((action) => this.checkActionBytecode(hogQLEvent, action))
+
+            this.statsd?.timing('action_matching_for_event_hogvm', performance.now() - matchingStart)
+            this.statsd?.increment('action_matches_found_hogvm', matches.length)
+            return matches
+        } catch (e) {
+            captureException(e, {
+                tags: { team_id: event.teamId },
+            })
+            return []
         }
-        // Compute elements_chain only when requested
-        Object.defineProperty(hogQLEvent, 'elements_chain', {
-            get: () =>
-                elements
-                    ? elementsToString(elements)
-                    : event.elementsList
-                    ? elementsToString(event.elementsList)
-                    : event.properties?.['$elements']
-                    ? elementsToString(sanitizeElements(event.properties['$elements']))
-                    : null,
-        })
-
-        const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        const matches: Action[] = teamActions.filter((action) => this.checkActionBytecode(hogQLEvent, action))
-
-        this.statsd?.timing('action_matching_for_event_hogvm', performance.now() - matchingStart)
-        this.statsd?.increment('action_matches_found_hogvm', matches.length)
-        return matches
     }
 
     /**
