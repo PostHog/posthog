@@ -1,4 +1,3 @@
-import { NodeViewProps } from '@tiptap/core'
 import { InsightShortId } from '~/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
@@ -7,8 +6,9 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import { useValues } from 'kea'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeViewProps } from '../Notebook/utils'
 
-const Component = (props: NodeViewProps): JSX.Element | null => {
+const Component = (props: NotebookNodeViewProps<NotebookNodeInsightAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
 
     if (!expanded) {
@@ -17,7 +17,11 @@ const Component = (props: NodeViewProps): JSX.Element | null => {
     return <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id }} />
 }
 
-export const NotebookNodeInsight = createPostHogWidgetNode({
+type NotebookNodeInsightAttributes = {
+    id: InsightShortId
+}
+
+export const NotebookNodeInsight = createPostHogWidgetNode<NotebookNodeInsightAttributes>({
     nodeType: NotebookNodeType.Insight,
     title: 'Insight',
     Component,
@@ -31,7 +35,7 @@ export const NotebookNodeInsight = createPostHogWidgetNode({
     pasteOptions: {
         find: urls.insightView('(.+)' as InsightShortId),
         getAttributes: async (match) => {
-            return { id: match[1] }
+            return { id: match[1] as InsightShortId }
         },
     },
 })
