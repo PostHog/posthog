@@ -31,8 +31,7 @@ export function Notebook({
     initialAutofocus = null,
 }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible, shouldCollapseSettings } =
-        useValues(logic)
+    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
         useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -102,26 +101,34 @@ export function Notebook({
                     </LemonBanner>
                 ) : null}
 
-                <div className="flex flex-1 justify-center space-x-4">
-                    {editable && showNodeSettings ? <NotebookSettings /> : null}
-                    <Editor
-                        initialContent={content}
-                        onCreate={setEditor}
-                        onUpdate={onEditorUpdate}
-                        onSelectionUpdate={onEditorSelectionUpdate}
-                        placeholder={({ node }: { node: any }) => {
-                            if (node.type.name === 'heading' && node.attrs.level === 1) {
-                                return `Untitled - maybe.. "${headingPlaceholder}"`
-                            }
+                <div className="flex flex-1 justify-center">
+                    {editable && showNodeSettings && (
+                        <div className={clsx('Notebook__spacer', !isExpanded && 'flex flex-1')} />
+                    )}
+                    <div className={clsx(isExpanded && 'flex flex-1')}>
+                        <Editor
+                            initialContent={content}
+                            onCreate={setEditor}
+                            onUpdate={onEditorUpdate}
+                            onSelectionUpdate={onEditorSelectionUpdate}
+                            placeholder={({ node }: { node: any }) => {
+                                if (node.type.name === 'heading' && node.attrs.level === 1) {
+                                    return `Untitled - maybe.. "${headingPlaceholder}"`
+                                }
 
-                            if (node.type.name === 'heading') {
-                                return `Heading ${node.attrs.level}`
-                            }
+                                if (node.type.name === 'heading') {
+                                    return `Heading ${node.attrs.level}`
+                                }
 
-                            return ''
-                        }}
-                    />
-                    {editable && <div className={clsx('flex shrink', !shouldCollapseSettings && 'Notebook__spacer')} />}
+                                return ''
+                            }}
+                        />
+                    </div>
+                    {editable && showNodeSettings ? (
+                        <div className={clsx('Notebook__spacer', !isExpanded && 'flex flex-1')}>
+                            <NotebookSettings />
+                        </div>
+                    ) : null}
                 </div>
             </div>
         </BindLogic>

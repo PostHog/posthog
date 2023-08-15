@@ -21,6 +21,7 @@ import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
 import { NotebookNodeAttributes, NotebookNodeViewProps } from '../Notebook/utils'
+import { NodeActions } from './NodeActions'
 
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     title: string
@@ -109,79 +110,89 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     const isResizeable = resizeable && (!expandable || expanded)
 
     return (
-        <NotebookNodeContext.Provider value={nodeLogic}>
-            <BindLogic logic={notebookNodeLogic} props={nodeLogicProps}>
-                <NodeViewWrapper
-                    ref={ref}
-                    as="div"
-                    className={clsx(nodeType, 'NotebookNode', {
-                        'NotebookNode--selected': isEditable && selected,
-                        'NotebookNode--auto-hide-metadata': autoHideMetadata,
-                    })}
-                >
-                    <ErrorBoundary>
-                        {!inView ? (
-                            <>
-                                <div className="h-4" /> {/* Placeholder for the drag handle */}
-                                <div style={{ height: heightEstimate }}>
-                                    <LemonSkeleton className="h-full" />
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <div className="NotebookNode__meta" data-drag-handle>
-                                    <LemonButton
-                                        onClick={() => setExpanded(!expanded)}
-                                        size="small"
-                                        status="primary-alt"
-                                        className="flex-1"
-                                        icon={
-                                            isEditable ? (
-                                                <IconDragHandle className="cursor-move text-base shrink-0" />
-                                            ) : undefined
-                                        }
-                                    >
-                                        <span className="flex-1 cursor-pointer">{title}</span>
-                                    </LemonButton>
-
-                                    {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
-
-                                    {expandable && (
+        <div
+            className={clsx(nodeType, 'NotebookNode', {
+                'NotebookNode--selected': isEditable && selected,
+                'NotebookNode--auto-hide-metadata': autoHideMetadata,
+            })}
+        >
+            <NotebookNodeContext.Provider value={nodeLogic}>
+                <BindLogic logic={notebookNodeLogic} props={nodeLogicProps}>
+                    <NodeViewWrapper ref={ref} as="div">
+                        <ErrorBoundary>
+                            {!inView ? (
+                                <>
+                                    <div className="h-4" /> {/* Placeholder for the drag handle */}
+                                    <div style={{ height: heightEstimate }}>
+                                        <LemonSkeleton className="h-full" />
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="NotebookNode__meta" data-drag-handle>
                                         <LemonButton
                                             onClick={() => setExpanded(!expanded)}
                                             size="small"
-                                            icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                        />
-                                    )}
+                                            status="primary-alt"
+                                            className="flex-1"
+                                            icon={
+                                                isEditable ? (
+                                                    <IconDragHandle className="cursor-move text-base shrink-0" />
+                                                ) : undefined
+                                            }
+                                        >
+                                            <span className="flex-1 cursor-pointer">{title}</span>
+                                        </LemonButton>
 
-                                    {isEditable && (
-                                        <LemonButton
-                                            onClick={() => deleteNode()}
-                                            size="small"
-                                            status="danger"
-                                            icon={<IconClose />}
-                                        />
-                                    )}
-                                </div>
-                                <div
-                                    ref={contentRef}
-                                    className={clsx(
-                                        'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
-                                        isEditable && isResizeable && 'resize-y'
-                                    )}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={isResizeable ? { height, minHeight } : {}}
-                                    onClick={!expanded ? () => setExpanded(true) : undefined}
-                                    onMouseDown={onResizeStart}
-                                >
-                                    {children}
-                                </div>
-                            </>
-                        )}
-                    </ErrorBoundary>
-                </NodeViewWrapper>
-            </BindLogic>
-        </NotebookNodeContext.Provider>
+                                        {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
+
+                                        {expandable && (
+                                            <LemonButton
+                                                onClick={() => setExpanded(!expanded)}
+                                                size="small"
+                                                icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                            />
+                                        )}
+
+                                        {isEditable && (
+                                            <LemonButton
+                                                onClick={() => deleteNode()}
+                                                size="small"
+                                                status="danger"
+                                                icon={<IconClose />}
+                                            />
+                                        )}
+                                    </div>
+                                    <div
+                                        ref={contentRef}
+                                        className={clsx(
+                                            'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
+                                            isEditable && isResizeable && 'resize-y'
+                                        )}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={isResizeable ? { height, minHeight } : {}}
+                                        onClick={!expanded ? () => setExpanded(true) : undefined}
+                                        onMouseDown={onResizeStart}
+                                    >
+                                        {children}
+                                    </div>
+                                </>
+                            )}
+                        </ErrorBoundary>
+                    </NodeViewWrapper>
+                    {isEditable && (
+                        <NodeActions
+                            onClickDelete={deleteNode}
+                            onClickSettings={() => {
+                                if (mountedNotebookLogic.values.editor) {
+                                    mountedNotebookLogic.values.editor.setSelection(getPos())
+                                }
+                            }}
+                        />
+                    )}
+                </BindLogic>
+            </NotebookNodeContext.Provider>
+        </div>
     )
 }
 

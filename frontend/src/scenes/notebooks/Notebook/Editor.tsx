@@ -179,6 +179,7 @@ export function Editor({
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
+                setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 destroy: () => editor.destroy(),
                 isEmpty: () => editor.isEmpty,

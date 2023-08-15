@@ -11,7 +11,6 @@ import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
-import { windowValues } from 'kea-window-values'
 
 const SYNC_DELAY = 1000
 
@@ -99,9 +98,6 @@ export const notebookLogic = kea<notebookLogicType>([
                 setEditable: (_, { editable }) => editable,
             },
         ],
-    }),
-    windowValues({
-        shouldCollapseSettings: (window: Window) => window.innerWidth < 1440,
     }),
     loaders(({ values, props, actions }) => ({
         notebook: [

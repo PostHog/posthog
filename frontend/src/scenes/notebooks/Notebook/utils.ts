@@ -26,7 +26,7 @@ export {
 export type NotebookNodeAttributes = Record<string, any>
 type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
     attrs: T & {
-        nodeId?: string
+        nodeId: string
         height?: string | number
     }
 }
@@ -40,6 +40,7 @@ export interface NotebookEditor {
     getSelectedNode: () => Node | null
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
+    setSelection: (position: number) => void
     focus: (position: EditorFocusPosition) => void
     destroy: () => void
     isEmpty: () => boolean

@@ -1,4 +1,6 @@
 .Notebook {
+    margin: 0 40px;
+
     .NotebookEditor {
         flex: 1;
         width: 100%;
@@ -90,17 +92,8 @@
     }
 
     &--compact {
-        --notebook-fit-width: 800px;
-
         .NotebookEditor {
-            max-width: var(--notebook-fit-width);
-        }
-
-        // Must match --notebook-fit-width above but media queries don't work with vars
-        @media (min-width: 800px) {
-            .Notebook__spacer {
-                width: 20rem;
-            }
+            max-width: 800px;
         }
     }
 
@@ -117,6 +110,9 @@
         top: 65px;
         z-index: 1;
         margin-top: 0.5rem;
+        margin-left: 0.5rem;
+        min-width: 12rem;
+        width: 100%;
     }
 
     .LemonTable__content > table > thead {

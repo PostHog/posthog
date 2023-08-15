@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Popover } from '../Popover'
 import { LemonButton } from '../LemonButton'
 import { IconUnfoldLess, IconUnfoldMore } from '../icons'
 import './LemonWidget.scss'
@@ -7,55 +6,14 @@ import clsx from 'clsx'
 
 export interface LemonWidgetProps {
     title: string
-    icon: JSX.Element
-    collapsed?: boolean
-    selected?: boolean
-    onClickCollapsedOpener?: () => void
     children: React.ReactChild
 }
 
-export function LemonWidget({
-    title,
-    icon,
-    collapsed = false,
-    selected = false,
-    onClickCollapsedOpener,
-    children,
-}: LemonWidgetProps): JSX.Element {
+export function LemonWidget({ title, children }: LemonWidgetProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState<boolean>(true)
-    const [visible, setVisible] = useState<boolean>(false)
 
-    return collapsed ? (
-        <Popover
-            visible={visible}
-            placement="right-start"
-            className="LemonWidget__popover"
-            onClickOutside={() => setVisible(false)}
-            overlay={
-                <Widget>
-                    <Header>
-                        <span>{title}</span>
-                    </Header>
-                    <Content>{children}</Content>
-                </Widget>
-            }
-        >
-            <LemonButton
-                onClick={() => {
-                    if (!visible && !!onClickCollapsedOpener) {
-                        onClickCollapsedOpener()
-                    }
-                    setVisible(!visible)
-                }}
-                size="small"
-                status="primary-alt"
-                className="flex-1"
-                icon={icon}
-                type="secondary"
-            />
-        </Popover>
-    ) : (
-        <Widget classNames={clsx(selected && 'LemonWidget--selected', 'border')}>
+    return (
+        <Widget classNames="border">
             <Header>
                 <LemonButton
                     onClick={() => setIsExpanded(!isExpanded)}
