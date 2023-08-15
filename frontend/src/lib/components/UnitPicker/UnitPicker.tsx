@@ -1,4 +1,4 @@
-import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS, axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS } from 'scenes/insights/aggregationAxisFormat'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useMemo, useRef, useState } from 'react'
@@ -82,8 +82,7 @@ export function UnitPicker(): JSX.Element {
     }, [localAxisFormat, trendsFilter])
 
     return (
-        <>
-            <span>{axisLabel(display)}</span>
+        <div className="flex flex-1 pt-1.5 pb-2 pr-2">
             <CustomUnitModal
                 formativeElement={customUnitModal}
                 isOpen={customUnitModal !== null}
@@ -93,6 +92,7 @@ export function UnitPicker(): JSX.Element {
                 overlayRef={(ref) => (customUnitModalRef.current = ref)}
             />
             <LemonButtonWithDropdown
+                className="flex flex-1 ml-2"
                 onClick={() => setIsVisible(!isVisible)}
                 size={'small'}
                 type={'secondary'}
@@ -150,6 +150,6 @@ export function UnitPicker(): JSX.Element {
             >
                 {displayValue}
             </LemonButtonWithDropdown>
-        </>
+        </div>
     )
 }

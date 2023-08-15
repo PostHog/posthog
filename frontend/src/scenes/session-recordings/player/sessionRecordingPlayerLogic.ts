@@ -924,9 +924,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values.player?.replayer?.pause()
         actions.setPlayer(null)
 
+        const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
-            play_time_ms: values.playingTimeTracking.watchTime || 0,
+            play_time_ms: playTimeMs,
             recording_duration_ms: values.sessionPlayerData ? values.sessionPlayerData.durationMs : undefined,
             recording_age_ms:
                 values.sessionPlayerData && values.sessionPlayerData.segments.length > 0
@@ -937,7 +938,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // as a starting and very loose measure of engagement, we count clicks
             engagement_score: values.clickCount,
         }
-        posthog.capture('recording viewed summary', summaryAnalytics)
+        posthog.capture(
+            playTimeMs === 0 ? 'recording viewed with no playtime summary' : 'recording viewed summary',
+            summaryAnalytics
+        )
     }),
 
     afterMount(({ props, actions, cache }) => {

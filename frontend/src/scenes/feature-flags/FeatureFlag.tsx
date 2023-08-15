@@ -389,7 +389,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <div>
                                     <LemonButton
                                         fullWidth
-                                        status="default-dark"
+                                        status="stealth"
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
