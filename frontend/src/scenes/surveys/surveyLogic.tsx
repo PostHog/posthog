@@ -136,7 +136,6 @@ export const getSurveyDataVizQuery = (survey: Survey): InsightVizNode => {
             trendsFilter: { display: ChartDisplayType.ActionsBarValue },
             breakdown: { breakdown: '$survey_response', breakdown_type: 'event' },
         },
-        showHeader: true,
         showTable: true,
     }
 }
