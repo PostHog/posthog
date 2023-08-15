@@ -241,17 +241,19 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                 # each of those objects can have attrs which is a dict with id for the recording
                 for match_pair in match_pairs:
                     target, match = match_pair.split(":")
-                    if target == "recording":
+                    if target:
                         if match == "true":
                             queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}])
                         elif match == "false":
                             queryset = queryset.exclude(content__content__contains=[{"type": f"ph-{target}"}])
                         else:
+                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}])
 
-                            # it could be a recording id
-                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}]).filter(
-                                content__content__contains=[{"attrs": {"id": match}}]
-                            )
+                            id = "id"
+                            if target == "replay-timestamp":
+                                id = "sessionRecordingId"
+
+                            queryset = queryset.filter(content__content__contains=[{"attrs": {id: match}}])
 
         return queryset
 
