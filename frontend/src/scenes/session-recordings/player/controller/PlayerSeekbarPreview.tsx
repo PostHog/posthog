@@ -3,8 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import { PlayerFrame } from '../PlayerFrame'
 import { BindLogic, useActions, useValues } from 'kea'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDebouncedCallback } from 'use-debounce'
 
 export type PlayerSeekbarPreviewProps = {
