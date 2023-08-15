@@ -409,6 +409,14 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         cohorts = {}
         seen_cohorts_cache: Dict[str, Cohort] = {}
 
+        if should_send_cohorts:
+            seen_cohorts_cache = {
+                str(cohort.pk): cohort
+                for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                    team_id=self.team_id, deleted=False
+                )
+            }
+
         parsed_flags = []
         for feature_flag in feature_flags:
             filters = feature_flag.get_filters()
