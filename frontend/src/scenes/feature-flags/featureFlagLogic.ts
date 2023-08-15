@@ -518,8 +518,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadFeatureFlag()
             }
         },
-        enrichUsageDashboard: async () => {
+        enrichUsageDashboard: async (_, breakpoint) => {
             if (props.id) {
+                await breakpoint(1000) // in ms
                 await api.create(
                     `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
                 )
@@ -552,13 +553,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadFeatureFlagSuccess: async () => {
             actions.loadRecentInsights()
             actions.loadAllInsightsForFlag()
-
-            if (
-                values.featureFlag?.has_enriched_analytics &&
-                !values.featureFlag?.usage_dashboard_has_enriched_insights
-            ) {
-                actions.enrichUsageDashboard()
-            }
         },
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {

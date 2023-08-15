@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Form, Group } from 'kea-forms'
 import { Row, Col, Radio, InputNumber, Popconfirm, Select, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -593,12 +593,24 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         usage_dashboard: dashboardId,
         has_enriched_analytics: hasEnrichedAnalytics,
     } = featureFlag
-    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    const { receivedErrorsFromAPI } = useValues(
+    const { receivedErrorsFromAPI, dashboard } = useValues(
         dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
     )
     const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
+
+    useEffect(() => {
+        if (
+            connectedDashboardExists &&
+            dashboard &&
+            hasEnrichedAnalytics &&
+            !(dashboard.tiles?.find((tile) => (tile.insight?.name?.indexOf('Feature Viewed') ?? -1) > -1) !== undefined)
+        ) {
+            enrichUsageDashboard()
+        }
+    }, [dashboard])
+
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
