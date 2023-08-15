@@ -13,8 +13,15 @@ from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earl
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 
-# Assume that any date being sent from the client is timezone aware according to the timezone that the team has set
 class QueryDateRange:
+    """Translation of the raw `date_from` and `date_to` filter values to datetimes in the relevant project's timezone.
+
+    A raw `date_from` and `date_to` value can either be:
+    - unset, in which case `date_from` takes the timestamp of the earliest event in the project and `date_to` equals now
+    - a string, which can be a datetime in any format supported by dateutil.parser.isoparse()
+    - a datetime already (only for filters constructed internally)
+    """
+
     _filter: AnyFilter
     _team: Team
     _table: str
@@ -162,16 +169,8 @@ class QueryDateRange:
         return ", 0" if trunc_func == "toStartOfWeek" else ""
 
     @cached_property
-    def _start_time(self) -> datetime:
-        return self._filter.date_from or get_earliest_timestamp(self._team.pk)
-
-    @cached_property
-    def _end_time(self) -> datetime:
-        return self._filter.date_to or timezone.now()
-
-    @cached_property
-    def time_difference(self) -> timedelta:
-        return self._end_time - self._start_time
+    def delta(self) -> timedelta:
+        return self.date_to_param - self.date_from_param
 
     @cached_property
     def num_intervals(self) -> int:
@@ -181,7 +180,7 @@ class QueryDateRange:
             rel_delta = relativedelta(self._end_time.replace(day=1), self._start_time.replace(day=1))
             return (rel_delta.years * 12) + rel_delta.months + 1
 
-        return int(self.time_difference.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1  # type: ignore
+        return int(self.delta.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1  # type: ignore
 
     @cached_property
     def should_round(self) -> bool:
@@ -195,7 +194,7 @@ class QueryDateRange:
         if self._filter.interval in ["week", "month"]:  # type: ignore
             round_interval = True
         else:
-            round_interval = self.time_difference.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2  # type: ignore
+            round_interval = self.delta.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2  # type: ignore
 
         return round_interval
 
