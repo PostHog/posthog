@@ -20,7 +20,7 @@ import {
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
-import { elementsToString, sanitizeElements } from '../../utils/db/elements-chain'
+import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
@@ -117,7 +117,7 @@ export class EventsProcessor {
         let elementsList: Element[] = []
 
         if (elements && elements.length) {
-            elementsList = sanitizeElements(elements)
+            elementsList = extractElements(elements)
             delete properties['$elements']
         }
 
