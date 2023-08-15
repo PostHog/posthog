@@ -204,7 +204,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         "person_id": result["person_id"],
                         "person_properties": result["person_properties"],
                         "properties": result["properties"],
-                        "team_id": result["team_id"],
                         "timestamp": result["timestamp"],
                         "uuid": result["uuid"],
                     }
