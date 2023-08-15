@@ -175,14 +175,14 @@ export class ActionMatcher {
 
     public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
         // Matching bytecode first to assure returned action order does not change while awaiting.
-        const hogVMResponse = this.matchBytecode(event, elements)
+        const bytecodeResponse = this.matchBytecode(event, elements)
         const legacyResponse = await this.matchLegacy(event, elements)
 
         if (
-            legacyResponse.length !== hogVMResponse.length ||
-            !legacyResponse.every((action, index) => action.id == hogVMResponse[index]?.id)
+            legacyResponse.length !== bytecodeResponse.length ||
+            !legacyResponse.every((action, index) => action.id == bytecodeResponse[index]?.id)
         ) {
-            if (hogVMResponse.length > legacyResponse.length) {
+            if (bytecodeResponse.length > legacyResponse.length) {
                 actionMatchesAuditMatchMoreBytecode.inc()
             } else {
                 actionMatchesAuditMatchMoreLegacy.inc()
