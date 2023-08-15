@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -181,6 +182,19 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
                 person_content_notebook,
                 recording_comment_notebook,
                 insight_content_notebook,
+            ]
+        )
+
+    @parameterized.expand([["insight"], ["insights"]])
+    def test_filtering_by_just_the_target_name_is_truthy(self, target_name: str) -> None:
+        insight_content_notebook_one = self._create_notebook_with_content([INSIGHT_COMMENT("insight_id_one")])
+        _feature_flag_content_notebook_one = self._create_notebook_with_content(
+            [FEATURE_FLAG_CONTENT("feature_flag_id_one")]
+        )
+        filter_response = self.client.get(f"/api/projects/{self.team.id}/notebooks?contains={target_name}")
+        assert sorted([n["id"] for n in filter_response.json()["results"]]) == sorted(
+            [
+                insight_content_notebook_one,
             ]
         )
 
