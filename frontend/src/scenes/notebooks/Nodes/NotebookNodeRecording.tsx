@@ -1,4 +1,3 @@
-import { NodeViewProps } from '@tiptap/core'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
@@ -15,11 +14,12 @@ import {
     SessionRecordingPreviewSkeleton,
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeViewProps } from '../Notebook/utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
 
-const Component = (props: NodeViewProps): JSX.Element => {
+const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>): JSX.Element => {
     const id = props.node.attrs.id
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
@@ -51,7 +51,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const NotebookNodeRecording = createPostHogWidgetNode({
+type NotebookNodeRecordingAttributes = {
+    id: string
+}
+
+export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
     title: 'Session Replay',
     Component,

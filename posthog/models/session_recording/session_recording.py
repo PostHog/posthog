@@ -86,7 +86,7 @@ class SessionRecording(UUIDModel):
             self._metadata = metadata
 
             # Some fields of the metadata are persisted fully in the model
-            # TODO there are more fields that can be stored on the model here
+            # TODO there is more metadata we can add here
             self.distinct_id = metadata["distinct_id"]
             self.start_time = metadata["start_time"]
             self.end_time = metadata["end_time"]
