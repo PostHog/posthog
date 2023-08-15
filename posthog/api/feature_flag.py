@@ -401,8 +401,11 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
     def local_evaluation(self, request: request.Request, **kwargs):
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team_id=self.team_id, deleted=False
+            team_id=self.team_id, deleted=False, active=True
         )
+
+        should_send_cohorts = "send_cohorts" in request.GET
+
         cohorts = {}
         seen_cohorts_cache: Dict[str, Cohort] = {}
 
@@ -431,7 +434,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
             # when param set, send cohorts, for libraries that can handle evaluating them locally
             # irrespective of complexity
-            if "send_cohorts" in request.GET:
+            if should_send_cohorts:
                 for id in feature_flag.get_cohort_ids(
                     using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
                 ):

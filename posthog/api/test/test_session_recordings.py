@@ -625,6 +625,31 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freeze_time("2023-01-01T00:00:00Z")
     @patch("posthog.api.session_recording.object_storage.list_objects")
+    def test_get_snapshots_upgrade_to_v2_if_stored_recording_requires_it(self, mock_list_objects: MagicMock) -> None:
+        session_id = str(uuid.uuid4())
+        timestamp = round(now().timestamp() * 1000)
+        mock_list_objects.return_value = [
+            f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{timestamp - 10000}-{timestamp - 5000}",
+            f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{timestamp - 5000}-{timestamp}",
+        ]
+
+        # if the recording has been written with a newer version, we have to upgrade to v2
+        SessionRecording.objects.create(team=self.team, session_id=session_id, storage_version="2023-08-01")
+
+        # add an unnecessary param to make sure we maintain params when redirecting
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?some-param=1"
+        )
+        assert response.status_code == status.HTTP_302_FOUND
+        assert (
+            response.headers["Location"]
+            == f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?some-param=1&version=2"
+        )
+
+        mock_list_objects.assert_not_called()
+
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.api.session_recording.object_storage.list_objects")
     def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
