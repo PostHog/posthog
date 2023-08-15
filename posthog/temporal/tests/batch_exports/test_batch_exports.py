@@ -169,7 +169,7 @@ async def test_get_rows_count_handles_duplicates(client):
                 "$current_url": "http://localhost.com",
             },
             "elements_chain": "this that and the other",
-            "elements": json.dumps("this that and the other"),
+            "elements": json.dumps("this that and the other")
             "ip": "127.0.0.1",
             "site_url": "http://localhost.com",
             "set": None,

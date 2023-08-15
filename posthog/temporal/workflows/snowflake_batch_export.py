@@ -62,7 +62,6 @@ class SnowflakeInsertInputs:
     data_interval_start: str
     data_interval_end: str
     role: str | None = None
-    use_apps_schema: bool = True
 
 
 def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
@@ -200,41 +199,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     if not result:
                         break
 
-                    if inputs.use_apps_schema:
-                        content = json.dumps(
-                            {
-                                "distinct_id": result["distinct_id"],
-                                "elements": result["elements"],
-                                "event": result["event"],
-                                "ip": result["ip"],
-                                "people_set": result["set"],
-                                "people_set_once": result["set_once"],
-                                "properties": result["properties"],
-                                "site_url": result["site_url"],
-                                "team_id": result["team_id"],
-                                "timestamp": result["timestamp"],
-                                "uuid": result["uuid"],
-                            }
-                        )
-                    else:
-                        content = json.dumps(
-                            {
-                                "created_at": result["created_at"],
-                                "distinct_id": result["distinct_id"],
-                                "elements_chain": result["elements_chain"],
-                                "event": result["event"],
-                                "inserted_at": result["inserted_at"],
-                                "person_id": result["set"],
-                                "person_properties": result["properties"],
-                                "properties": result["properties"],
-                                "team_id": result["team_id"],
-                                "timestamp": result["timestamp"],
-                                "uuid": result["uuid"],
-                            }
-                        )
-
                     # Write the results to a local file
-                    local_results_file.write(content.encode("utf-8"))
+                    local_results_file.write(json.dumps(result).encode("utf-8"))
                     local_results_file.write("\n".encode("utf-8"))
 
                     # Write results to Snowflake when the file reaches 50MB and
@@ -354,7 +320,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             role=inputs.role,
-            use_apps_schema=inputs.use_apps_schema,
         )
         try:
             await workflow.execute_activity(
