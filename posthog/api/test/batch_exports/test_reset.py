@@ -32,7 +32,6 @@ def wait_for_runs(client, team_id, batch_export_id, timeout=10, number_of_runs=1
     batch_export_runs = get_batch_export_runs_ok(client, team_id, batch_export_id)
 
     while len(batch_export_runs["results"]) < number_of_runs:
-        print("Waiting for BatchExportRuns to be created...", batch_export_runs)
         batch_export_runs = get_batch_export_runs_ok(client, team_id, batch_export_id)
         time.sleep(1)
         if (dt.datetime.utcnow() - start).seconds > timeout:

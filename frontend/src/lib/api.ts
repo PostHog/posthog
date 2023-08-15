@@ -1306,10 +1306,6 @@ const api = {
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
         },
-        // NOTE: The below is not used atm, but we might want to add it back in the future
-        // async resetRun(id: BatchExportConfiguration['id'], runId: BatchExportRun['id']): Promise<BatchExportRun> {
-        //     return await new ApiRequest().batchExportRun(id, runId).withAction('reset').create()
-        // },
     },
 
     earlyAccessFeatures: {
