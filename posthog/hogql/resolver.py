@@ -14,7 +14,8 @@ from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
-
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.s3_table import S3Table
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -473,6 +474,26 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        left = self.visit(node.left)
+        left_is_events = self._is_events_table(left)
+        right = self.visit(node.right)
+        right_is_s3 = self._is_s3_cluster(right)
+
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and left_is_events
+            and right_is_s3
+        ):
+            return self.visit(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GlobalIn
+                    if node.op == ast.CompareOperationOp.In
+                    else ast.CompareOperationOp.GlobalNotIn,
+                    left=node.left,
+                    right=node.right,
+                )
+            )
+
         if node.op == ast.CompareOperationOp.InCohort:
             return self.visit(
                 ast.CompareOperation(
@@ -493,6 +514,22 @@ class Resolver(CloningVisitor):
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
         return node
+
+    def _is_events_table(self, node: ast.Expr) -> bool:
+        if isinstance(node, ast.Field):
+            try:
+                return isinstance(node.type.table_type.table, EventsTable)
+            except:
+                return False
+        return False
+
+    def _is_s3_cluster(self, node: ast.Expr) -> bool:
+        if isinstance(node, ast.SelectQuery):
+            try:
+                return isinstance(node.select_from.type.table_type.table, S3Table)
+            except:
+                return False
+        return False
 
 
 def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
