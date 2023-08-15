@@ -301,12 +301,10 @@ export class ActionMatcher {
         elements: Element[] | undefined,
         action: Action
     ): Promise<boolean> {
-        let response = false
         for (const step of action.steps) {
             try {
                 if (await this.checkStep(event, elements, step)) {
-                    response = true
-                    break
+                    return true
                 }
             } catch (error) {
                 captureException(error, {
@@ -315,7 +313,7 @@ export class ActionMatcher {
                 })
             }
         }
-        return response
+        return false
     }
 
     /**
