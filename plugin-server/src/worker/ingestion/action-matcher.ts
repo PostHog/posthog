@@ -5,6 +5,7 @@ import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { Client, Pool } from 'pg'
+import { Counter } from 'prom-client'
 import RE2 from 're2'
 
 import {
@@ -45,6 +46,39 @@ const emptyMatchingOperator: Partial<Record<PropertyOperator, boolean>> = {
     [PropertyOperator.NotIContains]: true,
     [PropertyOperator.NotRegex]: true,
 }
+
+export const actionMatchesAuditMatchEqual = new Counter({
+    name: 'action_matches_audit_matched_equal',
+    help: 'Number of times the count of HogVM bytecode and legacy matches matched.',
+})
+export const actionMatchesAuditMatchMoreBytecode = new Counter({
+    name: 'action_matches_audit_matched_more_bytecode',
+    help: 'Number of times we had more bytecode than legacy matches.',
+})
+export const actionMatchesAuditMatchMoreLegacy = new Counter({
+    name: 'action_matches_audit_matched_more_legacy',
+    help: 'Number of times we had more legacy than bytecode matches.',
+})
+export const actionMatchesErrorBytecode = new Counter({
+    name: 'action_matches_error_bytecode',
+    help: 'How many times the HogVM bytecode action matcher errored.',
+})
+export const actionMatchesFoundBytecode = new Counter({
+    name: 'action_matches_found_bytecode',
+    help: 'Number of matched actions via HogVM bytecode.',
+})
+export const actionMatchesFoundLegacy = new Counter({
+    name: 'action_matches_found_legacy',
+    help: 'Number of matched actions via legacy matching.',
+})
+export const actionMatchingDurationBytecode = new Counter({
+    name: 'action_matching_duration_bytecode',
+    help: 'Number of milliseconds spent on HogVM bytecode action matching.',
+})
+export const actionMatchingDurationLegacy = new Counter({
+    name: 'action_matching_duration_legacy',
+    help: 'Number of milliseconds spent on legacy action matching.',
+})
 
 /** Return whether two values compare to each other according to the specified operator.
  * This simulates the behavior of ClickHouse (or other DBMSs) which like to cast values in SELECTs to the column's type.
@@ -141,12 +175,7 @@ export class ActionMatcher {
 
     public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
         // Matching bytecode first to assure returned action order does not change while awaiting.
-        let hogVMResponse: Action[] = []
-        try {
-            hogVMResponse = this.matchBytecode(event, elements)
-        } catch (e) {
-            captureException(e, { tags: { team_id: event.teamId }, extra: { event } })
-        }
+        const hogVMResponse = this.matchBytecode(event, elements)
         const legacyResponse = await this.matchLegacy(event, elements)
 
         if (
@@ -154,12 +183,12 @@ export class ActionMatcher {
             !legacyResponse.every((action, index) => action.id == hogVMResponse[index]?.id)
         ) {
             if (hogVMResponse.length > legacyResponse.length) {
-                this.statsd?.increment('action_matches_hogvm_legacy_mismatch_hogvm_matched_more')
+                actionMatchesAuditMatchMoreBytecode.inc()
             } else {
-                this.statsd?.increment('action_matches_hogvm_legacy_mismatch_hogvm_matched_less')
+                actionMatchesAuditMatchMoreLegacy.inc()
             }
         } else {
-            this.statsd?.increment('action_matches_hogvm_legacy_match')
+            actionMatchesAuditMatchEqual.inc()
         }
 
         return legacyResponse
@@ -167,41 +196,53 @@ export class ActionMatcher {
 
     /** Get all actions matched to the event. */
     public matchBytecode(event: PostIngestionEvent, elements?: Element[]): Action[] {
-        const matchingStart = performance.now()
-        // Replicate the fields available in a HogQL query
-        const hogQLEvent: HogQLMatchingEvent = {
-            event: event.event,
-            properties: event.properties,
-            uuid: event.eventUuid,
-            team_id: event.teamId,
-            distinct_id: event.distinctId,
-            person_id: String(event.person_id),
-            timestamp: event.timestamp,
-            elements_chain: null,
-            person: {
-                id: String(event.person_id),
-                created_at: event.person_created_at,
-                properties: event.person_properties,
-            },
+        try {
+            const matchingStart = performance.now()
+            // Replicate the fields available in a HogQL query
+            const hogQLEvent: HogQLMatchingEvent = {
+                event: event.event,
+                properties: event.properties,
+                uuid: event.eventUuid,
+                team_id: event.teamId,
+                distinct_id: event.distinctId,
+                person_id: String(event.person_id),
+                timestamp: event.timestamp,
+                elements_chain: null,
+                person: {
+                    id: String(event.person_id),
+                    created_at: event.person_created_at,
+                    properties: event.person_properties,
+                },
+            }
+            // Compute elements_chain only when requested
+            Object.defineProperty(hogQLEvent, 'elements_chain', {
+                get: () =>
+                    elements
+                        ? elementsToString(elements)
+                        : event.elementsList
+                        ? elementsToString(event.elementsList)
+                        : event.properties?.['$elements']
+                        ? elementsToString(sanitizeElements(event.properties['$elements']))
+                        : null,
+            })
+
+            const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
+            const matches: Action[] = teamActions.filter((action) => this.checkActionBytecode(hogQLEvent, action))
+
+            const time = performance.now() - matchingStart
+            actionMatchingDurationBytecode.inc(time)
+            actionMatchesFoundBytecode.inc(matches.length)
+            this.statsd?.timing('action_matching_for_event_hogvm', time)
+            this.statsd?.increment('action_matches_found_hogvm', matches.length)
+            return matches
+        } catch (error) {
+            actionMatchesErrorBytecode.inc()
+            captureException(error, {
+                tags: { team_id: event.teamId },
+                extra: { event, elements },
+            })
+            return []
         }
-        // Compute elements_chain only when requested
-        Object.defineProperty(hogQLEvent, 'elements_chain', {
-            get: () =>
-                elements
-                    ? elementsToString(elements)
-                    : event.elementsList
-                    ? elementsToString(event.elementsList)
-                    : event.properties?.['$elements']
-                    ? elementsToString(sanitizeElements(event.properties['$elements']))
-                    : null,
-        })
-
-        const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        const matches: Action[] = teamActions.filter((action) => this.checkActionBytecode(hogQLEvent, action))
-
-        this.statsd?.timing('action_matching_for_event_hogvm', performance.now() - matchingStart)
-        this.statsd?.increment('action_matches_found_hogvm', matches.length)
-        return matches
     }
 
     /**
@@ -241,7 +282,10 @@ export class ActionMatcher {
                 matches.push(teamActions[i])
             }
         }
-        this.statsd?.timing('action_matching_for_event', performance.now() - matchingStart)
+        const time = performance.now() - matchingStart
+        actionMatchingDurationLegacy.inc(time)
+        actionMatchesFoundLegacy.inc(matches.length)
+        this.statsd?.timing('action_matching_for_event', time)
         this.statsd?.increment('action_matches_found', matches.length)
         return matches
     }
