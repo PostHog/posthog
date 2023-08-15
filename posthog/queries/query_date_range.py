@@ -177,7 +177,7 @@ class QueryDateRange:
         if not hasattr(self._filter, "interval"):
             return 1
         if self._filter.interval == "month":  # type: ignore
-            rel_delta = relativedelta(self._end_time.replace(day=1), self._start_time.replace(day=1))
+            rel_delta = relativedelta(self.date_to_param, self.date_from_param)
             return (rel_delta.years * 12) + rel_delta.months + 1
 
         return int(self.delta.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1  # type: ignore
