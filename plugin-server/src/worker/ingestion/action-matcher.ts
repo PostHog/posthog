@@ -151,7 +151,7 @@ export class ActionMatcher {
             if (hogVMResponse.length > legacyResponse.length) {
                 this.statsd?.increment('action_matches_hogvm_legacy_mismatch_hogvm_matched_more')
             } else {
-                this.statsd?.increment('action_matches_hogvm_legacy_mismatch')
+                this.statsd?.increment('action_matches_hogvm_legacy_mismatch_hogvm_matched_less')
             }
         } else {
             this.statsd?.increment('action_matches_hogvm_legacy_match')
