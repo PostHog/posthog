@@ -71,7 +71,6 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if not table:
             raise serializers.ValidationError("View column must have a table.")
 
-        # TODO: validate join key against the existing tables
         database = create_hogql_database(team_id)
         try:
             table_instance = database.get_table(table)
