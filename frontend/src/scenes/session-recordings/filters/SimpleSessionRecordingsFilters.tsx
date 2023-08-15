@@ -175,6 +175,8 @@ const SimpleSessionRecordingsFiltersInserter = ({
                 }
             >
                 <LemonButton
+                    data-attr={'simple-session-recordings-filter'}
+                    data-ph-capture-attribute-simple-filter-property-key={propertyKey}
                     onClick={() => handleVisibleChange(true)}
                     className="new-prop-filter"
                     type="secondary"

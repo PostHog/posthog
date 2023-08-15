@@ -336,6 +336,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                         # Raised by Snowflake when a query cannot be compiled.
                         # Usually this means we don't have table permissions or something doesn't exist (db, schema).
                         "ProgrammingError",
+                        # Raised by Snowflake with an incorrect account name.
+                        "ForbiddenError",
                     ],
                 ),
             )

@@ -10,7 +10,7 @@ else:
 
 def serializedATN():
     return [
-        4,1,242,918,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,
+        4,1,242,919,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,
         7,6,2,7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,2,12,7,12,2,13,7,
         13,2,14,7,14,2,15,7,15,2,16,7,16,2,17,7,17,2,18,7,18,2,19,7,19,2,
         20,7,20,2,21,7,21,2,22,7,22,2,23,7,23,2,24,7,24,2,25,7,25,2,26,7,
@@ -80,45 +80,45 @@ def serializedATN():
         12,41,798,9,41,1,42,1,42,1,42,1,42,1,42,1,42,1,42,1,42,1,42,1,42,
         3,42,810,8,42,1,43,1,43,1,43,1,43,3,43,816,8,43,1,43,3,43,819,8,
         43,1,44,1,44,1,44,5,44,824,8,44,10,44,12,44,827,9,44,1,45,1,45,1,
-        45,1,45,1,45,1,45,1,45,3,45,836,8,45,1,45,1,45,1,45,1,45,3,45,842,
-        8,45,5,45,844,8,45,10,45,12,45,847,9,45,1,46,1,46,1,46,3,46,852,
-        8,46,1,46,1,46,1,47,1,47,1,47,3,47,859,8,47,1,47,1,47,1,48,1,48,
-        1,48,5,48,866,8,48,10,48,12,48,869,9,48,1,49,1,49,1,50,1,50,1,50,
-        1,50,1,50,1,50,3,50,879,8,50,3,50,881,8,50,1,51,3,51,884,8,51,1,
-        51,1,51,1,51,1,51,1,51,1,51,3,51,892,8,51,1,52,1,52,1,52,3,52,897,
-        8,52,1,53,1,53,1,54,1,54,1,55,1,55,1,56,1,56,3,56,907,8,56,1,57,
-        1,57,1,57,3,57,912,8,57,1,58,1,58,1,58,1,58,1,58,0,3,36,74,90,59,
-        0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,
-        46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,
-        90,92,94,96,98,100,102,104,106,108,110,112,114,116,0,16,2,0,32,32,
-        141,141,2,0,84,84,96,96,3,0,4,4,8,8,12,12,4,0,4,4,7,8,12,12,147,
-        147,2,0,96,96,140,140,2,0,4,4,8,8,2,0,11,11,42,43,2,0,62,62,93,93,
-        2,0,133,133,143,143,3,0,17,17,95,95,170,170,2,0,79,79,98,98,1,0,
-        196,197,2,0,208,208,228,228,8,0,37,37,76,76,108,108,110,110,132,
-        132,145,145,185,185,190,190,13,0,2,24,26,36,38,75,77,81,83,107,109,
-        109,111,112,114,115,117,130,133,144,146,184,186,189,191,192,4,0,
-        36,36,62,62,77,77,91,91,1037,0,120,1,0,0,0,2,124,1,0,0,0,4,138,1,
-        0,0,0,6,141,1,0,0,0,8,190,1,0,0,0,10,193,1,0,0,0,12,199,1,0,0,0,
-        14,203,1,0,0,0,16,209,1,0,0,0,18,227,1,0,0,0,20,230,1,0,0,0,22,233,
-        1,0,0,0,24,243,1,0,0,0,26,246,1,0,0,0,28,250,1,0,0,0,30,283,1,0,
-        0,0,32,285,1,0,0,0,34,288,1,0,0,0,36,303,1,0,0,0,38,365,1,0,0,0,
-        40,370,1,0,0,0,42,381,1,0,0,0,44,383,1,0,0,0,46,389,1,0,0,0,48,397,
-        1,0,0,0,50,409,1,0,0,0,52,414,1,0,0,0,54,422,1,0,0,0,56,427,1,0,
-        0,0,58,435,1,0,0,0,60,439,1,0,0,0,62,443,1,0,0,0,64,452,1,0,0,0,
-        66,466,1,0,0,0,68,468,1,0,0,0,70,518,1,0,0,0,72,520,1,0,0,0,74,657,
-        1,0,0,0,76,755,1,0,0,0,78,765,1,0,0,0,80,786,1,0,0,0,82,791,1,0,
-        0,0,84,809,1,0,0,0,86,818,1,0,0,0,88,820,1,0,0,0,90,835,1,0,0,0,
-        92,848,1,0,0,0,94,858,1,0,0,0,96,862,1,0,0,0,98,870,1,0,0,0,100,
-        880,1,0,0,0,102,883,1,0,0,0,104,896,1,0,0,0,106,898,1,0,0,0,108,
-        900,1,0,0,0,110,902,1,0,0,0,112,906,1,0,0,0,114,911,1,0,0,0,116,
-        913,1,0,0,0,118,121,3,2,1,0,119,121,3,6,3,0,120,118,1,0,0,0,120,
-        119,1,0,0,0,121,122,1,0,0,0,122,123,5,0,0,1,123,1,1,0,0,0,124,130,
-        3,4,2,0,125,126,5,176,0,0,126,127,5,4,0,0,127,129,3,4,2,0,128,125,
-        1,0,0,0,129,132,1,0,0,0,130,128,1,0,0,0,130,131,1,0,0,0,131,3,1,
-        0,0,0,132,130,1,0,0,0,133,139,3,6,3,0,134,135,5,220,0,0,135,136,
-        3,2,1,0,136,137,5,236,0,0,137,139,1,0,0,0,138,133,1,0,0,0,138,134,
-        1,0,0,0,139,5,1,0,0,0,140,142,3,8,4,0,141,140,1,0,0,0,141,142,1,
-        0,0,0,142,143,1,0,0,0,143,145,5,146,0,0,144,146,5,49,0,0,145,144,
+        45,1,45,1,45,1,45,1,45,1,45,3,45,837,8,45,1,45,1,45,1,45,1,45,3,
+        45,843,8,45,5,45,845,8,45,10,45,12,45,848,9,45,1,46,1,46,1,46,3,
+        46,853,8,46,1,46,1,46,1,47,1,47,1,47,3,47,860,8,47,1,47,1,47,1,48,
+        1,48,1,48,5,48,867,8,48,10,48,12,48,870,9,48,1,49,1,49,1,50,1,50,
+        1,50,1,50,1,50,1,50,3,50,880,8,50,3,50,882,8,50,1,51,3,51,885,8,
+        51,1,51,1,51,1,51,1,51,1,51,1,51,3,51,893,8,51,1,52,1,52,1,52,3,
+        52,898,8,52,1,53,1,53,1,54,1,54,1,55,1,55,1,56,1,56,3,56,908,8,56,
+        1,57,1,57,1,57,3,57,913,8,57,1,58,1,58,1,58,1,58,1,58,0,3,36,74,
+        90,59,0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,
+        42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,
+        86,88,90,92,94,96,98,100,102,104,106,108,110,112,114,116,0,16,2,
+        0,32,32,141,141,2,0,84,84,96,96,3,0,4,4,8,8,12,12,4,0,4,4,7,8,12,
+        12,147,147,2,0,96,96,140,140,2,0,4,4,8,8,2,0,11,11,42,43,2,0,62,
+        62,93,93,2,0,133,133,143,143,3,0,17,17,95,95,170,170,2,0,79,79,98,
+        98,1,0,196,197,2,0,208,208,228,228,8,0,37,37,76,76,108,108,110,110,
+        132,132,145,145,185,185,190,190,13,0,2,24,26,36,38,75,77,81,83,107,
+        109,109,111,112,114,115,117,130,133,144,146,184,186,189,191,192,
+        4,0,36,36,62,62,77,77,91,91,1039,0,120,1,0,0,0,2,124,1,0,0,0,4,138,
+        1,0,0,0,6,141,1,0,0,0,8,190,1,0,0,0,10,193,1,0,0,0,12,199,1,0,0,
+        0,14,203,1,0,0,0,16,209,1,0,0,0,18,227,1,0,0,0,20,230,1,0,0,0,22,
+        233,1,0,0,0,24,243,1,0,0,0,26,246,1,0,0,0,28,250,1,0,0,0,30,283,
+        1,0,0,0,32,285,1,0,0,0,34,288,1,0,0,0,36,303,1,0,0,0,38,365,1,0,
+        0,0,40,370,1,0,0,0,42,381,1,0,0,0,44,383,1,0,0,0,46,389,1,0,0,0,
+        48,397,1,0,0,0,50,409,1,0,0,0,52,414,1,0,0,0,54,422,1,0,0,0,56,427,
+        1,0,0,0,58,435,1,0,0,0,60,439,1,0,0,0,62,443,1,0,0,0,64,452,1,0,
+        0,0,66,466,1,0,0,0,68,468,1,0,0,0,70,518,1,0,0,0,72,520,1,0,0,0,
+        74,657,1,0,0,0,76,755,1,0,0,0,78,765,1,0,0,0,80,786,1,0,0,0,82,791,
+        1,0,0,0,84,809,1,0,0,0,86,818,1,0,0,0,88,820,1,0,0,0,90,836,1,0,
+        0,0,92,849,1,0,0,0,94,859,1,0,0,0,96,863,1,0,0,0,98,871,1,0,0,0,
+        100,881,1,0,0,0,102,884,1,0,0,0,104,897,1,0,0,0,106,899,1,0,0,0,
+        108,901,1,0,0,0,110,903,1,0,0,0,112,907,1,0,0,0,114,912,1,0,0,0,
+        116,914,1,0,0,0,118,121,3,2,1,0,119,121,3,6,3,0,120,118,1,0,0,0,
+        120,119,1,0,0,0,121,122,1,0,0,0,122,123,5,0,0,1,123,1,1,0,0,0,124,
+        130,3,4,2,0,125,126,5,176,0,0,126,127,5,4,0,0,127,129,3,4,2,0,128,
+        125,1,0,0,0,129,132,1,0,0,0,130,128,1,0,0,0,130,131,1,0,0,0,131,
+        3,1,0,0,0,132,130,1,0,0,0,133,139,3,6,3,0,134,135,5,220,0,0,135,
+        136,3,2,1,0,136,137,5,236,0,0,137,139,1,0,0,0,138,133,1,0,0,0,138,
+        134,1,0,0,0,139,5,1,0,0,0,140,142,3,8,4,0,141,140,1,0,0,0,141,142,
+        1,0,0,0,142,143,1,0,0,0,143,145,5,146,0,0,144,146,5,49,0,0,145,144,
         1,0,0,0,145,146,1,0,0,0,146,148,1,0,0,0,147,149,3,10,5,0,148,147,
         1,0,0,0,148,149,1,0,0,0,149,150,1,0,0,0,150,152,3,72,36,0,151,153,
         3,12,6,0,152,151,1,0,0,0,152,153,1,0,0,0,153,155,1,0,0,0,154,156,
@@ -335,43 +335,43 @@ def serializedATN():
         1,0,0,0,817,819,3,88,44,0,818,811,1,0,0,0,818,815,1,0,0,0,819,87,
         1,0,0,0,820,825,3,114,57,0,821,822,5,210,0,0,822,824,3,114,57,0,
         823,821,1,0,0,0,824,827,1,0,0,0,825,823,1,0,0,0,825,826,1,0,0,0,
-        826,89,1,0,0,0,827,825,1,0,0,0,828,829,6,45,-1,0,829,836,3,94,47,
-        0,830,836,3,92,46,0,831,832,5,220,0,0,832,833,3,2,1,0,833,834,5,
-        236,0,0,834,836,1,0,0,0,835,828,1,0,0,0,835,830,1,0,0,0,835,831,
-        1,0,0,0,836,845,1,0,0,0,837,841,10,1,0,0,838,842,3,112,56,0,839,
-        840,5,10,0,0,840,842,3,114,57,0,841,838,1,0,0,0,841,839,1,0,0,0,
-        842,844,1,0,0,0,843,837,1,0,0,0,844,847,1,0,0,0,845,843,1,0,0,0,
-        845,846,1,0,0,0,846,91,1,0,0,0,847,845,1,0,0,0,848,849,3,114,57,
-        0,849,851,5,220,0,0,850,852,3,96,48,0,851,850,1,0,0,0,851,852,1,
-        0,0,0,852,853,1,0,0,0,853,854,5,236,0,0,854,93,1,0,0,0,855,856,3,
-        98,49,0,856,857,5,210,0,0,857,859,1,0,0,0,858,855,1,0,0,0,858,859,
-        1,0,0,0,859,860,1,0,0,0,860,861,3,114,57,0,861,95,1,0,0,0,862,867,
-        3,74,37,0,863,864,5,206,0,0,864,866,3,74,37,0,865,863,1,0,0,0,866,
-        869,1,0,0,0,867,865,1,0,0,0,867,868,1,0,0,0,868,97,1,0,0,0,869,867,
-        1,0,0,0,870,871,3,114,57,0,871,99,1,0,0,0,872,881,5,195,0,0,873,
-        874,5,210,0,0,874,881,7,11,0,0,875,876,5,197,0,0,876,878,5,210,0,
-        0,877,879,7,11,0,0,878,877,1,0,0,0,878,879,1,0,0,0,879,881,1,0,0,
-        0,880,872,1,0,0,0,880,873,1,0,0,0,880,875,1,0,0,0,881,101,1,0,0,
-        0,882,884,7,12,0,0,883,882,1,0,0,0,883,884,1,0,0,0,884,891,1,0,0,
-        0,885,892,3,100,50,0,886,892,5,196,0,0,887,892,5,197,0,0,888,892,
-        5,198,0,0,889,892,5,82,0,0,890,892,5,113,0,0,891,885,1,0,0,0,891,
-        886,1,0,0,0,891,887,1,0,0,0,891,888,1,0,0,0,891,889,1,0,0,0,891,
-        890,1,0,0,0,892,103,1,0,0,0,893,897,3,102,51,0,894,897,5,199,0,0,
-        895,897,5,116,0,0,896,893,1,0,0,0,896,894,1,0,0,0,896,895,1,0,0,
-        0,897,105,1,0,0,0,898,899,7,13,0,0,899,107,1,0,0,0,900,901,7,14,
-        0,0,901,109,1,0,0,0,902,903,7,15,0,0,903,111,1,0,0,0,904,907,5,194,
-        0,0,905,907,3,110,55,0,906,904,1,0,0,0,906,905,1,0,0,0,907,113,1,
-        0,0,0,908,912,5,194,0,0,909,912,3,106,53,0,910,912,3,108,54,0,911,
-        908,1,0,0,0,911,909,1,0,0,0,911,910,1,0,0,0,912,115,1,0,0,0,913,
-        914,5,199,0,0,914,915,5,212,0,0,915,916,3,102,51,0,916,117,1,0,0,
-        0,114,120,130,138,141,145,148,152,155,158,161,164,168,172,175,178,
-        181,185,188,197,203,224,241,258,264,270,281,283,294,297,303,311,
-        317,319,323,328,331,334,338,342,345,347,350,354,358,361,363,365,
-        370,381,387,394,399,403,407,412,419,427,430,433,452,466,482,494,
-        506,514,518,525,531,540,544,575,592,604,614,617,621,624,636,653,
-        657,663,670,682,686,689,698,712,739,748,750,752,760,765,773,783,
-        786,796,809,815,818,825,835,841,845,851,858,867,878,880,883,891,
-        896,906,911
+        826,89,1,0,0,0,827,825,1,0,0,0,828,829,6,45,-1,0,829,837,3,94,47,
+        0,830,837,3,92,46,0,831,832,5,220,0,0,832,833,3,2,1,0,833,834,5,
+        236,0,0,834,837,1,0,0,0,835,837,5,200,0,0,836,828,1,0,0,0,836,830,
+        1,0,0,0,836,831,1,0,0,0,836,835,1,0,0,0,837,846,1,0,0,0,838,842,
+        10,2,0,0,839,843,3,112,56,0,840,841,5,10,0,0,841,843,3,114,57,0,
+        842,839,1,0,0,0,842,840,1,0,0,0,843,845,1,0,0,0,844,838,1,0,0,0,
+        845,848,1,0,0,0,846,844,1,0,0,0,846,847,1,0,0,0,847,91,1,0,0,0,848,
+        846,1,0,0,0,849,850,3,114,57,0,850,852,5,220,0,0,851,853,3,96,48,
+        0,852,851,1,0,0,0,852,853,1,0,0,0,853,854,1,0,0,0,854,855,5,236,
+        0,0,855,93,1,0,0,0,856,857,3,98,49,0,857,858,5,210,0,0,858,860,1,
+        0,0,0,859,856,1,0,0,0,859,860,1,0,0,0,860,861,1,0,0,0,861,862,3,
+        114,57,0,862,95,1,0,0,0,863,868,3,74,37,0,864,865,5,206,0,0,865,
+        867,3,74,37,0,866,864,1,0,0,0,867,870,1,0,0,0,868,866,1,0,0,0,868,
+        869,1,0,0,0,869,97,1,0,0,0,870,868,1,0,0,0,871,872,3,114,57,0,872,
+        99,1,0,0,0,873,882,5,195,0,0,874,875,5,210,0,0,875,882,7,11,0,0,
+        876,877,5,197,0,0,877,879,5,210,0,0,878,880,7,11,0,0,879,878,1,0,
+        0,0,879,880,1,0,0,0,880,882,1,0,0,0,881,873,1,0,0,0,881,874,1,0,
+        0,0,881,876,1,0,0,0,882,101,1,0,0,0,883,885,7,12,0,0,884,883,1,0,
+        0,0,884,885,1,0,0,0,885,892,1,0,0,0,886,893,3,100,50,0,887,893,5,
+        196,0,0,888,893,5,197,0,0,889,893,5,198,0,0,890,893,5,82,0,0,891,
+        893,5,113,0,0,892,886,1,0,0,0,892,887,1,0,0,0,892,888,1,0,0,0,892,
+        889,1,0,0,0,892,890,1,0,0,0,892,891,1,0,0,0,893,103,1,0,0,0,894,
+        898,3,102,51,0,895,898,5,199,0,0,896,898,5,116,0,0,897,894,1,0,0,
+        0,897,895,1,0,0,0,897,896,1,0,0,0,898,105,1,0,0,0,899,900,7,13,0,
+        0,900,107,1,0,0,0,901,902,7,14,0,0,902,109,1,0,0,0,903,904,7,15,
+        0,0,904,111,1,0,0,0,905,908,5,194,0,0,906,908,3,110,55,0,907,905,
+        1,0,0,0,907,906,1,0,0,0,908,113,1,0,0,0,909,913,5,194,0,0,910,913,
+        3,106,53,0,911,913,3,108,54,0,912,909,1,0,0,0,912,910,1,0,0,0,912,
+        911,1,0,0,0,913,115,1,0,0,0,914,915,5,199,0,0,915,916,5,212,0,0,
+        916,917,3,102,51,0,917,117,1,0,0,0,114,120,130,138,141,145,148,152,
+        155,158,161,164,168,172,175,178,181,185,188,197,203,224,241,258,
+        264,270,281,283,294,297,303,311,317,319,323,328,331,334,338,342,
+        345,347,350,354,358,361,363,365,370,381,387,394,399,403,407,412,
+        419,427,430,433,452,466,482,494,506,514,518,525,531,540,544,575,
+        592,604,614,617,621,624,636,653,657,663,670,682,686,689,698,712,
+        739,748,750,752,760,765,773,783,786,796,809,815,818,825,836,842,
+        846,852,859,868,879,881,884,892,897,907,912
     ]
 
 class HogQLParser ( Parser ):
@@ -6218,6 +6218,22 @@ class HogQLParser ( Parser ):
                 return visitor.visitChildren(self)
 
 
+    class TableExprPlaceholderContext(TableExprContext):
+
+        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.TableExprContext
+            super().__init__(parser)
+            self.copyFrom(ctx)
+
+        def PLACEHOLDER(self):
+            return self.getToken(HogQLParser.PLACEHOLDER, 0)
+
+        def accept(self, visitor:ParseTreeVisitor):
+            if hasattr( visitor, "visitTableExprPlaceholder" ):
+                return visitor.visitTableExprPlaceholder(self)
+            else:
+                return visitor.visitChildren(self)
+
+
     class TableExprSubqueryContext(TableExprContext):
 
         def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.TableExprContext
@@ -6291,7 +6307,7 @@ class HogQLParser ( Parser ):
         self.enterRecursionRule(localctx, 90, self.RULE_tableExpr, _p)
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 835
+            self.state = 836
             self._errHandler.sync(self)
             la_ = self._interp.adaptivePredict(self._input,101,self._ctx)
             if la_ == 1:
@@ -6323,9 +6339,17 @@ class HogQLParser ( Parser ):
                 self.match(HogQLParser.RPAREN)
                 pass
 
+            elif la_ == 4:
+                localctx = HogQLParser.TableExprPlaceholderContext(self, localctx)
+                self._ctx = localctx
+                _prevctx = localctx
+                self.state = 835
+                self.match(HogQLParser.PLACEHOLDER)
+                pass
+
 
             self._ctx.stop = self._input.LT(-1)
-            self.state = 845
+            self.state = 846
             self._errHandler.sync(self)
             _alt = self._interp.adaptivePredict(self._input,103,self._ctx)
             while _alt!=2 and _alt!=ATN.INVALID_ALT_NUMBER:
@@ -6335,27 +6359,27 @@ class HogQLParser ( Parser ):
                     _prevctx = localctx
                     localctx = HogQLParser.TableExprAliasContext(self, HogQLParser.TableExprContext(self, _parentctx, _parentState))
                     self.pushNewRecursionContext(localctx, _startState, self.RULE_tableExpr)
-                    self.state = 837
-                    if not self.precpred(self._ctx, 1):
+                    self.state = 838
+                    if not self.precpred(self._ctx, 2):
                         from antlr4.error.Errors import FailedPredicateException
-                        raise FailedPredicateException(self, "self.precpred(self._ctx, 1)")
-                    self.state = 841
+                        raise FailedPredicateException(self, "self.precpred(self._ctx, 2)")
+                    self.state = 842
                     self._errHandler.sync(self)
                     token = self._input.LA(1)
                     if token in [36, 62, 77, 91, 194]:
-                        self.state = 838
+                        self.state = 839
                         self.alias()
                         pass
                     elif token in [10]:
-                        self.state = 839
-                        self.match(HogQLParser.AS)
                         self.state = 840
+                        self.match(HogQLParser.AS)
+                        self.state = 841
                         self.identifier()
                         pass
                     else:
                         raise NoViableAltException(self)
              
-                self.state = 847
+                self.state = 848
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,103,self._ctx)
 
@@ -6408,19 +6432,19 @@ class HogQLParser ( Parser ):
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 848
-            self.identifier()
             self.state = 849
+            self.identifier()
+            self.state = 850
             self.match(HogQLParser.LPAREN)
-            self.state = 851
+            self.state = 852
             self._errHandler.sync(self)
             _la = self._input.LA(1)
             if (((_la) & ~0x3f) == 0 and ((1 << _la) & -33554436) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -1) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -9) != 0) or ((((_la - 192)) & ~0x3f) == 0 and ((1 << (_la - 192)) & 69122459133) != 0):
-                self.state = 850
+                self.state = 851
                 self.tableArgList()
 
 
-            self.state = 853
+            self.state = 854
             self.match(HogQLParser.RPAREN)
         except RecognitionException as re:
             localctx.exception = re
@@ -6467,17 +6491,17 @@ class HogQLParser ( Parser ):
         self.enterRule(localctx, 94, self.RULE_tableIdentifier)
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 858
+            self.state = 859
             self._errHandler.sync(self)
             la_ = self._interp.adaptivePredict(self._input,105,self._ctx)
             if la_ == 1:
-                self.state = 855
-                self.databaseIdentifier()
                 self.state = 856
+                self.databaseIdentifier()
+                self.state = 857
                 self.match(HogQLParser.DOT)
 
 
-            self.state = 860
+            self.state = 861
             self.identifier()
         except RecognitionException as re:
             localctx.exception = re
@@ -6527,17 +6551,17 @@ class HogQLParser ( Parser ):
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 862
+            self.state = 863
             self.columnExpr(0)
-            self.state = 867
+            self.state = 868
             self._errHandler.sync(self)
             _la = self._input.LA(1)
             while _la==206:
-                self.state = 863
-                self.match(HogQLParser.COMMA)
                 self.state = 864
+                self.match(HogQLParser.COMMA)
+                self.state = 865
                 self.columnExpr(0)
-                self.state = 869
+                self.state = 870
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
 
@@ -6579,7 +6603,7 @@ class HogQLParser ( Parser ):
         self.enterRule(localctx, 98, self.RULE_databaseIdentifier)
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 870
+            self.state = 871
             self.identifier()
         except RecognitionException as re:
             localctx.exception = re
@@ -6630,19 +6654,19 @@ class HogQLParser ( Parser ):
         self.enterRule(localctx, 100, self.RULE_floatingLiteral)
         self._la = 0 # Token type
         try:
-            self.state = 880
+            self.state = 881
             self._errHandler.sync(self)
             token = self._input.LA(1)
             if token in [195]:
                 self.enterOuterAlt(localctx, 1)
-                self.state = 872
+                self.state = 873
                 self.match(HogQLParser.FLOATING_LITERAL)
                 pass
             elif token in [210]:
                 self.enterOuterAlt(localctx, 2)
-                self.state = 873
-                self.match(HogQLParser.DOT)
                 self.state = 874
+                self.match(HogQLParser.DOT)
+                self.state = 875
                 _la = self._input.LA(1)
                 if not(_la==196 or _la==197):
                     self._errHandler.recoverInline(self)
@@ -6652,15 +6676,15 @@ class HogQLParser ( Parser ):
                 pass
             elif token in [197]:
                 self.enterOuterAlt(localctx, 3)
-                self.state = 875
-                self.match(HogQLParser.DECIMAL_LITERAL)
                 self.state = 876
+                self.match(HogQLParser.DECIMAL_LITERAL)
+                self.state = 877
                 self.match(HogQLParser.DOT)
-                self.state = 878
+                self.state = 879
                 self._errHandler.sync(self)
                 la_ = self._interp.adaptivePredict(self._input,107,self._ctx)
                 if la_ == 1:
-                    self.state = 877
+                    self.state = 878
                     _la = self._input.LA(1)
                     if not(_la==196 or _la==197):
                         self._errHandler.recoverInline(self)
@@ -6733,11 +6757,11 @@ class HogQLParser ( Parser ):
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 883
+            self.state = 884
             self._errHandler.sync(self)
             _la = self._input.LA(1)
             if _la==208 or _la==228:
-                self.state = 882
+                self.state = 883
                 _la = self._input.LA(1)
                 if not(_la==208 or _la==228):
                     self._errHandler.recoverInline(self)
@@ -6746,36 +6770,36 @@ class HogQLParser ( Parser ):
                     self.consume()
 
 
-            self.state = 891
+            self.state = 892
             self._errHandler.sync(self)
             la_ = self._interp.adaptivePredict(self._input,110,self._ctx)
             if la_ == 1:
-                self.state = 885
+                self.state = 886
                 self.floatingLiteral()
                 pass
 
             elif la_ == 2:
-                self.state = 886
+                self.state = 887
                 self.match(HogQLParser.OCTAL_LITERAL)
                 pass
 
             elif la_ == 3:
-                self.state = 887
+                self.state = 888
                 self.match(HogQLParser.DECIMAL_LITERAL)
                 pass
 
             elif la_ == 4:
-                self.state = 888
+                self.state = 889
                 self.match(HogQLParser.HEXADECIMAL_LITERAL)
                 pass
 
             elif la_ == 5:
-                self.state = 889
+                self.state = 890
                 self.match(HogQLParser.INF)
                 pass
 
             elif la_ == 6:
-                self.state = 890
+                self.state = 891
                 self.match(HogQLParser.NAN_SQL)
                 pass
 
@@ -6823,22 +6847,22 @@ class HogQLParser ( Parser ):
         localctx = HogQLParser.LiteralContext(self, self._ctx, self.state)
         self.enterRule(localctx, 104, self.RULE_literal)
         try:
-            self.state = 896
+            self.state = 897
             self._errHandler.sync(self)
             token = self._input.LA(1)
             if token in [82, 113, 195, 196, 197, 198, 208, 210, 228]:
                 self.enterOuterAlt(localctx, 1)
-                self.state = 893
+                self.state = 894
                 self.numberLiteral()
                 pass
             elif token in [199]:
                 self.enterOuterAlt(localctx, 2)
-                self.state = 894
+                self.state = 895
                 self.match(HogQLParser.STRING_LITERAL)
                 pass
             elif token in [116]:
                 self.enterOuterAlt(localctx, 3)
-                self.state = 895
+                self.state = 896
                 self.match(HogQLParser.NULL_SQL)
                 pass
             else:
@@ -6903,7 +6927,7 @@ class HogQLParser ( Parser ):
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 898
+            self.state = 899
             _la = self._input.LA(1)
             if not(_la==37 or ((((_la - 76)) & ~0x3f) == 0 and ((1 << (_la - 76)) & 72057615512764417) != 0) or ((((_la - 145)) & ~0x3f) == 0 and ((1 << (_la - 145)) & 36283883716609) != 0)):
                 self._errHandler.recoverInline(self)
@@ -7479,7 +7503,7 @@ class HogQLParser ( Parser ):
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 900
+            self.state = 901
             _la = self._input.LA(1)
             if not(((((_la - 2)) & ~0x3f) == 0 and ((1 << (_la - 2)) & -34368126977) != 0) or ((((_la - 66)) & ~0x3f) == 0 and ((1 << (_la - 66)) & -1288627627820033) != 0) or ((((_la - 130)) & ~0x3f) == 0 and ((1 << (_la - 130)) & 8034421735228932089) != 0)):
                 self._errHandler.recoverInline(self)
@@ -7533,7 +7557,7 @@ class HogQLParser ( Parser ):
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 902
+            self.state = 903
             _la = self._input.LA(1)
             if not(((((_la - 36)) & ~0x3f) == 0 and ((1 << (_la - 36)) & 36030996109328385) != 0)):
                 self._errHandler.recoverInline(self)
@@ -7580,17 +7604,17 @@ class HogQLParser ( Parser ):
         localctx = HogQLParser.AliasContext(self, self._ctx, self.state)
         self.enterRule(localctx, 112, self.RULE_alias)
         try:
-            self.state = 906
+            self.state = 907
             self._errHandler.sync(self)
             token = self._input.LA(1)
             if token in [194]:
                 self.enterOuterAlt(localctx, 1)
-                self.state = 904
+                self.state = 905
                 self.match(HogQLParser.IDENTIFIER)
                 pass
             elif token in [36, 62, 77, 91]:
                 self.enterOuterAlt(localctx, 2)
-                self.state = 905
+                self.state = 906
                 self.keywordForAlias()
                 pass
             else:
@@ -7640,22 +7664,22 @@ class HogQLParser ( Parser ):
         localctx = HogQLParser.IdentifierContext(self, self._ctx, self.state)
         self.enterRule(localctx, 114, self.RULE_identifier)
         try:
-            self.state = 911
+            self.state = 912
             self._errHandler.sync(self)
             token = self._input.LA(1)
             if token in [194]:
                 self.enterOuterAlt(localctx, 1)
-                self.state = 908
+                self.state = 909
                 self.match(HogQLParser.IDENTIFIER)
                 pass
             elif token in [37, 76, 108, 110, 132, 145, 185, 190]:
                 self.enterOuterAlt(localctx, 2)
-                self.state = 909
+                self.state = 910
                 self.interval()
                 pass
             elif token in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 77, 78, 79, 80, 81, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 109, 111, 112, 114, 115, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 186, 187, 188, 189, 191, 192]:
                 self.enterOuterAlt(localctx, 3)
-                self.state = 910
+                self.state = 911
                 self.keyword()
                 pass
             else:
@@ -7705,11 +7729,11 @@ class HogQLParser ( Parser ):
         self.enterRule(localctx, 116, self.RULE_enumValue)
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 913
-            self.match(HogQLParser.STRING_LITERAL)
             self.state = 914
-            self.match(HogQLParser.EQ_SINGLE)
+            self.match(HogQLParser.STRING_LITERAL)
             self.state = 915
+            self.match(HogQLParser.EQ_SINGLE)
+            self.state = 916
             self.numberLiteral()
         except RecognitionException as re:
             localctx.exception = re
@@ -7797,7 +7821,7 @@ class HogQLParser ( Parser ):
 
     def tableExpr_sempred(self, localctx:TableExprContext, predIndex:int):
             if predIndex == 15:
-                return self.precpred(self._ctx, 1)
+                return self.precpred(self._ctx, 2)
          
 
 

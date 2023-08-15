@@ -1,5 +1,6 @@
 .Spinner {
-    display: block;
+    display: inline-block; // Same as .LemonIcon
+    vertical-align: -0.15em; // Same as .LemonIcon
     width: 1em;
     height: 1em;
     flex-shrink: 0;

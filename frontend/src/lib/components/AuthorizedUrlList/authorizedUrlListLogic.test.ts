@@ -134,6 +134,10 @@ describe('the authorized urls list logic', () => {
                     proposedUrl: 'https://not.*.valid.*',
                     validityMessage: 'Wildcards can only be used for subdomains',
                 },
+                {
+                    proposedUrl: 'capacitor://localhost',
+                    validityMessage: undefined,
+                },
             ]
 
             testCases.forEach((testCase) => {

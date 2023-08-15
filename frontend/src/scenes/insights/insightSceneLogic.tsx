@@ -18,7 +18,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene']],
     }),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -231,10 +231,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     }),
     beforeUnload(({ values }) => ({
         enabled: () => {
-            const currentScene = sceneLogic.findMounted()?.values
-
             // safeguard against running this check on other scenes
-            if (currentScene?.activeScene !== Scene.Insight) {
+            if (values.activeScene !== Scene.Insight) {
                 return false
             }
 
