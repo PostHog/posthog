@@ -37,7 +37,6 @@ from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.utils import UUIDT
 from posthog.utils import PersonOnEventsMode
-from posthog.hogql.database.schema.events import EventsTable
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -272,10 +271,6 @@ class _Printer(Visitor):
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
 
-                # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-                if isinstance(table_type.table, EventsTable) and self._is_next_s3(node.next_join):
-                    node.next_join.join_type = "GLOBAL JOIN"
-
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
                 if isinstance(table_type.table, S3Table) and (
                     node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
@@ -342,13 +337,6 @@ class _Printer(Visitor):
             join_strings.append(f"ON {self.visit(node.constraint)}")
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
-
-    def _is_next_s3(self, node: Optional[ast.JoinExpr]):
-        if node is None:
-            return False
-        if isinstance(node.type, ast.TableAliasType):
-            return isinstance(node.type.table_type.table, S3Table)
-        return False
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)

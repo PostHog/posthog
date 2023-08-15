@@ -238,6 +238,16 @@ class Resolver(CloningVisitor):
                 if node.table_args is not None:
                     node.table_args = [self.visit(arg) for arg in node.table_args]
                 node.next_join = self.visit(node.next_join)
+
+                # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
+                if isinstance(node.type, ast.TableAliasType):
+                    is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
+                else:
+                    is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
+
+                if is_global:
+                    node.next_join.join_type = "GLOBAL JOIN"
+
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
 
@@ -529,6 +539,13 @@ class Resolver(CloningVisitor):
                 return isinstance(node.select_from.type.table_type.table, S3Table)
             except:
                 return False
+        return False
+
+    def _is_next_s3(self, node: Optional[ast.JoinExpr]):
+        if node is None:
+            return False
+        if isinstance(node.type, ast.TableAliasType):
+            return isinstance(node.type.table_type.table, S3Table)
         return False
 
 
