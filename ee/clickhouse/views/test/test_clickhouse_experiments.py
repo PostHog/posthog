@@ -2330,23 +2330,67 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
             {
                 "person1": [
                     # 5 counts, single person
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 100},
+                    },
                 ],
                 "person2": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 2},
+                    },
                 ],
                 "person4": [
-                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1.5},
+                    },
                 ],
                 # doesn't have feature set
                 "person_out_of_control": [
@@ -2372,7 +2416,7 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                 "parameters": None,
                 "filters": {
                     "insight": "TRENDS",
-                    "events": [{"order": 0, "id": "$pageview", "math": "avg", "math_property": "$session_duration"}],
+                    "events": [{"order": 0, "id": "$pageview", "math": "max", "math_property": "mathable"}],
                     "properties": [],
                 },
             },
@@ -2386,10 +2430,10 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         response_data = response.json()["result"]
         result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
 
-        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 0.0])
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 2.0, 1.0, 0.0])
         self.assertEqual("control", result[0]["breakdown_value"])
 
-        self.assertEqual(result[1]["data"], [0.0, 5.0, 0.0, 0.0, 2.0, 0.0])
+        self.assertEqual(result[1]["data"], [0.0, 100.0, 0.0, 0.0, 1.5, 0.0])
         self.assertEqual("test", result[1]["breakdown_value"])
 
         # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution

@@ -605,21 +605,49 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                         "properties": {"$feature/a-b-test": "control"},
                     }
                 ],
-                # avg count per user metric second
+                # avg per mathable property second
                 "person1_2": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_2"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_2"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_2", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_2", "mathable": 2},
+                    },
                 ],
                 "person1_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1", "mathable": 2},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1", "mathable": 3},
+                    },
                 ],
                 "person2_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test_1"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test_1", "mathable": 10},
+                    },
                 ],
                 "person1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 200},
+                    },
                 ],
                 "person2": [
                     {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
@@ -638,16 +666,6 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                 "person_out_of_end_date": [
                     {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
                     {"event": "$pageleave", "timestamp": "2020-08-05", "properties": {"$feature/a-b-test": "control"}},
-                ],
-                # non-converters with FF
-                "person4": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"}}
-                ],
-                "person5": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}}
-                ],
-                "person6_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}}
                 ],
             },
             self.team,
@@ -680,9 +698,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                         "name": "funnel metric",
                         "filters": {
                             "insight": "trends",
-                            "events": [
-                                {"order": 0, "id": "$pageview", "math": "avg", "math_property": "$session_duration"}
-                            ],
+                            "events": [{"order": 0, "id": "$pageview", "math": "avg", "math_property": "mathable"}],
                         },
                     },
                 ],
@@ -710,13 +726,12 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
 
         response_data = response.json()
 
-        # funnel not missing 'test' variant, so it's in the results
         self.assertEqual(len(response_data["result"].items()), 4)
 
-        self.assertAlmostEqual(response_data["result"]["control"], round(3.5 / 6, 3), 3)
-        self.assertAlmostEqual(response_data["result"]["test"], 0.5)
-        self.assertAlmostEqual(response_data["result"]["test_1"], 0.5)
-        self.assertAlmostEqual(response_data["result"]["test_2"], round(1 / 3, 3), 3)
+        self.assertAlmostEqual(response_data["result"]["control"], 0, 3)
+        self.assertAlmostEqual(response_data["result"]["test"], 33.3333, 3)
+        self.assertAlmostEqual(response_data["result"]["test_1"], 2, 3)
+        self.assertAlmostEqual(response_data["result"]["test_2"], 0.25, 3)
 
     def test_metrics_without_full_flag_information_are_valid(self):
         journeys_for(
