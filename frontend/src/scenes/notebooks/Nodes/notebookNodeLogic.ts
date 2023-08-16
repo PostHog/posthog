@@ -41,7 +41,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Record<string, any>) => ({ attributes }),
-        setActiveWidgetKeys: (widgetKeys: string[]) => ({ widgetKeys }),
+        setopenWidgetKeys: (widgetKeys: string[]) => ({ widgetKeys }),
         addActiveWidget: (key: string) => ({ key }),
         removeActiveWidget: (key: string) => ({ key }),
         deleteNode: true,
@@ -66,20 +66,27 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setTitle: (_, { title }) => title,
             },
         ],
-        activeWidgetKeys: [
+        openWidgetKeys: [
             [] as string[],
             {
-                setActiveWidgetKeys: (_, { widgetKeys }) => widgetKeys,
+                setopenWidgetKeys: (_, { widgetKeys }) => widgetKeys,
             },
         ],
     }),
 
     selectors({
         notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
-        activeWidgets: [
-            (s) => [s.activeWidgetKeys, (_, props) => props.widgets],
-            (activeWidgetKeys, widgets: NotebookNodeWidget[]) =>
-                widgets.filter((widget) => activeWidgetKeys.includes(widget.key)),
+        nodeAttributes: [() => [(_, props) => props], (props): Record<string, any> => props.nodeAttributes],
+        widgets: [() => [(_, props) => props], (props): NotebookNodeWidget[] => props.widgets],
+        unopenWidgets: [
+            (s) => [s.openWidgetKeys, (_, props) => props.widgets],
+            (openWidgetKeys, widgets: NotebookNodeWidget[]) =>
+                widgets.filter((widget) => !openWidgetKeys.includes(widget.key)),
+        ],
+        openWidgets: [
+            (s) => [s.openWidgetKeys, (_, props) => props.widgets],
+            (openWidgetKeys, widgets: NotebookNodeWidget[]) =>
+                widgets.filter((widget) => openWidgetKeys.includes(widget.key)),
         ],
     }),
 
@@ -122,15 +129,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         },
 
         addActiveWidget: ({ key }) => {
-            actions.setActiveWidgetKeys(
-                [...values.activeWidgetKeys, key].filter((value, index, array) => array.indexOf(value) === index)
+            actions.setopenWidgetKeys(
+                [...values.openWidgetKeys, key].filter((value, index, array) => array.indexOf(value) === index)
             )
         },
         removeActiveWidget: ({ key }) => {
-            const index = values.activeWidgetKeys.indexOf(key)
-            const newActiveWidgetKeys = [...values.activeWidgetKeys]
-            newActiveWidgetKeys.splice(index, 1)
-            actions.setActiveWidgetKeys(newActiveWidgetKeys)
+            const index = values.openWidgetKeys.indexOf(key)
+            const newopenWidgetKeys = [...values.openWidgetKeys]
+            newopenWidgetKeys.splice(index, 1)
+            actions.setopenWidgetKeys(newopenWidgetKeys)
         },
     })),
 

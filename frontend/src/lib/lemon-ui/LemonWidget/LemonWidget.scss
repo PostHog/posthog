@@ -1,6 +1,7 @@
 .LemonWidget {
     background: var(--bg-light);
     border-radius: var(--radius);
+    border: 1px solid var(--border);
 
     .LemonWidget__header {
         display: flex;
@@ -10,13 +11,5 @@
         padding: 0.25rem;
         color: var(--muted-alt-3000, var(--primary));
         font-size: 0.875rem;
-    }
-}
-
-.LemonWidget__popover > .Popover__box {
-    padding: 0px;
-
-    .LemonWidget__header {
-        padding: 0.25rem 0.75rem;
     }
 }

@@ -22,8 +22,6 @@ import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
 import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
 import { NodeActions } from './NodeActions'
-import { NotebookSettings } from '../Notebook/NotebookSettings'
-import { createPortal } from 'react-dom'
 
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     title: string
@@ -75,8 +73,8 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { isEditable } = useValues(mountedNotebookLogic)
-    const { title, expanded, activeWidgets, activeWidgetKeys } = useValues(nodeLogic)
-    const { setExpanded, deleteNode, addActiveWidget, removeActiveWidget } = useActions(nodeLogic)
+    const { title, expanded } = useValues(nodeLogic)
+    const { setExpanded, deleteNode } = useActions(nodeLogic)
 
     useEffect(() => {
         if (startExpanded) {
@@ -185,31 +183,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                             </>
                         )}
                     </ErrorBoundary>
-                    {isEditable && (
-                        <NodeActions
-                            widgets={
-                                selected ? widgets.filter((widget) => !activeWidgetKeys.includes(widget.key)) : widgets
-                            }
-                            onClickDelete={deleteNode}
-                            onSelectWidget={(key) => {
-                                addActiveWidget(key)
-                                if (mountedNotebookLogic.values.editor) {
-                                    mountedNotebookLogic.values.editor.setSelection(getPos())
-                                }
-                            }}
-                        />
-                    )}
-                    {selected && activeWidgets.length > 0
-                        ? createPortal(
-                              <NotebookSettings
-                                  widgets={activeWidgets}
-                                  attributes={node.attrs}
-                                  updateAttributes={updateAttributes}
-                                  onDismiss={removeActiveWidget}
-                              />,
-                              document.getElementsByClassName('NotebookSettings__portal')[0]
-                          )
-                        : null}
+                    {isEditable && selected ? <NodeActions /> : null}
                 </NodeViewWrapper>
             </BindLogic>
         </NotebookNodeContext.Provider>

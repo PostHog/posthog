@@ -6,29 +6,36 @@ import clsx from 'clsx'
 
 export interface LemonWidgetProps {
     title: string
+    closable?: boolean
     onClose?: () => void
     children: React.ReactChild
 }
 
-export function LemonWidget({ title, onClose, children }: LemonWidgetProps): JSX.Element {
+export function LemonWidget({ title, closable = true, onClose, children }: LemonWidgetProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState<boolean>(true)
 
     return (
-        <Widget className="border">
+        <Widget>
             <Header>
-                <LemonButton
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    size="small"
-                    status="primary-alt"
-                    className="flex-1"
-                >
-                    <span className="flex-1 cursor-pointer">{title}</span>
-                </LemonButton>
-                <LemonButton
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    size="small"
-                    icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                />
+                {closable ? (
+                    <>
+                        <LemonButton
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            size="small"
+                            status="primary-alt"
+                            className="flex-1"
+                        >
+                            <span className="flex-1 cursor-pointer">{title}</span>
+                        </LemonButton>
+                        <LemonButton
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            size="small"
+                            icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                        />
+                    </>
+                ) : (
+                    <span className="flex-1">{title}</span>
+                )}
                 {onClose && <LemonButton status="danger" onClick={onClose} size="small" icon={<IconClose />} />}
             </Header>
             {isExpanded && <Content>{children}</Content>}

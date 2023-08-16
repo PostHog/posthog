@@ -73,3 +73,12 @@
     bottom: -1px;
     left: -40px;
 }
+
+.NotebookNodeActions__popover > .Popover__box {
+    padding: 0px;
+
+    .LemonWidget {
+        width: 20rem;
+        border: none;
+    }
+}
