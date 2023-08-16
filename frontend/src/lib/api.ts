@@ -44,6 +44,8 @@ import {
     Survey,
     TeamType,
     UserType,
+    BatchExportConfiguration,
+    BatchExportRun,
     NotebookNodeType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
@@ -513,8 +515,28 @@ class ApiRequest {
         return this.notebooks(teamId).addPathComponent(id)
     }
 
-    // Request finalization
+    // Batch Exports
+    public batchExports(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('batch_exports')
+    }
 
+    public batchExport(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id)
+    }
+
+    public batchExportRuns(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
+    }
+
+    public batchExportRun(
+        id: BatchExportConfiguration['id'],
+        runId: BatchExportRun['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.batchExportRuns(id, teamId).addPathComponent(runId)
+    }
+
+    // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
     }
@@ -1282,6 +1304,49 @@ const api = {
         },
     },
 
+    batchExports: {
+        async list(params: Record<string, any> = {}): Promise<CountedPaginatedResponse<BatchExportConfiguration>> {
+            return await new ApiRequest().batchExports().withQueryString(toParams(params)).get()
+        },
+        async get(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).get()
+        },
+        async update(
+            id: BatchExportConfiguration['id'],
+            data: Partial<BatchExportConfiguration>
+        ): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).update({ data })
+        },
+
+        async create(data?: Partial<BatchExportConfiguration>): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExports().create({ data })
+        },
+        async delete(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).delete()
+        },
+
+        async pause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).withAction('pause').create()
+        },
+
+        async unpause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).withAction('unpause').create()
+        },
+
+        async listRuns(
+            id: BatchExportConfiguration['id'],
+            params: Record<string, any> = {}
+        ): Promise<PaginatedResponse<BatchExportRun>> {
+            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
+        },
+        async createBackfill(
+            id: BatchExportConfiguration['id'],
+            data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
+        ): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+        },
+    },
+
     earlyAccessFeatures: {
         async get(featureId: EarlyAccessFeatureType['id']): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeature(featureId).get()
@@ -1452,7 +1517,7 @@ const api = {
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
-    async get(url: string, options?: ApiMethodOptions): Promise<any> {
+    async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)
     },
