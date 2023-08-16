@@ -521,19 +521,23 @@ class Resolver(CloningVisitor):
         return node
 
     def _is_events_table(self, node: ast.Expr) -> bool:
-        if isinstance(node, ast.Field):
-            try:
+        if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
+            if isinstance(node.type.table_type, ast.TableAliasType):
+                return isinstance(node.type.table_type.table_type.table, EventsTable)
+            if isinstance(node.type.table_type, ast.TableType):
                 return isinstance(node.type.table_type.table, EventsTable)
-            except:
-                return False
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
-        if isinstance(node, ast.SelectQuery):
-            try:
+        if (
+            isinstance(node, ast.SelectQuery)
+            and node.select_from
+            and isinstance(node.select_from.type, ast.BaseTableType)
+        ):
+            if isinstance(node.select_from.type, ast.TableAliasType):
                 return isinstance(node.select_from.type.table_type.table, S3Table)
-            except:
-                return False
+            elif isinstance(node.select_from.type, ast.TableType):
+                return isinstance(node.select_from.type.table, S3Table)
         return False
 
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
