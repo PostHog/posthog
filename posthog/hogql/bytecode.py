@@ -105,6 +105,18 @@ class BytecodeBuilder(Visitor):
             raise NotImplementedException(f"Constant type `{type(node.value)}` is not supported")
 
     def visit_call(self, node: ast.Call):
+        if node.name == "not" and len(node.args) == 1:
+            return [*self.visit(node.args[0]), Operation.NOT]
+        if node.name == "and" and len(node.args) > 1:
+            args = []
+            for arg in reversed(node.args):
+                args.extend(self.visit(arg))
+            return [*args, Operation.AND, len(node.args)]
+        if node.name == "or" and len(node.args) > 1:
+            args = []
+            for arg in reversed(node.args):
+                args.extend(self.visit(arg))
+            return [*args, Operation.OR, len(node.args)]
         if node.name not in SUPPORTED_FUNCTIONS:
             raise NotImplementedException(f"HogQL function `{node.name}` is not supported")
         response = []
