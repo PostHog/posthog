@@ -9,6 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { NotebookNodeType, NotebookTarget } from '~/types'
 import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 import { notebooksListLogic, openNotebook } from 'scenes/notebooks/Notebook/notebooksListLogic'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 
 interface NotebookCommentButtonProps extends Pick<LemonButtonProps, 'size'>, Pick<LemonMenuProps, 'visible'> {
     sessionRecordingId: string
@@ -25,6 +26,8 @@ export function NotebookCommentButton({
     const logic = notebookCommentButtonLogic({ sessionRecordingId })
     const { notebooksLoading, notebooks } = useValues(logic)
     const { createNotebook } = useActions(notebooksListLogic)
+    // if nodeLogic is available then the comment button is on a recording that _is already and currently in a notebook_
+    const nodeLogic = useNotebookNode()
 
     const commentInNewNotebook = (): void => {
         const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
@@ -54,7 +57,23 @@ export function NotebookCommentButton({
         })
     }
 
-    return (
+    return nodeLogic ? (
+        <LemonButton
+            icon={<IconComment />}
+            size={size}
+            data-attr={'notebooks-replay-comment-button-in-a-notebook'}
+            onClick={() => {
+                // TODO should have something like insertReplayCommentByTimestamp(getCurrentPlayerTime() * 1000, sessionRecordingId)
+                // so we can add these in time order if someone is seeking
+                const currentPlayerTime = getCurrentPlayerTime() * 1000
+                nodeLogic.actions.insertAfterLastNodeOfType(NotebookNodeType.ReplayTimestamp, [
+                    buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
+                ])
+            }}
+        >
+            Comment
+        </LemonButton>
+    ) : (
         <LemonMenu
             visible={visible}
             items={[
