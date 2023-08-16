@@ -1,5 +1,6 @@
 import datetime as dt
 from dataclasses import asdict, dataclass
+from uuid import UUID
 
 from asgiref.sync import async_to_sync
 from temporalio.client import (
