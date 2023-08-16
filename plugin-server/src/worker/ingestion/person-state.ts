@@ -9,12 +9,12 @@ import { Counter } from 'prom-client'
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
+import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { captureIngestionWarning } from './utils'
-import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 // used to prevent identify from being used with generic IDs

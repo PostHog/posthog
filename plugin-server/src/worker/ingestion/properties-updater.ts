@@ -3,8 +3,8 @@ import { DateTime } from 'luxon'
 
 import { Group, GroupTypeIndex, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
-import { RaceConditionError } from '../../utils/utils'
 import { PostgresUse } from '../../utils/db/postgres'
+import { RaceConditionError } from '../../utils/utils'
 
 interface PropertiesUpdate {
     updated: boolean

@@ -62,7 +62,7 @@ export class PostgresRouter {
         }
     }
 
-    public query<R extends QueryResultRow = any, I extends any[] = any[]>(
+    public async query<R extends QueryResultRow = any, I extends any[] = any[]>(
         target: PostgresUse,
         queryString: string | QueryConfig<I>,
         values: I | undefined,
@@ -100,7 +100,7 @@ export class PostgresRouter {
         await this.query(usage, queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders), values.flat(), tag)
     }
 
-    public transaction<ReturnType>(
+    public async transaction<ReturnType>(
         usage: PostgresUse,
         tag: string,
         transaction: (client: TransactionClient) => Promise<ReturnType>
