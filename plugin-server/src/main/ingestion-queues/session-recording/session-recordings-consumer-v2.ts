@@ -47,6 +47,7 @@ const gaugeRealtimeSessions = new Gauge({
     help: 'Number of real time sessions being handled by this blob ingestion consumer',
 })
 
+// NOTE: This guage is important! It is used as our primary metric for scaling up / down
 const gaugeLagMilliseconds = new Gauge({
     name: 'recording_blob_ingestion_lag_in_milliseconds',
     help: "A gauge of the lag in milliseconds, more useful than lag in messages since it affects how much work we'll be pushing to redis",
@@ -89,6 +90,7 @@ export class SessionRecordingIngesterV2 {
     partitionLastKnownCommit: Record<number, number | null> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
     recordingConsumerConfig: PluginsServerConfig
+    assignedPartitions = new Set<number>()
 
     constructor(
         private serverConfig: PluginsServerConfig,
@@ -116,6 +118,14 @@ export class SessionRecordingIngesterV2 {
                 throw e
             }
         })
+    }
+
+    private peformIfPartitionAssigned<T>(partition: number, fn: () => T): T | undefined {
+        if (!this.assignedPartitions.has(partition)) {
+            status.warn('🤔', 'blob_ingester_consumer - partition not assigned but working with it', { partition })
+            return
+        }
+        return fn()
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
@@ -256,15 +266,20 @@ export class SessionRecordingIngesterV2 {
 
                     if (timestamp) {
                         // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                        counterKafkaMessageReceived.inc({ partition })
                         this.partitionNow[partition] = timestamp
                         // If we don't have a last known commit then set it to this offset as we can't commit lower than that
                         this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
-                        gaugeLagMilliseconds
-                            .labels({
-                                partition: partition.toString(),
-                            })
-                            .set(now() - timestamp)
+
+                        this.peformIfPartitionAssigned(partition, () => {
+                            counterKafkaMessageReceived.inc({ partition })
+
+                            // NOTE: This is an important metric used by the autoscaler
+                            gaugeLagMilliseconds
+                                .labels({
+                                    partition: partition.toString(),
+                                })
+                                .set(now() - timestamp)
+                        })
                     }
 
                     const recordingMessage = await this.parseKafkaMessage(message)
@@ -362,6 +377,11 @@ export class SessionRecordingIngesterV2 {
                  * The assign_partitions indicates that the consumer group has new assignments.
                  * We don't need to do anything, but it is useful to log for debugging.
                  */
+
+                topicPartitions.forEach((topicPartition: TopicPartition) => {
+                    this.assignedPartitions.add(topicPartition.partition)
+                })
+
                 return
             }
 
@@ -370,6 +390,10 @@ export class SessionRecordingIngesterV2 {
                  * The revoke_partitions indicates that the consumer group has had partitions revoked.
                  * As a result, we need to drop all sessions currently managed for the revoked partitions
                  */
+
+                topicPartitions.forEach((topicPartition: TopicPartition) => {
+                    this.assignedPartitions.delete(topicPartition.partition)
+                })
 
                 const revokedPartitions = topicPartitions.map((x) => x.partition)
                 if (!revokedPartitions.length) {
