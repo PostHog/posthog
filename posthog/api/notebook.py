@@ -262,7 +262,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                         presence_match_structure: List[Dict[str | List[Dict[str, str]]]] = [{"type": f"ph-{target}"}]
                         id_match_structure: List[Dict[str | List[Dict[str, str]]]] = [{"attrs": {"id": match}}]
                         if target == "replay-timestamp":
-                            # replay timestamps are not at the top level, they're one-leve down in a content array
+                            # replay timestamps are not at the top level, they're one-level down in a content array
                             presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
                             id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
 
