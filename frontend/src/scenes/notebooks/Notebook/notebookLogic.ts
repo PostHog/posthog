@@ -44,14 +44,20 @@ export const notebookLogic = kea<notebookLogicType>([
         registerNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
-        insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, desiredInsertPosition) => ({
+        insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
             content,
             nodeType,
-            desiredInsertPosition,
+            knownStartingPosition,
         }),
-        insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
+        insertReplayCommentByTimestamp: (
+            timestamp: number,
+            sessionRecordingId: string,
+            knownStartingPosition?: number
+        ) => ({
             timestamp,
             sessionRecordingId,
+            // if operating on a particular instance of a replay comment, we can pass the known starting position
+            knownStartingPosition,
         }),
     }),
     reducers({
@@ -274,8 +280,8 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
     listeners(({ values, actions, sharedListeners }) => ({
-        insertAfterLastNodeOfType: ({ content, nodeType, desiredInsertPosition }) => {
-            let insertionPosition = desiredInsertPosition
+        insertAfterLastNodeOfType: ({ content, nodeType, knownStartingPosition }) => {
+            let insertionPosition = knownStartingPosition
             let nextNode = values.editor?.nextNode(insertionPosition)
             while (nextNode && values.editor?.hasChildOfType(nextNode.node, nodeType)) {
                 insertionPosition = nextNode.position
@@ -284,14 +290,14 @@ export const notebookLogic = kea<notebookLogicType>([
 
             values.editor?.insertContentAfterNode(insertionPosition, content)
         },
-        insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
+        insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId, knownStartingPosition }) => {
             const ed = values.editor
             if (ed === null) {
                 // this should never happen, `openNotebook` waits until the logic's editor is not null
                 // TODO this should be safely handled in here
                 throw new Error('action called too early, editor is not ready yet')
             }
-            let insertionPosition = ed.findNodePositionByAttrs({ id: sessionRecordingId })
+            let insertionPosition = knownStartingPosition || ed.findNodePositionByAttrs({ id: sessionRecordingId })
             let nextNode = values.editor?.nextNode(insertionPosition)
             while (nextNode && values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.ReplayTimestamp)) {
                 const candidateTimestampAttributes = nextNode.node.content.firstChild

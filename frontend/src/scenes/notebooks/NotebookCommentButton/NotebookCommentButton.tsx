@@ -66,9 +66,7 @@ export function NotebookCommentButton({
                 // TODO should have something like insertReplayCommentByTimestamp(getCurrentPlayerTime() * 1000, sessionRecordingId)
                 // so we can add these in time order if someone is seeking
                 const currentPlayerTime = getCurrentPlayerTime() * 1000
-                nodeLogic.actions.insertAfterLastNodeOfType(NotebookNodeType.ReplayTimestamp, [
-                    buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
-                ])
+                nodeLogic.actions.insertReplayCommentByTimestamp(currentPlayerTime, sessionRecordingId)
             }}
         >
             Comment

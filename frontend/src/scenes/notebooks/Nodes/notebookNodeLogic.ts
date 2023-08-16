@@ -37,6 +37,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setTitle: (title: string) => ({ title }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
+        insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
+            timestamp,
+            sessionRecordingId,
+        }),
         deleteNode: true,
         // TODO: Implement this
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
@@ -79,6 +83,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
             const insertionPosition = props.getPos()
             values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
+        },
+
+        insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
+            const insertionPosition = props.getPos()
+            values.notebookLogic.actions.insertReplayCommentByTimestamp(
+                timestamp,
+                sessionRecordingId,
+                insertionPosition
+            )
         },
 
         setExpanded: ({ expanded }) => {
