@@ -21,6 +21,7 @@ from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -34,7 +35,7 @@ from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
-from posthog.models import Team, User
+from posthog.models import Team, User, UserScenePersonalisation, Dashboard
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.tasks import user_identify
@@ -57,6 +58,12 @@ class UserEmailVerificationThrottle(UserRateThrottle):
     rate = "6/day"
 
 
+class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserScenePersonalisation
+        fields = ["scene", "dashboard"]
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -69,6 +76,7 @@ class UserSerializer(serializers.ModelSerializer):
     set_current_team = serializers.CharField(write_only=True, required=False)
     current_password = serializers.CharField(write_only=True, required=False)
     notification_settings = serializers.DictField(required=False)
+    scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
 
     class Meta:
         model = User
@@ -99,6 +107,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_2fa_enabled",
             "has_social_auth",
             "has_seen_product_intro_for",
+            "scene_personalisation",
         ]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
@@ -227,6 +236,45 @@ class UserSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
+class ScenePersonalisationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserScenePersonalisation
+        fields = ["scene", "dashboard"]
+        read_only_fields = ["user", "team"]
+
+    def validate_dashboard(self, value: Dashboard) -> Dashboard:
+        instance = cast(User, self.instance)
+
+        if value.team != instance.current_team:
+            raise serializers.ValidationError("Dashboard must belong to the user's current team.")
+
+        return value
+
+    def validate(self, data):
+        if "dashboard" not in data:
+            raise serializers.ValidationError("Dashboard must be provided.")
+
+        if "scene" not in data:
+            raise serializers.ValidationError("Scene must be provided.")
+
+        return data
+
+    def save(self, **kwargs):
+        instance = cast(User, self.instance)
+        if not instance:
+            # there must always be a user instance
+            raise NotFound()
+
+        validated_data = {**self.validated_data, **kwargs}
+
+        return UserScenePersonalisation.objects.update_or_create(
+            user=instance,
+            team=instance.current_team,
+            scene=validated_data["scene"],
+            defaults={"dashboard": validated_data["dashboard"]},
+        )
+
+
 class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
@@ -332,6 +380,17 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
             EmailVerifier.create_token_and_send_email_verification(user)
 
         return Response({"success": True})
+
+    @action(methods=["POST"], detail=True)
+    def scene_personalisation(self, request, **kwargs):
+        instance = self.get_object()
+        request_serializer = ScenePersonalisationSerializer(instance=instance, data=request.data, partial=True)
+        request_serializer.is_valid(raise_exception=True)
+
+        request_serializer.save()
+        instance.refresh_from_db()
+
+        return Response(self.get_serializer(instance=instance).data)
 
 
 @authenticate_secondarily

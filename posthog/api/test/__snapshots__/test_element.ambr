@@ -127,15 +127,3 @@
   LIMIT 1 /*controller='element-stats',route='api/element/stats/%3F%24'*/
   '
 ---
-# name: TestElement.test_element_stats_postgres_queries_are_as_expected.5
-  '
-  SELECT "ee_license"."id",
-         "ee_license"."created_at",
-         "ee_license"."plan",
-         "ee_license"."valid_until",
-         "ee_license"."key",
-         "ee_license"."max_users"
-  FROM "ee_license"
-  WHERE ""ee_license"."valid_until">='LICENSE-TIMESTAMP'::timestamptz" /*controller='element-stats',route='api/element/stats/%3F%24'*/
-  '
----

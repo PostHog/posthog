@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Tuple
 from posthog.constants import FlagRequestType
+from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.redis import redis, get_client
 import time
@@ -132,6 +133,8 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
             if not flag.has_enriched_analytics:
                 flag.has_enriched_analytics = True
                 flag.save()
+                if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
+                    add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
         except FeatureFlag.DoesNotExist:
             pass
         except Exception as e:

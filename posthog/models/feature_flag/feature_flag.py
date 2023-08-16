@@ -8,7 +8,7 @@ from django.db.models.signals import post_delete, post_save, pre_delete
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
-from posthog.constants import PropertyOperatorType
+from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.property import GroupTypeIndex
@@ -100,6 +100,15 @@ class FeatureFlag(models.Model):
             if isinstance(variants, list):
                 return variants
         return []
+
+    @property
+    def usage_dashboard_has_enriched_insights(self) -> bool:
+        if not self.usage_dashboard:
+            return False
+
+        return any(
+            ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in tile.insight.name for tile in self.usage_dashboard.tiles.all()
+        )
 
     def get_filters(self):
         if "groups" in self.filters:
@@ -316,14 +325,16 @@ class FeatureFlagOverride(models.Model):
 
 
 def set_feature_flags_for_team_in_cache(
-    team_id: int, feature_flags: Optional[List[FeatureFlag]] = None
+    team_id: int, feature_flags: Optional[List[FeatureFlag]] = None, using_database: str = "default"
 ) -> List[FeatureFlag]:
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
     if feature_flags is not None:
         all_feature_flags = feature_flags
     else:
-        all_feature_flags = list(FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False))
+        all_feature_flags = list(
+            FeatureFlag.objects.using(using_database).filter(team_id=team_id, active=True, deleted=False)
+        )
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 

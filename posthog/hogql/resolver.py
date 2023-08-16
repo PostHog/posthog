@@ -104,6 +104,9 @@ class Resolver(CloningVisitor):
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
+        new_node.array_join_op = node.array_join_op
+        if node.array_join_list:
+            new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         for expr in node.select or []:
@@ -231,6 +234,8 @@ class Resolver(CloningVisitor):
                 node.type = node_type
                 node.table = cast(ast.Field, clone_expr(node.table))
                 node.table.type = node_table_type
+                if node.table_args is not None:
+                    node.table_args = [self.visit(arg) for arg in node.table_args]
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)

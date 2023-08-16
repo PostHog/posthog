@@ -1,5 +1,6 @@
 import { runInTransaction } from '../../../../sentry'
-import { Hub } from '../../../../types'
+import { Hub, PluginConfig } from '../../../../types'
+import { timeoutGuard } from '../../../../utils/db/utils'
 
 export type BufferOptions = {
     limit: number
@@ -12,9 +13,10 @@ export class ExportEventsBuffer {
     timeout: NodeJS.Timeout | null
     points: number
     options: BufferOptions
+    pluginConfig: PluginConfig
     hub: Hub
 
-    constructor(hub: Hub, opts?: Partial<BufferOptions>) {
+    constructor(hub: Hub, pluginConfig: PluginConfig, opts?: Partial<BufferOptions>) {
         this.buffer = []
         this.timeout = null
         this.points = 0
@@ -23,6 +25,7 @@ export class ExportEventsBuffer {
             timeoutSeconds: 60,
             ...opts,
         }
+        this.pluginConfig = pluginConfig
         this.hub = hub
     }
 
@@ -66,15 +69,28 @@ export class ExportEventsBuffer {
             this.timeout = null
         }
 
-        await runInTransaction(
+        const slowTimeout = timeoutGuard(
+            `ExportEventsBuffer flush promise running for more than 5 minutes`,
             {
-                name: 'export-events-buffer',
-                op: 'ExportEventsBuffer.flush',
+                plugin_id: this.pluginConfig.plugin_id,
+                team_id: this.pluginConfig.team_id,
+                plugin_config_id: this.pluginConfig.id,
             },
-            async () => {
-                await this.options.onFlush?.(oldBuffer, oldPoints)
-            }
+            300_000
         )
+        try {
+            await runInTransaction(
+                {
+                    name: 'export-events-buffer',
+                    op: 'ExportEventsBuffer.flush',
+                },
+                async () => {
+                    await this.options.onFlush?.(oldBuffer, oldPoints)
+                }
+            )
+        } finally {
+            clearTimeout(slowTimeout)
+        }
 
         this.hub.statsd?.timing(`buffer_promise_duration`, timer)
     }

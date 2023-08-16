@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time, configure, config  # type: ignore
 import pytest
+from posthog.api.feature_flag import _create_usage_dashboard
 from posthog.constants import FlagRequestType
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flag_analytics import (
@@ -482,6 +483,10 @@ class TestEnrichedAnalytics(BaseTest):
             created_by=self.user,
         )
 
+        # create usage dashboard for f1 and f3
+        _create_usage_dashboard(f1, self.user)
+        _create_usage_dashboard(f3, self.user)
+
         # create some enriched analytics events
         _create_event(
             team=self.team,
@@ -554,3 +559,23 @@ class TestEnrichedAnalytics(BaseTest):
         self.assertEqual(f2.has_enriched_analytics, True)
         self.assertEqual(f3.has_enriched_analytics, False)
         self.assertEqual(f4.has_enriched_analytics, False)
+
+        self.assertEqual(f1.usage_dashboard.name, "Generated Dashboard: test_flag Usage")
+        self.assertEqual(f2.usage_dashboard, None)
+        self.assertEqual(f3.usage_dashboard.name, "Generated Dashboard: beta-feature2 Usage")
+        self.assertEqual(f4.usage_dashboard, None)
+
+        # 1 should have enriched analytics, but nothing else
+        self.assertEqual(f1.usage_dashboard_has_enriched_insights, True)
+        self.assertEqual(f2.usage_dashboard_has_enriched_insights, False)
+        self.assertEqual(f3.usage_dashboard_has_enriched_insights, False)
+        self.assertEqual(f4.usage_dashboard_has_enriched_insights, False)
+
+        self.assertEqual(f1.usage_dashboard.tiles.count(), 4)
+        self.assertEqual(f3.usage_dashboard.tiles.count(), 2)
+
+        # now try deleting a usage dashboard. It should not delete the feature flag
+        # f1.usage_dashboard.delete()
+
+        # f1.refresh_from_db()
+        # self.assertEqual(f1.has_enriched_analytics, True)
