@@ -184,6 +184,8 @@ describe('ingester', () => {
         })
 
         it('should commit higher values but not lower', async () => {
+            // We need to simulate the paritition assignent logic here
+            ingester.partitionAssignments[1] = {}
             await ingester.consume(addMessage('sid1'))
             await ingester.sessions['1-sid1']?.flush('buffer_age')
             await tryToCommitLatestOffset()
