@@ -75,12 +75,33 @@
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Temporal Worker",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["start_temporal_worker"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1"
+            },
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}"
         }
     ],
     "compounds": [
         {
             "name": "PostHog",
-            "configurations": ["Backend", "Celery", "Frontend", "Plugin Server"],
+            "configurations": ["Backend", "Celery", "Frontend", "Plugin Server", "Temporal Worker"],
             "stopAll": true
         }
     ]

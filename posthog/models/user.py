@@ -247,6 +247,7 @@ class User(AbstractUser, UUIDClassicModel):
                 self.current_team = (
                     None if self.current_organization is None else self.current_organization.teams.first()
                 )
+                self.team = self.current_team  # Update cached property
                 self.save()
         self.update_billing_distinct_ids(organization)
 

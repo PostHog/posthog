@@ -207,6 +207,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         else:
             team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
+        request.user.team = request.user.current_team  # Update cached property
         request.user.save()
         return team
 
