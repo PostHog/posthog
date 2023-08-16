@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates'
-import { deleteWithUndo, objectClean, objectsEqual } from 'lib/utils'
+import { deleteWithUndo, objectClean } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
 import { notebookPopoverLogic } from './notebookPopoverLogic'
@@ -64,27 +64,23 @@ export interface NotebooksListFilters {
     search: string
     // UUID of the user that created the notebook
     createdBy: string
-    hasRecordings: boolean | string
+    contains: NotebookNodeType[]
 }
 
 export const DEFAULT_FILTERS: NotebooksListFilters = {
     search: '',
     createdBy: 'All users',
-    hasRecordings: false,
+    contains: [],
 }
 
 function filtersToContains(
     filters?: NotebooksListFilters
 ): { type: NotebookNodeType; attrs: Record<string, string | boolean> }[] | undefined {
-    if (filters === undefined || objectsEqual(filters, DEFAULT_FILTERS)) {
+    if (filters === undefined || filters.contains.length === 0) {
         return undefined
     }
-    if (filters.hasRecordings) {
-        return [{ type: NotebookNodeType.Recording, attrs: { present: filters.hasRecordings } }]
-    }
-    // TODO add support for other filters
 
-    return undefined
+    return filters.contains.map((type) => ({ type, attrs: { present: true } }))
 }
 
 async function listNotebooksAPI(filters?: NotebooksListFilters): Promise<NotebookListItemType[]> {
