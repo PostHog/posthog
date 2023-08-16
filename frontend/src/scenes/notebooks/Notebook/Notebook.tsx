@@ -13,6 +13,8 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type NotebookProps = {
     shortId: string
@@ -95,10 +97,12 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                 ) : null}
 
                 <div className="flex flex-1 justify-center space-x-2">
-                    <NotebookSidebar
-                        className="NotebookNodeSetting__actions__portal"
-                        expanded={editable && !isExpanded}
-                    />
+                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOK_SETTINGS_WIDGETS}>
+                        <NotebookSidebar
+                            className="NotebookNodeSetting__actions__portal"
+                            expanded={editable && !isExpanded}
+                        />
+                    </FlaggedFeature>
                     <div className={clsx(isExpanded && 'flex flex-1')}>
                         <Editor
                             initialContent={content}
@@ -118,10 +122,12 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                             }}
                         />
                     </div>
-                    <NotebookSidebar
-                        className="NotebookNodeSettings__widgets__portal"
-                        expanded={editable && !isExpanded}
-                    />
+                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOK_SETTINGS_WIDGETS}>
+                        <NotebookSidebar
+                            className="NotebookNodeSettings__widgets__portal"
+                            expanded={editable && !isExpanded}
+                        />
+                    </FlaggedFeature>
                 </div>
             </div>
         </BindLogic>

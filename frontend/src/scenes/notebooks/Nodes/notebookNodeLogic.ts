@@ -29,7 +29,7 @@ export type NotebookNodeLogicProps = {
     getPos: () => number
     title: string
     widgets: NotebookNodeWidget[]
-    domNode: HTMLDivElement | undefined
+    domNode: HTMLElement
 }
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
