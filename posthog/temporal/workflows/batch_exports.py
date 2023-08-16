@@ -15,7 +15,7 @@ SELECT_QUERY_TEMPLATE = Template(
         -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
         -- As a side-effect, this heuristic will discard historical loads older than 2 days.
         timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
-        AND timestamp < toDateTime64({data_interval_start}, 6, 'UTC') + INTERVAL 1 DAY
+        AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
         AND COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
@@ -31,6 +31,7 @@ async def get_rows_count(client, team_id: int, interval_start: str, interval_end
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count", order_by="", format=""
     )
+
     count = await client.read_query(
         query,
         query_parameters={
@@ -94,7 +95,6 @@ def iter_batch_records(batch) -> typing.Generator[dict[str, typing.Any], None, N
     Args:
         batch: A record batch of rows.
     """
-
     for record in batch.to_pylist():
         properties = record.get("properties")
         person_properties = record.get("person_properties")

@@ -80,7 +80,6 @@ class PostgresBatchExportInputs:
     password: str
     host: str
     database: str
-    table_name: str
     interval: str = "hour"
     schema: str = "public"
     table_name: str = "events"

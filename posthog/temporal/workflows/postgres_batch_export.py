@@ -41,6 +41,7 @@ def postgres_connection(inputs):
         yield connection
     except Exception:
         connection.rollback()
+        raise
     else:
         connection.commit()
     finally:
@@ -95,7 +96,6 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
         )
-        result = None
         local_results_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".csv")
         writer = csv.writer(local_results_file, delimiter="\t", quotechar='"', escapechar="\\", quoting=csv.QUOTE_NONE)
 
@@ -137,12 +137,11 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
 
         with postgres_connection(inputs) as connection:
             for result in results_iterator:
-                writer.writerow(
-                    (
-                        json.dumps(result[column]) if isinstance(result[column], (dict, list)) else result[column]
-                        for column in schema_columns
-                    )
+                row = (
+                    json.dumps(result[column]) if isinstance(result[column], (dict, list)) else result[column]
+                    for column in schema_columns
                 )
+                writer.writerow(row)
 
                 if (
                     local_results_file.tell()
@@ -156,7 +155,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                     with connection.cursor() as cursor:
                         cursor.copy_from(
                             local_results_file,
-                            sql.Identifier(inputs.database, inputs.schema, inputs.table_name).as_string(connection),
+                            sql.Identifier(inputs.schema, inputs.table_name).as_string(connection),
                             null="",
                             columns=schema_columns,
                         )
@@ -173,7 +172,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             with connection.cursor() as cursor:
                 cursor.copy_from(
                     local_results_file,
-                    sql.Identifier(inputs.database, inputs.schema, inputs.table_name).as_string(connection),
+                    sql.Identifier(inputs.schema, inputs.table_name).as_string(connection),
                     null="",
                     columns=schema_columns,
                 )
@@ -236,6 +235,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
+
         try:
             await workflow.execute_activity(
                 insert_into_postgres_activity,

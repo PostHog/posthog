@@ -256,18 +256,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 @pytest.mark.asyncio
 @pytest.mark.parametrize("interval", ["hour", "day"])
 async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name, interval):
-    """Test that S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
+    """Test S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     The workflow should update the batch export run status to completed and produce the expected
     records to the MinIO bucket.
     """
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
-
     prefix = f"posthog-events-{str(uuid4())}"
     destination_data = {
         "type": "S3",
@@ -345,6 +338,13 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             }
         ]
         events += events_outside_hour
+
+    ch_client = ClickHouseClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 
     # Insert some data into the `sharded_events` table.
     await insert_events(
