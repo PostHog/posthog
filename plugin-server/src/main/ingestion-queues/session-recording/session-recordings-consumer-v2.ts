@@ -432,10 +432,6 @@ export class SessionRecordingIngesterV2 {
                  * As a result, we need to drop all sessions currently managed for the revoked partitions
                  */
 
-                topicPartitions.forEach((topicPartition: TopicPartition) => {
-                    delete this.partitionAssignments[topicPartition.partition]
-                })
-
                 const revokedPartitions = topicPartitions.map((x) => x.partition)
                 if (!revokedPartitions.length) {
                     return
@@ -451,12 +447,12 @@ export class SessionRecordingIngesterV2 {
                 topicPartitions.forEach((topicPartition: TopicPartition) => {
                     const partition = topicPartition.partition
 
+                    delete this.partitionAssignments[partition]
                     gaugeLag.remove({ partition })
                     gaugeLagMilliseconds.remove({ partition })
                     gaugeOffsetCommitted.remove({ partition })
                     gaugeOffsetCommitFailed.remove({ partition })
                     this.offsetHighWaterMarker.revoke(topicPartition)
-                    delete this.partitionAssignments[partition]
                 })
 
                 await this.destroySessions(sessionsToDrop)
