@@ -1,16 +1,16 @@
 import {
-    kea,
-    props,
-    key,
-    path,
-    BuiltLogic,
-    selectors,
     actions,
-    listeners,
-    reducers,
-    defaults,
     afterMount,
     beforeUnmount,
+    BuiltLogic,
+    defaults,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
 } from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
@@ -45,6 +45,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setopenWidgetKeys: (widgetKeys: string[]) => ({ widgetKeys }),
         addActiveWidget: (key: string) => ({ key }),
         removeActiveWidget: (key: string) => ({ key }),
+        insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
+            timestamp,
+            sessionRecordingId,
+        }),
         deleteNode: true,
         // TODO: Implement this
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
@@ -103,18 +107,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
         },
 
-        insertAfterLastNodeOfType: ({ content, nodeType }) => {
-            const logic = values.notebookLogic
+        insertAfterLastNodeOfType: ({ nodeType, content }) => {
+            const insertionPosition = props.getPos()
+            values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
+        },
 
-            let insertionPosition = props.getPos()
-            let nextNode = logic?.values.editor?.nextNode(insertionPosition)
-
-            while (nextNode && logic.values.editor?.hasChildOfType(nextNode.node, nodeType)) {
-                insertionPosition = nextNode.position
-                nextNode = logic?.values.editor?.nextNode(insertionPosition)
-            }
-
-            logic.values.editor?.insertContentAfterNode(insertionPosition, content)
+        insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
+            const insertionPosition = props.getPos()
+            values.notebookLogic.actions.insertReplayCommentByTimestamp(
+                timestamp,
+                sessionRecordingId,
+                insertionPosition
+            )
         },
 
         setExpanded: ({ expanded }) => {

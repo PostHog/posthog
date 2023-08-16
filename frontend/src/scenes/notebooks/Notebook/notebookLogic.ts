@@ -1,16 +1,21 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
-import { openNotebook, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { notebooksListLogic, openNotebook, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
 
-// NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
+// NOTE: Annoyingly, if we import this then kea logic type-gen generates
+// two imports and fails so, we reimport it from a utils file
 import { JSONContent, NotebookEditor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import {
+    buildTimestampCommentContent,
+    NotebookNodeReplayTimestampAttrs,
+} from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 
 const SYNC_DELAY = 1000
 
@@ -28,11 +33,11 @@ export const notebookLogic = kea<notebookLogicType>([
     }),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
+        editorIsReady: true,
         onEditorUpdate: true,
         onEditorSelectionUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearLocalContent: true,
-        setReady: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
@@ -42,6 +47,21 @@ export const notebookLogic = kea<notebookLogicType>([
         unregisterNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
         scrollToSelection: true,
+        insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
+            content,
+            nodeType,
+            knownStartingPosition,
+        }),
+        insertReplayCommentByTimestamp: (
+            timestamp: number,
+            sessionRecordingId: string,
+            knownStartingPosition?: number
+        ) => ({
+            timestamp,
+            sessionRecordingId,
+            // if operating on a particular instance of a replay comment, we can pass the known starting position
+            knownStartingPosition,
+        }),
     }),
     reducers({
         localContent: [
@@ -188,7 +208,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.clearLocalContent()
                     }
 
-                    openNotebook(response.short_id, NotebookTarget.Auto)
+                    await openNotebook(response.short_id, NotebookTarget.Auto)
 
                     return response
                 },
@@ -272,6 +292,42 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
     listeners(({ values, actions, sharedListeners }) => ({
+        insertAfterLastNodeOfType: ({ content, nodeType, knownStartingPosition }) => {
+            let insertionPosition = knownStartingPosition
+            let nextNode = values.editor?.nextNode(insertionPosition)
+            while (nextNode && values.editor?.hasChildOfType(nextNode.node, nodeType)) {
+                insertionPosition = nextNode.position
+                nextNode = values.editor?.nextNode(insertionPosition)
+            }
+
+            values.editor?.insertContentAfterNode(insertionPosition, content)
+        },
+        insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId, knownStartingPosition }) => {
+            const ed = values.editor
+            if (ed === null) {
+                // this should never happen, `openNotebook` waits until the logic's editor is not null
+                // TODO this should be safely handled in here
+                throw new Error('action called too early, editor is not ready yet')
+            }
+            let insertionPosition = knownStartingPosition || ed.findNodePositionByAttrs({ id: sessionRecordingId })
+            let nextNode = values.editor?.nextNode(insertionPosition)
+            while (nextNode && values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.ReplayTimestamp)) {
+                const candidateTimestampAttributes = nextNode.node.content.firstChild
+                    ?.attrs as NotebookNodeReplayTimestampAttrs
+                const nextNodePlaybackTime = candidateTimestampAttributes.playbackTime || -1
+                if (nextNodePlaybackTime <= timestamp) {
+                    insertionPosition = nextNode.position
+                    nextNode = values.editor?.nextNode(insertionPosition)
+                } else {
+                    nextNode = null
+                }
+            }
+
+            values.editor?.insertContentAfterNode(
+                insertionPosition,
+                buildTimestampCommentContent(timestamp, sessionRecordingId)
+            )
+        },
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
 
@@ -299,7 +355,10 @@ export const notebookLogic = kea<notebookLogicType>([
             values.editor?.setEditable(editable)
         },
         setEditor: ({ editor }) => {
-            editor?.setEditable(values.isEditable)
+            if (editor) {
+                editor.setEditable(values.isEditable)
+                actions.editorIsReady()
+            }
         },
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
@@ -326,6 +385,13 @@ export const notebookLogic = kea<notebookLogicType>([
         scrollToSelection: () => {
             if (values.editor) {
                 values.editor.scrollToSelection()
+            }
+        },
+    })),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            if (values.editor !== null) {
+                actions.editorIsReady()
             }
         },
     })),

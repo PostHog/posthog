@@ -192,6 +192,7 @@ export function Editor({
                     }
                 },
                 findNode: (position: number) => findNode(editor, position),
+                findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
                 nextNode: (position: number) => nextNode(editor, position),
                 hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
                 scrollToSelection: () => {
@@ -211,6 +212,10 @@ export function Editor({
             {_editor && <FloatingSuggestions editor={_editor} />}
         </>
     )
+}
+
+function findNodePositionByAttrs(editor: TTEditor, attrs: { [attr: string]: any }): number {
+    return findPositionOfClosestNodeMatchingAttrs(editor, 0, attrs)
 }
 
 function findEndPositionOfNode(editor: TTEditor, position: number): number | null {

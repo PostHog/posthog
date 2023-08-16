@@ -135,8 +135,10 @@ describe('ingester', () => {
         await ingester.consume(event)
         expect(ingester.sessions['1-session_id_1']).toBeDefined()
         // Force the flush
-        ingester.partitionNow[event.metadata.partition] =
-            Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS
+        ingester.partitionAssignments[event.metadata.partition] = {
+            lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
+        }
+
         await ingester.flushAllReadySessions(true)
 
         jest.runOnlyPendingTimers() // flush timer
@@ -182,6 +184,8 @@ describe('ingester', () => {
         })
 
         it('should commit higher values but not lower', async () => {
+            // We need to simulate the paritition assignent logic here
+            ingester.partitionAssignments[1] = {}
             await ingester.consume(addMessage('sid1'))
             await ingester.sessions['1-sid1']?.flush('buffer_age')
             await tryToCommitLatestOffset()
