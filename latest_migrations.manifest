@@ -5,7 +5,11 @@ contenttypes: 0002_remove_content_type_name
 ee: 0015_add_verified_properties
 otp_static: 0002_throttling
 otp_totp: 0002_auto_20190420_0723
+<<<<<<< HEAD
 posthog: 0341_alter_featureflag_usage_dashboard
+=======
+posthog: 0341_add_session_recording_storage_version
+>>>>>>> d08426d7cb1d2a9e1e2e235171c4bba18aa78f30
 sessions: 0001_initial
 social_django: 0010_uid_db_index
 two_factor: 0007_auto_20201201_1019

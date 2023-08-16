@@ -198,9 +198,19 @@ class _Printer(Visitor):
         having = self.visit(node.having) if node.having else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
+        array_join = ""
+        if node.array_join_op is not None:
+            if node.array_join_op not in ("ARRAY JOIN", "LEFT ARRAY JOIN", "INNER ARRAY JOIN"):
+                raise HogQLException(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
+            array_join = node.array_join_op
+            if len(node.array_join_list) == 0:
+                raise HogQLException(f"Invalid ARRAY JOIN without an array")
+            array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
+
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
             f"FROM {' '.join(joined_tables)}" if len(joined_tables) > 0 else None,
+            array_join,
             "PREWHERE " + prewhere if prewhere else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,

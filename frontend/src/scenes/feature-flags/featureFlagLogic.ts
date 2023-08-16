@@ -518,8 +518,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadFeatureFlag()
             }
         },
-        enrichUsageDashboard: async () => {
+        enrichUsageDashboard: async (_, breakpoint) => {
             if (props.id) {
+                await breakpoint(1000) // in ms
                 await api.create(
                     `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
                 )

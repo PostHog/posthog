@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Form, Group } from 'kea-forms'
 import { Row, Col, Radio, InputNumber, Popconfirm, Select, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -53,7 +53,7 @@ import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { FeatureFlagsTab } from './featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
@@ -390,7 +390,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <div>
                                     <LemonButton
                                         fullWidth
-                                        status="default-dark"
+                                        status="stealth"
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
@@ -593,12 +593,27 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         usage_dashboard: dashboardId,
         has_enriched_analytics: hasEnrichedAnalytics,
     } = featureFlag
-    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    const { receivedErrorsFromAPI } = useValues(
+    const { receivedErrorsFromAPI, dashboard } = useValues(
         dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
     )
     const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
+
+    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+    const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
+
+    useEffect(() => {
+        if (
+            connectedDashboardExists &&
+            dashboard &&
+            hasEnrichedAnalytics &&
+            !(dashboard.tiles?.find((tile) => (tile.insight?.name?.indexOf('Feature Viewed') ?? -1) > -1) !== undefined)
+        ) {
+            enrichUsageDashboard()
+        }
+    }, [dashboard])
+
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
@@ -612,8 +627,8 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         <div>
             {connectedDashboardExists ? (
                 <>
-                    {!hasEnrichedAnalytics && (
-                        <LemonBanner type="warning" className="mb-3">
+                    {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
+                        <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
                             Get richer insights automatically by{' '}
                             <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
                                 enabling enriched analytics for flags{' '}
@@ -1096,7 +1111,7 @@ export function FeatureFlagReleaseConditions({
         return !!(
             featureFlag.features?.length &&
             featureFlag.features?.length > 0 &&
-            group.properties.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
+            group.properties?.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
         )
     }
 
@@ -1148,7 +1163,7 @@ export function FeatureFlagReleaseConditions({
                         )}
                     </Row>
                     <LemonDivider className="my-3" />
-                    {!readOnly && hasNonInstantProperty(group.properties) && (
+                    {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">
                             These properties aren't immediately available on first page load for unidentified persons.
                             This feature flag requires that at least one event is sent prior to becoming available to
@@ -1162,7 +1177,7 @@ export function FeatureFlagReleaseConditions({
 
                     {readOnly ? (
                         <>
-                            {group.properties.map((property, idx) => (
+                            {group.properties?.map((property, idx) => (
                                 <>
                                     <div className="feature-flag-property-display" key={idx}>
                                         {idx === 0 ? (
@@ -1227,7 +1242,7 @@ export function FeatureFlagReleaseConditions({
                                 sendAllKeyUpdates
                                 errorMessages={
                                     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
-                                        ? propertySelectErrors[index].properties.map((message, index) => {
+                                        ? propertySelectErrors[index].properties?.map((message, index) => {
                                               return message.value ? (
                                                   <div
                                                       key={index}
@@ -1244,7 +1259,9 @@ export function FeatureFlagReleaseConditions({
                             />
                         </div>
                     )}
-                    {(!readOnly || (readOnly && group.properties?.length > 0)) && <LemonDivider className="my-3" />}
+                    {(!readOnly || (readOnly && (group.properties?.length || 0) > 0)) && (
+                        <LemonDivider className="my-3" />
+                    )}
                     {readOnly ? (
                         <LemonTag
                             type={
@@ -1378,7 +1395,7 @@ export function FeatureFlagReleaseConditions({
                     </Row>
                     <LemonDivider className="my-3" />
 
-                    {group.properties?.length > 0 && (
+                    {(group.properties?.length || 0) > 0 && (
                         <>
                             <div className="feature-flag-property-display">
                                 <LemonButton

@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
@@ -361,10 +362,11 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
 
         except Exception as e:
+            capture_exception(e)
             return Response(
                 {
                     "success": False,
-                    "error": f"Unable to generate usage dashboard: {e}",
+                    "error": f"Unable to generate usage dashboard",
                 },
                 status=400,
             )
@@ -415,6 +417,51 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
         return Response({"success": True}, status=200)
 
+    @action(methods=["POST"], detail=True)
+    def enrich_usage_dashboard(self, request: request.Request, **kwargs):
+        feature_flag: FeatureFlag = self.get_object()
+        usage_dashboard = feature_flag.usage_dashboard
+
+        if not usage_dashboard:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Usage dashboard not found",
+                },
+                status=400,
+            )
+
+        if feature_flag.usage_dashboard_has_enriched_insights:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Usage dashboard already has enriched data",
+                },
+                status=400,
+            )
+
+        if not feature_flag.has_enriched_analytics:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"No enriched analytics available for this feature flag",
+                },
+                status=400,
+            )
+        try:
+            add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Unable to enrich usage dashboard",
+                },
+                status=400,
+            )
+
+        return Response({"success": True}, status=200)
+
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
@@ -451,10 +498,21 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
     def local_evaluation(self, request: request.Request, **kwargs):
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team_id=self.team_id, deleted=False
+            team_id=self.team_id, deleted=False, active=True
         )
+
+        should_send_cohorts = "send_cohorts" in request.GET
+
         cohorts = {}
         seen_cohorts_cache: Dict[str, Cohort] = {}
+
+        if should_send_cohorts:
+            seen_cohorts_cache = {
+                str(cohort.pk): cohort
+                for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                    team_id=self.team_id, deleted=False
+                )
+            }
 
         parsed_flags = []
         for feature_flag in feature_flags:
@@ -481,7 +539,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
             # when param set, send cohorts, for libraries that can handle evaluating them locally
             # irrespective of complexity
-            if "send_cohorts" in request.GET:
+            if should_send_cohorts:
                 for id in feature_flag.get_cohort_ids(
                     using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
                 ):

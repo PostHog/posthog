@@ -143,10 +143,23 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif offset_only_clause := ctx.offsetOnlyClause():
             select_query.offset = self.visit(offset_only_clause.columnExpr())
 
+        if ctx.arrayJoinClause():
+            array_join_clause = ctx.arrayJoinClause()
+            if select_query.select_from is None:
+                raise HogQLException("Using ARRAY JOIN without a FROM clause is not permitted")
+            if array_join_clause.LEFT():
+                select_query.array_join_op = "LEFT ARRAY JOIN"
+            elif array_join_clause.INNER():
+                select_query.array_join_op = "INNER ARRAY JOIN"
+            else:
+                select_query.array_join_op = "ARRAY JOIN"
+            select_query.array_join_list = self.visit(array_join_clause.columnExprList())
+            for expr in select_query.array_join_list:
+                if not isinstance(expr, ast.Alias):
+                    raise HogQLException("ARRAY JOIN arrays must have an alias", start=expr.start, end=expr.end)
+
         if ctx.topClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.topClause()")
-        if ctx.arrayJoinClause():
-            raise NotImplementedException(f"Unsupported: SelectStmt.arrayJoinClause()")
         if ctx.settingsClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.settingsClause()")
 
@@ -226,7 +239,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.joinExpr())
 
     def visitJoinExprCrossOp(self, ctx: HogQLParser.JoinExprCrossOpContext):
-        raise NotImplementedException(f"Unsupported node: JoinExprCrossOp")
+        join1: ast.JoinExpr = self.visit(ctx.joinExpr(0))
+        join2: ast.JoinExpr = self.visit(ctx.joinExpr(1))
+        join2.join_type = "CROSS JOIN"
+        last_join = join1
+        while last_join.next_join is not None:
+            last_join = last_join.next_join
+        last_join.next_join = join2
+        return join1
 
     def visitJoinOpInner(self, ctx: HogQLParser.JoinOpInnerContext):
         tokens = []
@@ -704,6 +724,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
+
+    def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
+        return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias = self.visit(ctx.alias() or ctx.identifier())

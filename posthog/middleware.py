@@ -182,12 +182,13 @@ class AutoProjectMiddleware:
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
-                actual_item_team: Team = actual_item.team
+                actual_item_team = cast(Team, actual_item.team)
                 user_permissions = UserPermissions(user)
                 # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
                 #   However this should be a rare operation!
                 if user_permissions.team(actual_item_team).effective_membership_level is not None:
                     user.current_team = actual_item_team
+                    user.team = user.current_team  # Update cached property
                     user.current_organization_id = actual_item_team.organization_id
                     user.save()
                     # Information for POSTHOG_APP_CONTEXT

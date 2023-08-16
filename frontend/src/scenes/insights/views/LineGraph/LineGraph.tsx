@@ -12,6 +12,7 @@ import {
     Color,
     InteractionItem,
     TickOptions,
+    GridLineOptions,
     TooltipModel,
     TooltipOptions,
     ScriptableLineSegmentContext,
@@ -355,7 +356,16 @@ export function LineGraph_({
         const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
         const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
-            color: colors.axisLabel as Color,
+            color: '#2d2d2d' as Color,
+            font: {
+                family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                size: 12,
+                weight: '500',
+            },
+        }
+        const gridOptions: Partial<GridLineOptions> = {
+            borderColor: colors.axisLine as string,
+            borderDash: [4, 2],
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -536,20 +546,22 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                     },
+                    grid: gridOptions,
                 },
                 y: {
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
+                    grid: gridOptions,
                 },
             }
         } else if (type === GraphType.Line) {
@@ -559,9 +571,8 @@ export function LineGraph_({
                     display: true,
                     ticks: tickOptions,
                     grid: {
-                        display: true,
+                        ...gridOptions,
                         drawOnChartArea: false,
-                        borderColor: colors.axisLine as string,
                         tickLength: 12,
                     },
                 },
@@ -570,15 +581,13 @@ export function LineGraph_({
                     display: true,
                     stacked: showPercentStackView || isArea,
                     ticks: {
-                        precision,
                         ...tickOptions,
+                        precision,
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
-                    grid: {
-                        borderColor: colors.axisLine as string,
-                    },
+                    grid: gridOptions,
                 },
             }
         } else if (isHorizontal) {
@@ -593,6 +602,7 @@ export function LineGraph_({
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
+                    grid: gridOptions,
                 },
                 y: {
                     beforeFit: (scale) => {
@@ -611,8 +621,8 @@ export function LineGraph_({
                     },
                     beginAtZero: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                         autoSkip: !shouldAutoResize,
                         callback: function _renderYLabel(_, i) {
                             const labelDescriptors = [
@@ -623,6 +633,7 @@ export function LineGraph_({
                             return labelDescriptors.join(' - ')
                         },
                     },
+                    grid: gridOptions,
                 },
             }
             options.indexAxis = 'y'

@@ -1390,7 +1390,7 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType> | null | undefined
+    default: Record<string, JsonType>
     required: boolean
 }
 
@@ -2139,7 +2139,7 @@ export enum SurveyQuestionType {
 }
 
 export interface FeatureFlagGroupType {
-    properties: AnyPropertyFilter[]
+    properties?: AnyPropertyFilter[]
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
@@ -2191,7 +2191,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
-    usage_dashboard_has_enriched_insights?: boolean
 }
 
 export interface FeatureFlagRollbackConditions {
