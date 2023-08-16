@@ -231,7 +231,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         ],
 
         showTab: [
-            () => [],
+            () => [() => 1],
             () =>
                 (tab: AppMetricsTab): boolean => {
                     if (
