@@ -25,8 +25,14 @@ PERSON_CONTENT = lambda id: {"type": "ph-person", "attrs": {"id": id or "person_
 
 RECORDING_CONTENT = lambda id: {"type": "ph-recording", "attrs": {"id": id or "session_recording_id"}}
 RECORDING_COMMENT_CONTENT = lambda id: {
-    "type": "ph-replay-timestamp",
-    "attrs": {"playbackTime": 52000, "sessionRecordingId": id or "session_recording_id"},
+    "type": "paragraph",
+    "content": [
+        {
+            "type": "ph-replay-timestamp",
+            "attrs": {"playbackTime": 0, "sessionRecordingId": id or "session_recording_id"},
+        },
+        {"text": "the comment the person wrote", "type": "text"},
+    ],
 }
 
 INSIGHT_COMMENT = lambda id: {

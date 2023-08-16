@@ -1277,10 +1277,10 @@ const api = {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(
-            contains?: { type: NotebookNodeType; attrs: Record<string, string | boolean> }[],
+            contains?: { type: NotebookNodeType; attrs: Record<string, string> }[],
             createdBy?: UserBasicType['uuid']
         ): Promise<PaginatedResponse<NotebookType>> {
-            // TODO attrs can be a union of types like NotebookNodeRecordingAttributes
+            // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
             let q = {}
             if (!!contains?.length) {
@@ -1288,12 +1288,8 @@ const api = {
                     contains
                         .map(({ type, attrs }) => {
                             const target = type.replace(/^ph-/, '')
-                            if (target === 'recording') {
-                                return `${target}:${attrs['present'].toString() || attrs['id']}`
-                            } else {
-                                // TODO add support for other types
-                                return ''
-                            }
+                            const match = attrs['id'] ? `:${attrs['id']}` : ''
+                            return `${target}${match}`
                         })
                         .join(',') || undefined
                 q = { ...q, contains: containsString, created_by: createdBy }

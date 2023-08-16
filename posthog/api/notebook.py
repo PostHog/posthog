@@ -259,18 +259,20 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                     match = splat[1] if len(splat) > 1 else None
 
                     if target:
+                        presence_match_structure: List[Dict[str | List[Dict[str, str]]]] = [{"type": f"ph-{target}"}]
+                        id_match_structure: List[Dict[str | List[Dict[str, str]]]] = [{"attrs": {"id": match}}]
+                        if target == "replay-timestamp":
+                            # replay timestamps are not at the top level, they're one-leve down in a content array
+                            presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
+                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
+
                         if match == "true" or match is None:
-                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}])
+                            queryset = queryset.filter(content__content__contains=presence_match_structure)
                         elif match == "false":
-                            queryset = queryset.exclude(content__content__contains=[{"type": f"ph-{target}"}])
+                            queryset = queryset.exclude(content__content__contains=presence_match_structure)
                         else:
-                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}])
-
-                            id = "id"
-                            if target == "replay-timestamp":
-                                id = "sessionRecordingId"
-
-                            queryset = queryset.filter(content__content__contains=[{"attrs": {id: match}}])
+                            queryset = queryset.filter(content__content__contains=presence_match_structure)
+                            queryset = queryset.filter(content__content__contains=id_match_structure)
 
         return queryset
 

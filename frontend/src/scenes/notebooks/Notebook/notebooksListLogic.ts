@@ -9,11 +9,11 @@ import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates'
-import { deleteWithUndo, objectClean } from 'lib/utils'
+import { deleteWithUndo, objectClean, objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
 import { notebookPopoverLogic } from './notebookPopoverLogic'
-import { EditorFocusPosition, JSONContent, defaultNotebookContent } from './utils'
+import { defaultNotebookContent, EditorFocusPosition, JSONContent } from './utils'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
 
@@ -75,19 +75,18 @@ export const DEFAULT_FILTERS: NotebooksListFilters = {
 
 function filtersToContains(
     filters?: NotebooksListFilters
-): { type: NotebookNodeType; attrs: Record<string, string | boolean> }[] | undefined {
+): { type: NotebookNodeType; attrs: Record<string, string> }[] | undefined {
     if (filters === undefined || filters.contains.length === 0) {
         return undefined
     }
 
-    return filters.contains.map((type) => ({ type, attrs: { present: true } }))
+    return filters.contains.map((type) => ({ type, attrs: {} }))
 }
 
 async function listNotebooksAPI(filters?: NotebooksListFilters): Promise<NotebookListItemType[]> {
     // TODO: Support pagination
-    const contains = filtersToContains(filters)
     const createdByForQuery = filters?.createdBy === DEFAULT_FILTERS.createdBy ? undefined : filters?.createdBy
-    const res = await api.notebooks.list(contains, createdByForQuery)
+    const res = await api.notebooks.list(filtersToContains(filters), createdByForQuery)
     return res.results
 }
 
@@ -229,8 +228,9 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
         searchFilteredNotebooks: [
             (s) => [s.filteredNotebooks, s.notebookTemplates, s.filters, s.fuse],
             (filteredNotebooks, notebooksTemplates, filters, fuse): NotebookListItemType[] => {
-                const templatesToInclude: NotebookListItemType[] =
-                    filters.createdBy === DEFAULT_FILTERS.createdBy ? [...notebooksTemplates] : []
+                const templatesToInclude: NotebookListItemType[] = objectsEqual(filters, DEFAULT_FILTERS)
+                    ? [...notebooksTemplates]
+                    : []
                 let haystack: NotebookListItemType[] = [...filteredNotebooks, ...templatesToInclude]
 
                 if (filters.search) {
