@@ -44,7 +44,7 @@ function ContainsTypeFilters({
                             onChange={(checked) => {
                                 setFilters({ hasRecordings: checked })
                             }}
-                            label={'session recording'}
+                            label={'Session replay'}
                         />
                     </>,
                 ],
