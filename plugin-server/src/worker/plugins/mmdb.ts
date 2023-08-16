@@ -11,6 +11,7 @@ import {
     MMDB_STATUS_REDIS_KEY,
 } from '../../config/mmdb-constants'
 import { Hub, PluginAttachmentDB } from '../../types'
+import { PostgresUse } from '../../utils/db/postgres'
 import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
@@ -69,7 +70,8 @@ async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
     status.info('✅', `Downloaded ${filename} of ${prettyBytes(brotliContents.byteLength)}`)
 
     // Insert new attachment
-    const newAttachmentResults = await db.postgresQuery<PluginAttachmentDB>(
+    const newAttachmentResults = await db.postgres.query<PluginAttachmentDB>(
+        PostgresUse.COMMON_WRITE,
         `
         INSERT INTO posthog_pluginattachment (
             key, content_type, file_name, file_size, contents, plugin_config_id, team_id
@@ -79,7 +81,8 @@ async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
         'insertGeoIpAttachment'
     )
     // Ensure that there's no old attachments lingering
-    await db.postgresQuery(
+    await db.postgres.query(
+        PostgresUse.COMMON_WRITE,
         `
         DELETE FROM posthog_pluginattachment WHERE key = $1 AND id != $2
     `,
@@ -139,7 +142,8 @@ export async function prepareMmdb(hub: Hub, onlyBackground: true): Promise<boole
 export async function prepareMmdb(hub: Hub, onlyBackground = false): Promise<ReaderModel | null | boolean> {
     const { db } = hub
 
-    const readResults = await db.postgresQuery<PluginAttachmentDB>(
+    const readResults = await db.postgres.query<PluginAttachmentDB>(
+        PostgresUse.COMMON_READ,
         `
             SELECT *
             FROM posthog_pluginattachment
