@@ -37,7 +37,6 @@ from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.utils import UUIDT
 from posthog.utils import PersonOnEventsMode
-from posthog.hogql.database.schema.events import EventsTable
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -396,9 +395,7 @@ class _Printer(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
-        left_is_events = self._is_events_table(node.left)
         right = self.visit(node.right)
-        right_is_s3 = self._is_s3_cluster(node.right)
         nullable_left = self._is_nullable(node.left)
         nullable_right = self._is_nullable(node.right)
         not_nullable = not nullable_left and not nullable_right
@@ -428,11 +425,7 @@ class _Printer(Visitor):
             op = f"notILike({left}, {right})"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.In:
-            operator = "in"
-            # External tables need to use globalIn with distributed tables (events)
-            if left_is_events and right_is_s3:
-                operator = "globalIn"
-            op = f"{operator}({left}, {right})"
+            op = f"in({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotIn:
             op = f"notIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.GlobalIn:
@@ -981,19 +974,3 @@ class _Printer(Visitor):
             return node.type.is_nullable()
         # we don't know if it's nullable, so we assume it can be
         return True
-
-    def _is_s3_cluster(self, node: ast.Expr) -> bool:
-        if isinstance(node, ast.SelectQuery):
-            try:
-                return isinstance(node.select_from.type.table_type.table, S3Table)
-            except:
-                return False
-        return False
-
-    def _is_events_table(self, node: ast.Expr) -> bool:
-        if isinstance(node, ast.Field):
-            try:
-                return isinstance(node.type.table_type.table, EventsTable)
-            except:
-                return False
-        return False
