@@ -6,18 +6,18 @@ import clsx from 'clsx'
 
 export interface LemonWidgetProps {
     title: string
-    closable?: boolean
+    collapsible?: boolean
     onClose?: () => void
     children: React.ReactChild
 }
 
-export function LemonWidget({ title, closable = true, onClose, children }: LemonWidgetProps): JSX.Element {
+export function LemonWidget({ title, collapsible = true, onClose, children }: LemonWidgetProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState<boolean>(true)
 
     return (
         <Widget>
             <Header>
-                {closable ? (
+                {collapsible ? (
                     <>
                         <LemonButton
                             onClick={() => setIsExpanded(!isExpanded)}

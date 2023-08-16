@@ -104,15 +104,10 @@
         }
     }
 
-    .NotebookSettings {
+    .NotebookSidebar {
         position: sticky;
         align-self: flex-start;
         top: 65px;
-        z-index: 1;
-        margin-top: 0.5rem;
-        margin-left: 0.5rem;
-        min-width: 14rem;
-        width: 100%;
     }
 
     .LemonTable__content > table > thead {

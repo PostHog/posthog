@@ -94,8 +94,11 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     </LemonBanner>
                 ) : null}
 
-                <div className="flex flex-1 justify-center">
-                    <NotebookSidebar expanded={editable && !isExpanded} />
+                <div className="flex flex-1 justify-center space-x-2">
+                    <NotebookSidebar
+                        className="NotebookNodeSettingActions__portal"
+                        expanded={editable && !isExpanded}
+                    />
                     <div className={clsx(isExpanded && 'flex flex-1')}>
                         <Editor
                             initialContent={content}
@@ -115,13 +118,24 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                             }}
                         />
                     </div>
-                    <NotebookSidebar className="NotebookSettings__portal" expanded={editable && !isExpanded} />
+                    <NotebookSidebar
+                        className="NotebookNodeSettingWidgets__portal"
+                        expanded={editable && !isExpanded}
+                    />
                 </div>
             </div>
         </BindLogic>
     )
 }
 
-const NotebookSidebar = ({ className, expanded }: { className?: string; expanded: boolean }): JSX.Element => {
-    return <div className={clsx(className, expanded ? 'flex flex-1' : null)} />
+const NotebookSidebar = ({
+    className,
+    expanded,
+    children,
+}: {
+    className?: string
+    expanded: boolean
+    children?: React.ReactChild
+}): JSX.Element => {
+    return <div className={clsx('NotebookSidebar', className, expanded ? 'flex flex-1' : null)}>{children}</div>
 }
