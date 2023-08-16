@@ -142,6 +142,7 @@ export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
     isValid?: boolean
+    isValidView?: boolean
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -320,7 +321,6 @@ export interface InsightVizNode extends Node {
     showCorrelationTable?: boolean
     showLastComputation?: boolean
     showLastComputationRefresh?: boolean
-    showLegendButton?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */

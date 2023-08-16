@@ -149,17 +149,20 @@ export const FEATURE_FLAGS = {
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
-    SURVEYS_RATING_TYPE: 'surveys-rating-type', // owner: @liyiy
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
-    DATA_WAREHOUSE: 'data-warehouse', // owner: @timgl
+    DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
+    DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     REFERRAL_SOURCE_SELECT: 'referral-source-select', // owner: @raquelmsmith
     SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
     SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
+    SESSION_REPLAY_SIMPLE_FILTERS: 'simple-session-replay-filters', // owner: #team-monitoring
+    SURVEYS_MULTIPLE_CHOICE: 'surveys-multiple-choice', // owner: @liyiy
+    CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -13,6 +13,7 @@ export default {
         options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
+            waitForLoadersToDisappear: true,
         },
         viewMode: 'story',
     },

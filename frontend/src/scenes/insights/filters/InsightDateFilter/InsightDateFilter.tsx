@@ -17,26 +17,23 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     const { setDates } = useActions(insightDateFilterLogic(insightProps))
 
     return (
-        <>
-            <span>Date range</span>
-            <DateFilter
-                dateTo={dateTo ?? undefined}
-                dateFrom={dateFrom ?? '-7d' ?? undefined}
-                disabled={disabled}
-                onChange={(changedDateFrom, changedDateTo) => {
-                    setDates(changedDateFrom, changedDateTo)
-                }}
-                makeLabel={(key) => (
-                    <>
-                        <CalendarOutlined /> {key}
-                        {key == 'All time' && (
-                            <Tooltip title={`Only events dated after 2015 will be shown`}>
-                                <InfoCircleOutlined className="info-indicator" />
-                            </Tooltip>
-                        )}
-                    </>
-                )}
-            />
-        </>
+        <DateFilter
+            dateTo={dateTo ?? undefined}
+            dateFrom={dateFrom ?? '-7d' ?? undefined}
+            disabled={disabled}
+            onChange={(changedDateFrom, changedDateTo) => {
+                setDates(changedDateFrom, changedDateTo)
+            }}
+            makeLabel={(key) => (
+                <>
+                    <CalendarOutlined /> {key}
+                    {key == 'All time' && (
+                        <Tooltip title={`Only events dated after 2015 will be shown`}>
+                            <InfoCircleOutlined className="info-indicator" />
+                        </Tooltip>
+                    )}
+                </>
+            )}
+        />
     )
 }

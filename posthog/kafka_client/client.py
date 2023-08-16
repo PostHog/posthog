@@ -3,16 +3,16 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import kafka.errors
+from django.conf import settings
 from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata, RecordMetadata
 from kafka.structs import TopicPartition
 from statshog.defaults.django import statsd
 from structlog import get_logger
-from django.conf import settings
+
 from posthog.client import sync_execute
 from posthog.kafka_client import helper
-
 from posthog.utils import SingletonDecorator
 
 KAFKA_PRODUCER_RETRIES = 5
@@ -43,7 +43,7 @@ class KafkaProducerForTests:
         future.success(None)
         return future
 
-    def flush(self):
+    def flush(self, timeout=None):
         return
 
 
@@ -154,6 +154,9 @@ class _KafkaProducer:
         # Record if the send request was successful or not
         future.add_callback(self.on_send_success).add_errback(lambda exc: self.on_send_failure(topic=topic, exc=exc))
         return future
+
+    def flush(self, timeout=None):
+        self.producer.flush(timeout)
 
     def close(self):
         self.producer.flush()

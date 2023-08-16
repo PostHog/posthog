@@ -138,7 +138,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             playerSettingsLogic,
-            ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
+            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             [
                 'sessionPlayerData',
@@ -157,17 +157,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     })),
     actions(() => ({
         setWindowIdFilter: (windowId: string | null) => ({ windowId }),
-        setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
     reducers(({}) => ({
-        searchQuery: [
-            '',
-            {
-                setSearchQuery: (_, { search }) => search || '',
-            },
-        ],
         windowIdFilter: [
             null as string | null,
             {

@@ -17,7 +17,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { IconInfo, IconPlayCircle, IconPlus } from 'lib/lemon-ui/icons'
+import { IconInfo, IconPlayCircle, IconPlus, IconWarning } from 'lib/lemon-ui/icons'
 import { tagsModel } from '~/models/tagsModel'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTextArea } from '@posthog/lemon-ui'
@@ -263,23 +263,34 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 <div className="my-8">
                     <Field name="post_to_slack">
                         {({ value, onChange }) => (
-                            <>
+                            <div>
                                 <LemonCheckbox
                                     id="webhook-checkbox"
-                                    checked={!!value}
+                                    checked={action.bytecode_error ? false : !!value}
                                     onChange={onChange}
-                                    disabled={!slackEnabled}
-                                    label={<>Post to webhook when this action is triggered.</>}
+                                    disabledReason={
+                                        !slackEnabled
+                                            ? 'Configure webhooks in project settings'
+                                            : action.bytecode_error ?? null
+                                    }
+                                    label={
+                                        <>
+                                            <span>Post to webhook when this action is triggered.</span>
+                                            {action.bytecode_error ? (
+                                                <IconWarning className="text-warning text-xl ml-1" />
+                                            ) : null}
+                                        </>
+                                    }
                                 />
-                                <p className="pl-7">
+                                <div className="mt-1 pl-6">
                                     <Link to="/project/settings#webhook">
-                                        {slackEnabled ? 'Configure' : 'Enable'} this integration in Project Settings.
+                                        {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
                                     </Link>
-                                </p>
-                            </>
+                                </div>
+                            </div>
                         )}
                     </Field>
-                    {action.post_to_slack && (
+                    {!action.bytecode_error && action.post_to_slack && (
                         <>
                             <Field name="slack_message_format">
                                 {({ value, onChange }) => (

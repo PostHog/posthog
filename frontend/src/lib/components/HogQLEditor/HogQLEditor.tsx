@@ -80,7 +80,7 @@ export function HogQLEditor({
                     <div className="flex-1 flex items-center text-muted select-none">
                         <IconInfo className="text-base mr-1" />
                         <span>
-                            <code>person.properties</code> can't be used here.
+                            <code>person</code> can't be used here.
                         </span>
                     </div>
                 ) : null}

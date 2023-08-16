@@ -4469,7 +4469,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         sign_up_action = Action.objects.create(team=self.team, name="sign up")
         ActionStep.objects.create(
-            action=sign_up_action, event="sign up", properties={"$current_url": "https://posthog.com/feedback/1234"}
+            action=sign_up_action,
+            event="sign up",
+            properties=[
+                {
+                    "key": "$current_url",
+                    "type": "event",
+                    "value": ["https://posthog.com/feedback/1234"],
+                    "operator": "exact",
+                }
+            ],
         )
 
         with freeze_time("2020-01-02T13:01:01Z"):

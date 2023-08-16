@@ -52,7 +52,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             transpile: (source: string) => string
         }): Promise<boolean> => {
             const source = isLocalPlugin ? readFileIfExists(hub.BASE_DIR, plugin, filename) : plugin[pluginKey]
-            if (source) {
+            if (source && hub.capabilities.transpileFrontendApps) {
                 if (await hub.db.getPluginTranspilationLock(plugin.id, filename)) {
                     status.info('🔌', `Transpiling ${pluginDigest(plugin)}`)
                     const transpilationStartTimer = new Date()

@@ -14,7 +14,6 @@ import {
     InsightType,
 } from '~/types'
 import './Experiment.scss'
-import '../insights/Insight.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
@@ -1013,13 +1012,13 @@ export function Experiment(): JSX.Element {
                             )
                         )}
                         {experimentResults ? (
-                            <div className="mt-4">
+                            // :KLUDGE: using `insights-page` for proper styling, should rather adapt styles
+                            <div className="mt-4 insights-page">
                                 <Query
                                     query={{
                                         kind: NodeKind.InsightVizNode,
                                         source: filtersToQueryNode(transformResultFilters(experimentResults.filters)),
                                         showTable: true,
-                                        showLegendButton: false,
                                         showLastComputation: true,
                                         showLastComputationRefresh: false,
                                     }}

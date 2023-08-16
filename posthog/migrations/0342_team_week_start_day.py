@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0338_datawarehouse_saved_query"),
+        ("posthog", "0341_add_session_recording_storage_version"),
     ]
 
     operations = [

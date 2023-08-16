@@ -1,7 +1,8 @@
-from typing import Literal, Optional
+from typing import Literal, Optional, Dict
 
 from django.test import override_settings
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField
@@ -24,9 +25,13 @@ class TestPrinter(BaseTest):
         return translate_hogql(query, context or HogQLContext(team_id=self.team.pk), dialect)
 
     # Helper to always translate HogQL with a blank context,
-    def _select(self, query: str, context: Optional[HogQLContext] = None) -> str:
+    def _select(
+        self, query: str, context: Optional[HogQLContext] = None, placeholders: Optional[Dict[str, ast.Expr]] = None
+    ) -> str:
         return print_ast(
-            parse_select(query), context or HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse"
+            parse_select(query, placeholders=placeholders),
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
         )
 
     def _assert_expr_error(self, expr, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
@@ -388,6 +393,46 @@ class TestPrinter(BaseTest):
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self._assert_select_error("select 1 from other", 'Unknown table "other".')
+
+    def test_select_from_placeholder(self):
+        self.assertEqual(
+            self._select("select 1 from {placeholder}", placeholders={"placeholder": ast.Field(chain=["events"])}),
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+        with self.assertRaises(HogQLException) as error_context:
+            self._select(
+                "select 1 from {placeholder}",
+                placeholders={
+                    "placeholder": ast.CompareOperation(
+                        left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.CompareOperationOp.Eq
+                    )
+                },
+            ),
+        self.assertEqual(str(error_context.exception), "JoinExpr with table of type CompareOperation not supported")
+
+    def test_select_cross_join(self):
+        self.assertEqual(
+            self._select("select 1 from events cross join raw_groups"),
+            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT 10000",
+        )
+        self.assertEqual(
+            self._select("select 1 from events, raw_groups"),
+            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT 10000",
+        )
+
+    def test_select_array_join(self):
+        self.assertEqual(
+            self._select("select 1, a from events array join [1,2,3] as a"),
+            f"SELECT 1, a FROM events ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+        self.assertEqual(
+            self._select("select 1, a from events left array join [1,2,3] as a"),
+            f"SELECT 1, a FROM events LEFT ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+        self.assertEqual(
+            self._select("select 1, a from events inner array join [1,2,3] as a"),
+            f"SELECT 1, a FROM events INNER ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
 
     def test_select_where(self):
         self.assertEqual(
