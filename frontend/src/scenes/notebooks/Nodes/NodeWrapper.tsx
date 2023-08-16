@@ -15,7 +15,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { NotebookNodeType, NotebookNodeWidgetSettings } from '~/types'
+import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
@@ -56,8 +56,10 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     getPos,
     updateAttributes,
     widgets,
+    editor,
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const { isEditable } = useValues(mountedNotebookLogic)
     const nodeId = node.attrs.nodeId
 
     const nodeLogicProps = {
@@ -70,9 +72,9 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
         getPos,
         title: defaultTitle,
         widgets,
+        domNode: editor.view.nodeDOM(getPos()) as HTMLElement,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { isEditable } = useValues(mountedNotebookLogic)
     const { title, expanded } = useValues(nodeLogic)
     const { setExpanded, deleteNode } = useActions(nodeLogic)
 
@@ -198,12 +200,7 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
         getAttributes: (match: ExtendedRegExpMatchArray) => T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
-    widgets: Array<{
-        key: string
-        label: string
-        icon: JSX.Element
-        Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings) => JSX.Element
-    }>
+    widgets: NotebookNodeWidget[]
 }
 
 export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({

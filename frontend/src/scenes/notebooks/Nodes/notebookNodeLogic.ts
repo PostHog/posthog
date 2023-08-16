@@ -29,6 +29,7 @@ export type NotebookNodeLogicProps = {
     getPos: () => number
     title: string
     widgets: NotebookNodeWidget[]
+    domNode: HTMLDivElement | undefined
 }
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -75,6 +76,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     }),
 
     selectors({
+        domNode: [() => [(_, props) => props], (props): HTMLElement => props.domNode],
         notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
         nodeAttributes: [() => [(_, props) => props], (props): Record<string, any> => props.nodeAttributes],
         widgets: [() => [(_, props) => props], (props): NotebookNodeWidget[] => props.widgets],

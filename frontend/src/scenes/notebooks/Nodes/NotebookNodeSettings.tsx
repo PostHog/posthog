@@ -10,35 +10,30 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { NotebookNodeWidget } from '../Notebook/utils'
 
 export const NotebookNodeSettings = (): JSX.Element => {
-    const ref = useRef<HTMLDivElement>(null)
-
     return (
-        <div className="testdavid" ref={ref}>
-            {createPortal(
-                <NodeActions positionTop={ref.current?.getBoundingClientRect().top} />,
-                document.getElementsByClassName('NotebookNodeSettingActions__portal')[0]
-            )}
-            {createPortal(<WidgetSettings />, document.getElementsByClassName('NotebookNodeSettingWidgets__portal')[0])}
+        <div>
+            {createPortal(<Actions />, document.getElementsByClassName('NotebookNodeSetting__actions__portal')[0])}
+            {createPortal(<Widgets />, document.getElementsByClassName('NotebookNodeSettings__widgets__portal')[0])}
         </div>
     )
 }
 
-const NodeActions = ({ positionTop }: { positionTop: number | undefined }): JSX.Element => {
-    const { widgets, unopenWidgets } = useValues(notebookNodeLogic)
+const Actions = (): JSX.Element => {
+    const { widgets, unopenWidgets, domNode } = useValues(notebookNodeLogic)
     const { deleteNode } = useActions(notebookNodeLogic)
 
-    const actionsRef = useRef<HTMLDivElement>(null)
-    const { width } = useResizeObserver({ ref: actionsRef })
+    const ref = useRef<HTMLDivElement>(null)
+    const { height, width } = useResizeObserver({ ref })
 
-    const collapsed = !!width && width < 140
-
+    const collapsed = !!width && width < 320
     const selectableWidgets = collapsed ? widgets : unopenWidgets
+    const verticalOffset = domNode.offsetTop + domNode.offsetHeight - (height || 0)
 
     return (
         <div
-            ref={actionsRef}
-            className="flex w-full flex-col items-end"
-            style={{ position: 'absolute', top: positionTop }}
+            ref={ref}
+            className="flex w-full flex-col items-end space-y-1"
+            style={{ position: 'absolute', top: verticalOffset }}
         >
             {selectableWidgets.map((widget) => (
                 <WidgetButton key={widget.key} widget={widget} collapsed={collapsed} />
@@ -72,7 +67,7 @@ const WidgetButton = ({
             visible={visible}
             placement="right"
             onClickOutside={() => setVisible(false)}
-            className="NotebookNodeActions__popover"
+            className="NotebookNodeSetting__actions__popover"
             overlay={
                 <LemonWidget title={label} collapsible={false}>
                     <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
@@ -91,7 +86,7 @@ const WidgetButton = ({
     )
 }
 
-export const WidgetSettings = (): JSX.Element | null => {
+export const Widgets = (): JSX.Element | null => {
     const { openWidgets, nodeAttributes } = useValues(notebookNodeLogic)
     const { updateAttributes, removeActiveWidget } = useActions(notebookNodeLogic)
 
@@ -100,7 +95,7 @@ export const WidgetSettings = (): JSX.Element | null => {
     }
 
     return (
-        <div className="NotebookSettings space-y-2">
+        <div className="NotebookNodeSettings__widgets space-y-2">
             {openWidgets.map(({ key, label, Component }) => (
                 <LemonWidget key={key} title={label} onClose={() => removeActiveWidget(key)}>
                     <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />

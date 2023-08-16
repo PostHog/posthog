@@ -1,6 +1,4 @@
 .Notebook {
-    margin: 0 40px;
-
     .NotebookEditor {
         flex: 1;
         width: 100%;
@@ -105,6 +103,11 @@
     }
 
     .NotebookSidebar {
+        position: relative;
+        min-width: 40px;
+    }
+
+    .NotebookNodeSettings__widgets {
         position: sticky;
         align-self: flex-start;
         top: 65px;

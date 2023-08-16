@@ -96,7 +96,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
 
                 <div className="flex flex-1 justify-center space-x-2">
                     <NotebookSidebar
-                        className="NotebookNodeSettingActions__portal"
+                        className="NotebookNodeSetting__actions__portal"
                         expanded={editable && !isExpanded}
                     />
                     <div className={clsx(isExpanded && 'flex flex-1')}>
@@ -119,7 +119,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                         />
                     </div>
                     <NotebookSidebar
-                        className="NotebookNodeSettingWidgets__portal"
+                        className="NotebookNodeSettings__widgets__portal"
                         expanded={editable && !isExpanded}
                     />
                 </div>
