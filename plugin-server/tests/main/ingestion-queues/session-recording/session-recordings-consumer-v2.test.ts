@@ -135,8 +135,10 @@ describe('ingester', () => {
         await ingester.consume(event)
         expect(ingester.sessions['1-session_id_1']).toBeDefined()
         // Force the flush
-        ingester.partitionNow[event.metadata.partition] =
-            Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS
+        ingester.partitionAssignments[event.metadata.partition] = {
+            lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
+        }
+
         await ingester.flushAllReadySessions(true)
 
         jest.runOnlyPendingTimers() // flush timer

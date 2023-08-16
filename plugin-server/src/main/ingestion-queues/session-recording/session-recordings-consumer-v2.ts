@@ -88,7 +88,6 @@ type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
     lastKnownCommit?: number
-    highOffset?: number
 }
 
 export class SessionRecordingIngesterV2 {
@@ -100,6 +99,7 @@ export class SessionRecordingIngesterV2 {
     flushInterval: NodeJS.Timer | null = null
     partitionAssignments: Record<number, PartitionMetrics> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
+    offsetsRefresher: BackgroundRefresher<Record<number, number>>
     recordingConsumerConfig: PluginsServerConfig
 
     constructor(
@@ -128,31 +128,35 @@ export class SessionRecordingIngesterV2 {
                 throw e
             }
         })
-    }
 
-    private async refreshAssignedPartitionOffsets() {
-        await Promise.all(
-            Object.entries(this.partitionAssignments).map(async ([partition, metrics]) => {
-                return new Promise<void>((resolve, reject) => {
-                    if (!this.batchConsumer) {
-                        return reject('Not connected')
-                    }
-                    this.batchConsumer.consumer.queryWatermarkOffsets(
-                        KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-                        parseInt(partition),
-                        (err, offsets) => {
-                            if (err) {
-                                status.error('🔥', 'Failed to query kafka watermark offsets', err)
-                                return reject()
-                            }
-
-                            metrics.highOffset = offsets.highOffset
-                            resolve()
+        this.offsetsRefresher = new BackgroundRefresher(async () => {
+            const results = await Promise.all(
+                Object.keys(this.partitionAssignments).map(async (partition) => {
+                    return new Promise<[number, number]>((resolve, reject) => {
+                        if (!this.batchConsumer) {
+                            return reject('Not connected')
                         }
-                    )
+                        this.batchConsumer.consumer.queryWatermarkOffsets(
+                            KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+                            parseInt(partition),
+                            (err, offsets) => {
+                                if (err) {
+                                    status.error('🔥', 'Failed to query kafka watermark offsets', err)
+                                    return reject()
+                                }
+
+                                resolve([parseInt(partition), offsets.highOffset])
+                            }
+                        )
+                    })
                 })
-            })
-        )
+            )
+
+            return results.reduce((acc, [partition, highOffset]) => {
+                acc[partition] = highOffset
+                return acc
+            }, {} as Record<number, number>)
+        }, 5000)
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
@@ -309,8 +313,11 @@ export class SessionRecordingIngesterV2 {
                             .set(now() - timestamp)
 
                         // NOTE: This is an important metric used by the autoscaler
-                        if (metrics.highOffset) {
-                            gaugeLag.set({ partition }, metrics.highOffset - metrics.lastMessageOffset)
+                        const offsetsByPartition = await this.offsetsRefresher.get()
+                        const highOffset = offsetsByPartition[partition]
+
+                        if (highOffset) {
+                            gaugeLag.set({ partition }, highOffset - metrics.lastMessageOffset)
                         }
                     }
 
@@ -414,6 +421,8 @@ export class SessionRecordingIngesterV2 {
                     this.partitionAssignments[topicPartition.partition] = {}
                 })
 
+                await this.offsetsRefresher.refresh()
+
                 return
             }
 
@@ -451,6 +460,7 @@ export class SessionRecordingIngesterV2 {
                 })
 
                 await this.destroySessions(sessionsToDrop)
+                await this.offsetsRefresher.refresh()
 
                 return
             }
