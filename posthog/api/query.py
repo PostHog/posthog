@@ -232,8 +232,7 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
         return _unwrap_pydantic_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
-        serialized_db = serialize_database(database)
-        return serialized_db
+        return serialize_database(database)
     elif query_kind == "TimeToSeeDataSessionsQuery":
         sessions_query_serializer = SessionsQuerySerializer(data=query_json)
         sessions_query_serializer.is_valid(raise_exception=True)
