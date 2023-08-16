@@ -1327,15 +1327,22 @@ class TestCapture(BaseTest):
             session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
 
             data = "example"
-            self._send_session_recording_event(event_data=data)
+            session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
+            self._send_session_recording_event(event_data=data, session_id=session_id)
             default_kafka_producer_mock.assert_called()
             session_recording_producer_factory_mock.assert_called()
 
-            data_sent_to_default_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
+            assert len(kafka_produce.call_args_list) == 2
+
+            call_one = kafka_produce.call_args_list[0][1]
+            assert call_one["key"] == session_id
+            data_sent_to_default_kafka = json.loads(call_one["data"]["data"])
             assert data_sent_to_default_kafka["event"] == "$snapshot"
             assert data_sent_to_default_kafka["properties"]["$snapshot_data"]["chunk_count"] == 1
 
-            data_sent_to_recording_kafka = json.loads(kafka_produce.call_args_list[1][1]["data"]["data"])
+            call_two = kafka_produce.call_args_list[1][1]
+            assert call_two["key"] == session_id
+            data_sent_to_recording_kafka = json.loads(call_two["data"]["data"])
             assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
             assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
 

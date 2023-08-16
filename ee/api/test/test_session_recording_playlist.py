@@ -3,6 +3,8 @@ from unittest import mock
 from unittest.mock import patch, MagicMock
 from uuid import uuid4
 
+from boto3 import resource
+from botocore.config import Config
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
@@ -13,6 +15,12 @@ from posthog.models import SessionRecording, SessionRecordingPlaylistItem
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
 from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.settings import (
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    OBJECT_STORAGE_BUCKET,
+)
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -22,6 +30,18 @@ TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
     OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER=f"{TEST_BUCKET}_lts",
 )
 class TestSessionRecordingPlaylist(APILicensedTest):
+    def teardown_method(self, method) -> None:
+        s3 = resource(
+            "s3",
+            endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+
     def test_list_playlists(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert response.status_code == status.HTTP_200_OK

@@ -187,5 +187,5 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            f"SELECT events.uuid, events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), globalIn(events.event, (SELECT aapl_stock.Date FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock))) LIMIT 10000",
+            f"SELECT events.uuid, events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT 10000",
         )

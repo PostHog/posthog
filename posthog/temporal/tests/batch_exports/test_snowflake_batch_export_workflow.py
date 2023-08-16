@@ -18,7 +18,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
-from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
+from posthog.temporal.tests.batch_exports.fixtures import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.snowflake_batch_export import (

@@ -233,6 +233,7 @@ function Pages(): JSX.Element {
                                     to={urls.projectApps()}
                                 />
                             )}
+
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}

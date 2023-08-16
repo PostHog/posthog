@@ -11,6 +11,7 @@ import pytest_asyncio
 from django.conf import settings
 
 from posthog.temporal.workflows.batch_exports import (
+    elements_chain_to_elements,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
@@ -31,7 +32,12 @@ EventValues = TypedDict(
         "person_properties": dict | None,
         "team_id": int,
         "properties": dict | None,
-        "elements_chain": str,
+        "elements_chain": str | None,
+        "elements": list[dict] | None,
+        "ip": str | None,
+        "site_url": str | None,
+        "set": str | None,
+        "set_once": str | None,
     },
 )
 
@@ -115,8 +121,18 @@ async def test_get_rows_count(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": elements_chain_to_elements("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(10000)
     ]
@@ -147,8 +163,18 @@ async def test_get_rows_count_handles_duplicates(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": elements_chain_to_elements("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(10000)
     ]
@@ -182,8 +208,18 @@ async def test_get_results_iterator(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": elements_chain_to_elements("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(20000)
     ]
@@ -224,8 +260,18 @@ async def test_get_results_iterator_handles_duplicates(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": elements_chain_to_elements("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(10000)
     ]
