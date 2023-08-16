@@ -74,6 +74,8 @@ def get_cached_instance_license() -> Optional["License"]:
     if license:
         instance_license_cached = license
         is_instance_licensed_cached = True
+    else:
+        instance_license_cached = False
     return instance_license_cached
 
 
