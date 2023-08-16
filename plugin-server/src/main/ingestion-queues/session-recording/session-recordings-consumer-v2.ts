@@ -47,10 +47,16 @@ const gaugeRealtimeSessions = new Gauge({
     help: 'Number of real time sessions being handled by this blob ingestion consumer',
 })
 
-// NOTE: This guage is important! It is used as our primary metric for scaling up / down
 const gaugeLagMilliseconds = new Gauge({
     name: 'recording_blob_ingestion_lag_in_milliseconds',
     help: "A gauge of the lag in milliseconds, more useful than lag in messages since it affects how much work we'll be pushing to redis",
+    labelNames: ['partition'],
+})
+
+// NOTE: This guage is important! It is used as our primary metric for scaling up / down
+const gaugeLag = new Gauge({
+    name: 'recording_blob_ingestion_lag',
+    help: 'A gauge of the lag in messages, taking into account in progress messages',
     labelNames: ['partition'],
 })
 
@@ -78,6 +84,12 @@ const counterKafkaMessageReceived = new Counter({
     labelNames: ['partition'],
 })
 
+type PartitionMetrics = {
+    lastMessageTimestamp?: number
+    lastMessageOffset?: number
+    lastKnownCommit?: number
+}
+
 export class SessionRecordingIngesterV2 {
     sessions: Record<string, SessionManager> = {}
     offsetHighWaterMarker: OffsetHighWaterMarker
@@ -85,12 +97,11 @@ export class SessionRecordingIngesterV2 {
     replayEventsIngester: ReplayEventsIngester
     batchConsumer?: BatchConsumer
     flushInterval: NodeJS.Timer | null = null
-    // the time at the most recent message of a particular partition
-    partitionNow: Record<number, number | null> = {}
-    partitionLastKnownCommit: Record<number, number | null> = {}
+
+    partitionAssignments = new Set<number>()
+    partitionMetrics: Record<number, PartitionMetrics | undefined> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
     recordingConsumerConfig: PluginsServerConfig
-    assignedPartitions = new Set<number>()
 
     constructor(
         private serverConfig: PluginsServerConfig,
@@ -121,11 +132,32 @@ export class SessionRecordingIngesterV2 {
     }
 
     private peformIfPartitionAssigned<T>(partition: number, fn: () => T): T | undefined {
-        if (!this.assignedPartitions.has(partition)) {
+        if (!this.partitionAssignments.has(partition)) {
             status.warn('🤔', 'blob_ingester_consumer - partition not assigned but working with it', { partition })
             return
         }
         return fn()
+    }
+
+    private reportConsumerLag() {
+        this.partitionAssignments.forEach((partition) => {
+            const partitionLastProcessedOffset = this.partitionMetrics[partition]?.lastMessageOffset
+
+            if (!partitionLastProcessedOffset) {
+                return
+            }
+
+            this.batchConsumer?.consumer.queryWatermarkOffsets(
+                KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+                partition,
+                (err, offsets) => {
+                    if (err) {
+                        return status.error('🔥', 'Failed to query kafka watermark offsets', err)
+                    }
+                    gaugeLag.set({ partition }, offsets.highOffset - partitionLastProcessedOffset)
+                }
+            )
+        })
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
@@ -265,12 +297,13 @@ export class SessionRecordingIngesterV2 {
                     const { partition, offset, timestamp } = message
 
                     if (timestamp) {
-                        // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                        this.partitionNow[partition] = timestamp
-                        // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-                        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
-
                         this.peformIfPartitionAssigned(partition, () => {
+                            const partitionMetrics: PartitionMetrics = this.partitionMetrics[partition] ?? {}
+                            // For some reason timestamp can be null. If it isn't, update our ingestion metrics
+                            partitionMetrics.lastMessageTimestamp = timestamp
+                            // If we don't have a last known commit then set it to this offset as we can't commit lower than that
+                            partitionMetrics.lastKnownCommit = partitionMetrics.lastKnownCommit ?? offset
+
                             counterKafkaMessageReceived.inc({ partition })
 
                             // NOTE: This is an important metric used by the autoscaler
@@ -379,7 +412,7 @@ export class SessionRecordingIngesterV2 {
                  */
 
                 topicPartitions.forEach((topicPartition: TopicPartition) => {
-                    this.assignedPartitions.add(topicPartition.partition)
+                    this.partitionAssignments.add(topicPartition.partition)
                 })
 
                 return
@@ -392,7 +425,7 @@ export class SessionRecordingIngesterV2 {
                  */
 
                 topicPartitions.forEach((topicPartition: TopicPartition) => {
-                    this.assignedPartitions.delete(topicPartition.partition)
+                    this.partitionAssignments.delete(topicPartition.partition)
                 })
 
                 const revokedPartitions = topicPartitions.map((x) => x.partition)
