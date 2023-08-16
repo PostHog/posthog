@@ -70,6 +70,8 @@ export enum KafkaSaslMechanism {
 }
 
 export enum PluginServerMode {
+    // Warning: when adding more modes, make sure to update worker/vm/capabilities.ts
+    // and the shouldSetupPluginInServer() test accordingly.
     ingestion = 'ingestion',
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',

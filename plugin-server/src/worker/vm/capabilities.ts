@@ -1,6 +1,8 @@
 import { PluginCapabilities, PluginConfigVMResponse, VMMethods } from '../../types'
 import { PluginServerCapabilities } from './../../types'
 
+const PROCESS_EVENT_CAPABILITIES = ['ingestion', 'ingestionOverflow', 'ingestionHistorical']
+
 export function getVMPluginCapabilities(vm: PluginConfigVMResponse): PluginCapabilities {
     const capabilities: Required<PluginCapabilities> = { scheduled_tasks: [], jobs: [], methods: [] }
 
@@ -35,7 +37,7 @@ export function getVMPluginCapabilities(vm: PluginConfigVMResponse): PluginCapab
 }
 
 function shouldSetupPlugin(serverCapability: keyof PluginServerCapabilities, pluginCapabilities: PluginCapabilities) {
-    if (serverCapability === 'ingestion') {
+    if (PROCESS_EVENT_CAPABILITIES.includes(serverCapability)) {
         return pluginCapabilities.methods?.includes('processEvent')
     }
     if (serverCapability === 'pluginScheduledTasks') {
