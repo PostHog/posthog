@@ -148,7 +148,7 @@ describe('propertyDefinitionsTableLogic', () => {
                         next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=50`,
                     }),
                 })
-            expect(api.get).toBeCalledTimes(2)
+            expect(api.get).toBeCalledTimes(3)
         })
     })
 })
