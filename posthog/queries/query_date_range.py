@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Dict, Generic, Literal, Optional, Tuple, TypeVar, cast
+from typing import Dict, Generic, Literal, Optional, Tuple, TypeVar
 
 import pytz
 from dateutil import parser
@@ -175,7 +175,6 @@ class QueryDateRange(Generic[F]):
                 raise ValueError("Cannot round with a filter that's not based on BaseFilter with IntervalMixin")
             date_expr = get_start_of_interval_sql(
                 self._filter.interval,
-                cast(BaseFilter, self._filter).hogql_context,
                 source=date_expr,
                 ensure_datetime=True,
             )

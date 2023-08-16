@@ -97,8 +97,8 @@ class RetentionEventsQuery(EventQuery):
                     [
                         dateDiff(
                             %(period)s,
-                            {get_start_of_interval_sql(self._filter.period, self._filter.hogql_context, source='%(start_date)s')},
-                            {get_start_of_interval_sql(self._filter.period, self._filter.hogql_context, source='min(e.timestamp)')}
+                            {get_start_of_interval_sql(self._filter.period, source='%(start_date)s')},
+                            {get_start_of_interval_sql(self._filter.period, source='min(e.timestamp)')}
                         )
                     ] as breakdown_values
                     """
@@ -109,8 +109,8 @@ class RetentionEventsQuery(EventQuery):
                     [
                         dateDiff(
                             %(period)s,
-                            {get_start_of_interval_sql(self._filter.period, self._filter.hogql_context, source='%(start_date)s')},
-                            {get_start_of_interval_sql(self._filter.period, self._filter.hogql_context, source='e.timestamp')}
+                            {get_start_of_interval_sql(self._filter.period, source='%(start_date)s')},
+                            {get_start_of_interval_sql(self._filter.period, source='e.timestamp')}
                         )
                     ] as breakdown_values
                     """
@@ -176,7 +176,7 @@ class RetentionEventsQuery(EventQuery):
 
     def get_timestamp_field(self) -> str:
         start_of_inteval_sql = get_start_of_interval_sql(
-            self._filter.period, self._filter.hogql_context, source=f"{self.EVENT_TABLE_ALIAS}.timestamp"
+            self._filter.period, source=f"{self.EVENT_TABLE_ALIAS}.timestamp"
         )
         if self._event_query_type == RetentionQueryType.TARGET:
             return f"DISTINCT {start_of_inteval_sql} AS event_date"

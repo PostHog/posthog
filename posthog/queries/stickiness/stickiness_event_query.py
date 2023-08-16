@@ -54,7 +54,7 @@ class StickinessEventsQuery(EventQuery):
             SELECT
                 {self.aggregation_target()} AS aggregation_target,
                 countDistinct(
-                    {get_start_of_interval_sql(self._filter.interval, self._filter.hogql_context)}
+                    {get_start_of_interval_sql(self._filter.interval)}
                 ) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
