@@ -575,7 +575,8 @@ class TestEnrichedAnalytics(BaseTest):
         self.assertEqual(f3.usage_dashboard.tiles.count(), 2)
 
         # now try deleting a usage dashboard. It should not delete the feature flag
-        # f1.usage_dashboard.delete()
+        f1.usage_dashboard.delete()
 
-        # f1.refresh_from_db()
-        # self.assertEqual(f1.has_enriched_analytics, True)
+        f1.refresh_from_db()
+        self.assertEqual(f1.has_enriched_analytics, True)
+        self.assertEqual(f1.usage_dashboard, None)
