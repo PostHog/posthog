@@ -33,6 +33,18 @@ from posthog.utils import relative_date_parse
 logger = structlog.get_logger(__name__)
 
 
+def depluralize(string: str | None) -> str | None:
+    if not string:
+        return None
+
+    if string.endswith("ies"):
+        return string[:-3] + "y"
+    elif string.endswith("s"):
+        return string[:-1]
+    else:
+        return string
+
+
 def log_notebook_activity(
     activity: str,
     notebook_id: str,
@@ -240,18 +252,23 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                 # and for recordings that type is "ph-recording"
                 # each of those objects can have attrs which is a dict with id for the recording
                 for match_pair in match_pairs:
-                    target, match = match_pair.split(":")
-                    if target == "recording":
-                        if match == "true":
+                    splat = match_pair.split(":")
+                    target = depluralize(splat[0])
+                    match = splat[1] if len(splat) > 1 else None
+
+                    if target:
+                        if match == "true" or match is None:
                             queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}])
                         elif match == "false":
                             queryset = queryset.exclude(content__content__contains=[{"type": f"ph-{target}"}])
                         else:
+                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}])
 
-                            # it could be a recording id
-                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}]).filter(
-                                content__content__contains=[{"attrs": {"id": match}}]
-                            )
+                            id = "id"
+                            if target == "replay-timestamp":
+                                id = "sessionRecordingId"
+
+                            queryset = queryset.filter(content__content__contains=[{"attrs": {id: match}}])
 
         return queryset
 
