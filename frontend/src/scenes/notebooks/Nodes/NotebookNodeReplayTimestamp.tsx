@@ -99,6 +99,11 @@ export function formatTimestamp(time: number): string {
     return dayjs.duration(time, 'milliseconds').format('HH:mm:ss').replace(/^00:/, '').trim()
 }
 
+export interface NotebookNodeReplayTimestampAttrs {
+    playbackTime: number | null
+    sessionRecordingId: string
+}
+
 export function buildTimestampCommentContent(
     currentPlayerTime: number | null,
     sessionRecordingId: string
