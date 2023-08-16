@@ -185,7 +185,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                             </>
                         )}
                     </ErrorBoundary>
-                    {isEditable && selected ? <NotebookNodeSettings /> : null}
+                    {isEditable && selected && expanded ? <NotebookNodeSettings /> : null}
                 </NodeViewWrapper>
             </BindLogic>
         </NotebookNodeContext.Provider>
