@@ -535,8 +535,8 @@ devDependencies:
     specifier: ^6.1.0
     version: 6.1.0(jest@29.3.1)
   kea-typegen:
-    specifier: ^3.2.0
-    version: 3.2.0(typescript@4.9.5)
+    specifier: ^3.2.1
+    version: 3.2.1(typescript@4.9.5)
   less:
     specifier: ^3.12.2
     version: 3.13.1
@@ -13646,8 +13646,8 @@ packages:
       kea-waitfor: 0.2.1(kea@3.1.5)
     dev: false
 
-  /kea-typegen@3.2.0(typescript@4.9.5):
-    resolution: {integrity: sha512-kOiR+Rh8gaEJQQFGNbP3KrexWImCt0fQbHt0dsj9y87mkPVWjvCq7nGO/2Ta7XnDqa4pSDPgm0WDYyrK/E7bWw==}
+  /kea-typegen@3.2.1(typescript@4.9.5):
+    resolution: {integrity: sha512-qT+17C2turiSlFecDS0epZsIPbzvsDiA4VD/bdUZ7kJXR2fV/8tgAV/Z7j+rVizR6jU+aRahm1Z4y4ChrHco2w==}
     hasBin: true
     peerDependencies:
       typescript: '>=4.5.3'

@@ -244,7 +244,7 @@
         "jest-canvas-mock": "^2.4.0",
         "jest-environment-jsdom": "^29.3.1",
         "jest-image-snapshot": "^6.1.0",
-        "kea-typegen": "^3.2.0",
+        "kea-typegen": "^3.2.1",
         "less": "^3.12.2",
         "less-loader": "^7.0.2",
         "lint-staged": "~10.2.13",
