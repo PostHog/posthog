@@ -37,7 +37,6 @@ from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.utils import UUIDT
 from posthog.utils import PersonOnEventsMode
-from posthog.hogql.database.schema.events import EventsTable
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -272,10 +271,6 @@ class _Printer(Visitor):
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
 
-                # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-                if isinstance(table_type.table, EventsTable) and self._is_next_s3(node.next_join):
-                    node.next_join.join_type = "GLOBAL JOIN"
-
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
                 if isinstance(table_type.table, S3Table) and (
                     node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
@@ -343,13 +338,6 @@ class _Printer(Visitor):
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
-    def _is_next_s3(self, node: Optional[ast.JoinExpr]):
-        if node is None:
-            return False
-        if isinstance(node.type, ast.TableAliasType):
-            return isinstance(node.type.table_type.table, S3Table)
-        return False
-
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
 
@@ -407,9 +395,7 @@ class _Printer(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
-        left_is_events = self._is_events_table(node.left)
         right = self.visit(node.right)
-        right_is_s3 = self._is_s3_cluster(node.right)
         nullable_left = self._is_nullable(node.left)
         nullable_right = self._is_nullable(node.right)
         not_nullable = not nullable_left and not nullable_right
@@ -439,17 +425,13 @@ class _Printer(Visitor):
             op = f"notILike({left}, {right})"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.In:
-            operator = "in"
-            # External tables need to use globalIn with distributed tables (events)
-            if left_is_events and right_is_s3:
-                operator = "globalIn"
-            op = f"{operator}({left}, {right})"
+            op = f"in({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotIn:
-            operator = "notIn"
-            # External tables need to use globalNotIn with distributed tables (events)
-            if left_is_events and right_is_s3:
-                operator = "globalNotIn"
-            op = f"{operator}({left}, {right})"
+            op = f"notIn({left}, {right})"
+        elif node.op == ast.CompareOperationOp.GlobalIn:
+            op = f"globalIn({left}, {right})"
+        elif node.op == ast.CompareOperationOp.GlobalNotIn:
+            op = f"globalNotIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.Regex:
             op = f"match({left}, {right})"
             value_if_both_sides_are_null = True
@@ -992,19 +974,3 @@ class _Printer(Visitor):
             return node.type.is_nullable()
         # we don't know if it's nullable, so we assume it can be
         return True
-
-    def _is_s3_cluster(self, node: ast.Expr) -> bool:
-        if isinstance(node, ast.SelectQuery):
-            try:
-                return isinstance(node.select_from.type.table_type.table, S3Table)
-            except:
-                return False
-        return False
-
-    def _is_events_table(self, node: ast.Expr) -> bool:
-        if isinstance(node, ast.Field):
-            try:
-                return isinstance(node.type.table_type.table, EventsTable)
-            except:
-                return False
-        return False

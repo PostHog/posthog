@@ -8,6 +8,7 @@ import {
     getText,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
+import { NodeViewProps } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
 
 /* eslint-disable @typescript-eslint/no-empty-interface */
@@ -22,6 +23,18 @@ export {
     FocusPosition as EditorFocusPosition,
 } from '@tiptap/core'
 
+export type NotebookNodeAttributes = Record<string, any>
+type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
+    attrs: T & {
+        nodeId?: string
+        height?: string | number
+    }
+}
+
+export type NotebookNodeViewProps<T extends NotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
+    node: NotebookNode<T>
+}
+
 export interface NotebookEditor {
     getJSON: () => JSONContent
     setEditable: (editable: boolean) => void
@@ -33,6 +46,7 @@ export interface NotebookEditor {
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
     findNode: (position: number) => Node | null
+    findNodePositionByAttrs: (attrs: Record<string, any>) => any
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
 }

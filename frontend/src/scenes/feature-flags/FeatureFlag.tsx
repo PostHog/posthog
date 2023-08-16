@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Form, Group } from 'kea-forms'
 import { Row, Col, Radio, InputNumber, Popconfirm, Select, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
-import { defaultEntityFilterOnFlag, featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
@@ -53,7 +53,7 @@ import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { FeatureFlagsTab } from './featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
@@ -97,7 +97,8 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
+    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, recordingFilterForFlag } =
+        useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate } =
         useActions(featureFlagLogic)
@@ -389,7 +390,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <div>
                                     <LemonButton
                                         fullWidth
-                                        status="default-dark"
+                                        status="stealth"
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
@@ -530,16 +531,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
                                                     <>
                                                         <LemonButton
-                                                            to={urls.replay(ReplayTabs.Recent, {
-                                                                events: defaultEntityFilterOnFlag(featureFlag.key)
-                                                                    .events,
-                                                            })}
+                                                            to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
                                                             type="secondary"
                                                         >
                                                             View Recordings
-                                                            <LemonTag type="warning" className="uppercase ml-2 mr-2">
-                                                                Beta
-                                                            </LemonTag>
                                                         </LemonButton>
                                                         <LemonDivider vertical />
                                                     </>
@@ -593,13 +588,32 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 }
 
 function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
-    const { key: featureFlagKey, usage_dashboard: dashboardId } = featureFlag
-    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const {
+        key: featureFlagKey,
+        usage_dashboard: dashboardId,
+        has_enriched_analytics: hasEnrichedAnalytics,
+    } = featureFlag
+    const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    const { receivedErrorsFromAPI } = useValues(
+    const { receivedErrorsFromAPI, dashboard } = useValues(
         dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
     )
     const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
+
+    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+    const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
+
+    useEffect(() => {
+        if (
+            connectedDashboardExists &&
+            dashboard &&
+            hasEnrichedAnalytics &&
+            !(dashboard.tiles?.find((tile) => (tile.insight?.name?.indexOf('Feature Viewed') ?? -1) > -1) !== undefined)
+        ) {
+            enrichUsageDashboard()
+        }
+    }, [dashboard])
+
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
@@ -612,7 +626,17 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     return (
         <div>
             {connectedDashboardExists ? (
-                <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+                <>
+                    {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
+                        <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
+                            Get richer insights automatically by{' '}
+                            <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
+                                enabling enriched analytics for flags{' '}
+                            </Link>
+                        </LemonBanner>
+                    )}
+                    <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+                </>
             ) : (
                 <div>
                     <b>Dashboard</b>

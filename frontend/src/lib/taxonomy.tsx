@@ -5,6 +5,9 @@ export interface KeyMappingInterface {
     element: Record<string, KeyMapping>
 }
 
+// If adding event properties with labels, check whether they should be added to
+// PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
+// see code to output JSON below this
 export const KEY_MAPPING: KeyMappingInterface = {
     event: {
         '': {

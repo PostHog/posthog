@@ -41,14 +41,15 @@ export const groupsListLogic = kea<groupsListLogicType>({
             { next: null, previous: null, results: [] } as GroupsPaginatedResponse,
             {
                 loadGroups: async ({ url }) => {
-                    if (values.groupsEnabled) {
-                        url =
-                            url ||
-                            `api/projects/${values.currentTeamId}/groups/?group_type_index=${props.groupTypeIndex}${
-                                values.search ? '&search=' + encodeURIComponent(values.search) : ''
-                            }`
-                        return await api.get(url)
+                    if (!values.groupsEnabled) {
+                        return values.groups
                     }
+                    url =
+                        url ||
+                        `api/projects/${values.currentTeamId}/groups/?group_type_index=${props.groupTypeIndex}${
+                            values.search ? '&search=' + encodeURIComponent(values.search) : ''
+                        }`
+                    return await api.get(url)
                 },
             },
         ],

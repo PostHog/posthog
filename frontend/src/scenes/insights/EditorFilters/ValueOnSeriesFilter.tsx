@@ -10,10 +10,10 @@ export function ValueOnSeriesFilter(): JSX.Element {
 
     return (
         <LemonCheckbox
+            className="p-1 px-2"
             checked={valueOnSeries}
             onChange={setValueOnSeries}
             label={<span className="font-normal">Show values on series</span>}
-            bordered
             size="small"
         />
     )
