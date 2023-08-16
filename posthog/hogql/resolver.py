@@ -484,15 +484,10 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        left = self.visit(node.left)
-        left_is_events = self._is_events_table(left)
-        right = self.visit(node.right)
-        right_is_s3 = self._is_s3_cluster(right)
-
         if (
             (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
-            and left_is_events
-            and right_is_s3
+            and self._is_events_table(self.visit(node.left))
+            and self._is_s3_cluster(self.visit(node.right))
         ):
             return self.visit(
                 ast.CompareOperation(
