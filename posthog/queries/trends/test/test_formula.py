@@ -207,6 +207,36 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0])
 
     @snapshot_clickhouse_queries
+    def test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x(self):
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {
+                                "id": "$autocapture",
+                                "math": "unique_session",
+                                "properties": [
+                                    {"key": "$session_duration", "type": "session", "value": 30, "operator": "lt"}
+                                ],
+                            },
+                            {
+                                "id": "session start",
+                                "math": "unique_session",
+                                "properties": [
+                                    {"key": "$session_duration", "type": "session", "value": 500, "operator": "gt"}
+                                ],
+                            },
+                        ],
+                        "formula": "B",
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0])
+
+    @snapshot_clickhouse_queries
     def test_regression_formula_with_session_duration_aggregation(self):
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(

@@ -45,6 +45,7 @@ import {
     UserType,
     BatchExportConfiguration,
     BatchExportRun,
+    NotebookNodeType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -1254,8 +1255,26 @@ const api = {
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<NotebookType>> {
-            return await new ApiRequest().notebooks().get()
+        async list(
+            contains?: { type: NotebookNodeType; attrs: Record<string, string> }[]
+        ): Promise<PaginatedResponse<NotebookType>> {
+            // TODO attrs can be a union of types like NotebookNodeRecordingAttributes
+            const apiRequest = new ApiRequest().notebooks()
+            if (!!contains?.length) {
+                const containsString = contains
+                    .map(({ type, attrs }) => {
+                        const target = type.replace(/^ph-/, '')
+                        if (target === 'recording') {
+                            return `${target}:${attrs['id']}`
+                        } else {
+                            // TODO add support for other types
+                            return ''
+                        }
+                    })
+                    .join(',')
+                apiRequest.withQueryString({ contains: containsString })
+            }
+            return await apiRequest.get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
