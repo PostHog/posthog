@@ -62,7 +62,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
 
     reducers({
         runsDateRange: [
-            { from: dayjs().subtract(7, 'day').startOf('day'), to: dayjs().endOf('day') },
+            { from: dayjs().subtract(7, 'day').startOf('day'), to: dayjs().endOf('day') } as { from: Dayjs; to: Dayjs },
             {
                 setRunsDateRange: (_, { from, to }) => ({ from, to }),
             },
