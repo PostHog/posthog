@@ -550,6 +550,7 @@ class HogQLMetadataResponse(BaseModel):
     inputExpr: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None
+    isValidView: Optional[bool] = None
     notices: List[HogQLNotice]
     warnings: List[HogQLNotice]
 
@@ -1138,7 +1139,6 @@ class InsightVizNode(BaseModel):
     showHeader: Optional[bool] = None
     showLastComputation: Optional[bool] = None
     showLastComputationRefresh: Optional[bool] = None
-    showLegendButton: Optional[bool] = None
     showTable: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 

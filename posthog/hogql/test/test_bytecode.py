@@ -39,8 +39,6 @@ class TestBytecode(BaseTest):
         self.assertEqual(to_bytecode("1 not ilike 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.NOT_ILIKE])
         self.assertEqual(to_bytecode("1 in 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.IN])
         self.assertEqual(to_bytecode("1 not in 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.NOT_IN])
-        self.assertEqual(to_bytecode("1 in cohort 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.IN_COHORT])
-        self.assertEqual(to_bytecode("1 not in cohort 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.NOT_IN_COHORT])
         self.assertEqual(to_bytecode("'string' ~ 'regex'"), [_H, op.STRING, "regex", op.STRING, "string", op.REGEX])
         self.assertEqual(to_bytecode("'string' =~ 'regex'"), [_H, op.STRING, "regex", op.STRING, "string", op.REGEX])
         self.assertEqual(
@@ -60,8 +58,16 @@ class TestBytecode(BaseTest):
         self.assertEqual(
             to_bytecode("match('test', 'x.*')"), [_H, op.STRING, "x.*", op.STRING, "test", op.CALL, "match", 2]
         )
+        self.assertEqual(to_bytecode("not('test')"), [_H, op.STRING, "test", op.NOT])
+        self.assertEqual(to_bytecode("not 'test'"), [_H, op.STRING, "test", op.NOT])
+        self.assertEqual(to_bytecode("or('test', 'test2')"), [_H, op.STRING, "test2", op.STRING, "test", op.OR, 2])
+        self.assertEqual(to_bytecode("and('test', 'test2')"), [_H, op.STRING, "test2", op.STRING, "test", op.AND, 2])
 
     def test_bytecode_create_error(self):
         with self.assertRaises(NotImplementedException) as e:
             to_bytecode("(select 1)")
         self.assertEqual(str(e.exception), "Visitor has no method visit_select_query")
+
+        with self.assertRaises(NotImplementedException) as e:
+            to_bytecode("1 in cohort 2")
+        self.assertEqual(str(e.exception), "Cohort operations are not supported")

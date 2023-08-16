@@ -137,6 +137,21 @@ $colors: (
     'border-bold-3000-dark': #3f4046,
     'glass-bg-3000-dark': #1d1f27b3,
     'glass-border-3000-dark': var(--border-3000-dark),
+    // The derived colors
+    'text-3000': var(--text-3000),
+    'muted-3000': var(--muted-3000),
+    'trace-3000': var(--trace-3000),
+    'primary-3000': var(--primary-3000),
+    'primary-3000-hover': var(--primary-3000-hover),
+    'secondary-3000': var(--secondary-3000),
+    'secondary-3000-hover': var(--secondary-3000-hover),
+    'accent-3000': var(--accent-3000),
+    'bg-3000': var(--bg-3000),
+    'border-3000': var(--border-3000),
+    'border-bold-3000': var(--border-bold-3000),
+    'glass-bg-3000': var(--glass-bg-3000),
+    'glass-border-3000': var(--glass-border-3000),
+    // 'bg-light': var(--accent-3000),
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
@@ -211,11 +226,11 @@ $_lifecycle_dormant: $_danger;
     --lifecycle-dormant-hover: #{darken($_lifecycle_dormant, 20%)};
 
     // Funnels
+    // TODO: unify with lib/colors.ts, getGraphColors()
     --funnel-default: var(--primary);
     --funnel-background: var(--border-light);
-    --funnel-axis-zero: var(--default);
-    --funnel-axis: var(--border-bold);
-    --funnel-axis-label: var(--muted);
+    --funnel-axis: var(--border);
+    --funnel-grid: #ddd;
     --antd-table-background-dark: #fafafa;
 
     // Session Recording

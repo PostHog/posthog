@@ -1126,6 +1126,9 @@
                 "isValid": {
                     "type": "boolean"
                 },
+                "isValidView": {
+                    "type": "boolean"
+                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -1272,9 +1275,6 @@
                     "type": "boolean"
                 },
                 "showLastComputationRefresh": {
-                    "type": "boolean"
-                },
-                "showLegendButton": {
                     "type": "boolean"
                 },
                 "showTable": {

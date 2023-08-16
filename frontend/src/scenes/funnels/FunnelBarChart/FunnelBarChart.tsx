@@ -18,12 +18,15 @@ interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-row-height': string
 }
 
-export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }: ChartParams): JSX.Element {
+export function FunnelBarChart({
+    inCardView,
+    showPersonsModal: showPersonsModalProp = true,
+}: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
-    const [scrollRef, scrollableClassNames] = useScrollable()
+    const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
@@ -106,8 +109,20 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
         )
     }, [visibleStepsWithConversionMetrics, height])
 
+    // negative margin-top so that the scrollable shadow is visible on the canvas label as well
+    const scrollableAdjustmentCanvasLabel = !inCardView && '-mt-12 pt-10'
+
     return (
-        <div className={clsx('FunnelBarChart', ...scrollableClassNames)} ref={vizRef} data-attr="funnel-bar-graph">
+        <div
+            className={clsx(
+                'FunnelBarChart scrollable',
+                isScrollableLeft && 'scrollable--left',
+                isScrollableRight && 'scrollable--right',
+                scrollableAdjustmentCanvasLabel
+            )}
+            ref={vizRef}
+            data-attr="funnel-bar-graph"
+        >
             <div className="scrollable__inner" ref={scrollRef}>
                 {table}
             </div>

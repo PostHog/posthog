@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, List, Optional, cast
 
 from django.db.models import QuerySet
+from django.conf import settings
 from django.db.models.query_utils import Q
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -35,6 +36,12 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import BurstRateThrottle
+
+DATABASE_FOR_LOCAL_EVALUATION = (
+    "default"
+    if ("local_evaluation" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES)
+    else "replica"
+)
 
 
 class FeatureFlagThrottle(BurstRateThrottle):
@@ -393,17 +400,40 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
     @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
 
-        feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)
+        feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+            team_id=self.team_id, deleted=False, active=True
+        )
+
+        should_send_cohorts = "send_cohorts" in request.GET
+
         cohorts = {}
+        seen_cohorts_cache: Dict[str, Cohort] = {}
+
+        if should_send_cohorts:
+            seen_cohorts_cache = {
+                str(cohort.pk): cohort
+                for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                    team_id=self.team_id, deleted=False
+                )
+            }
 
         parsed_flags = []
         for feature_flag in feature_flags:
             filters = feature_flag.get_filters()
             # transform cohort filters to be evaluated locally
-            if len(feature_flag.cohort_ids) == 1:
+            if (
+                len(
+                    feature_flag.get_cohort_ids(
+                        using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
+                    )
+                )
+                == 1
+            ):
                 feature_flag.filters = {
                     **filters,
-                    "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(),
+                    "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(
+                        using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
+                    ),
                 }
             else:
                 feature_flag.filters = filters
@@ -412,11 +442,19 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
             # when param set, send cohorts, for libraries that can handle evaluating them locally
             # irrespective of complexity
-            if "send_cohorts" in request.GET:
-                for id in feature_flag.cohort_ids:
+            if should_send_cohorts:
+                for id in feature_flag.get_cohort_ids(
+                    using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
+                ):
                     # don't duplicate queries for already added cohorts
                     if id not in cohorts:
-                        cohort = Cohort.objects.get(id=id)
+                        parsed_cohort_id = str(id)
+                        if parsed_cohort_id in seen_cohorts_cache:
+                            cohort = seen_cohorts_cache[parsed_cohort_id]
+                        else:
+                            cohort = Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).get(id=id)
+                            seen_cohorts_cache[parsed_cohort_id] = cohort
+
                         if not cohort.is_static:
                             cohorts[cohort.pk] = cohort.properties.to_dict()
 
@@ -431,7 +469,9 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 ],
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
-                    for row in GroupTypeMapping.objects.filter(team_id=self.team_id)
+                    for row in GroupTypeMapping.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                        team_id=self.team_id
+                    )
                 },
                 "cohorts": cohorts,
             }

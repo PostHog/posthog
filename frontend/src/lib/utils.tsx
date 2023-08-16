@@ -48,6 +48,7 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { urls } from 'scenes/urls'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
+import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -413,6 +414,14 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
 
+export function isObject(candidate: unknown): candidate is Record<string, unknown> {
+    return typeof candidate === 'object' && candidate !== null
+}
+
+export function isEmptyObject(candidate: unknown): boolean {
+    return isObject(candidate) && Object.keys(candidate).length === 0
+}
+
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
 export function objectClean<T extends Record<string | number | symbol, unknown>>(obj: T): T {
     const response = { ...obj }
@@ -659,8 +668,12 @@ export function stripHTTP(url: string): string {
 export function isDomain(url: string): boolean {
     try {
         const parsedUrl = new URL(url)
-        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+        if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
+        } else {
+            if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
+                return true
+            }
         }
     } catch {
         return false
@@ -801,7 +814,7 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
 }
 
 export const dateMapping: DateMappingOption[] = [
-    { key: 'Custom', values: [] },
+    { key: CUSTOM_OPTION_KEY, values: [] },
     {
         key: 'Today',
         values: ['dStart'],
@@ -933,7 +946,7 @@ export function dateFilterToText(
     }
 
     for (const { key, values, getFormattedDate } of dateOptions) {
-        if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
+        if (values[0] === dateFrom && values[1] === dateTo && key !== CUSTOM_OPTION_KEY) {
             return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
         }
     }

@@ -149,7 +149,6 @@ def get_decide(request: HttpRequest):
             feature_flags = None
             errors = False
             if not disable_flags:
-
                 distinct_id = data.get("distinct_id")
                 if distinct_id is None:
                     return cors_response(

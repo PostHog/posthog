@@ -173,10 +173,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
+        setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
         toggleAutoplayDirection: true,
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
+        setSearchQuery: (search: string) => ({ search }),
         setSyncScroll: (enabled: boolean) => ({ enabled }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
@@ -226,6 +228,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 toggleAutoplayDirection: (state) => {
                     return !state ? 'older' : state === 'older' ? 'newer' : null
                 },
+            },
+        ],
+        hideViewedRecordings: [
+            false,
+            { persist: true },
+            {
+                setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
             },
         ],
 
@@ -289,6 +298,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
 
                     return newFilters
                 },
+            },
+        ],
+
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { search }) => search || '',
             },
         ],
 

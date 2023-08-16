@@ -1,6 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { LemonSwitch, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -23,8 +23,15 @@ export function AutocaptureSettings(): JSX.Element {
         <>
             <h2 className="subtitle">Autocapture</h2>
             <p>
-                Automagically capture frontend interactions like pageviews, clicks, and more when using our JavaScript
-                or React Native libraries.
+                Automagically capture front-end interactions like pageviews, clicks, and more when using our web
+                JavaScript SDK.{' '}
+            </p>
+            <p>
+                Autocapture is also available for React Native, where it has to be{' '}
+                <Link to="https://posthog.com/docs/libraries/react-native#autocapture" target="_blank">
+                    configured directly in code
+                </Link>
+                .
             </p>
             <div className="space-y-2">
                 <LemonSwitch
@@ -37,7 +44,7 @@ export function AutocaptureSettings(): JSX.Element {
                     }}
                     checked={!currentTeam?.autocapture_opt_out}
                     disabled={userLoading}
-                    label="Enable Autocapture"
+                    label="Enable autocapture for web"
                     bordered
                 />
                 <FlaggedFeature flag={FEATURE_FLAGS.EXCEPTION_AUTOCAPTURE}>
@@ -54,7 +61,7 @@ export function AutocaptureSettings(): JSX.Element {
                             disabled={userLoading}
                             label={
                                 <>
-                                    Enable Exception Autocapture <LemonTag>ALPHA</LemonTag>
+                                    Enable exception autocapture <LemonTag>ALPHA</LemonTag>
                                 </>
                             }
                             bordered

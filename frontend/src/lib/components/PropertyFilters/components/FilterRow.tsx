@@ -100,9 +100,7 @@ export const FilterRow = React.memo(function FilterRow({
                     </Popover>
                 )}
                 {key && showConditionBadge && index + 1 < totalCount && (
-                    <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">
-                        AND
-                    </span>
+                    <span className="stateful-badge and ml-2">AND</span>
                 )}
             </Row>
             {errorMessage}

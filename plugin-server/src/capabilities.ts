@@ -20,6 +20,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingIngestion: true,
                 sessionRecordingBlobIngestion: true,
+                transpileFrontendApps: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion:
@@ -77,6 +78,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.scheduler:
             return {
                 pluginScheduledTasks: true,
+                transpileFrontendApps: true, // TODO: move this away from pod startup, into a graphile job
                 ...sharedCapabilities,
             }
     }

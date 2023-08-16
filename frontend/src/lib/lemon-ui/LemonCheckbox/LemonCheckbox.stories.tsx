@@ -38,6 +38,12 @@ Disabled.args = {
     disabled: true,
 }
 
+export const DisabledWithReason = Template.bind({})
+DisabledWithReason.args = {
+    label: "You can't check this out",
+    disabledReason: 'This is not the way to Amarillo',
+}
+
 export const NoLabel = Template.bind({})
 NoLabel.args = {}
 

@@ -198,7 +198,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                         const significance = getSignificanceFromBreakdownStep(breakdown, step.order)
                         return significance?.total ? (
                             <LemonRow
-                                className="significance-highlight"
+                                className="funnel-significance-highlight"
                                 tooltip="Significantly different from other breakdown values"
                                 icon={<IconFlag />}
                                 size="small"
@@ -230,7 +230,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                   // Only flag as significant here if not flagged already in "Conversion so far"
                                   return !significance?.total && significance?.fromPrevious ? (
                                       <LemonRow
-                                          className="significance-highlight"
+                                          className="funnel-significance-highlight"
                                           tooltip="Significantly different from other breakdown values"
                                           icon={<IconFlag />}
                                           size="small"
@@ -296,6 +296,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             rowKey="breakdownIndex"
             rowStatus={(record) => (record.significant ? 'highlighted' : null)}
             rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex ?? 0)}
+            firstColumnSticky
         />
     )
 }

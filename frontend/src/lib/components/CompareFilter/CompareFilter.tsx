@@ -18,7 +18,7 @@ export function CompareFilter(): JSX.Element | null {
             onChange={setCompare}
             checked={!!compare}
             disabled={disabled}
-            label={<span className="font-normal">Compare to previous time period</span>}
+            label={<span className="font-normal">Compare to previous period</span>}
             bordered
             size="small"
         />
