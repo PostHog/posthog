@@ -404,8 +404,6 @@ export class SessionRecordingIngesterV2 {
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
-                await this.destroySessions(sessionsToDrop)
-
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugeSessionsHandled.remove()
 
@@ -419,6 +417,8 @@ export class SessionRecordingIngesterV2 {
                     this.partitionNow[partition] = null
                     this.partitionLastKnownCommit[partition] = null
                 })
+
+                await this.destroySessions(sessionsToDrop)
 
                 return
             }
