@@ -53,7 +53,7 @@ const gaugeLagMilliseconds = new Gauge({
     labelNames: ['partition'],
 })
 
-// NOTE: This guage is important! It is used as our primary metric for scaling up / down
+// NOTE: This gauge is important! It is used as our primary metric for scaling up / down
 const gaugeLag = new Gauge({
     name: 'recording_blob_ingestion_lag',
     help: 'A gauge of the lag in messages, taking into account in progress messages',
