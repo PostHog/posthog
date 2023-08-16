@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
 import { urls } from 'scenes/urls'
 import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { toParams } from 'lib/utils'
@@ -142,7 +142,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             null as PluginConfigWithPluginInfo | null,
             {
                 loadPluginConfig: async () => {
-                    return await api.get(
+                    return await api.get<PluginConfigWithPluginInfo>(
                         `api/projects/${teamLogic.values.currentTeamId}/plugin_configs/${props.pluginConfigId}`
                     )
                 },
@@ -152,12 +152,14 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             null as AppMetricsResponse | null,
             {
                 loadMetrics: async () => {
-                    if (values.activeTab && values.dateFrom) {
-                        const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
-                        return await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
-                        )
+                    if (!values.activeTab || !values.dateFrom) {
+                        return null
                     }
+
+                    const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
+                    return await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
+                    )
                 },
             },
         ],
@@ -165,10 +167,10 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             [] as Array<HistoricalExportInfo>,
             {
                 loadHistoricalExports: async () => {
-                    const { results } = await api.get(
+                    const { results } = await api.get<PaginatedResponse<HistoricalExportInfo>>(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/historical_exports`
                     )
-                    return results as Array<HistoricalExportInfo>
+                    return results
                 },
             },
         ],
