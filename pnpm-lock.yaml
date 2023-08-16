@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -535,8 +535,8 @@ devDependencies:
     specifier: ^6.1.0
     version: 6.1.0(jest@29.3.1)
   kea-typegen:
-    specifier: ^3.1.6
-    version: 3.1.6(typescript@4.9.5)
+    specifier: ^3.2.0
+    version: 3.2.0(typescript@4.9.5)
   less:
     specifier: ^3.12.2
     version: 3.13.1
@@ -13572,7 +13572,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
@@ -13646,8 +13646,8 @@ packages:
       kea-waitfor: 0.2.1(kea@3.1.5)
     dev: false
 
-  /kea-typegen@3.1.6(typescript@4.9.5):
-    resolution: {integrity: sha512-Rbdr2+oW4N7S4WsTpMv8DdazpPOCSeKa4xbpMfkA2Qy6lNmr1SLMFgx43Ei/lDVLO52H04C5/qISIdqjQ6hpvQ==}
+  /kea-typegen@3.2.0(typescript@4.9.5):
+    resolution: {integrity: sha512-kOiR+Rh8gaEJQQFGNbP3KrexWImCt0fQbHt0dsj9y87mkPVWjvCq7nGO/2Ta7XnDqa4pSDPgm0WDYyrK/E7bWw==}
     hasBin: true
     peerDependencies:
       typescript: '>=4.5.3'
