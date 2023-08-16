@@ -37,7 +37,7 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
     autoHideMetadata?: boolean
-    widgets: NotebookNodeWidget[]
+    widgets?: NotebookNodeWidget[]
 }
 
 export function NodeWrapper<T extends NotebookNodeAttributes>({
@@ -55,7 +55,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     node,
     getPos,
     updateAttributes,
-    widgets,
+    widgets = [],
     editor,
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
@@ -200,7 +200,7 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
-    widgets: NotebookNodeWidget[]
+    widgets?: NotebookNodeWidget[]
 }
 
 export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
