@@ -71,7 +71,7 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
     },
     pasteOptions: {
         find: urls.featureFlag('') + '(.+)',
-        getAttributes: (match) => {
+        getAttributes: async (match) => {
             return { id: match[1] as FeatureFlagLogicProps['id'] }
         },
     },

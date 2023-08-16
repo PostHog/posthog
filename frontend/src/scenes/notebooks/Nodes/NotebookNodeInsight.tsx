@@ -34,7 +34,7 @@ export const NotebookNodeInsight = createPostHogWidgetNode<NotebookNodeInsightAt
     },
     pasteOptions: {
         find: urls.insightView('(.+)' as InsightShortId),
-        getAttributes: (match) => {
+        getAttributes: async (match) => {
             return { id: match[1] as InsightShortId }
         },
     },
