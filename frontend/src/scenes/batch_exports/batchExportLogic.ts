@@ -7,7 +7,7 @@ import api, { PaginatedResponse } from 'lib/api'
 
 import { lemonToast } from '@posthog/lemon-ui'
 import { forms } from 'kea-forms'
-import { dayjs } from 'lib/dayjs'
+import { dayjs, Dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 import type { batchExportLogicType } from './batchExportLogicType'
 import { router } from 'kea-router'
@@ -57,7 +57,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
         openBackfillModal: true,
         closeBackfillModal: true,
         retryRun: (run: BatchExportRun) => ({ run }),
-        setRunsDateRange: (data: { from: dayjs.Dayjs; to: dayjs.Dayjs }) => data,
+        setRunsDateRange: (data: { from: Dayjs; to: Dayjs }) => data,
     }),
 
     reducers({
@@ -152,8 +152,8 @@ export const batchExportLogic = kea<batchExportLogicType>([
     forms(({ props, actions }) => ({
         backfillForm: {
             defaults: { end_at: dayjs() } as {
-                start_at?: dayjs.Dayjs
-                end_at?: dayjs.Dayjs
+                start_at?: Dayjs
+                end_at?: Dayjs
             },
             errors: ({ start_at, end_at }) => ({
                 start_at: !start_at ? 'Start date is required' : undefined,
