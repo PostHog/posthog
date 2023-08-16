@@ -355,9 +355,9 @@ export class HookCommander {
 
         const timeout = setTimeout(() => {
             console.log(
-                `⌛⌛⌛ Posting Webhook slow. Timeout warning after 30 sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
+                `⌛⌛⌛ Posting Webhook slow. Timeout warning after 5 sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
             )
-        }, 30000)
+        }, 5000)
         try {
             await instrumentWebhookStep('fetch', async () => {
                 await fetch(webhookUrl, {
@@ -393,9 +393,9 @@ export class HookCommander {
 
         const timeout = setTimeout(() => {
             console.log(
-                `⌛⌛⌛ Posting RestHook slow. Timeout warning after 30 sec! url=${hook.target} team_id=${event.teamId} event_id=${event.eventUuid}`
+                `⌛⌛⌛ Posting RestHook slow. Timeout warning after 5 sec! url=${hook.target} team_id=${event.teamId} event_id=${event.eventUuid}`
             )
-        }, 30000)
+        }, 5000)
         try {
             const request = await fetch(hook.target, {
                 method: 'POST',
