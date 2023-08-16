@@ -351,6 +351,13 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
         return queryset.select_related("created_by").order_by("-created_at")
 
+    def list(self, request, *args, **kwargs):
+        if getattr(request, "using_personal_api_key", False):
+            # Add request for analytics only if request coming with personal API key authentication
+            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+
+        return super().list(request, args, kwargs)
+
     @action(methods=["POST"], detail=True)
     def dashboard(self, request: request.Request, **kwargs):
         feature_flag: FeatureFlag = self.get_object()
