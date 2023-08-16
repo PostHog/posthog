@@ -11,10 +11,10 @@ import { NotebookNodeWidget } from '../Notebook/utils'
 
 export const NotebookNodeSettings = (): JSX.Element => {
     return (
-        <div>
+        <>
             {createPortal(<Actions />, document.getElementsByClassName('NotebookNodeSetting__actions__portal')[0])}
             {createPortal(<Widgets />, document.getElementsByClassName('NotebookNodeSettings__widgets__portal')[0])}
-        </div>
+        </>
     )
 }
 
@@ -95,7 +95,7 @@ export const Widgets = (): JSX.Element | null => {
     }
 
     return (
-        <div className="NotebookNodeSettings__widgets space-y-2">
+        <div className="NotebookNodeSettings__widgets space-y-2 w-full max-w-80">
             {openWidgets.map(({ key, label, Component }) => (
                 <LemonWidget key={key} title={label} onClose={() => removeActiveWidget(key)}>
                     <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
