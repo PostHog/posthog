@@ -1012,13 +1012,13 @@ export function Experiment(): JSX.Element {
                             )
                         )}
                         {experimentResults ? (
-                            <div className="mt-4">
+                            // :KLUDGE: using `insights-page` for proper styling, should rather adapt styles
+                            <div className="mt-4 insights-page">
                                 <Query
                                     query={{
                                         kind: NodeKind.InsightVizNode,
                                         source: filtersToQueryNode(transformResultFilters(experimentResults.filters)),
                                         showTable: true,
-                                        showLegendButton: false,
                                         showLastComputation: true,
                                         showLastComputationRefresh: false,
                                     }}

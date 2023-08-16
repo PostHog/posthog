@@ -1390,7 +1390,7 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType> | null | undefined
+    default: Record<string, JsonType>
     required: boolean
 }
 
@@ -2139,7 +2139,7 @@ export enum SurveyQuestionType {
 }
 
 export interface FeatureFlagGroupType {
-    properties: AnyPropertyFilter[]
+    properties?: AnyPropertyFilter[]
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number

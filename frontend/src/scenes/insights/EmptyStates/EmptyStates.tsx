@@ -167,7 +167,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                     <PlusCircleOutlined />
                 </div>
                 <h2 className="funnels-empty-state__title">Add another step!</h2>
-                <p className="funnels-empty-state__description">
+                <p className="text-center">
                     You’re almost there! Funnels require at least two steps before calculating.
                     {actionable &&
                         ' Once you have two steps defined, additional changes will recalculate automatically.'}

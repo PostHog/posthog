@@ -364,7 +364,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
-        split_person.delay(person.id, request.data.get("main_distinct_id", None))
+        split_person.delay(person.id, request.data.get("main_distinct_id", None), None)
 
         log_activity(
             organization_id=self.organization.id,
