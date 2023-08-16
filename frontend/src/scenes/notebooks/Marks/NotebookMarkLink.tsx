@@ -1,5 +1,5 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
-import { externalLinkPasteRule, posthogLinkPasteRule } from '../Nodes/utils'
+import { linkPasteRule } from '../Nodes/utils'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { router } from 'kea-router'
 
@@ -26,7 +26,7 @@ export const NotebookMarkLink = Mark.create({
     },
 
     addPasteRules() {
-        return [posthogLinkPasteRule(), externalLinkPasteRule()]
+        return [linkPasteRule()]
     },
 
     addProseMirrorPlugins() {
