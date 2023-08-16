@@ -88,6 +88,7 @@ type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
     lastKnownCommit?: number
+    highOffset?: number
 }
 
 export class SessionRecordingIngesterV2 {
@@ -97,9 +98,7 @@ export class SessionRecordingIngesterV2 {
     replayEventsIngester: ReplayEventsIngester
     batchConsumer?: BatchConsumer
     flushInterval: NodeJS.Timer | null = null
-
-    partitionAssignments = new Set<number>()
-    partitionMetrics: Record<number, PartitionMetrics | undefined> = {}
+    partitionAssignments: Record<number, PartitionMetrics> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
     recordingConsumerConfig: PluginsServerConfig
 
@@ -131,33 +130,29 @@ export class SessionRecordingIngesterV2 {
         })
     }
 
-    private peformIfPartitionAssigned<T>(partition: number, fn: () => T): T | undefined {
-        if (!this.partitionAssignments.has(partition)) {
-            status.warn('🤔', 'blob_ingester_consumer - partition not assigned but working with it', { partition })
-            return
-        }
-        return fn()
-    }
-
-    private reportConsumerLag() {
-        this.partitionAssignments.forEach((partition) => {
-            const partitionLastProcessedOffset = this.partitionMetrics[partition]?.lastMessageOffset
-
-            if (!partitionLastProcessedOffset) {
-                return
-            }
-
-            this.batchConsumer?.consumer.queryWatermarkOffsets(
-                KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-                partition,
-                (err, offsets) => {
-                    if (err) {
-                        return status.error('🔥', 'Failed to query kafka watermark offsets', err)
+    private async refreshAssignedPartitionOffsets() {
+        await Promise.all(
+            Object.entries(this.partitionAssignments).map(async ([partition, metrics]) => {
+                return new Promise<void>((resolve, reject) => {
+                    if (!this.batchConsumer) {
+                        return reject('Not connected')
                     }
-                    gaugeLag.set({ partition }, offsets.highOffset - partitionLastProcessedOffset)
-                }
-            )
-        })
+                    this.batchConsumer.consumer.queryWatermarkOffsets(
+                        KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+                        parseInt(partition),
+                        (err, offsets) => {
+                            if (err) {
+                                status.error('🔥', 'Failed to query kafka watermark offsets', err)
+                                return reject()
+                            }
+
+                            metrics.highOffset = offsets.highOffset
+                            resolve()
+                        }
+                    )
+                })
+            })
+        )
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
@@ -296,23 +291,27 @@ export class SessionRecordingIngesterV2 {
                 for (const message of messages) {
                     const { partition, offset, timestamp } = message
 
-                    if (timestamp) {
-                        this.peformIfPartitionAssigned(partition, () => {
-                            const partitionMetrics: PartitionMetrics = this.partitionMetrics[partition] ?? {}
-                            // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                            partitionMetrics.lastMessageTimestamp = timestamp
-                            // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-                            partitionMetrics.lastKnownCommit = partitionMetrics.lastKnownCommit ?? offset
+                    if (timestamp && this.partitionAssignments[partition]) {
+                        const metrics = this.partitionAssignments[partition]
 
-                            counterKafkaMessageReceived.inc({ partition })
+                        // For some reason timestamp can be null. If it isn't, update our ingestion metrics
+                        metrics.lastMessageTimestamp = timestamp
+                        // If we don't have a last known commit then set it to this offset as we can't commit lower than that
+                        metrics.lastKnownCommit = metrics.lastKnownCommit ?? offset
+                        metrics.lastMessageOffset = offset
 
-                            // NOTE: This is an important metric used by the autoscaler
-                            gaugeLagMilliseconds
-                                .labels({
-                                    partition: partition.toString(),
-                                })
-                                .set(now() - timestamp)
-                        })
+                        counterKafkaMessageReceived.inc({ partition })
+
+                        gaugeLagMilliseconds
+                            .labels({
+                                partition: partition.toString(),
+                            })
+                            .set(now() - timestamp)
+
+                        // NOTE: This is an important metric used by the autoscaler
+                        if (metrics.highOffset) {
+                            gaugeLag.set({ partition }, metrics.highOffset - metrics.lastMessageOffset)
+                        }
                     }
 
                     const recordingMessage = await this.parseKafkaMessage(message)
@@ -412,7 +411,7 @@ export class SessionRecordingIngesterV2 {
                  */
 
                 topicPartitions.forEach((topicPartition: TopicPartition) => {
-                    this.partitionAssignments.add(topicPartition.partition)
+                    this.partitionAssignments[topicPartition.partition] = {}
                 })
 
                 return
@@ -425,7 +424,7 @@ export class SessionRecordingIngesterV2 {
                  */
 
                 topicPartitions.forEach((topicPartition: TopicPartition) => {
-                    this.partitionAssignments.delete(topicPartition.partition)
+                    delete this.partitionAssignments[topicPartition.partition]
                 })
 
                 const revokedPartitions = topicPartitions.map((x) => x.partition)
@@ -443,12 +442,12 @@ export class SessionRecordingIngesterV2 {
                 topicPartitions.forEach((topicPartition: TopicPartition) => {
                     const partition = topicPartition.partition
 
+                    gaugeLag.remove({ partition })
                     gaugeLagMilliseconds.remove({ partition })
                     gaugeOffsetCommitted.remove({ partition })
                     gaugeOffsetCommitFailed.remove({ partition })
                     this.offsetHighWaterMarker.revoke(topicPartition)
-                    this.partitionNow[partition] = null
-                    this.partitionLastKnownCommit[partition] = null
+                    delete this.partitionAssignments[partition]
                 })
 
                 await this.destroySessions(sessionsToDrop)
@@ -487,7 +486,7 @@ export class SessionRecordingIngesterV2 {
         const promises: Promise<void>[] = []
         for (const [key, sessionManager] of Object.entries(this.sessions)) {
             // in practice, we will always have a values for latestKafkaMessageTimestamp,
-            const referenceTime = this.partitionNow[sessionManager.partition]
+            const referenceTime = this.partitionAssignments[sessionManager.partition]?.lastMessageTimestamp
             if (!referenceTime) {
                 status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
                     partition: sessionManager.partition,
@@ -573,7 +572,7 @@ export class SessionRecordingIngesterV2 {
                 ? potentiallyBlockingOffset
                 : offset
 
-        const lastKnownCommit = this.partitionLastKnownCommit[partition] || 0
+        const lastKnownCommit = this.partitionAssignments[partition]?.lastKnownCommit || 0
         // TODO: Check how long we have been blocked by any individual session and if it is too long then we should
         // capture an exception to figure out why
         if (lastKnownCommit >= highestOffsetToCommit) {
@@ -581,7 +580,9 @@ export class SessionRecordingIngesterV2 {
             return
         }
 
-        this.partitionLastKnownCommit[partition] = highestOffsetToCommit
+        if (this.partitionAssignments[partition]) {
+            this.partitionAssignments[partition].lastKnownCommit = highestOffsetToCommit
+        }
 
         status.info('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
             partition,
