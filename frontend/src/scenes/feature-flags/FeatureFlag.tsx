@@ -53,7 +53,7 @@ import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { FeatureFlagsTab } from './featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
@@ -600,6 +600,9 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     )
     const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
 
+    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+    const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
+
     useEffect(() => {
         if (
             connectedDashboardExists &&
@@ -624,8 +627,8 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         <div>
             {connectedDashboardExists ? (
                 <>
-                    {!hasEnrichedAnalytics && (
-                        <LemonBanner type="warning" className="mb-3">
+                    {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
+                        <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
                             Get richer insights automatically by{' '}
                             <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
                                 enabling enriched analytics for flags{' '}
