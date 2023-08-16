@@ -3,7 +3,8 @@ import json
 
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.batch_exports.service import backfill_export, create_batch_export
+from posthog.batch_exports.models import BatchExport, BatchExportDestination
+from posthog.batch_exports.service import backfill_export, sync_batch_export
 from posthog.models.plugin import PluginConfig
 from posthog.temporal.client import sync_connect
 
@@ -85,7 +86,17 @@ class Command(BaseCommand):
             self.stdout.write("No BatchExport will be created as this is a dry run or confirmation check rejected.")
             return json.dumps(batch_export_data, indent=4, default=str)
         else:
-            batch_export = create_batch_export(**batch_export_data)
+            destination = BatchExportDestination(**batch_export_data["destination_data"])
+            batch_export = BatchExport(
+                team_id=batch_export_data["team_id"],
+                name=batch_export_data["name"],
+                interval=batch_export_data["interval"],
+                destination=destination,
+            )
+
+            batch_export.save()
+
+            sync_batch_export(batch_export, created=True)
             self.stdout.write(f"Created BatchExport '{name}' with id '{batch_export.id}'")
 
         if options.get("disable_plugin_config", False) and dry_run is False:
