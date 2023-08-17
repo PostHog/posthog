@@ -31,6 +31,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         # The columns will be inferred from the query
         try:
             view.columns = view.get_columns()
+            view.external_tables = view.s3_tables
         except Exception as err:
             raise serializers.ValidationError(str(err))
 
@@ -38,10 +39,11 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
-        view = super().update(instance, validated_data)
+        view: DataWarehouseSavedQuery = super().update(instance, validated_data)
 
         try:
             view.columns = view.get_columns()
+            view.external_tables = view.s3_tables
         except Exception as err:
             raise serializers.ValidationError(str(err))
         view.save()

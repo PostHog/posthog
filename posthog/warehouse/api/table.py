@@ -1,14 +1,15 @@
+from rest_framework import request, response, status
 from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.database.database import serialize_fields, SerializedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 
 from posthog.models import User
-from typing import List
+from typing import Any, List
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -81,3 +82,10 @@ class TableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
 
         return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance: DataWarehouseTable = self.get_object()
+        DataWarehouseSavedQuery.objects.filter(external_tables__icontains=instance.name).delete()
+        self.perform_destroy(instance)
+
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
