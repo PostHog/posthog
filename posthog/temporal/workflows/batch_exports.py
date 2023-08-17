@@ -99,7 +99,9 @@ def iter_batch_records(batch) -> typing.Generator[dict[str, typing.Any], None, N
         person_properties = record.get("person_properties")
         properties = json.loads(properties) if properties else None
 
-        # This breaks backwards compatibility, but parsing elements_chain is a mess.
+        # This is not backwards compatible, as elements should contain a parsed array.
+        # However, parsing elements_chain is a mess, so we json.dump to at least be compatible with
+        # schemas that use JSON-like types.
         elements = json.dumps(record.get("elements_chain").decode())
 
         record = {
