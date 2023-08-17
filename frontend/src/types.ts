@@ -114,6 +114,14 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
 }
 
+export type Product = {
+    name: string
+    key: ProductKey
+    description: string
+    productUrl: string
+    onboardingUrl: string
+}
+
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -319,6 +327,7 @@ export interface TeamBasicType {
     api_token: string
     name: string
     completed_snippet_onboarding: boolean
+    has_completed_onboarding_for?: Record<string, boolean>
     ingested_event: boolean
     is_demo: boolean
     timezone: string

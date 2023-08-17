@@ -1,9 +1,11 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconBarChart } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { ProductKey } from '~/types'
+import { Product } from '~/types'
 import '../products/products.scss'
+import { products } from './productsLogic'
+import { useValues } from 'kea'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Products,
@@ -37,7 +39,9 @@ function OnboardingNotCompletedButton({ url }: { url: string }): JSX.Element {
     )
 }
 
-function ProductCard({ product }): JSX.Element {
+function ProductCard({ product }: { product: Product }): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.key]
     return (
         <div
             className={`ProductCard border border-border rounded-lg p-6 max-w-80 flex flex-col bg-white`}
@@ -53,7 +57,7 @@ function ProductCard({ product }): JSX.Element {
             </div>
             <p className="grow">{product.description}</p>
             <div className="flex gap-x-2">
-                {product.omboardingCompleted ? (
+                {onboardingCompleted ? (
                     <OnboardingCompletedButton productUrl={product.productUrl} onboardingUrl={product.onboardingUrl} />
                 ) : (
                     <OnboardingNotCompletedButton url={product.onboardingUrl} />
@@ -64,42 +68,6 @@ function ProductCard({ product }): JSX.Element {
 }
 
 export function Products(): JSX.Element {
-    const products = [
-        {
-            name: 'Product analytics',
-            key: ProductKey.PRODUCT_ANALYTICS,
-            description: 'Understand your users with trends, funnels, path analysis + more.',
-            omboardingCompleted: true,
-            productUrl: urls.dashboards(),
-            onboardingUrl: urls.ingestion(),
-        },
-        {
-            name: 'Session replay',
-            key: ProductKey.SESSION_REPLAY,
-            description:
-                'Searchable recordings of people using your app or website with console logs and behavioral bucketing.',
-            omboardingCompleted: false,
-            productUrl: urls.replay(),
-            onboardingUrl: urls.ingestion(),
-        },
-        {
-            name: 'Feature flags & A/B testing',
-            key: ProductKey.FEATURE_FLAGS,
-            description: 'Safely roll out new features and run experiments on changes.',
-            omboardingCompleted: false,
-            productUrl: urls.featureFlags(),
-            onboardingUrl: urls.ingestion(),
-        },
-        {
-            name: 'Data warehouse',
-            key: ProductKey.DATA_WAREHOUSE,
-            description: 'Bring your production database, revenue data, CRM contacts or any other data into PostHog.',
-            omboardingCompleted: true,
-            productUrl: urls.dataWarehouse(),
-            onboardingUrl: urls.ingestion(),
-        },
-    ]
-
     return (
         <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">
             <div className="mb-8">
