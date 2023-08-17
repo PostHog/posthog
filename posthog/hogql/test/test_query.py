@@ -1401,7 +1401,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_view_link(self):
         self._create_random_events()
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
