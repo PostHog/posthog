@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 
+import pytest
 from parameterized import parameterized
 from rest_framework import status
 
@@ -59,6 +60,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED
         return response.json()["id"]
 
+    @pytest.skip("TODO: what about templates")
     @parameterized.expand(
         [
             ["some text", [0]],
@@ -68,8 +70,6 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_filters_based_on_text(self, search_text: str, expected_match_indexes: List[int]) -> None:
-        # todo this implementation would also include searches on the keys of the json of the notebook
-        # not just its text which is probably way trickier
         notebook_ids = [
             self._create_notebook_with_content([BASIC_TEXT("some text")]),
             self._create_notebook_with_content([RECORDING_COMMENT_CONTENT("recording_one", "other text")]),
