@@ -23,15 +23,17 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not requested_fields:
                 raise HogQLException(f"No fields requested from {to_table}")
 
-            join_expr = ast.JoinExpr(table=parse_select(self.saved_query.query["query"]))
-            join_expr.join_type = "INNER JOIN"
-            join_expr.alias = to_table
-            join_expr.constraint = ast.JoinConstraint(
-                expr=ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[from_table, self.from_join_key]),
-                    right=ast.Field(chain=[to_table, self.to_join_key]),
-                )
+            join_expr = ast.JoinExpr(
+                table=parse_select(self.saved_query.query["query"]),
+                join_type="INNER JOIN",
+                alias=to_table,
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=[from_table, self.from_join_key]),
+                        right=ast.Field(chain=[to_table, self.to_join_key]),
+                    )
+                ),
             )
             return join_expr
 
