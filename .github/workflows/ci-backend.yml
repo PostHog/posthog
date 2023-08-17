@@ -1,4 +1,4 @@
-# This workflow runs all of our backend django tests.
+# This workflow runs all of our backend django tests..ci-back
 #
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .github/workflows/ci-backend-update-test-timing.yml action
@@ -102,10 +102,12 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              id: python
+              uses: buildjet/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  cache: pip
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
@@ -119,9 +121,9 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              if: steps.python.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   cd current
                   python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -184,26 +186,20 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              id: python
+              uses: buildjet/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-backend-tests
-              with:
-                  custom_cache_key_element: v1-
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+                  cache: pip
 
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              if: steps.python.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   python -m pip install -r requirements.txt -r requirements-dev.txt
 
@@ -328,15 +324,18 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              id: python
+              uses: buildjet/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  cache: pip
 
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              if: steps.python.outputs.cache-hit != 'true'
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-async-migrations-tests
@@ -347,7 +346,6 @@ jobs:
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               shell: bash
               run: |
                   python -m pip install -r requirements.txt -r requirements-dev.txt
