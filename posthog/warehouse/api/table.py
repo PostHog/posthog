@@ -8,7 +8,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 
 from posthog.models import User
-from typing import Dict
+from typing import List
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -35,7 +35,7 @@ class TableSerializer(serializers.ModelSerializer):
         fields = ["id", "deleted", "name", "format", "created_by", "created_at", "url_pattern", "credential", "columns"]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
-    def get_columns(self, table: DataWarehouseTable) -> Dict[SerializedField]:
+    def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
         return serialize_fields(table.hogql_definition().fields)
 
     def create(self, validated_data):
