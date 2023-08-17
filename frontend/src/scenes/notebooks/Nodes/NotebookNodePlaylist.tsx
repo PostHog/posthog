@@ -84,7 +84,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
     },
     pasteOptions: {
         find: urls.replay() + '(.+)',
-        getAttributes: (match) => {
+        getAttributes: async (match) => {
             const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
             return { filters: searchParams.filters }
         },

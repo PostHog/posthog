@@ -1300,7 +1300,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     team_id=str(self.team.pk), errors_computing=True, has_hash_key_override=False
                 )
                 mock_counter.labels.return_value.inc.assert_called_once()
-                mock_error_counter.labels.assert_called_once_with(reason="healthcheck_failed")
+                mock_error_counter.labels.assert_any_call(reason="healthcheck_failed")
+                mock_error_counter.labels.assert_any_call(reason="timeout")
+                self.assertEqual(mock_error_counter.labels.call_count, 2)
+
                 mock_hash_key_counter.labels.assert_not_called()
 
     def test_feature_flags_v3_with_database_errors_and_no_flags(self, *args):
