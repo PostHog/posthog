@@ -53,7 +53,6 @@ export const openNotebook = async (
     const unmount = theNotebookLogic.mount()
 
     try {
-        await theNotebookLogic.asyncActions.editorIsReady()
         onOpen(theNotebookLogic)
     } finally {
         unmount()

@@ -1,4 +1,4 @@
-import { events, kea, key, path, props } from 'kea'
+import { actions, events, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookNodeType } from '~/types'
 
@@ -8,17 +8,29 @@ import type { notebookCommentButtonLogicType } from './notebookCommentButtonLogi
 
 export interface NotebookCommentButtonProps {
     sessionRecordingId: string
+    startVisible: boolean
 }
 
 export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
     path((key) => ['scenes', 'session-recordings', 'NotebookCommentButton', 'multiNotebookCommentButtonLogic', key]),
     props({} as NotebookCommentButtonProps),
     key((props) => props.sessionRecordingId || 'no recording id yet'),
+    actions({
+        setShowPopover: (visible: boolean) => ({ visible }),
+    }),
+    reducers(({ props }) => ({
+        showPopover: [
+            props.startVisible,
+            {
+                setShowPopover: (_, { visible }) => visible,
+            },
+        ],
+    })),
     loaders(({ props }) => ({
         notebooks: [
             [] as NotebookListItemType[],
             {
-                loadNotebooks: async () => {
+                loadContainingNotebooks: async () => {
                     const response = await api.notebooks.list([
                         { type: NotebookNodeType.Recording, attrs: { id: props.sessionRecordingId } },
                     ])
@@ -29,6 +41,8 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
         ],
     })),
     events(({ actions }) => ({
-        afterMount: actions.loadNotebooks,
+        afterMount: () => {
+            actions.loadContainingNotebooks()
+        },
     })),
 ])

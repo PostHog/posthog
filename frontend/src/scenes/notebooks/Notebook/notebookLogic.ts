@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic, openNotebook, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
@@ -23,6 +23,26 @@ export type NotebookLogicProps = {
     shortId: string
 }
 
+async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
+    // TRICKY: external code doesn't know how to wait for the editor to be ready
+    // so, we have to poll until it is, then run the function
+    // the use-case is that we have opened a notebook, mounted this logic,
+    // and then want to run commands against the editor
+    // but, we are racing against it being ready
+
+    // throw an error after 2 seconds
+    const timeout = setTimeout(() => {
+        throw new Error('Notebook editor not ready')
+    }, 2000)
+
+    while (!waitForEditor()) {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    clearTimeout(timeout)
+
+    return fn()
+}
+
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
@@ -44,6 +64,9 @@ export const notebookLogic = kea<notebookLogicType>([
         registerNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
+        insertAfterLastNode: (content: JSONContent) => ({
+            content,
+        }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
             content,
             nodeType,
@@ -280,40 +303,60 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
     listeners(({ values, actions, sharedListeners }) => ({
-        insertAfterLastNodeOfType: ({ content, nodeType, knownStartingPosition }) => {
-            let insertionPosition = knownStartingPosition
-            let nextNode = values.editor?.nextNode(insertionPosition)
-            while (nextNode && values.editor?.hasChildOfType(nextNode.node, nodeType)) {
-                insertionPosition = nextNode.position
-                nextNode = values.editor?.nextNode(insertionPosition)
-            }
+        insertAfterLastNode: async ({ content }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    let insertionPosition = 0
+                    let nextNode = values.editor?.nextNode(insertionPosition)
+                    while (nextNode) {
+                        insertionPosition = nextNode.position
+                        nextNode = values.editor?.nextNode(insertionPosition)
+                    }
 
-            values.editor?.insertContentAfterNode(insertionPosition, content)
-        },
-        insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId, knownStartingPosition }) => {
-            const ed = values.editor
-            if (ed === null) {
-                // this should never happen, `openNotebook` waits until the logic's editor is not null
-                // TODO this should be safely handled in here
-                throw new Error('action called too early, editor is not ready yet')
-            }
-            let insertionPosition = knownStartingPosition || ed.findNodePositionByAttrs({ id: sessionRecordingId })
-            let nextNode = values.editor?.nextNode(insertionPosition)
-            while (nextNode && values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.ReplayTimestamp)) {
-                const candidateTimestampAttributes = nextNode.node.content.firstChild
-                    ?.attrs as NotebookNodeReplayTimestampAttrs
-                const nextNodePlaybackTime = candidateTimestampAttributes.playbackTime || -1
-                if (nextNodePlaybackTime <= timestamp) {
-                    insertionPosition = nextNode.position
-                    nextNode = values.editor?.nextNode(insertionPosition)
-                } else {
-                    nextNode = null
+                    values.editor?.insertContentAfterNode(insertionPosition, content)
                 }
-            }
+            )
+        },
+        insertAfterLastNodeOfType: async ({ content, nodeType, knownStartingPosition }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    let insertionPosition = knownStartingPosition
+                    let nextNode = values.editor?.nextNode(insertionPosition)
+                    while (nextNode && values.editor?.hasChildOfType(nextNode.node, nodeType)) {
+                        insertionPosition = nextNode.position
+                        nextNode = values.editor?.nextNode(insertionPosition)
+                    }
 
-            values.editor?.insertContentAfterNode(
-                insertionPosition,
-                buildTimestampCommentContent(timestamp, sessionRecordingId)
+                    values.editor?.insertContentAfterNode(insertionPosition, content)
+                }
+            )
+        },
+        insertReplayCommentByTimestamp: async ({ timestamp, sessionRecordingId, knownStartingPosition }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    let insertionPosition =
+                        knownStartingPosition || values.editor?.findNodePositionByAttrs({ id: sessionRecordingId })
+                    let nextNode = values.editor?.nextNode(insertionPosition)
+                    while (nextNode && values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.ReplayTimestamp)) {
+                        const candidateTimestampAttributes = nextNode.node.content.firstChild
+                            ?.attrs as NotebookNodeReplayTimestampAttrs
+                        const nextNodePlaybackTime = candidateTimestampAttributes.playbackTime || -1
+                        if (nextNodePlaybackTime <= timestamp) {
+                            insertionPosition = nextNode.position
+                            nextNode = values.editor?.nextNode(insertionPosition)
+                        } else {
+                            nextNode = null
+                        }
+                    }
+
+                    values.editor?.insertContentAfterNode(
+                        insertionPosition,
+                        buildTimestampCommentContent(timestamp, sessionRecordingId)
+                    )
+                }
             )
         },
         setLocalContent: async (_, breakpoint) => {
@@ -345,7 +388,6 @@ export const notebookLogic = kea<notebookLogicType>([
         setEditor: ({ editor }) => {
             if (editor) {
                 editor.setEditable(values.isEditable)
-                actions.editorIsReady()
             }
         },
 
@@ -360,13 +402,6 @@ export const notebookLogic = kea<notebookLogicType>([
             )
 
             downloadFile(file)
-        },
-    })),
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            if (values.editor !== null) {
-                actions.editorIsReady()
-            }
         },
     })),
 ])

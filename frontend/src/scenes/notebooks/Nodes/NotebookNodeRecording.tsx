@@ -14,7 +14,7 @@ import {
     SessionRecordingPreviewSkeleton,
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
@@ -80,5 +80,14 @@ export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionReco
     return {
         sessionRecordingId: id,
         playerKey: `notebook-${id}`,
+    }
+}
+
+export function buildRecordingContent(sessionRecordingId: string): JSONContent {
+    return {
+        type: 'ph-recording',
+        attrs: {
+            id: sessionRecordingId,
+        },
     }
 }
