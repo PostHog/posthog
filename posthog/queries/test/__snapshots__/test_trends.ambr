@@ -4158,7 +4158,7 @@
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -4190,7 +4190,7 @@
              AND team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-           GROUP BY "$session_id") sessions ON sessions.$session_id = e.$session_id
+           GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
         WHERE e.team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
@@ -4218,7 +4218,7 @@
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -4250,7 +4250,7 @@
              AND team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-           GROUP BY "$session_id") sessions ON sessions.$session_id = e.$session_id
+           GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
         WHERE e.team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
@@ -4585,7 +4585,7 @@
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -4631,7 +4631,7 @@
              AND team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-           GROUP BY "$session_id") sessions ON sessions.$session_id = e.$session_id
+           GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
         WHERE e.team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
@@ -4684,12 +4684,12 @@
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY e.$session_id)
+     GROUP BY e."$session_id")
   '
 ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
@@ -4707,12 +4707,12 @@
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY e.$session_id)
+     GROUP BY e."$session_id")
   '
 ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
@@ -4742,12 +4742,12 @@
                 AND team_id = 2
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-              GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+              GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
            WHERE team_id = 2
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-           GROUP BY e.$session_id, date)
+           GROUP BY e."$session_id", date)
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -4780,12 +4780,12 @@
                 AND team_id = 2
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-              GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+              GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
            WHERE team_id = 2
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-           GROUP BY e.$session_id, date)
+           GROUP BY e."$session_id", date)
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -4807,7 +4807,7 @@
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -4866,7 +4866,7 @@
                       AND team_id = 2
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-                    GROUP BY "$session_id") sessions ON sessions.$session_id = e.$session_id
+                    GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
@@ -4901,7 +4901,7 @@
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -4960,7 +4960,7 @@
                       AND team_id = 2
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-                    GROUP BY "$session_id") sessions ON sessions.$session_id = e.$session_id
+                    GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
