@@ -15,6 +15,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonTag } from '@posthog/lemon-ui'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { AppsScene } from './AppsScene'
 
 export const scene: SceneExport = {
     component: Plugins,
@@ -28,6 +29,7 @@ const BetaTag = (): JSX.Element => (
 )
 
 export function Plugins(): JSX.Element | null {
+    return <AppsScene />
     const { user } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)

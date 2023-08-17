@@ -35,109 +35,132 @@ export function RepositoryTab(): JSX.Element {
         <div>
             <Subtitle subtitle="App Repository" />
             <PluginsSearch />
-            <div>
-                {(!repositoryLoading || filteredUninstalledPlugins.length > 0) && (
-                    <>
-                        <div className="-mx-2">
-                            <div
-                                className="plugins-repository-tab-section-header"
-                                onClick={() => toggleRepositorySectionOpen(RepositorySection.Official)}
-                            >
-                                <Subtitle
-                                    subtitle={
-                                        <>
-                                            {repositorySectionsOpen.includes(RepositorySection.Official) ? (
-                                                <CaretDownOutlined />
-                                            ) : (
-                                                <CaretRightOutlined />
-                                            )}
-                                            {` Official apps (${officialPlugins.length})`}
-                                        </>
-                                    }
-                                />
-                            </div>
-                            {repositorySectionsOpen.includes(RepositorySection.Official) && (
-                                <>
-                                    <div className="px-2">
-                                        {officialPlugins.length > 0
-                                            ? 'Official apps are built and maintained by the PostHog team.'
-                                            : 'You have already installed all official apps!'}
-                                    </div>
-                                    <br />
-                                    {officialPlugins.map((plugin) => {
-                                        return (
-                                            <PluginCard
-                                                key={plugin.url}
-                                                plugin={{
-                                                    name: plugin.name,
-                                                    url: plugin.url,
-                                                    icon: plugin.icon,
-                                                    description: plugin.description,
-                                                }}
-                                                maintainer={plugin.maintainer}
-                                            />
-                                        )
-                                    })}
-                                </>
-                            )}
-                        </div>
-                        <div className="-mx-2">
-                            <div
-                                className="plugins-repository-tab-section-header"
-                                onClick={() => toggleRepositorySectionOpen(RepositorySection.Community)}
-                            >
-                                <Subtitle
-                                    subtitle={
-                                        <>
-                                            {repositorySectionsOpen.includes(RepositorySection.Community) ? (
-                                                <CaretDownOutlined />
-                                            ) : (
-                                                <CaretRightOutlined />
-                                            )}
-                                            {` Community apps (${communityPlugins.length})`}
-                                        </>
-                                    }
-                                />
-                            </div>
-                            {repositorySectionsOpen.includes(RepositorySection.Community) && (
-                                <>
-                                    <div className="px-2">
-                                        {communityPlugins.length > 0 ? (
-                                            <span>
-                                                Community apps are not built nor maintained by the PostHog team.{' '}
-                                                <a
-                                                    href="https://posthog.com/docs/apps/build"
-                                                    target="_blank"
-                                                    rel="noopener"
-                                                >
-                                                    Anyone, including you, can build an app.
-                                                </a>
-                                            </span>
+            <RepositoryApps />
+        </div>
+    )
+}
+
+export function RepositoryApps(): JSX.Element {
+    const { repositoryLoading, filteredUninstalledPlugins } = useValues(pluginsLogic)
+    const [repositorySectionsOpen, setRepositorySectionsOpen] = useState([
+        RepositorySection.Official,
+        RepositorySection.Community,
+    ])
+
+    const officialPlugins = filteredUninstalledPlugins.filter((plugin) => plugin.maintainer === 'official')
+    const communityPlugins = filteredUninstalledPlugins.filter((plugin) => plugin.maintainer === 'community')
+
+    const toggleRepositorySectionOpen = (section: RepositorySection): void => {
+        if (repositorySectionsOpen.includes(section)) {
+            setRepositorySectionsOpen(repositorySectionsOpen.filter((s) => section !== s))
+            return
+        }
+        setRepositorySectionsOpen([...repositorySectionsOpen, section])
+    }
+
+    return (
+        <div>
+            {(!repositoryLoading || filteredUninstalledPlugins.length > 0) && (
+                <>
+                    <Row gutter={16} style={{ marginTop: 16, display: 'block' }}>
+                        <div
+                            className="plugins-repository-tab-section-header"
+                            onClick={() => toggleRepositorySectionOpen(RepositorySection.Official)}
+                        >
+                            <Subtitle
+                                subtitle={
+                                    <>
+                                        {repositorySectionsOpen.includes(RepositorySection.Official) ? (
+                                            <CaretDownOutlined />
                                         ) : (
-                                            'You have already installed all community apps!'
+                                            <CaretRightOutlined />
                                         )}
-                                    </div>
-                                    <br />
-                                    {communityPlugins.map((plugin) => {
-                                        return (
-                                            <PluginCard
-                                                key={plugin.url}
-                                                plugin={{
-                                                    name: plugin.name,
-                                                    url: plugin.url,
-                                                    icon: plugin.icon,
-                                                    description: plugin.description,
-                                                }}
-                                                maintainer={plugin.maintainer}
-                                            />
-                                        )
-                                    })}
-                                </>
-                            )}
+                                        {` Official apps (${officialPlugins.length})`}
+                                    </>
+                                }
+                            />
                         </div>
-                    </>
-                )}
-            </div>
+                        {repositorySectionsOpen.includes(RepositorySection.Official) && (
+                            <>
+                                <Col span={24}>
+                                    {officialPlugins.length > 0
+                                        ? 'Official apps are built and maintained by the PostHog team.'
+                                        : 'You have already installed all official apps!'}
+                                </Col>
+                                <br />
+                                {officialPlugins.map((plugin) => {
+                                    return (
+                                        <PluginCard
+                                            key={plugin.url}
+                                            plugin={{
+                                                name: plugin.name,
+                                                url: plugin.url,
+                                                icon: plugin.icon,
+                                                description: plugin.description,
+                                            }}
+                                            maintainer={plugin.maintainer}
+                                        />
+                                    )
+                                })}
+                            </>
+                        )}
+                    </Row>
+                    <Row gutter={16} style={{ marginTop: 16, display: 'block' }}>
+                        <div
+                            className="plugins-repository-tab-section-header"
+                            onClick={() => toggleRepositorySectionOpen(RepositorySection.Community)}
+                        >
+                            <Subtitle
+                                subtitle={
+                                    <>
+                                        {repositorySectionsOpen.includes(RepositorySection.Community) ? (
+                                            <CaretDownOutlined />
+                                        ) : (
+                                            <CaretRightOutlined />
+                                        )}
+                                        {` Community apps (${communityPlugins.length})`}
+                                    </>
+                                }
+                            />
+                        </div>
+                        {repositorySectionsOpen.includes(RepositorySection.Community) && (
+                            <>
+                                <Col span={24}>
+                                    {communityPlugins.length > 0 ? (
+                                        <span>
+                                            Community apps are not built nor maintained by the PostHog team.{' '}
+                                            <a
+                                                href="https://posthog.com/docs/apps/build"
+                                                target="_blank"
+                                                rel="noopener"
+                                            >
+                                                Anyone, including you, can build an app.
+                                            </a>
+                                        </span>
+                                    ) : (
+                                        'You have already installed all community apps!'
+                                    )}
+                                </Col>
+                                <br />
+                                {communityPlugins.map((plugin) => {
+                                    return (
+                                        <PluginCard
+                                            key={plugin.url}
+                                            plugin={{
+                                                name: plugin.name,
+                                                url: plugin.url,
+                                                icon: plugin.icon,
+                                                description: plugin.description,
+                                            }}
+                                            maintainer={plugin.maintainer}
+                                        />
+                                    )
+                                })}
+                            </>
+                        )}
+                    </Row>
+                </>
+            )}
             {repositoryLoading && filteredUninstalledPlugins.length === 0 && (
                 <Row gutter={16}>
                     <PluginLoading />
