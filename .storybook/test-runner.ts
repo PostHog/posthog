@@ -148,7 +148,7 @@ async function expectStoryToMatchComponentSnapshot(
     targetSelector: string = '#root'
 ): Promise<void> {
     await page.evaluate(() => {
-        const rootEl = document.getElementById('root')
+        const rootEl = document.getElementById('storybook-root')
         if (!rootEl) {
             throw new Error('Could not find root element')
         }
