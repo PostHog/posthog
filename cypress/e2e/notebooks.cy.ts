@@ -42,4 +42,15 @@ describe('Notebooks', () => {
         cy.get('.NotebookEditor').type('{esc}')
         cy.get('.NotebookFloatingButton .LemonButton').should('exist')
     })
+
+    it('Can comment on a recording', () => {
+        cy.visit(urls.replay())
+        cy.get('[data-attr="notebooks-replay-comment-button"]').click()
+
+        cy.get('.LemonButton').contains('Comment in a new notebook').click()
+
+        cy.get('.Notebook.Notebook--editable').should('be.visible')
+        cy.get('.ph-recording.NotebookNode').should('be.visible')
+        cy.get('.NotebookRecordingTimestamp').should('contain.text', '0:00')
+    })
 })

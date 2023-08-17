@@ -312,12 +312,12 @@ export class SessionRecordingIngesterV2 {
                             })
                             .set(now() - timestamp)
 
-                        // NOTE: This is an important metric used by the autoscaler
                         const offsetsByPartition = await this.offsetsRefresher.get()
                         const highOffset = offsetsByPartition[partition]
 
                         if (highOffset) {
-                            gaugeLag.set({ partition }, highOffset - metrics.lastMessageOffset)
+                            // NOTE: This is an important metric used by the autoscaler
+                            gaugeLag.set({ partition }, Math.max(0, highOffset - metrics.lastMessageOffset))
                         }
                     }
 

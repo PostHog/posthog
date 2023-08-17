@@ -45,27 +45,31 @@ async def get_rows_count(client, team_id: int, interval_start: str, interval_end
     return int(count)
 
 
+FIELDS = """
+DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))
+toString(uuid) as uuid,
+team_id,
+timestamp,
+inserted_at,
+created_at,
+event,
+properties,
+-- Point in time identity fields
+toString(distinct_id) as distinct_id,
+toString(person_id) as person_id,
+person_properties,
+-- Autocapture fields
+elements_chain
+"""
+
+
 def get_results_iterator(
     client, team_id: int, interval_start: str, interval_end: str
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     query = SELECT_QUERY_TEMPLATE.substitute(
-        fields="""
-                    DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))
-                    toString(uuid) as uuid,
-                    timestamp,
-                    inserted_at,
-                    created_at,
-                    event,
-                    properties,
-                    -- Point in time identity fields
-                    toString(distinct_id) as distinct_id,
-                    toString(person_id) as person_id,
-                    person_properties,
-                    -- Autocapture fields
-                    elements_chain
-            """,
+        fields=FIELDS,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
     )
@@ -78,27 +82,50 @@ def get_results_iterator(
             "data_interval_end": data_interval_end_ch,
         },
     ):
-        # Make sure to parse `properties` and
-        # `person_properties` are parsed as JSON to `dict`s. In ClickHouse they
-        # are stored as `String`s.
-        for record in batch.to_pylist():
-            properties = record.get("properties")
-            person_properties = record.get("person_properties")
+        yield from iter_batch_records(batch)
 
-            yield {
-                "uuid": record.get("uuid").decode(),
-                "distinct_id": record.get("distinct_id").decode(),
-                "person_id": record.get("person_id").decode(),
-                "event": record.get("event").decode(),
-                "inserted_at": record.get("inserted_at").strftime("%Y-%m-%d %H:%M:%S.%f")
-                if record.get("inserted_at")
-                else None,
-                "created_at": record.get("created_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "timestamp": record.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "properties": json.loads(properties) if properties else None,
-                "person_properties": json.loads(person_properties) if person_properties else None,
-                "elements_chain": record.get("elements_chain").decode(),
-            }
+
+def iter_batch_records(batch) -> typing.Generator[dict[str, typing.Any], None, None]:
+    """Iterate over records of a batch.
+
+    During iteration, we yield dictionaries with all fields used by PostHog BatchExports.
+
+    Args:
+        batch: A record batch of rows.
+    """
+
+    for record in batch.to_pylist():
+        properties = record.get("properties")
+        person_properties = record.get("person_properties")
+        properties = json.loads(properties) if properties else None
+
+        # This is not backwards compatible, as elements should contain a parsed array.
+        # However, parsing elements_chain is a mess, so we json.dump to at least be compatible with
+        # schemas that use JSON-like types.
+        elements = json.dumps(record.get("elements_chain").decode())
+
+        record = {
+            "created_at": record.get("created_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "distinct_id": record.get("distinct_id").decode(),
+            "elements": elements,
+            "elements_chain": record.get("elements_chain").decode(),
+            "event": record.get("event").decode(),
+            "inserted_at": record.get("inserted_at").strftime("%Y-%m-%d %H:%M:%S.%f")
+            if record.get("inserted_at")
+            else None,
+            "ip": properties.get("$ip", None) if properties else None,
+            "person_id": record.get("person_id").decode(),
+            "person_properties": json.loads(person_properties) if person_properties else None,
+            "set": properties.get("$set", None) if properties else None,
+            "set_once": properties.get("$set_once", None) if properties else None,
+            "properties": properties,
+            "site_url": properties.get("$current_url", None) if properties else None,
+            "team_id": record.get("team_id"),
+            "timestamp": record.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "uuid": record.get("uuid").decode(),
+        }
+
+        yield record
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:

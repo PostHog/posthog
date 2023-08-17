@@ -360,12 +360,15 @@ export class HookCommander {
         }, 5000)
         try {
             await instrumentWebhookStep('fetch', async () => {
-                await fetch(webhookUrl, {
+                const request = await fetch(webhookUrl, {
                     method: 'POST',
                     body: JSON.stringify(message, undefined, 4),
                     headers: { 'Content-Type': 'application/json' },
                     timeout: this.EXTERNAL_REQUEST_TIMEOUT,
                 })
+                if (!request.ok) {
+                    status.warn('⚠️', `HTTP status ${request.status} for team ${team.id}`)
+                }
             })
             this.statsd?.increment('webhook_firings', {
                 team_id: event.teamId.toString(),
@@ -406,6 +409,9 @@ export class HookCommander {
             if (request.status === 410) {
                 // Delete hook on our side if it's gone on Zapier's
                 await this.deleteRestHook(hook.id)
+            }
+            if (!request.ok) {
+                status.warn('⚠️', `Rest hook failed status ${request.status} for team ${event.teamId}`)
             }
             this.statsd?.increment('rest_hook_firings')
         } finally {
