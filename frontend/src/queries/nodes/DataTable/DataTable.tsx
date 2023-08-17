@@ -96,6 +96,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         showExport,
         showElapsedTime,
         showColumnConfigurator,
+        showPersistentColumnConfigurator,
         showSavedQueries,
         expandable,
         showOpenEditorButton,
@@ -345,7 +346,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     ].filter((x) => !!x)
 
     const secondRowRight = [
-        showColumnConfigurator && isEventsQuery(query.source) ? (
+        (showColumnConfigurator || showPersistentColumnConfigurator) && isEventsQuery(query.source) ? (
             <ColumnConfigurator query={query} setQuery={setQuery} />
         ) : null,
         showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
