@@ -1,6 +1,7 @@
-import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule, nodePasteRule } from '@tiptap/core'
+import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core'
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
+import { Editor as TTEditor } from '@tiptap/core'
 
 export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (value: T) => void] {
     let value = props.node.attrs[key]
@@ -20,9 +21,8 @@ export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (val
     return [value, setValue]
 }
 
-export function createUrlRegex(path: string, origin?: string): RegExp {
+export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
-
     return new RegExp(origin + path, 'ig')
 }
 
@@ -33,30 +33,51 @@ export function reportNotebookNodeCreation(nodeType: string): void {
 export function posthogNodePasteRule(options: {
     find: string
     type: NodeType
-    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+    editor: TTEditor
+    getAttributes: (
+        match: ExtendedRegExpMatchArray
+    ) => Promise<Record<string, any> | null | undefined> | Record<string, any> | null | undefined
 }): PasteRule {
-    return nodePasteRule({
+    return new PasteRule({
         find: createUrlRegex(options.find),
-        type: options.type,
-        getAttributes: (match) => {
-            const attrs = options.getAttributes(match)
-            posthog.capture('notebook node pasted', { node_type: options.type.name })
-            return attrs
+        handler: ({ match, chain, range }) => {
+            if (match.input) {
+                chain().deleteRange(range).run()
+                Promise.resolve(options.getAttributes(match)).then((attributes) => {
+                    if (!!attributes) {
+                        options.editor.commands.insertContent({
+                            type: options.type.name,
+                            attrs: attributes,
+                        })
+                    }
+                })
+            }
         },
     })
 }
 
-export function externalLinkPasteRule(options: {
-    find: string
-    type: NodeType
-    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
-}): PasteRule {
-    return nodePasteRule({
-        find: createUrlRegex(options.find, '(https?|mailto)://'),
-        type: options.type,
-        getAttributes: (match) => {
-            const attrs = options.getAttributes(match)
-            return attrs
+export function linkPasteRule(): PasteRule {
+    return new PasteRule({
+        find: createUrlRegex(
+            `(?!${window.location.host})([a-zA-Z0-9-._~:/?#\\[\\]!@$&'()*,;=]*)`,
+            '^(https?|mailto)://'
+        ),
+        handler: ({ match, chain, range }) => {
+            if (match.input) {
+                const url = new URL(match[0])
+                const href = url.origin === window.location.origin ? url.pathname : url.toString()
+                chain()
+                    .deleteRange(range)
+                    .insertContent([
+                        {
+                            type: 'text',
+                            marks: [{ type: 'link', attrs: { href } }],
+                            text: href,
+                        },
+                        { type: 'text', text: ' ' },
+                    ])
+                    .run()
+            }
         },
     })
 }

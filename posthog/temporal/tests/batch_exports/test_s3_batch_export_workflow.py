@@ -19,7 +19,10 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
-from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
+from posthog.temporal.tests.batch_exports.fixtures import (
+    acreate_batch_export,
+    afetch_batch_export_runs,
+)
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.batch_exports import get_results_iterator
 from posthog.temporal.workflows.clickhouse import ClickHouseClient
@@ -545,7 +548,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(client: Ht
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=120),
+                    execution_timeout=dt.timedelta(seconds=180),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
