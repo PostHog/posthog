@@ -6,6 +6,10 @@ import '../products/products.scss'
 import { products } from './productsLogic'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
+import { useEffect } from 'react'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: Products,
@@ -68,6 +72,13 @@ function ProductCard({ product }: { product: Product }): JSX.Element {
 }
 
 export function Products(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    useEffect(() => {
+        if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
+            location.href = urls.ingestion()
+        }
+    }, [])
+
     return (
         <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">
             <div className="mb-8">
