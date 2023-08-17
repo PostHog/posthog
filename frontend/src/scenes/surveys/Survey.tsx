@@ -320,10 +320,13 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                             <LemonInput
                                                 type="number"
                                                 size="small"
+                                                min={0}
                                                 value={value?.seenSurveyWaitPeriodInDays}
-                                                onChange={(val) =>
-                                                    onChange({ ...value, seenSurveyWaitPeriodInDays: val })
-                                                }
+                                                onChange={(val) => {
+                                                    if (val !== undefined && val > 0) {
+                                                        onChange({ ...value, seenSurveyWaitPeriodInDays: val })
+                                                    }
+                                                }}
                                                 className="w-16"
                                             />{' '}
                                             days.
