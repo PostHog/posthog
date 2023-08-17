@@ -1,4 +1,4 @@
-from posthog.decorators import cached_function
+from posthog.decorators import cached_by_filters
 
 from django.core.cache import cache
 
@@ -17,7 +17,7 @@ class DummyViewSet(GenericViewSet):
         data = self.calculate_with_filters(request)
         return Response(data)
 
-    @cached_function
+    @cached_by_filters
     def calculate_with_filters(self, request):
         return {"result": "bla"}
 

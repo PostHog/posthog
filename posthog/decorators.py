@@ -30,7 +30,7 @@ T = TypeVar("T", bound=ResultPackage)
 U = TypeVar("U", bound=GenericViewSet)
 
 
-def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
+def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
     """Caches the decorated method on a ViewSet in Redis. Used for anything based
     on a filter e.g. insights or persons calculations.
 

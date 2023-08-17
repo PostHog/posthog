@@ -51,7 +51,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
     FunnelVizType,
 )
-from posthog.decorators import cached_function
+from posthog.decorators import cached_by_filters
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql.errors import HogQLException
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
@@ -827,7 +827,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             return response
         return Response({**result, "next": next})
 
-    @cached_function
+    @cached_by_filters
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=self.team)
@@ -881,7 +881,7 @@ Using the correct cache and enriching the response with dashboard specific confi
 
         return Response(funnel)
 
-    @cached_function
+    @cached_by_filters
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
@@ -917,7 +917,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             raise ValidationError(str(e))
         return Response(result)
 
-    @cached_function
+    @cached_by_filters
     def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
@@ -943,7 +943,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             raise ValidationError(str(e))
         return Response(result)
 
-    @cached_function
+    @cached_by_filters
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
