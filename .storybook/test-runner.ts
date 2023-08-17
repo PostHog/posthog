@@ -145,7 +145,7 @@ async function expectStoryToMatchComponentSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    targetSelector: string = '#root'
+    targetSelector: string = '#storybook-root'
 ): Promise<void> {
     await page.evaluate(() => {
         const rootEl = document.getElementById('storybook-root')
