@@ -1,6 +1,8 @@
+from datetime import timedelta
 from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
+from django.db.models.functions import TruncMinute
 from rest_framework import serializers, status, viewsets, pagination
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -88,7 +90,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             .values_list("item_id", flat=True)
         )
 
-        other_peoples_changes = (
+        base_query = (
             self.queryset.exclude(user=user)
             .filter(team_id=self.team.id)
             .filter(
@@ -107,14 +109,30 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                     )
                 )
             )
-            .order_by("-created_at")
         )
 
         last_read_date = NotificationViewed.objects.filter(user=user).first()
         if last_read_date:
-            other_peoples_changes = other_peoples_changes.filter(
-                created_at__gt=last_read_date.last_viewed_activity_date
-            )
+            base_query = base_query.filter(created_at__gt=last_read_date.last_viewed_activity_date)
+
+        # Step 1: Get groups of changes by minute.
+        other_peoples_changes_by_minute = (
+            base_query.annotate(created_at_minute=TruncMinute("created_at"))
+            .values("scope", "item_id", "created_at_minute")
+            .distinct()
+            .order_by("-created_at_minute")
+        )
+
+        # Step 2: Retrieve the most recent model instance for each group.
+        other_peoples_changes = []
+        for group in other_peoples_changes_by_minute:
+            instance = self.queryset.filter(
+                scope=group["scope"],
+                item_id=group["item_id"],
+                created_at__gte=group["created_at_minute"],
+                created_at__lt=group["created_at_minute"] + timedelta(minutes=1),
+            ).latest("created_at")
+            other_peoples_changes.append(instance)
 
         serialized_data = ActivityLogSerializer(
             instance=other_peoples_changes[:10], many=True, context={"user": user}
