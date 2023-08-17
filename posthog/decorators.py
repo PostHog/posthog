@@ -31,6 +31,16 @@ U = TypeVar("U", bound=GenericViewSet)
 
 
 def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
+    """Caches the decorated method on a ViewSet in Redis. Used for anything based
+    on a filter e.g. insights or persons calculations.
+
+    The decorated method is expected to return a dict with key `result`. Keys
+    `last_refresh` and `is_cached` are added for the full result package.
+
+    The cache can be invalidated by using the boolean key `refresh` or setting
+    a `cache_invalidation_key` which gets incorporated in the cache key.
+    """
+
     @wraps(f)
     def wrapper(self, request) -> T:
         from posthog.caching.insight_cache import update_cached_state
