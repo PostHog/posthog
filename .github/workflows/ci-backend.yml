@@ -16,6 +16,7 @@ on:
                 type: string
 
 env:
+    DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -33,7 +34,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: buildjet-2vcpu-ubuntu-2204
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
@@ -79,7 +80,7 @@ jobs:
         timeout-minutes: 10
 
         name: Python code quality checks
-        runs-on: ubuntu-latest
+        runs-on: buildjet-2vcpu-ubuntu-2204
 
         steps:
             # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
@@ -172,7 +173,7 @@ jobs:
         timeout-minutes: 5
 
         name: Validate Django migrations
-        runs-on: ubuntu-latest
+        runs-on: buildjet-2vcpu-ubuntu-2204
 
         steps:
             - uses: actions/checkout@v3
@@ -236,7 +237,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: ubuntu-latest
+        runs-on: buildjet-2vcpu-ubuntu-2204
 
         strategy:
             fail-fast: false
@@ -313,7 +314,7 @@ jobs:
         name: Async migrations tests
         needs: changes
         if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: buildjet-2vcpu-ubuntu-2204
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v3
