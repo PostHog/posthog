@@ -246,6 +246,8 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
+            elif key == "s":
+                queryset = queryset.filter(content__content__icontains=request.GET["s"])
             elif key == "contains":
                 contains = request.GET["contains"]
                 match_pairs = contains.replace(",", " ").split(" ")

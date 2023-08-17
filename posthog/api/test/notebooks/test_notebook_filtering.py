@@ -24,14 +24,14 @@ FEATURE_FLAG_CONTENT = lambda id: {
 PERSON_CONTENT = lambda id: {"type": "ph-person", "attrs": {"id": id or "person_id"}}
 
 RECORDING_CONTENT = lambda id: {"type": "ph-recording", "attrs": {"id": id or "session_recording_id"}}
-RECORDING_COMMENT_CONTENT = lambda id: {
+RECORDING_COMMENT_CONTENT = lambda id, text: {
     "type": "paragraph",
     "content": [
         {
             "type": "ph-replay-timestamp",
             "attrs": {"playbackTime": 0, "sessionRecordingId": id or "session_recording_id"},
         },
-        {"text": "the comment the person wrote", "type": "text"},
+        {"text": text or "what the person typed", "type": "text"},
     ],
 }
 
@@ -41,6 +41,8 @@ INSIGHT_COMMENT = lambda id: {
         "id": id or "insight_short_id",
     },
 }
+
+BASIC_TEXT = lambda text: {"type": "paragraph", "content": [{"text": text, "type": "text"}]}
 
 
 class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
@@ -56,6 +58,29 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         return response.json()["id"]
+
+    @parameterized.expand(
+        [
+            ["some text", [0]],
+            ["other text", [1]],
+            ["text", [0, 1]],
+            ["random", []],
+        ]
+    )
+    def test_filters_based_on_text(self, search_text: str, expected_match_indexes: List[int]) -> None:
+        notebook_ids = [
+            self._create_notebook_with_content([BASIC_TEXT("some text")]),
+            self._create_notebook_with_content([RECORDING_COMMENT_CONTENT("recording_one", "other text")]),
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks?s={search_text}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        assert len(results) == len(expected_match_indexes)
+        assert sorted([r["id"] for r in results]) == sorted([notebook_ids[i] for i in expected_match_indexes])
 
     def test_filters_based_on_params(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
@@ -83,7 +108,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         feature_flag_content_notebook = self._create_notebook_with_content([FEATURE_FLAG_CONTENT("feature_flag_id")])
         person_content_notebook = self._create_notebook_with_content([PERSON_CONTENT("person_id")])
         recording_comment_notebook = self._create_notebook_with_content(
-            [RECORDING_COMMENT_CONTENT("session_recording_id")]
+            [RECORDING_COMMENT_CONTENT("session_recording_id", None)]
         )
         recording_content_notebook = self._create_notebook_with_content([RECORDING_CONTENT("recording_one")])
 
@@ -127,7 +152,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         feature_flag_content_notebook = self._create_notebook_with_content([FEATURE_FLAG_CONTENT("feature_flag_id")])
         person_content_notebook = self._create_notebook_with_content([PERSON_CONTENT("person_id")])
         recording_comment_notebook = self._create_notebook_with_content(
-            [RECORDING_COMMENT_CONTENT("session_recording_id")]
+            [RECORDING_COMMENT_CONTENT("session_recording_id", None)]
         )
         recording_content_notebook = self._create_notebook_with_content([RECORDING_CONTENT("recording_one")])
 
@@ -243,10 +268,10 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         _person_content_notebook_two = self._create_notebook_with_content([PERSON_CONTENT("person_id_two")])
 
         recording_comment_notebook_one = self._create_notebook_with_content(
-            [RECORDING_COMMENT_CONTENT("session_recording_id_one")]
+            [RECORDING_COMMENT_CONTENT("session_recording_id_one", None)]
         )
         _recording_comment_notebook_two = self._create_notebook_with_content(
-            [RECORDING_COMMENT_CONTENT("session_recording_id_two")]
+            [RECORDING_COMMENT_CONTENT("session_recording_id_two", None)]
         )
 
         recording_content_notebook_one = self._create_notebook_with_content(
