@@ -1,17 +1,16 @@
 import { NotebookNodeType } from '~/types'
 import { NotebooksListFilters } from 'scenes/notebooks/Notebook/notebooksListLogic'
-import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
 
 export const fromNodeTypeToLabel: Omit<Record<NotebookNodeType, string>, NotebookNodeType.Backlink> = {
-    [NotebookNodeType.FeatureFlag]: 'Feature flag',
-    [NotebookNodeType.Image]: 'Image',
-    [NotebookNodeType.Insight]: 'Insight',
-    [NotebookNodeType.Person]: 'Person',
-    [NotebookNodeType.Query]: 'Query',
-    [NotebookNodeType.Recording]: 'Session replay',
-    [NotebookNodeType.RecordingPlaylist]: 'Session replay playlist',
-    [NotebookNodeType.ReplayTimestamp]: 'Session replay comment',
+    [NotebookNodeType.FeatureFlag]: 'Feature flags',
+    [NotebookNodeType.Image]: 'Images',
+    [NotebookNodeType.Insight]: 'Insights',
+    [NotebookNodeType.Person]: 'Persons',
+    [NotebookNodeType.Query]: 'Queries',
+    [NotebookNodeType.Recording]: 'Session recordings',
+    [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
+    [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',
 }
 
 export function ContainsTypeFilters({
@@ -24,49 +23,22 @@ export function ContainsTypeFilters({
     return (
         <div className="flex items-center gap-2">
             <span>Containing:</span>
-            <LemonButtonWithDropdown
-                status="stealth"
-                type="secondary"
-                data-attr={'notebooks-list-contains-filters'}
-                dropdown={{
-                    sameWidth: false,
-                    closeOnClickInside: false,
-                    overlay: [
-                        <>
-                            {Object.entries(fromNodeTypeToLabel)
-                                .filter((entry) => entry[1] !== '')
-                                .map(([type, label]) => {
-                                    const nodeType = type as NotebookNodeType
-                                    return (
-                                        <LemonCheckbox
-                                            key={type}
-                                            size="small"
-                                            fullWidth
-                                            checked={filters.contains.includes(nodeType)}
-                                            onChange={(checked) => {
-                                                const changedContains = filters.contains.filter((x) => x !== nodeType)
-                                                if (checked) {
-                                                    changedContains.push(nodeType)
-                                                }
-                                                setFilters({ contains: changedContains })
-                                            }}
-                                            label={label}
-                                        />
-                                    )
-                                })}
-                        </>,
-                    ],
-                    actionable: true,
+            <LemonSelectMultiple
+                mode="multiple"
+                selectClassName={'min-w-40'}
+                placeholder={'Any content'}
+                options={Object.entries(fromNodeTypeToLabel)
+                    .filter((entry) => entry[1] !== '')
+                    .reduce((acc, [type, label]) => {
+                        acc[type] = { label }
+                        return acc
+                    }, {})}
+                value={filters.contains}
+                onChange={(newValue: string[]) => {
+                    setFilters({ contains: newValue.map((x) => x as NotebookNodeType) })
                 }}
-            >
-                <span className={'text-muted'}>
-                    {filters.contains.length === 0
-                        ? 'Any types'
-                        : filters.contains.length === 1
-                        ? fromNodeTypeToLabel[filters.contains[0] as NotebookNodeType]
-                        : `${filters.contains.length} types selected`}
-                </span>
-            </LemonButtonWithDropdown>
+                data-attr={'notebooks-list-contains-filters'}
+            />
         </div>
     )
 }
