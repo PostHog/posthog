@@ -126,12 +126,17 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         # Step 2: Retrieve the most recent model instance for each group.
         other_peoples_changes = []
         for group in other_peoples_changes_by_minute:
-            instance = self.queryset.filter(
-                scope=group["scope"],
-                item_id=group["item_id"],
-                created_at__gte=group["created_at_minute"],
-                created_at__lt=group["created_at_minute"] + timedelta(minutes=1),
-            ).latest("created_at")
+            instance = (
+                self.queryset.exclude(user=user)
+                .filter(team_id=self.team.id)
+                .filter(
+                    scope=group["scope"],
+                    item_id=group["item_id"],
+                    created_at__gte=group["created_at_minute"],
+                    created_at__lt=group["created_at_minute"] + timedelta(minutes=1),
+                )
+                .latest("created_at")
+            )
             other_peoples_changes.append(instance)
 
         serialized_data = ActivityLogSerializer(
