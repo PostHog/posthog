@@ -175,6 +175,7 @@ class QueryDateRange(Generic[F]):
                 raise ValueError("Cannot round with a filter that's not based on BaseFilter with IntervalMixin")
             date_expr = get_start_of_interval_sql(
                 self._filter.interval,
+                team=self._team,
                 source=date_expr,
                 ensure_datetime=True,
             )

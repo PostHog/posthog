@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.team import Team
+from posthog.models.team.team import WeekStartDay
 from posthog.queries.insight import insight_sync_execute
 from posthog.utils import PersonOnEventsMode
 
@@ -93,10 +94,18 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
-def get_start_of_interval_sql(interval: str, *, source: str = "timestamp", ensure_datetime: bool = False) -> str:
+def get_start_of_interval_sql(
+    interval: str, *, team: Team, source: str = "timestamp", ensure_datetime: bool = False
+) -> str:
     trunc_func = get_trunc_func_ch(interval)
-    cast_source = f"{'toDateTime' if source.startswith('%') else 'toTimeZone'}({source}, %(timezone)s)"
-    interval_sql = f"{trunc_func}({cast_source})"
+    if source.startswith("%(") and source.endswith(")s"):
+        source = f"toDateTime({source}, %(timezone)s)"
+    elif "%(timezone)s" not in source:
+        source = f"toTimeZone(toDateTime({source}, 'UTC'), %(timezone)s)"
+    trunc_func_args = [source]
+    if interval == "week":
+        trunc_func_args.append((team.week_start_day or WeekStartDay.SUNDAY).clickhouse_mode)
+    interval_sql = f"{trunc_func}({', '.join(trunc_func_args)})"
     # For larger intervals dates are returned instead of datetimes, and we always want datetimes for comparisons
     return f"toDateTime({interval_sql})" if ensure_datetime else interval_sql
 

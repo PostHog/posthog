@@ -117,6 +117,10 @@ class WeekStartDay(models.IntegerChoices):
     SUNDAY = 0, "Monday"
     MONDAY = 1, "Sunday"
 
+    @property
+    def clickhouse_mode(self) -> str:
+        return "3" if self == WeekStartDay.MONDAY else "0"
+
 
 class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
