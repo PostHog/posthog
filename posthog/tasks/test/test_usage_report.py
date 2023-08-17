@@ -858,6 +858,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         _create_event(event="$pageview", team=self.team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
         flush_persons_and_events()
+        TEST_clear_instance_license_cache()
 
     def _usage_report_response(self) -> Any:
         # A roughly correct billing response
