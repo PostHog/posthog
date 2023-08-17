@@ -3,7 +3,7 @@ from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
-from posthog.hogql.database.database import serialize_fields
+from posthog.hogql.database.database import serialize_fields, SerializedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 
@@ -35,7 +35,7 @@ class TableSerializer(serializers.ModelSerializer):
         fields = ["id", "deleted", "name", "format", "created_by", "created_at", "url_pattern", "credential", "columns"]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
-    def get_columns(self, table: DataWarehouseTable) -> Dict[str, str]:
+    def get_columns(self, table: DataWarehouseTable) -> Dict[SerializedField]:
         return serialize_fields(table.hogql_definition().fields)
 
     def create(self, validated_data):

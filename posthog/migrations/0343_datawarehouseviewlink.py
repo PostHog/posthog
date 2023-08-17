@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
                     ),
                 ),
-                ("table", models.CharField(max_length=400)),
+                ("table", models.CharField(max_length=128)),
                 ("from_join_key", models.CharField(max_length=400)),
                 ("to_join_key", models.CharField(max_length=400)),
                 (
