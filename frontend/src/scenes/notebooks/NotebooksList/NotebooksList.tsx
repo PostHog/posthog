@@ -1,94 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { NotebookListItemType, NotebookNodeType } from '~/types'
+import { NotebookListItemType } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import {
-    LemonButton,
-    LemonButtonWithDropdown,
-    LemonCheckbox,
-    LemonInput,
-    LemonSelect,
-    LemonTag,
-} from '@posthog/lemon-ui'
-import { DEFAULT_FILTERS, NotebooksListFilters, notebooksListLogic } from '../Notebook/notebooksListLogic'
+import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { DEFAULT_FILTERS, notebooksListLogic } from '../Notebook/notebooksListLogic'
 import { useEffect } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
 import { notebookPopoverLogic } from '../Notebook/notebookPopoverLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-
-const fromNodeTypeToLabel: Record<NotebookNodeType, string> = {
-    [NotebookNodeType.Backlink]: '',
-    [NotebookNodeType.FeatureFlag]: 'Feature flag',
-    [NotebookNodeType.Image]: 'Image',
-    [NotebookNodeType.Insight]: 'Insight',
-    [NotebookNodeType.Link]: 'Link',
-    [NotebookNodeType.Person]: 'Person',
-    [NotebookNodeType.Query]: 'Query',
-    [NotebookNodeType.Recording]: 'Session replay',
-    [NotebookNodeType.RecordingPlaylist]: 'Session replay playlist',
-    [NotebookNodeType.ReplayTimestamp]: 'Session replay comment',
-}
-
-function ContainsTypeFilters({
-    filters,
-    setFilters,
-}: {
-    filters: NotebooksListFilters
-    setFilters: (selection: Partial<NotebooksListFilters>) => void
-}): JSX.Element {
-    return (
-        <div className="flex items-center gap-2">
-            <span>Containing:</span>
-            <LemonButtonWithDropdown
-                status="stealth"
-                type="secondary"
-                data-attr={'notebooks-list-contains-filters'}
-                dropdown={{
-                    sameWidth: false,
-                    closeOnClickInside: false,
-                    overlay: [
-                        <>
-                            {Object.entries(fromNodeTypeToLabel)
-                                .filter((entry) => entry[1] !== '')
-                                .map(([type, label]) => {
-                                    const nodeType = type as NotebookNodeType
-                                    return (
-                                        <LemonCheckbox
-                                            key={type}
-                                            size="small"
-                                            fullWidth
-                                            checked={filters.contains.includes(nodeType)}
-                                            onChange={(checked) => {
-                                                const changedContains = filters.contains.filter((x) => x !== nodeType)
-                                                if (checked) {
-                                                    changedContains.push(nodeType)
-                                                }
-                                                setFilters({ contains: changedContains })
-                                            }}
-                                            label={label}
-                                        />
-                                    )
-                                })}
-                        </>,
-                    ],
-                    actionable: true,
-                }}
-            >
-                <span className={'text-muted'}>
-                    {filters.contains.length === 0
-                        ? 'Any types'
-                        : filters.contains.length === 1
-                        ? fromNodeTypeToLabel[filters.contains[0] as NotebookNodeType]
-                        : `${filters.contains.length} types selected`}
-                </span>
-            </LemonButtonWithDropdown>
-        </div>
-    )
-}
+import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksList/ContainsTypeFilter'
 
 export function NotebooksTable(): JSX.Element {
     const { searchFilteredNotebooks, filters, notebooksLoading, notebookTemplates } = useValues(notebooksListLogic)
