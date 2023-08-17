@@ -52,7 +52,7 @@ export class StorybookStoryPage {
 
         await this.page.evaluate(
             ([pseudoClasses]) => {
-                const rootEl = document.getElementById('root')
+                const rootEl = document.getElementById('storybook-root')
 
                 if (rootEl) {
                     // don't expand the container element to limit the screenshot
