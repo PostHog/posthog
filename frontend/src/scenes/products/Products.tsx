@@ -72,10 +72,12 @@ export function Products(): JSX.Element {
         <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">
             <div className="mb-8">
                 <h1 className="text-center text-4xl">Let's get started.</h1>
-                <p>Pick your first product to get started with. You can set up any others you'd like later.</p>
+                <p className="text-center">
+                    Pick your first product to get started with. You can set up any others you'd like later.
+                </p>
             </div>
 
-            <div className="flex w-full max-w-200 justify-center gap-6 flex-wrap">
+            <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
                 {products.map((product) => (
                     <ProductCard product={product} key={product.key} />
                 ))}
