@@ -193,7 +193,7 @@ const SimpleSessionRecordingsFiltersInserter = ({
                     className="new-prop-filter"
                     type="secondary"
                     size="small"
-                    disabledReason={disabled && 'Add more properties using your existing filter.'}
+                    disabledReason={disabled && 'Add more values using your existing filter.'}
                     sideIcon={null}
                 >
                     {label}
