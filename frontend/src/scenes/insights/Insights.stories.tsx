@@ -1,13 +1,14 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { mswDecorator } from '~/mocks/browser'
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+import { App } from 'scenes/App'
 
-export default {
+type Story = StoryObj<typeof App>
+const meta: Meta = {
     title: 'Scenes-App/Insights',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
             snapshotBrowsers: ['chromium', 'webkit'],
@@ -26,130 +27,144 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 /* eslint-disable @typescript-eslint/no-var-requires */
 // Trends
-export const TrendsLine = createInsightStory(require('./__mocks__/trendsLine.json'))
+export const TrendsLine: Story = createInsightStory(require('./__mocks__/trendsLine.json'))
 TrendsLine.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const TrendsLineEdit = createInsightStory(require('./__mocks__/trendsLine.json'), 'edit')
+export const TrendsLineEdit: Story = createInsightStory(require('./__mocks__/trendsLine.json'), 'edit')
 TrendsLineEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsLineBreakdown = createInsightStory(require('./__mocks__/trendsLineBreakdown.json'))
+export const TrendsLineBreakdown: Story = createInsightStory(require('./__mocks__/trendsLineBreakdown.json'))
 TrendsLineBreakdown.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const TrendsLineBreakdownEdit = createInsightStory(require('./__mocks__/trendsLineBreakdown.json'), 'edit')
+export const TrendsLineBreakdownEdit: Story = createInsightStory(
+    require('./__mocks__/trendsLineBreakdown.json'),
+    'edit'
+)
 TrendsLineBreakdownEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsBar = createInsightStory(require('./__mocks__/trendsBar.json'))
+export const TrendsBar: Story = createInsightStory(require('./__mocks__/trendsBar.json'))
 TrendsBar.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const TrendsBarEdit = createInsightStory(require('./__mocks__/trendsBar.json'), 'edit')
+export const TrendsBarEdit: Story = createInsightStory(require('./__mocks__/trendsBar.json'), 'edit')
 TrendsBarEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsBarBreakdown = createInsightStory(require('./__mocks__/trendsBarBreakdown.json'))
+export const TrendsBarBreakdown: Story = createInsightStory(require('./__mocks__/trendsBarBreakdown.json'))
 TrendsBarBreakdown.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const TrendsBarBreakdownEdit = createInsightStory(require('./__mocks__/trendsBarBreakdown.json'), 'edit')
+export const TrendsBarBreakdownEdit: Story = createInsightStory(require('./__mocks__/trendsBarBreakdown.json'), 'edit')
 TrendsBarBreakdownEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsValue = createInsightStory(require('./__mocks__/trendsValue.json'))
+export const TrendsValue: Story = createInsightStory(require('./__mocks__/trendsValue.json'))
 TrendsValue.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-bar-value-graph] > canvas' },
 }
-export const TrendsValueEdit = createInsightStory(require('./__mocks__/trendsValue.json'), 'edit')
+export const TrendsValueEdit: Story = createInsightStory(require('./__mocks__/trendsValue.json'), 'edit')
 TrendsValueEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-bar-value-graph] > canvas' },
 }
 
-export const TrendsValueBreakdown = createInsightStory(require('./__mocks__/trendsValueBreakdown.json'))
+export const TrendsValueBreakdown: Story = createInsightStory(require('./__mocks__/trendsValueBreakdown.json'))
 TrendsValueBreakdown.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-bar-value-graph] > canvas' },
 }
-export const TrendsValueBreakdownEdit = createInsightStory(require('./__mocks__/trendsValueBreakdown.json'), 'edit')
+export const TrendsValueBreakdownEdit: Story = createInsightStory(
+    require('./__mocks__/trendsValueBreakdown.json'),
+    'edit'
+)
 TrendsValueBreakdownEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-bar-value-graph] > canvas' },
 }
 
-export const TrendsArea = createInsightStory(require('./__mocks__/trendsArea.json'))
+export const TrendsArea: Story = createInsightStory(require('./__mocks__/trendsArea.json'))
 TrendsArea.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const TrendsAreaEdit = createInsightStory(require('./__mocks__/trendsArea.json'), 'edit')
+export const TrendsAreaEdit: Story = createInsightStory(require('./__mocks__/trendsArea.json'), 'edit')
 TrendsAreaEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsAreaBreakdown = createInsightStory(require('./__mocks__/trendsAreaBreakdown.json'))
+export const TrendsAreaBreakdown: Story = createInsightStory(require('./__mocks__/trendsAreaBreakdown.json'))
 TrendsAreaBreakdown.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const TrendsAreaBreakdownEdit = createInsightStory(require('./__mocks__/trendsAreaBreakdown.json'), 'edit')
+export const TrendsAreaBreakdownEdit: Story = createInsightStory(
+    require('./__mocks__/trendsAreaBreakdown.json'),
+    'edit'
+)
 TrendsAreaBreakdownEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsNumber = createInsightStory(require('./__mocks__/trendsNumber.json'))
+export const TrendsNumber: Story = createInsightStory(require('./__mocks__/trendsNumber.json'))
 TrendsNumber.parameters = { testOptions: { waitForLoadersToDisappear: '.BoldNumber__value' } }
-export const TrendsNumberEdit = createInsightStory(require('./__mocks__/trendsNumber.json'), 'edit')
+export const TrendsNumberEdit: Story = createInsightStory(require('./__mocks__/trendsNumber.json'), 'edit')
 TrendsNumberEdit.parameters = { testOptions: { waitForLoadersToDisappear: '.BoldNumber__value' } }
 
-export const TrendsTable = createInsightStory(require('./__mocks__/trendsTable.json'))
+export const TrendsTable: Story = createInsightStory(require('./__mocks__/trendsTable.json'))
 TrendsTable.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=insights-table-graph] td' } }
-export const TrendsTableEdit = createInsightStory(require('./__mocks__/trendsTable.json'), 'edit')
+export const TrendsTableEdit: Story = createInsightStory(require('./__mocks__/trendsTable.json'), 'edit')
 TrendsTableEdit.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=insights-table-graph] td' } }
 
-export const TrendsTableBreakdown = createInsightStory(require('./__mocks__/trendsTableBreakdown.json'))
+export const TrendsTableBreakdown: Story = createInsightStory(require('./__mocks__/trendsTableBreakdown.json'))
 TrendsTableBreakdown.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=insights-table-graph] td' } }
-export const TrendsTableBreakdownEdit = createInsightStory(require('./__mocks__/trendsTableBreakdown.json'), 'edit')
+export const TrendsTableBreakdownEdit: Story = createInsightStory(
+    require('./__mocks__/trendsTableBreakdown.json'),
+    'edit'
+)
 TrendsTableBreakdownEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=insights-table-graph] td' },
 }
 
-export const TrendsPie = createInsightStory(require('./__mocks__/trendsPie.json'))
+export const TrendsPie: Story = createInsightStory(require('./__mocks__/trendsPie.json'))
 TrendsPie.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-pie-graph] > canvas' } }
-export const TrendsPieEdit = createInsightStory(require('./__mocks__/trendsPie.json'), 'edit')
+export const TrendsPieEdit: Story = createInsightStory(require('./__mocks__/trendsPie.json'), 'edit')
 TrendsPieEdit.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-pie-graph] > canvas' } }
 
-export const TrendsPieBreakdown = createInsightStory(require('./__mocks__/trendsPieBreakdown.json'))
+export const TrendsPieBreakdown: Story = createInsightStory(require('./__mocks__/trendsPieBreakdown.json'))
 TrendsPieBreakdown.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-pie-graph] > canvas' } }
-export const TrendsPieBreakdownEdit = createInsightStory(require('./__mocks__/trendsPieBreakdown.json'), 'edit')
+export const TrendsPieBreakdownEdit: Story = createInsightStory(require('./__mocks__/trendsPieBreakdown.json'), 'edit')
 TrendsPieBreakdownEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-pie-graph] > canvas' },
 }
 
-export const TrendsWorldMap = createInsightStory(require('./__mocks__/trendsWorldMap.json'))
+export const TrendsWorldMap: Story = createInsightStory(require('./__mocks__/trendsWorldMap.json'))
 TrendsWorldMap.parameters = { testOptions: { waitForLoadersToDisappear: '.WorldMap' } }
-export const TrendsWorldMapEdit = createInsightStory(require('./__mocks__/trendsWorldMap.json'), 'edit')
+export const TrendsWorldMapEdit: Story = createInsightStory(require('./__mocks__/trendsWorldMap.json'), 'edit')
 TrendsWorldMapEdit.parameters = { testOptions: { waitForLoadersToDisappear: '.WorldMap' } }
 
 // Funnels
 
-export const FunnelLeftToRight = createInsightStory(require('./__mocks__/funnelLeftToRight.json'))
+export const FunnelLeftToRight: Story = createInsightStory(require('./__mocks__/funnelLeftToRight.json'))
 FunnelLeftToRight.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-bar-graph] .StepBar' } }
-export const FunnelLeftToRightEdit = createInsightStory(require('./__mocks__/funnelLeftToRight.json'), 'edit')
+export const FunnelLeftToRightEdit: Story = createInsightStory(require('./__mocks__/funnelLeftToRight.json'), 'edit')
 FunnelLeftToRightEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-bar-graph] .StepBar' },
 }
 
-export const FunnelLeftToRightBreakdown = createInsightStory(require('./__mocks__/funnelLeftToRightBreakdown.json'))
+export const FunnelLeftToRightBreakdown: Story = createInsightStory(
+    require('./__mocks__/funnelLeftToRightBreakdown.json')
+)
 FunnelLeftToRightBreakdown.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-bar-graph] .StepBar' },
 }
-export const FunnelLeftToRightBreakdownEdit = createInsightStory(
+export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
     require('./__mocks__/funnelLeftToRightBreakdown.json'),
     'edit'
 )
@@ -157,20 +172,22 @@ FunnelLeftToRightBreakdownEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-bar-graph] .StepBar' },
 }
 
-export const FunnelTopToBottom = createInsightStory(require('./__mocks__/funnelTopToBottom.json'))
+export const FunnelTopToBottom: Story = createInsightStory(require('./__mocks__/funnelTopToBottom.json'))
 FunnelTopToBottom.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-bar-graph] .funnel-bar' },
 }
-export const FunnelTopToBottomEdit = createInsightStory(require('./__mocks__/funnelTopToBottom.json'), 'edit')
+export const FunnelTopToBottomEdit: Story = createInsightStory(require('./__mocks__/funnelTopToBottom.json'), 'edit')
 FunnelTopToBottomEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-bar-graph] .funnel-bar' },
 }
 
-export const FunnelTopToBottomBreakdown = createInsightStory(require('./__mocks__/funnelTopToBottomBreakdown.json'))
+export const FunnelTopToBottomBreakdown: Story = createInsightStory(
+    require('./__mocks__/funnelTopToBottomBreakdown.json')
+)
 FunnelTopToBottomBreakdown.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-bar-graph] .funnel-bar' },
 }
-export const FunnelTopToBottomBreakdownEdit = createInsightStory(
+export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
     require('./__mocks__/funnelTopToBottomBreakdown.json'),
     'edit'
 )
@@ -178,66 +195,72 @@ FunnelTopToBottomBreakdownEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-bar-graph] .funnel-bar' },
 }
 
-export const FunnelHistoricalTrends = createInsightStory(require('./__mocks__/funnelHistoricalTrends.json'))
+export const FunnelHistoricalTrends: Story = createInsightStory(require('./__mocks__/funnelHistoricalTrends.json'))
 FunnelHistoricalTrends.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
-export const FunnelHistoricalTrendsEdit = createInsightStory(require('./__mocks__/funnelHistoricalTrends.json'), 'edit')
+export const FunnelHistoricalTrendsEdit: Story = createInsightStory(
+    require('./__mocks__/funnelHistoricalTrends.json'),
+    'edit'
+)
 FunnelHistoricalTrendsEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
 
-export const FunnelTimeToConvert = createInsightStory(require('./__mocks__/funnelTimeToConvert.json'))
+export const FunnelTimeToConvert: Story = createInsightStory(require('./__mocks__/funnelTimeToConvert.json'))
 FunnelTimeToConvert.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-histogram] svg' } }
-export const FunnelTimeToConvertEdit = createInsightStory(require('./__mocks__/funnelTimeToConvert.json'), 'edit')
+export const FunnelTimeToConvertEdit: Story = createInsightStory(
+    require('./__mocks__/funnelTimeToConvert.json'),
+    'edit'
+)
 FunnelTimeToConvertEdit.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-histogram] svg' } }
 
 // Retention
 
-export const Retention = createInsightStory(require('./__mocks__/retention.json'))
+export const Retention: Story = createInsightStory(require('./__mocks__/retention.json'))
 Retention.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const RetentionEdit = createInsightStory(require('./__mocks__/retention.json'), 'edit')
+export const RetentionEdit: Story = createInsightStory(require('./__mocks__/retention.json'), 'edit')
 RetentionEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const RetentionBreakdown = createInsightStory(require('./__mocks__/retentionBreakdown.json'))
+export const RetentionBreakdown: Story = createInsightStory(require('./__mocks__/retentionBreakdown.json'))
 RetentionBreakdown.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const RetentionBreakdownEdit = createInsightStory(require('./__mocks__/retentionBreakdown.json'), 'edit')
+export const RetentionBreakdownEdit: Story = createInsightStory(require('./__mocks__/retentionBreakdown.json'), 'edit')
 RetentionBreakdownEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
 // Lifecycle
 
-export const Lifecycle = createInsightStory(require('./__mocks__/lifecycle.json'))
+export const Lifecycle: Story = createInsightStory(require('./__mocks__/lifecycle.json'))
 Lifecycle.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const LifecycleEdit = createInsightStory(require('./__mocks__/lifecycle.json'), 'edit')
+export const LifecycleEdit: Story = createInsightStory(require('./__mocks__/lifecycle.json'), 'edit')
 LifecycleEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
 // Stickiness
 
-export const Stickiness = createInsightStory(require('./__mocks__/stickiness.json'))
+export const Stickiness: Story = createInsightStory(require('./__mocks__/stickiness.json'))
 Stickiness.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
-export const StickinessEdit = createInsightStory(require('./__mocks__/stickiness.json'), 'edit')
+export const StickinessEdit: Story = createInsightStory(require('./__mocks__/stickiness.json'), 'edit')
 StickinessEdit.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
 }
 
 // User Paths
 
-export const UserPaths = createInsightStory(require('./__mocks__/userPaths.json'))
+export const UserPaths: Story = createInsightStory(require('./__mocks__/userPaths.json'))
 UserPaths.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=paths-viz] > svg' } }
-export const UserPathsEdit = createInsightStory(require('./__mocks__/userPaths.json'), 'edit')
+export const UserPathsEdit: Story = createInsightStory(require('./__mocks__/userPaths.json'), 'edit')
 UserPathsEdit.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=paths-viz] > svg' } }
 /* eslint-enable @typescript-eslint/no-var-requires */

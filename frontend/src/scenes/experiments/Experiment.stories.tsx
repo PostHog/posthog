@@ -572,11 +572,10 @@ const MOCK_TREND_EXPERIMENT_RESULTS: TrendsExperimentResults = {
     is_cached: true,
 }
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Experiments',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -597,8 +596,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function ExperimentsList(): JSX.Element {
     useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {

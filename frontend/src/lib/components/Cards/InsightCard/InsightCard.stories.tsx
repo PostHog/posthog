@@ -31,7 +31,7 @@ const examples = [
     EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY,
 ] as unknown as InsightModel[]
 
-export default {
+const meta: Meta = {
     title: 'Components/Cards/Insight Card',
     component: InsightCardComponent,
     parameters: {
@@ -60,8 +60,8 @@ export default {
             control: { type: 'boolean' },
         },
     },
-} as Meta
-
+}
+export default meta
 export const InsightCard: Story = (args) => {
     const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
     const [wasItemRemoved, setWasItemRemoved] = useState(false)

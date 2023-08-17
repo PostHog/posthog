@@ -2,12 +2,12 @@ import { Meta, Story } from '@storybook/react'
 import { DashboardTile, InsightColor } from '~/types'
 import { TextCard } from './TextCard'
 
-export default {
+const meta: Meta = {
     title: 'Components/Cards/Text Card',
     component: TextCard,
     parameters: {},
-} as Meta
-
+}
+export default meta
 const makeTextTile = (body: string, color: InsightColor | null = null): DashboardTile => {
     return {
         id: 1,

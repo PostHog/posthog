@@ -1,11 +1,12 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { ElementType } from '~/types'
 import { HTMLElementsDisplay } from './HTMLElementsDisplay'
 
-export default {
+const meta: Meta<typeof HTMLElementsDisplay> = {
     title: 'Components/Html Elements Display',
     component: HTMLElementsDisplay,
-} as ComponentMeta<typeof HTMLElementsDisplay>
+}
+export default meta
 
 export function EmptyDisplay(): JSX.Element {
     return <HTMLElementsDisplay elements={[] as ElementType[]} />

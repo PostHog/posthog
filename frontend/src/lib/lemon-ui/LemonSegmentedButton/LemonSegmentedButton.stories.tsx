@@ -1,9 +1,10 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 import { IconCalculate, IconCalendar, IconLightBulb, IconSettings } from '../icons'
 import { LemonSegmentedButton, LemonSegmentedButtonOption, LemonSegmentedButtonProps } from './LemonSegmentedButton'
 
-export default {
+type Story = StoryObj<typeof LemonSegmentedButton>
+const meta: Meta<typeof LemonSegmentedButton> = {
     title: 'Lemon UI/Lemon Segmented Button',
     component: LemonSegmentedButton,
     argTypes: {
@@ -27,9 +28,11 @@ export default {
         value: { control: { disable: true } },
         onChange: { control: { disable: true } },
     },
-} as ComponentMeta<typeof LemonSegmentedButton>
+    tags: ['autodocs'],
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonSegmentedButton> = (
+const Template: StoryFn<typeof LemonSegmentedButton> = (
     props: Omit<LemonSegmentedButtonProps<any>, 'value' | 'onChange'>
 ) => {
     const [value, setValue] = useState(props.options[1]?.value)
@@ -37,10 +40,10 @@ const Template: ComponentStory<typeof LemonSegmentedButton> = (
     return <LemonSegmentedButton {...props} value={value} onChange={(newValue) => setValue(newValue)} />
 }
 
-export const Default = Template.bind({})
+export const Default: Story = Template.bind({})
 Default.args = {}
 
-export const Small = Template.bind({})
+export const Small: Story = Template.bind({})
 Small.args = {
     size: 'small',
 }

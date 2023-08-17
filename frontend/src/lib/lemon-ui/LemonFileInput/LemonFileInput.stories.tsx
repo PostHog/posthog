@@ -1,17 +1,20 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { createRef, useState } from 'react'
 
-export default {
+type Story = StoryObj<typeof LemonFileInput>
+const meta: Meta<typeof LemonFileInput> = {
     title: 'Lemon UI/Lemon File Input',
     component: LemonFileInput,
+    tags: ['autodocs'],
     argTypes: {
         loading: { type: 'boolean', defaultValue: false },
         accept: { type: 'string', defaultValue: '.json' },
     },
-} as ComponentMeta<typeof LemonFileInput>
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonFileInput> = (props) => {
+const Template: StoryFn<typeof LemonFileInput> = (props) => {
     const [singleValue, setSingleValue] = useState([] as any[])
     const [multipleValue, setMultipleValue] = useState([] as any[])
     const [extraTargetValue, setExtraTargetValue] = useState([] as any[])
@@ -58,4 +61,4 @@ const Template: ComponentStory<typeof LemonFileInput> = (props) => {
     )
 }
 
-export const Default = Template.bind({})
+export const Default: Story = Template.bind({})

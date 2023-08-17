@@ -1,8 +1,9 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 import { LemonTab, LemonTabs as LemonTabsComponent } from './LemonTabs'
 
-export default {
+type Story = StoryObj<typeof LemonTabsComponent>
+const meta: Meta<typeof LemonTabsComponent> = {
     title: 'Lemon UI/Lemon Tabs',
     component: LemonTabsComponent,
     argTypes: {
@@ -34,17 +35,17 @@ export default {
                 },
             ] as LemonTab<'calendar' | 'calculator' | 'banana' | 'settings'>[],
         },
-        // Show value and onChange, but disable editing as they're handled by the template
-        value: { control: { disable: true } },
         onChange: { control: { disable: true } },
     },
-} as ComponentMeta<typeof LemonTabsComponent>
+    tags: ['autodocs'],
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonTabsComponent> = (props) => {
+const Template: StoryFn<typeof LemonTabsComponent> = (props) => {
     const [activeKey, setActiveKey] = useState((props.tabs[0] as LemonTab<string | number>).key)
 
     return <LemonTabsComponent {...props} activeKey={activeKey} onChange={(newValue) => setActiveKey(newValue)} />
 }
 
-export const LemonTabs = Template.bind({})
+export const LemonTabs: Story = Template.bind({})
 LemonTabs.args = {}

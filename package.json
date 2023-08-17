@@ -187,6 +187,7 @@
         "@storybook/react-webpack5": "^7.3.1",
         "@storybook/test-runner": "^0.13.0",
         "@storybook/theming": "^7.3.1",
+        "@storybook/types": "^7.3.1",
         "@sucrase/jest-plugin": "^3.0.0",
         "@testing-library/dom": ">=7.21.4",
         "@testing-library/jest-dom": "^5.16.2",

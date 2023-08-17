@@ -1,5 +1,5 @@
 import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { alphabet, range } from 'lib/utils'
 
 const DUMMIES: ProfileBubblesProps['people'] = [
@@ -9,7 +9,7 @@ const DUMMIES: ProfileBubblesProps['people'] = [
     { email: 'joe@posthog.com', name: 'Joe' },
 ]
 
-export default {
+const meta: Meta<typeof ProfileBubblesComponent> = {
     title: 'Lemon UI/Profile Bubbles',
     component: ProfileBubblesComponent,
     argTypes: {
@@ -17,7 +17,9 @@ export default {
             defaultValue: DUMMIES,
         },
     },
-} as ComponentMeta<typeof ProfileBubblesComponent>
+    tags: ['autodocs'],
+}
+export default meta
 
 export function OneBubble(props: any): JSX.Element {
     return <ProfileBubblesComponent {...props} people={DUMMIES.slice(0, 1)} />

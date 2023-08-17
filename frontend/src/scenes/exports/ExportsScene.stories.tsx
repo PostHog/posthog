@@ -6,11 +6,10 @@ import { mswDecorator } from '~/mocks/browser'
 import { urls } from 'scenes/urls'
 import { createExportServiceHandlers } from './api-mocks'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Exports',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
             waitForLoadersToDisappear: true,
@@ -45,8 +44,8 @@ export default {
             }).handlers
         ),
     ],
-} as Meta
-
+}
+export default meta
 export const Exports: Story = () => {
     useEffect(() => {
         router.actions.push(urls.exports())
