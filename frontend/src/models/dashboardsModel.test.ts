@@ -41,6 +41,7 @@ const dashboards: Partial<DashboardBasicType>[] = [
 
 const basicDashboard: DashboardBasicType = {
     id: 1,
+    name: '',
     description: 'This is not a generated dashboard',
     pinned: false,
     created_at: new Date().toISOString(),
