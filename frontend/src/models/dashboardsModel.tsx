@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { tagsModel } from '~/models/tagsModel'
+import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     path: ['models', 'dashboardsModel'],
@@ -234,22 +235,40 @@ export const dashboardsModel = kea<dashboardsModelType>({
     },
 
     selectors: ({ selectors }) => ({
+        nameCompareFunction: [
+            () => [() => 1],
+            () => (a: DashboardBasicType, b: DashboardBasicType) => {
+                const firstName = a.name ?? 'Untitled'
+                const secondName = b.name ?? 'Untitled'
+
+                if (
+                    firstName.startsWith(GENERATED_DASHBOARD_PREFIX) &&
+                    !secondName.startsWith(GENERATED_DASHBOARD_PREFIX)
+                ) {
+                    return 1 // a should come after b
+                }
+                if (
+                    !firstName.startsWith(GENERATED_DASHBOARD_PREFIX) &&
+                    secondName.startsWith(GENERATED_DASHBOARD_PREFIX)
+                ) {
+                    return -1 // a should come before b
+                }
+
+                return firstName.localeCompare(secondName)
+            },
+        ],
         nameSortedDashboards: [
-            () => [selectors.rawDashboards],
-            (rawDashboards) => {
-                return [...Object.values(rawDashboards)].sort((a, b) =>
-                    (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
-                )
+            () => [selectors.rawDashboards, selectors.nameCompareFunction],
+            (rawDashboards, nameCompareFunction) => {
+                return [...Object.values(rawDashboards)].sort(nameCompareFunction)
             },
         ],
         /** Display dashboards are additionally sorted by pin status: pinned first. */
         pinSortedDashboards: [
-            () => [selectors.nameSortedDashboards],
-            (nameSortedDashboards) => {
+            () => [selectors.nameSortedDashboards, selectors.nameCompareFunction],
+            (nameSortedDashboards, nameCompareFunction) => {
                 return [...nameSortedDashboards].sort(
-                    (a, b) =>
-                        (Number(b.pinned) - Number(a.pinned)) * 10 +
-                        (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
+                    (a, b) => (Number(b.pinned) - Number(a.pinned)) * 10 + nameCompareFunction(a, b)
                 )
             },
         ],

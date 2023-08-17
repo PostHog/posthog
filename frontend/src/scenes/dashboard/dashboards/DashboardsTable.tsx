@@ -47,6 +47,7 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
+    const { nameCompareFunction } = useValues(dashboardsModel)
     const { setFilters } = useActions(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -109,7 +110,7 @@ export function DashboardsTable({
                     </div>
                 )
             },
-            sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
+            sorter: nameCompareFunction,
         },
         ...(hasAvailableFeature(AvailableFeature.TAGGING)
             ? [
