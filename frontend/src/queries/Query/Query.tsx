@@ -84,6 +84,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                                 setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery))}
                                 context={queryContext}
                             />
+                            <div>David</div>
                             <div className="my-4">
                                 <LemonDivider />
                             </div>

@@ -8,6 +8,8 @@ import { useJsonNodeState } from './utils'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
+import { isEditable } from '@testing-library/user-event/dist/utils'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -28,6 +30,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const { insightProps } = useValues(logic)
     const { setTitle } = useActions(notebookNodeLogic)
     const { expanded } = useValues(notebookNodeLogic)
+    const { isEditable } = useValues(notebookLogic)
 
     const title = useMemo(() => {
         if (NodeKind.DataTableNode === query.kind) {
@@ -50,10 +53,18 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
-            modifiedQuery.full = false
+            modifiedQuery.full = isEditable
         }
         return modifiedQuery
-    }, [query, expanded])
+    }, [query, isEditable])
+
+    // const modifiedQuery = { ...query }
+
+    if (NodeKind.DataTableNode === modifiedQuery.kind) {
+        // We don't want to show the insights button for now
+        modifiedQuery.showOpenEditorButton = false
+        modifiedQuery.full = isEditable
+    }
 
     if (!expanded) {
         return null
