@@ -1,4 +1,5 @@
 import Redis from 'ioredis'
+import { Pool } from 'pg'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
@@ -46,7 +47,7 @@ describe('workerTasks.runEventPipeline()', () => {
         const organizationId = await createOrganization(hub.postgres)
         const teamId = await createTeam(hub.postgres, organizationId)
 
-        jest.spyOn(hub.db.postgres, 'query').mockImplementation(() => {
+        const pgQueryMock = jest.spyOn(Pool.prototype, 'query').mockImplementation(() => {
             return Promise.reject(new Error(errorMessage))
         })
 
@@ -65,5 +66,6 @@ describe('workerTasks.runEventPipeline()', () => {
                 },
             })
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
+        pgQueryMock.mockRestore()
     })
 })
