@@ -249,6 +249,7 @@ const featureFlagActionsMapping: Record<
     performed_rollback: () => null,
     can_edit: () => null,
     analytics_dashboards: () => null,
+    has_enriched_analytics: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

@@ -684,7 +684,7 @@ class TrendsBreakdown:
             return (
                 f"""
                     INNER JOIN ({query}) {SessionQuery.SESSION_TABLE_ALIAS}
-                    ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}."$session_id" = e."$session_id"
                 """,
                 session_params,
             )

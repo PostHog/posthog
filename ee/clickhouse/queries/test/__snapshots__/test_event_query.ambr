@@ -167,7 +167,7 @@
        AND team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC') + INTERVAL 24 HOUR
-     GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+     GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
   WHERE team_id = 2
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC')
@@ -190,7 +190,7 @@
        AND team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC') + INTERVAL 24 HOUR
-     GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+     GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
   WHERE team_id = 2
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC')
@@ -328,7 +328,7 @@
        AND team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC') + INTERVAL 24 HOUR
-     GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+     GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
   WHERE team_id = 2
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC')

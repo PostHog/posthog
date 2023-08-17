@@ -187,7 +187,7 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
     Component: (props: NotebookNodeViewProps<T>) => JSX.Element | null
     pasteOptions?: {
         find: string
-        getAttributes: (match: ExtendedRegExpMatchArray) => T | null | undefined
+        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
 }
@@ -239,6 +239,7 @@ export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
             return pasteOptions
                 ? [
                       posthogNodePasteRule({
+                          editor: this.editor,
                           type: this.type,
                           ...pasteOptions,
                       }),

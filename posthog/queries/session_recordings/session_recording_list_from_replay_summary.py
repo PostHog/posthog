@@ -51,7 +51,7 @@ def _get_filter_by_provided_session_ids_clause(
     if recording_filters.session_ids is None:
         return "", {}
 
-    return f"AND {column_name} in %(session_ids)s", {"session_ids": recording_filters.session_ids}
+    return f'AND "{column_name}" in %(session_ids)s', {"session_ids": recording_filters.session_ids}
 
 
 class PersonsQuery(EventQuery):

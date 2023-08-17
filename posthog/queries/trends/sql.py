@@ -36,7 +36,7 @@ SELECT {aggregate_operation} AS total, date FROM (
         {timestamp_truncated} as date,
         any(sessions.session_duration) as session_duration
     {event_query_base}
-    GROUP BY e.$session_id, date
+    GROUP BY e."$session_id", date
 ) GROUP BY date
 """
 
@@ -44,7 +44,7 @@ SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} AS total FROM (
     SELECT any(session_duration) as session_duration
     {event_query_base}
-    GROUP BY e.$session_id
+    GROUP BY e."$session_id"
 )
 """
 
