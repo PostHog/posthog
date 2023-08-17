@@ -2,13 +2,15 @@ from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
-from posthog.warehouse.models import DataWarehouseSavedQuery
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.hogql.database.database import serialize_fields, SerializedField
 
 from posthog.models import User
 from typing import Any, List
+
+from rest_framework import request, response, status
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
@@ -73,3 +75,10 @@ class DataWarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewS
             )
 
         return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance: DataWarehouseSavedQuery = self.get_object()
+        # Remove related view links
+        DataWarehouseViewLink.objects.filter(table=instance.name).delete()
+        self.perform_destroy(instance)
+        return response.Response(status=status.HTTP_204_NO_CONTENT)

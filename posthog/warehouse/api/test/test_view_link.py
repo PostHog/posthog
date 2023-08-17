@@ -206,3 +206,36 @@ class TestViewLinkQuery(APIBaseTest):
             query_response["types"],
             [("events__event_view.fake", "String"), ("events__person_view.p_distinct_id", "String")],
         )
+
+    def test_delete(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event AS event, distinct_id as distinct_id from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_view_link/",
+            {
+                "saved_query_id": saved_query["id"],
+                "table": "events",
+                "to_join_key": "distinct_id",
+                "from_join_key": "distinct_id",
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        view_link = response.json()
+
+        self.assertEqual(view_link["saved_query"], saved_query["id"])
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/warehouse_saved_query/{saved_query['id']}")
+        self.assertEqual(response.status_code, 204, response.content)
+
+        self.assertEqual(DataWarehouseViewLink.objects.all().count(), 0)
