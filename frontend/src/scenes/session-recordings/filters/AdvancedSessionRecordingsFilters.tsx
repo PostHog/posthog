@@ -26,7 +26,7 @@ export const AdvancedSessionRecordingsFilters = ({
     showPropertyFilters?: boolean
 }): JSX.Element => {
     return (
-        <div className="space-y-2">
+        <div className="space-y-2 px-3 mb-3">
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
                 <TestAccountFilter
                     filters={filters}

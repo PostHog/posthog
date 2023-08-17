@@ -14,8 +14,10 @@ import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { teamLogic } from 'scenes/teamLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { urls } from '@posthog/apps-common'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
 export const SimpleSessionRecordingsFilters = ({
     filters,
@@ -30,15 +32,16 @@ export const SimpleSessionRecordingsFilters = ({
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
 
+    const displayNameProperties = useMemo(() => currentTeam?.person_display_name_properties ?? [], [currentTeam])
+
     const personPropertyOptions = useMemo(() => {
         const properties = [{ label: 'Country', key: '$geoip_country_name' }]
-        const displayNameProperties = currentTeam?.person_display_name_properties ?? []
         return properties.concat(
             displayNameProperties.slice(0, 2).map((property) => {
                 return { label: property, key: property }
             })
         )
-    }, [currentTeam])
+    }, [displayNameProperties])
 
     const pageviewEvent = localFilters.events?.find((event) => event.id === '$pageview')
 
@@ -47,7 +50,7 @@ export const SimpleSessionRecordingsFilters = ({
 
     return (
         <div className="space-y-2">
-            <div className="flex space-x-1">
+            <div className="flex space-x-1 px-3 overflow-x-scroll pb-3">
                 {personPropertyOptions.map(({ label, key }) => (
                     <SimpleSessionRecordingsFiltersInserter
                         key={key}
@@ -82,41 +85,50 @@ export const SimpleSessionRecordingsFilters = ({
                         })
                     }}
                 />
+                {displayNameProperties.length === 0 && (
+                    <Link to={urls.projectSettings('person-display-name')}>
+                        <LemonButton type="tertiary" size="small" className="whitespace-nowrap" icon={<IconPlus />}>
+                            Add person properties
+                        </LemonButton>
+                    </Link>
+                )}
             </div>
 
-            {personProperties && (
-                <PropertyFilters
-                    pageKey={'session-recordings'}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                    propertyFilters={personProperties}
-                    onChange={(properties) => setFilters({ properties })}
-                    allowNew={false}
-                />
-            )}
-            {pageviewEvent && (
-                <PropertyFilters
-                    pageKey={`session-recordings-$current_url`}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                    propertyFilters={eventProperties}
-                    onChange={(properties) => {
-                        setLocalFilters({
-                            ...filters,
-                            events:
-                                properties.length > 0
-                                    ? [
-                                          {
-                                              id: '$pageview',
-                                              name: '$pageview',
-                                              type: EntityTypes.EVENTS,
-                                              properties: properties,
-                                          },
-                                      ]
-                                    : [],
-                        })
-                    }}
-                    allowNew={false}
-                />
-            )}
+            <div className="mx-3">
+                {personProperties && (
+                    <PropertyFilters
+                        pageKey={'session-recordings'}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                        propertyFilters={personProperties}
+                        onChange={(properties) => setFilters({ properties })}
+                        allowNew={false}
+                    />
+                )}
+                {pageviewEvent && (
+                    <PropertyFilters
+                        pageKey={`session-recordings-$current_url`}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                        propertyFilters={eventProperties}
+                        onChange={(properties) => {
+                            setLocalFilters({
+                                ...filters,
+                                events:
+                                    properties.length > 0
+                                        ? [
+                                              {
+                                                  id: '$pageview',
+                                                  name: '$pageview',
+                                                  type: EntityTypes.EVENTS,
+                                                  properties: properties,
+                                              },
+                                          ]
+                                        : [],
+                            })
+                        }}
+                        allowNew={false}
+                    />
+                )}
+            </div>
         </div>
     )
 }
