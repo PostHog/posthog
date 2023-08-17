@@ -225,7 +225,22 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
     def test_reading_notifications_marks_them_unread(self):
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
-
+        assert len(changes.json()["results"]) == 10
+        assert changes.json()["last_read"] is None
+        assert [c["unread"] for c in changes.json()["results"]] == [True] * 10
+        assert [c["created_at"] for c in changes.json()["results"]] == [
+            # time is frozen in test setup so
+            "2023-08-17T04:36:50Z",
+            "2023-08-17T04:30:25Z",
+            "2023-08-17T04:24:25Z",
+            "2023-08-17T04:18:25Z",
+            "2023-08-17T04:06:25Z",
+            "2023-08-17T03:54:25Z",
+            "2023-08-17T03:42:25Z",
+            "2023-08-17T03:30:25Z",
+            "2023-08-17T03:18:25Z",
+            "2023-08-17T03:06:25Z",
+        ]
         most_recent_date = changes.json()["results"][2]["created_at"]
 
         # the user can mark where they have read up to
@@ -236,8 +251,8 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
+        assert changes.json()["last_read"] == "2023-08-17T04:24:25Z"
         assert [c["unread"] for c in changes.json()["results"]] == [True, True]
-        assert changes.json()["last_read"] == most_recent_date
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED

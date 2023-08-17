@@ -1,8 +1,6 @@
-from datetime import timedelta
 from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
-from django.db.models.functions import TruncMinute
 from rest_framework import serializers, status, viewsets, pagination
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -90,7 +88,34 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             .values_list("item_id", flat=True)
         )
 
-        base_query = (
+        last_read_date = NotificationViewed.objects.filter(user=user).first()
+        last_read_filter = ""
+        if last_read_date:
+            last_read_filter = f"AND created_at > '{last_read_date.last_viewed_activity_date.isoformat()}'"
+
+        # before we filter to include only the important changes, we need to deduplicate too frequent changes
+        candidate_ids = ActivityLog.objects.raw(
+            f"""
+            SELECT id
+            FROM (SELECT
+                    Row_number() over (
+                        PARTITION BY five_minute_window, activity, item_id, scope ORDER BY created_at DESC
+                    ) AS row_number,
+                    *
+                    FROM (
+                        SELECT to_timestamp(floor(Extract(epoch FROM created_at) / extract(epoch FROM interval '5 min')) *
+                                            extract(epoch FROM interval '5 min')) AS five_minute_window,
+                               activity, item_id, scope, id, created_at
+                        FROM posthog_activitylog
+                        WHERE team_id = {self.team_id}
+                        AND NOT (user_id = {user.pk} AND user_id IS NOT NULL)
+                        {last_read_filter}
+                        ORDER BY created_at DESC) AS inner_q) AS counted_q
+            WHERE row_number = 1
+            """
+        )
+
+        other_peoples_changes = (
             self.queryset.exclude(user=user)
             .filter(team_id=self.team.id)
             .filter(
@@ -109,35 +134,14 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                     )
                 )
             )
+            .filter(id__in=[c.id for c in candidate_ids])
+            .order_by("-created_at")
         )
 
-        last_read_date = NotificationViewed.objects.filter(user=user).first()
         if last_read_date:
-            base_query = base_query.filter(created_at__gt=last_read_date.last_viewed_activity_date)
-
-        # Step 1: Get groups of changes by minute.
-        other_peoples_changes_by_minute = (
-            base_query.annotate(created_at_minute=TruncMinute("created_at"))
-            .values("scope", "item_id", "created_at_minute")
-            .distinct()
-            .order_by("-created_at_minute")
-        )
-
-        # Step 2: Retrieve the most recent model instance for each group.
-        other_peoples_changes = []
-        for group in other_peoples_changes_by_minute:
-            instance = (
-                self.queryset.exclude(user=user)
-                .filter(team_id=self.team.id)
-                .filter(
-                    scope=group["scope"],
-                    item_id=group["item_id"],
-                    created_at__gte=group["created_at_minute"],
-                    created_at__lt=group["created_at_minute"] + timedelta(minutes=1),
-                )
-                .latest("created_at")
+            other_peoples_changes = other_peoples_changes.filter(
+                created_at__gt=last_read_date.last_viewed_activity_date
             )
-            other_peoples_changes.append(instance)
 
         serialized_data = ActivityLogSerializer(
             instance=other_peoples_changes[:10], many=True, context={"user": user}
