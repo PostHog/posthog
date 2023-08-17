@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 import structlog
 from django.db import transaction
@@ -259,8 +259,12 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                     match = splat[1] if len(splat) > 1 else None
 
                     if target:
-                        presence_match_structure: List[Dict[str | List[Dict[str, str]]]] = [{"type": f"ph-{target}"}]
-                        id_match_structure: List[Dict[str | List[Dict[str, str]]]] = [{"attrs": {"id": match}}]
+                        # the JSONB query requires a specific structure
+                        basic_structure = List[Dict[str, Any]]
+                        nested_structure = basic_structure | List[Dict[str, basic_structure]]
+
+                        presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
+                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match}}]
                         if target == "replay-timestamp":
                             # replay timestamps are not at the top level, they're one-level down in a content array
                             presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
