@@ -274,10 +274,15 @@ export class DB {
 
     // Redis
 
-    public redisGet<T = unknown>(key: string, defaultValue: T, options: CacheOptions = {}): Promise<T | null> {
+    public redisGet<T = unknown>(
+        key: string,
+        defaultValue: T,
+        tag: string,
+        options: CacheOptions = {}
+    ): Promise<T | null> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery(this.statsd, 'query.redisGet', undefined, async () => {
+        return instrumentQuery(this.statsd, 'query.redisGet', tag, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
             try {
@@ -303,10 +308,16 @@ export class DB {
         })
     }
 
-    public redisSet(key: string, value: unknown, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
+    public redisSet(
+        key: string,
+        value: unknown,
+        tag: string,
+        ttlSeconds?: number,
+        options: CacheOptions = {}
+    ): Promise<void> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery(this.statsd, 'query.redisSet', undefined, async () => {
+        return instrumentQuery(this.statsd, 'query.redisSet', tag, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key', { key })
             try {
@@ -532,7 +543,7 @@ export class DB {
         groupData: CachedGroupData
     ): Promise<void> {
         const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
-        await this.redisSet(groupCacheKey, groupData)
+        await this.redisSet(groupCacheKey, groupData, 'updateGroupCache')
     }
 
     public async getGroupsColumns(
@@ -549,7 +560,11 @@ export class DB {
 
             // Lookup data from the cache, but don't throw errors - we'll fallback to Postgres if Redis is unavailable
             try {
-                const cachedGroupData = await this.redisGet<CachedGroupData | null>(groupCacheKey, null)
+                const cachedGroupData = await this.redisGet<CachedGroupData | null>(
+                    groupCacheKey,
+                    null,
+                    'getGroupsColumns'
+                )
 
                 if (cachedGroupData) {
                     this.statsd?.increment('group_info_cache.hit')
