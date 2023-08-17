@@ -103,6 +103,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                     ) AS row_number,
                     *
                     FROM (
+                        -- copied from https://stackoverflow.com/a/43028800
                         SELECT to_timestamp(floor(Extract(epoch FROM created_at) / extract(epoch FROM interval '5 min')) *
                                             extract(epoch FROM interval '5 min')) AS five_minute_window,
                                activity, item_id, scope, id, created_at
