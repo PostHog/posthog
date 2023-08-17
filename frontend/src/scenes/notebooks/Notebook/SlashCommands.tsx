@@ -3,7 +3,15 @@ import Suggestion from '@tiptap/suggestion'
 
 import { ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { IconCohort, IconQueryEditor, IconRecording, IconTableChart, IconUploadFile } from 'lib/lemon-ui/icons'
+import {
+    IconCohort,
+    IconFunnelHorizontal,
+    IconQueryEditor,
+    IconRecording,
+    IconTableChart,
+    IconTrendUp,
+    IconUploadFile,
+} from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { EditorCommands, EditorRange } from './utils'
 import { NotebookNodeType } from '~/types'
@@ -31,6 +39,63 @@ type SlashCommandsItem = {
     search?: string
     icon?: JSX.Element
     command: (chain: EditorCommands) => EditorCommands | Promise<EditorCommands>
+}
+
+const QUERY_FUNNEL = {
+    kind: 'InsightVizNode',
+    source: {
+        kind: 'FunnelsQuery',
+        filterTestAccounts: true,
+        dateRange: {
+            date_from: '-7d',
+        },
+        series: [
+            {
+                kind: 'EventsNode',
+                event: '$pageview',
+                custom_name: 'First page view',
+                math: 'total',
+            },
+            {
+                kind: 'EventsNode',
+                event: '$pageview',
+                custom_name: 'Second page view',
+                math: 'total',
+            },
+            {
+                kind: 'EventsNode',
+                event: '$pageview',
+                custom_name: 'Third page view',
+                math: 'total',
+            },
+        ],
+        breakdown: {
+            breakdown_type: 'event',
+            breakdown: '$browser',
+        },
+        funnelsFilter: {
+            funnel_viz_type: 'steps',
+            layout: 'horizontal',
+        },
+    },
+    full: true,
+}
+
+const QUERY_TREND = {
+    kind: 'InsightVizNode',
+    source: {
+        kind: 'TrendsQuery',
+        series: [
+            {
+                kind: 'EventsNode',
+                name: '$pageview',
+                event: '$pageview',
+                math: 'total',
+            },
+        ],
+        trendsFilter: {},
+    },
+    full: true,
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
@@ -84,6 +149,19 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         icon: <IconRecording />,
         command: (chain) => chain.insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
+    {
+        title: 'Funnel',
+        search: 'Funnel',
+        icon: <IconFunnelHorizontal />,
+        command: (chain) => chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: QUERY_FUNNEL } }),
+    },
+    {
+        title: 'Trend',
+        search: 'Trend',
+        icon: <IconTrendUp />,
+        command: (chain) => chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: QUERY_TREND } }),
+    },
+
     {
         title: 'Image',
         search: 'picture',

@@ -358,7 +358,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full flex flex-col gap-4 flex-1">
+                <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
                     ) : null}
