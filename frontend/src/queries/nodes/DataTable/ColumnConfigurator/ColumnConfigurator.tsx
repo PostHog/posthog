@@ -40,6 +40,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
     const [key] = useState(() => String(uniqueNode++))
     const columnConfiguratorLogicProps: ColumnConfiguratorLogicProps = {
         key,
+        isPersistent: !!query.showPersistentColumnConfigurator,
         columns: columnsInQuery,
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
@@ -245,7 +246,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </div>
                     </div>
                 </div>
-                {isEventsQuery(query.source) ? (
+                {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
                     <RestrictedArea
                         Component={function SaveColumnsAsDefault({
                             isRestricted,

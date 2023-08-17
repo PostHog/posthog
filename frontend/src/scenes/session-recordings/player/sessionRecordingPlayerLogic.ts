@@ -97,6 +97,9 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicP
     playerRef?: RefObject<HTMLDivElement>
 }
 
+const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
+    !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -164,6 +167,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
+        pauseIframePlayback: true,
+        restartIframePlayback: true,
         setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
         setRootFrame: (frame: HTMLDivElement) => ({ frame }),
         checkBufferingCompleted: true,
@@ -629,6 +634,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.loadRecordingSnapshots()
             }
             actions.stopAnimation()
+            actions.restartIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
 
             // Use the start of the current segment if there is no currentTimestamp
@@ -648,6 +654,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setPause: () => {
             actions.stopAnimation()
+            actions.pauseIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
@@ -818,6 +825,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 cancelAnimationFrame(cache.timer)
             }
         },
+        pauseIframePlayback: () => {
+            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframeDocument = iframe?.contentWindow?.document
+            if (!iframeDocument) {
+                return
+            }
+
+            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio'))
+            const videoElements = Array.from(iframeDocument.getElementsByTagName('video'))
+            const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
+            const playingElements = mediaElements.filter(isMediaElementPlaying)
+
+            playingElements.forEach((el) => el.pause())
+            cache.pausedMediaElements = playingElements
+        },
+        restartIframePlayback: () => {
+            cache.pausedMediaElements.forEach((el: HTMLMediaElement) => el.play())
+            cache.pausedMediaElements = []
+        },
 
         exportRecordingToFile: async () => {
             if (!values.sessionPlayerData) {
@@ -921,12 +947,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.hasInitialized = false
         clearTimeout(cache.consoleWarnDebounceTimer)
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
+        cache.pausedMediaElements = []
         values.player?.replayer?.pause()
         actions.setPlayer(null)
 
+        const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
-            play_time_ms: values.playingTimeTracking.watchTime || 0,
+            play_time_ms: playTimeMs,
             recording_duration_ms: values.sessionPlayerData ? values.sessionPlayerData.durationMs : undefined,
             recording_age_ms:
                 values.sessionPlayerData && values.sessionPlayerData.segments.length > 0
@@ -937,10 +965,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // as a starting and very loose measure of engagement, we count clicks
             engagement_score: values.clickCount,
         }
-        posthog.capture('recording viewed summary', summaryAnalytics)
+        posthog.capture(
+            playTimeMs === 0 ? 'recording viewed with no playtime summary' : 'recording viewed summary',
+            summaryAnalytics
+        )
     }),
 
     afterMount(({ props, actions, cache }) => {
+        cache.pausedMediaElements = []
         cache.fullScreenListener = () => {
             actions.setIsFullScreen(document.fullscreenElement !== null)
         }

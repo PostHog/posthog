@@ -668,8 +668,12 @@ export function stripHTTP(url: string): string {
 export function isDomain(url: string): boolean {
     try {
         const parsedUrl = new URL(url)
-        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+        if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
+        } else {
+            if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
+                return true
+            }
         }
     } catch {
         return false
