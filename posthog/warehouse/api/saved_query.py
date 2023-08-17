@@ -79,6 +79,6 @@ class DataWarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewS
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
         # Remove related view links
-        DataWarehouseViewLink.objects.filter(table=instance.name).delete()
+        DataWarehouseViewLink.objects.filter(saved_query_id=instance.id).delete()
         self.perform_destroy(instance)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
