@@ -6,10 +6,8 @@ type Story = StoryObj<typeof Link>
 const meta: Meta<typeof Link> = {
     title: 'Lemon UI/Link',
     component: Link,
-    argTypes: {
-        children: {
-            defaultValue: 'Click me',
-        },
+    args: {
+        children: 'Click me',
     },
     tags: ['autodocs'],
 }

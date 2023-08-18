@@ -6,12 +6,10 @@ type Story = StoryObj<typeof LemonCalendar>
 const meta: Meta<typeof LemonCalendar> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar',
     component: LemonCalendar,
-    argTypes: {
-        onDateClick: {
-            defaultValue: (date: dayjs.Dayjs) => {
-                // eslint-disable-next-line no-console
-                console.log(`Clicked: ${date}`)
-            },
+    args: {
+        onDateClick: (date: dayjs.Dayjs) => {
+            // eslint-disable-next-line no-console
+            console.log(`Clicked: ${date}`)
         },
     },
     parameters: {

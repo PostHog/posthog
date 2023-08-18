@@ -7,11 +7,8 @@ type Story = StoryObj<typeof LemonTextArea>
 const meta: Meta<typeof LemonTextArea> = {
     title: 'Lemon UI/Lemon Text Area',
     component: LemonTextArea,
-    argTypes: {
-        value: {
-            defaultValue:
-                'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
-        },
+    args: {
+        value: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
     },
     tags: ['autodocs'],
 }

@@ -8,8 +8,12 @@ const meta: Meta<typeof LemonFileInput> = {
     component: LemonFileInput,
     tags: ['autodocs'],
     argTypes: {
-        loading: { type: 'boolean', defaultValue: false },
-        accept: { type: 'string', defaultValue: '.json' },
+        loading: { type: 'boolean' },
+        accept: { type: 'string' },
+    },
+    args: {
+        loading: false,
+        accept: '.json',
     },
 }
 export default meta

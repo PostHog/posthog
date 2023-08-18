@@ -121,13 +121,14 @@ type Story = StoryObj<typeof InsightTooltip>
 const meta: Meta<typeof InsightTooltip> = {
     title: 'Components/InsightTooltip',
     component: InsightTooltip,
-    argTypes: {
-        date: { defaultValue: data.date },
-        timezone: { defaultValue: data.timezone },
-        seriesData: { defaultValue: data.seriesData as any },
-        hideColorCol: { defaultValue: false },
-        renderCount: { defaultValue: (value: number): string => `${value}` },
-        groupTypeLabel: { defaultValue: 'people' },
+    args: {
+        date: data.date,
+        timezone: data.timezone,
+        seriesData: data.seriesData as any,
+        hideColorCol: false,
+        renderCount: (value: number): string => `${value}`,
+        renderSeries: (value) => value,
+        groupTypeLabel: 'people',
     },
     parameters: {
         testOptions: { skip: true }, // FIXME: The InWrapper story fails at locator.screenshot() for some reason

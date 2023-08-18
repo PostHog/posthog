@@ -41,11 +41,9 @@ const meta: Meta = {
     argTypes: {
         insightName: {
             control: { type: 'text' },
-            defaultValue: 'Insight title (edit in story controls)',
         },
         insightDescription: {
             control: { type: 'text' },
-            defaultValue: 'Insight description (edit in story controls)',
         },
         loading: {
             control: { type: 'boolean' },

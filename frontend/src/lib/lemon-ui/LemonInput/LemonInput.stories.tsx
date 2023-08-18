@@ -10,8 +10,8 @@ const meta: Meta<typeof LemonInput> = {
     title: 'Lemon UI/Lemon Input',
     component: LemonInput,
     tags: ['autodocs'],
-    argTypes: {
-        value: { defaultValue: 'Foo' },
+    args: {
+        value: 'Foo',
     },
 }
 export default meta

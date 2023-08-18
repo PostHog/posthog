@@ -4,10 +4,8 @@ import { Splotch, SplotchColor, SplotchProps } from './Splotch'
 const meta: Meta<typeof Splotch> = {
     title: 'Lemon UI/Splotch',
     component: Splotch,
-    argTypes: {
-        color: {
-            defaultValue: SplotchColor.Purple,
-        },
+    args: {
+        color: SplotchColor.Purple,
     },
     tags: ['autodocs'],
 }

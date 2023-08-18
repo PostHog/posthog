@@ -8,26 +8,24 @@ type Story = StoryObj<typeof LemonSelectMultiple>
 const meta: Meta<typeof LemonSelectMultiple> = {
     title: 'Lemon UI/Lemon SelectMultiple',
     component: LemonSelectMultiple,
-    argTypes: {
-        options: {
-            defaultValue: ['ben', 'marius', 'paul', 'tiina', 'li'].reduce(
-                (acc, x, i) => ({
-                    ...acc,
-                    [`user-${i}`]: {
-                        labelComponent: (
-                            <span className="flex gap-2 items-center">
-                                <ProfilePicture name={x} email={`${x}@posthog.com`} size="sm" />
-                                <span>
-                                    {capitalizeFirstLetter(x)} <b>{`<${x}@posthog.com>`}</b>
-                                </span>
+    args: {
+        options: ['ben', 'marius', 'paul', 'tiina', 'li'].reduce(
+            (acc, x, i) => ({
+                ...acc,
+                [`user-${i}`]: {
+                    labelComponent: (
+                        <span className="flex gap-2 items-center">
+                            <ProfilePicture name={x} email={`${x}@posthog.com`} size="sm" />
+                            <span>
+                                {capitalizeFirstLetter(x)} <b>{`<${x}@posthog.com>`}</b>
                             </span>
-                        ),
-                        label: `${x} ${x}@posthog.com>`,
-                    },
-                }),
-                {}
-            ),
-        },
+                        </span>
+                    ),
+                    label: `${x} ${x}@posthog.com>`,
+                },
+            }),
+            {}
+        ),
     },
     tags: ['autodocs'],
 }

@@ -6,10 +6,8 @@ type Story = StoryObj<typeof LemonSnack>
 const meta: Meta<typeof LemonSnack> = {
     title: 'Lemon UI/Lemon Snack',
     component: LemonSnack,
-    argTypes: {
-        children: {
-            defaultValue: 'Tasty snacks',
-        },
+    args: {
+        children: 'Tasty snacks',
     },
     tags: ['autodocs'],
 }

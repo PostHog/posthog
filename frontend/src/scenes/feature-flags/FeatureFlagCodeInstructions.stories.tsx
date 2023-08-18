@@ -76,22 +76,12 @@ const MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG: FeatureFlagType = {
 const meta: Meta<typeof CodeInstructions> = {
     title: 'Scenes-App/Feature Flags/Code Examples',
     component: CodeInstructions,
-    argTypes: {
-        options: {
-            defaultValue: OPTIONS,
-        },
-        selectedLanguage: {
-            defaultValue: 'JavaScript',
-        },
-        featureFlag: {
-            defaultValue: REGULAR_FEATURE_FLAG,
-        },
-        showLocalEval: {
-            defaultValue: false,
-        },
-        showBootstrap: {
-            defaultValue: false,
-        },
+    args: {
+        options: OPTIONS,
+        selectedLanguage: 'JavaScript',
+        featureFlag: REGULAR_FEATURE_FLAG,
+        showLocalEval: false,
+        showBootstrap: false,
     },
     parameters: {
         testOptions: {

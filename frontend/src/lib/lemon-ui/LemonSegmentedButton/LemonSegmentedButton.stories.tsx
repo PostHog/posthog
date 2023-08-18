@@ -12,21 +12,23 @@ const meta: Meta<typeof LemonSegmentedButton> = {
             control: {
                 type: 'object',
             },
-            defaultValue: [
-                { value: 'calendar', label: 'Calendar', icon: <IconCalendar /> },
-                { value: 'calculator', label: 'Calculator', icon: <IconCalculate /> },
-                {
-                    value: 'banana',
-                    label: 'Banana',
-                    icon: <IconLightBulb />,
-                    disabledReason: 'Bananas are not allowed on these premises.',
-                },
-                { value: 'settings', label: 'Settings', icon: <IconSettings /> },
-            ] as LemonSegmentedButtonOption<string>[],
         },
         // Show value and onChange, but disable editing as they're handled by the template
         value: { control: { disable: true } },
         onChange: { control: { disable: true } },
+    },
+    args: {
+        options: [
+            { value: 'calendar', label: 'Calendar', icon: <IconCalendar /> },
+            { value: 'calculator', label: 'Calculator', icon: <IconCalculate /> },
+            {
+                value: 'banana',
+                label: 'Banana',
+                icon: <IconLightBulb />,
+                disabledReason: 'Bananas are not allowed on these premises.',
+            },
+            { value: 'settings', label: 'Settings', icon: <IconSettings /> },
+        ] as LemonSegmentedButtonOption<string>[],
     },
     tags: ['autodocs'],
 }

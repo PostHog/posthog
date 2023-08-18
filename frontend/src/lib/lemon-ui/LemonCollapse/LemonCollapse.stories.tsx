@@ -5,21 +5,19 @@ type Story = StoryObj<typeof LemonCollapseComponent>
 const meta: Meta<typeof LemonCollapseComponent> = {
     title: 'Lemon UI/Lemon Collapse',
     component: LemonCollapseComponent,
-    argTypes: {
-        panels: {
-            defaultValue: [
-                {
-                    key: '1',
-                    header: 'Panel 1',
-                    content: <span>Panel 1 content</span>,
-                },
-                {
-                    key: '2',
-                    header: 'Panel 2',
-                    content: <span>Panel 2 content</span>,
-                },
-            ],
-        },
+    args: {
+        panels: [
+            {
+                key: '1',
+                header: 'Panel 1',
+                content: <span>Panel 1 content</span>,
+            },
+            {
+                key: '2',
+                header: 'Panel 2',
+                content: <span>Panel 2 content</span>,
+            },
+        ],
     },
     tags: ['autodocs'],
 }

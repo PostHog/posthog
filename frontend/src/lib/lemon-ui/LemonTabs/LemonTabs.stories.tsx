@@ -11,33 +11,35 @@ const meta: Meta<typeof LemonTabsComponent> = {
             control: {
                 type: 'object',
             },
-            defaultValue: [
-                {
-                    key: 'calendar',
-                    label: 'Calendar',
-                    content: <div>Imagine some calendar here. 🗓️</div>,
-                },
-                {
-                    key: 'calculator',
-                    label: 'Calculator',
-                    tooltip: 'Calculate 2+2, as well as 1/0.',
-                    content: <div>Imagine some calculator here. 🔢</div>,
-                },
-                {
-                    key: 'banana',
-                    label: 'Banana',
-                    content: <div>Imagine some banana here. 🍌</div>,
-                },
-                {
-                    key: 'settings',
-                    label: 'Settings',
-                    content: <div>Imagine some settings here. ⚙️</div>,
-                },
-            ] as LemonTab<'calendar' | 'calculator' | 'banana' | 'settings'>[],
         },
         onChange: { control: { disable: true } },
     },
     tags: ['autodocs'],
+    args: {
+        tabs: [
+            {
+                key: 'calendar',
+                label: 'Calendar',
+                content: <div>Imagine some calendar here. 🗓️</div>,
+            },
+            {
+                key: 'calculator',
+                label: 'Calculator',
+                tooltip: 'Calculate 2+2, as well as 1/0.',
+                content: <div>Imagine some calculator here. 🔢</div>,
+            },
+            {
+                key: 'banana',
+                label: 'Banana',
+                content: <div>Imagine some banana here. 🍌</div>,
+            },
+            {
+                key: 'settings',
+                label: 'Settings',
+                content: <div>Imagine some settings here. ⚙️</div>,
+            },
+        ] as LemonTab<'calendar' | 'calculator' | 'banana' | 'settings'>[],
+    },
 }
 export default meta
 

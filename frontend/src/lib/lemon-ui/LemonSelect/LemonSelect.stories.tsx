@@ -6,14 +6,12 @@ type Story = StoryObj<typeof LemonSelect>
 const meta: Meta<typeof LemonSelect> = {
     title: 'Lemon UI/Lemon Select',
     component: LemonSelect,
-    argTypes: {
-        options: {
-            defaultValue: [
-                { value: 'husky', label: 'Husky' },
-                { value: 'poodle', label: 'Poodle' },
-                { value: 'labrador', label: 'Labrador' },
-            ] as LemonSelectOptions<string>,
-        },
+    args: {
+        options: [
+            { value: 'husky', label: 'Husky' },
+            { value: 'poodle', label: 'Poodle' },
+            { value: 'labrador', label: 'Labrador' },
+        ] as LemonSelectOptions<string>,
     },
     tags: ['autodocs'],
 }

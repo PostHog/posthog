@@ -22,14 +22,12 @@ This enables intuitive preview of the component, along with snapshotting, but in
             },
         },
     },
-    argTypes: {
-        items: {
-            defaultValue: [
-                { label: 'Alert', onClick: () => alert('Hello there.') },
-                { label: 'Do nothing' },
-                { label: 'Do nothing, with a highlight', active: true },
-            ] as LemonMenuItems,
-        },
+    args: {
+        items: [
+            { label: 'Alert', onClick: () => alert('Hello there.') },
+            { label: 'Do nothing' },
+            { label: 'Do nothing, with a highlight', active: true },
+        ] as LemonMenuItems,
     },
     tags: ['autodocs'],
 }

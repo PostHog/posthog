@@ -13,10 +13,8 @@ type Story = StoryObj<typeof RawLemonSwitch>
 const meta: Meta<typeof LemonSwitch> = {
     title: 'Lemon UI/Lemon Switch',
     component: LemonSwitch,
-    argTypes: {
-        label: {
-            defaultValue: 'Switch this!',
-        },
+    args: {
+        label: 'Switch this!',
     },
     tags: ['autodocs'],
 }

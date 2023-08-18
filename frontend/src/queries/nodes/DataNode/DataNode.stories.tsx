@@ -14,9 +14,6 @@ const meta: Meta<typeof Query> = {
         viewMode: 'story',
         testOptions: { skip: true },
     },
-    argTypes: {
-        query: { defaultValue: {} },
-    },
     decorators: [
         mswDecorator({
             get: {
