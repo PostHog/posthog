@@ -7,8 +7,8 @@ from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
-import freezegun
 
+import freezegun
 import pytest
 import sqlparse
 from django.apps import apps
@@ -22,7 +22,7 @@ from posthog import rate_limit
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import TEST_clear_cloud_cache, is_cloud
+from posthog.cloud_utils import TEST_clear_cloud_cache, TEST_clear_instance_license_cache, is_cloud
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -45,9 +45,9 @@ from posthog.models.session_recording_event.sql import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.models.session_replay_event.sql import (
-    SESSION_REPLAY_EVENTS_TABLE_SQL,
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.test.assert_faster_than import assert_faster_than
@@ -97,7 +97,6 @@ class FuzzyInt(int):
 
 
 class ErrorResponsesMixin:
-
     ERROR_INVALID_CREDENTIALS = {
         "type": "validation_error",
         "code": "invalid_credentials",
@@ -158,7 +157,6 @@ class TestMixin:
             _setup_test_data(cls)
 
     def setUp(self):
-
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
@@ -168,7 +166,6 @@ class TestMixin:
             _setup_test_data(self)
 
     def tearDown(self):
-
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(
@@ -232,10 +229,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     initial_cloud_mode: Optional[bool] = False
 
     def setUp(self):
-
         super().setUp()
 
         TEST_clear_cloud_cache(self.initial_cloud_mode)
+        TEST_clear_instance_license_cache()
 
         # Sets the cloud mode to stabilise things tests, especially num query counts
         # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots

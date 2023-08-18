@@ -2644,6 +2644,70 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 0)
 
+    def test_feature_flag_dashboard(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        relationship = FeatureFlagDashboards.objects.create(
+            feature_flag=another_feature_flag, dashboard_id=dashboard.pk
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
+        # check deleting the dashboard doesn't delete flag, but deletes the relationship
+        dashboard.delete()
+        another_feature_flag.refresh_from_db()
+
+        with self.assertRaises(FeatureFlagDashboards.DoesNotExist):
+            relationship.refresh_from_db()
+
+    def test_feature_flag_dashboard_patch(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
+    def test_feature_flag_dashboard_already_exists(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
@@ -3083,61 +3147,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
             response_json,
         )
-
-    def test_feature_flag_dashboard(self):
-        another_feature_flag = FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
-        )
-        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
-        FeatureFlagDashboards.objects.create(feature_flag=another_feature_flag, dashboard_id=dashboard.pk)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
-
-    def test_feature_flag_dashboard_patch(self):
-        another_feature_flag = FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
-        )
-        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
-            {"analytics_dashboards": [dashboard.pk]},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
-
-    def test_feature_flag_dashboard_already_exists(self):
-        another_feature_flag = FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
-        )
-        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
-            {"analytics_dashboards": [dashboard.pk]},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
-            {"analytics_dashboards": [dashboard.pk]},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
 
 
 class QueryTimeoutWrapper:

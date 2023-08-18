@@ -69,8 +69,8 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         },
     },
     pasteOptions: {
-        find: urls.replaySingle('') + '(.+)',
-        getAttributes: (match) => {
+        find: urls.replaySingle('(.+)'),
+        getAttributes: async (match) => {
             return { id: match[1] }
         },
     },
