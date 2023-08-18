@@ -138,7 +138,7 @@ function RecordingCommentChoice({
                                     )
                                 })}
                                 emptyState={
-                                    !!searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"
+                                    !!searchQuery.length ? 'No matching notebooks' : 'Not already in any notebooks'
                                 }
                                 loadingState={'Loading...'}
                                 onClick={async (notebookShortId) => {
