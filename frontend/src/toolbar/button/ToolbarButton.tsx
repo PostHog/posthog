@@ -204,7 +204,13 @@ export function ToolbarButton(): JSX.Element {
                             <div className="relative">
                                 <Magnifier style={{ height: 34, paddingTop: 2 }} engaged={inspectEnabled} />
                                 {inspectEnabled && selectedElement ? (
-                                    <div className="absolute top-2 left-2.5 text-xs text-white">
+                                    <div
+                                        className="absolute top-2 left-2.25 text-white"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            fontSize: 13,
+                                        }}
+                                    >
                                         <Close style={{ width: 10, height: 10 }} />
                                     </div>
                                 ) : null}
