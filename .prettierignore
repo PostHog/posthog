@@ -13,6 +13,7 @@ frontend/dist/
 .yalc
 .python-version
 storybook-static
+.storybook/public/mockServiceWorker.js
 dist/
 node_modules/
 pnpm-lock.yaml
