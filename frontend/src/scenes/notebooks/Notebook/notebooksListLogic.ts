@@ -217,9 +217,9 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
 
     selectors({
         fuse: [
-            (s) => [s.notebooks],
-            (notebooks): Fuse => {
-                return new FuseClass<NotebookListItemType>(notebooks, {
+            (s) => [s.filteredNotebooks],
+            (filteredNotebooks): Fuse => {
+                return new FuseClass<NotebookListItemType>(filteredNotebooks, {
                     keys: ['title'],
                     threshold: 0.3,
                 })
