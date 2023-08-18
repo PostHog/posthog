@@ -69,7 +69,6 @@ const textContent = (node: any): string => {
     return getText(node, {
         blockSeparator: ' ',
         textSerializers: {
-            [NotebookNodeType.Link]: ({ node }) => node.attrs.href,
             [NotebookNodeType.ReplayTimestamp]: ({ node }) => `${node.attrs.playbackTime || '00:00'}: `,
         },
     })

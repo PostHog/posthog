@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 import structlog
 from django.db import transaction
@@ -161,7 +161,7 @@ class NotebookSerializer(serializers.ModelSerializer):
         parameters=[
             OpenApiParameter("short_id", exclude=True),
             OpenApiParameter(
-                "created_by", OpenApiTypes.INT, description="The user ID of the Notebook's creator", required=False
+                "created_by", OpenApiTypes.INT, description="The UUID of the Notebook's creator", required=False
             ),
             OpenApiParameter(
                 "user",
@@ -209,7 +209,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
     serializer_class = NotebookSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id", "created_by"]
+    filterset_fields = ["short_id"]
     # TODO: Remove this once we have released notebooks
     include_in_docs = DEBUG
     lookup_field = "short_id"
@@ -240,10 +240,14 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         for key in filters:
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "created_by":
+                queryset = queryset.filter(created_by__uuid=request.GET["created_by"])
             elif key == "date_from":
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
+            elif key == "s":
+                queryset = queryset.filter(title__icontains=request.GET["s"])
             elif key == "contains":
                 contains = request.GET["contains"]
                 match_pairs = contains.replace(",", " ").split(" ")
@@ -257,18 +261,24 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                     match = splat[1] if len(splat) > 1 else None
 
                     if target:
+                        # the JSONB query requires a specific structure
+                        basic_structure = List[Dict[str, Any]]
+                        nested_structure = basic_structure | List[Dict[str, basic_structure]]
+
+                        presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
+                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match}}]
+                        if target == "replay-timestamp":
+                            # replay timestamps are not at the top level, they're one-level down in a content array
+                            presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
+                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
+
                         if match == "true" or match is None:
-                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}])
+                            queryset = queryset.filter(content__content__contains=presence_match_structure)
                         elif match == "false":
-                            queryset = queryset.exclude(content__content__contains=[{"type": f"ph-{target}"}])
+                            queryset = queryset.exclude(content__content__contains=presence_match_structure)
                         else:
-                            queryset = queryset.filter(content__content__contains=[{"type": f"ph-{target}"}])
-
-                            id = "id"
-                            if target == "replay-timestamp":
-                                id = "sessionRecordingId"
-
-                            queryset = queryset.filter(content__content__contains=[{"attrs": {id: match}}])
+                            queryset = queryset.filter(content__content__contains=presence_match_structure)
+                            queryset = queryset.filter(content__content__contains=id_match_structure)
 
         return queryset
 
