@@ -1,3 +1,4 @@
+from freezegun import freeze_time
 from posthog.decorators import cached_by_filters
 
 from django.core.cache import cache
@@ -5,6 +6,7 @@ from django.core.cache import cache
 from rest_framework.test import APIRequestFactory
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.response import Response
+from posthog.models.filters.filter import Filter
 
 from posthog.test.base import APIBaseTest
 from posthog.api import router
@@ -22,7 +24,7 @@ class DummyViewSet(GenericViewSet):
         return {"result": "bla"}
 
 
-class TestDecorators(APIBaseTest):
+class TestCachedByFiltersDecorator(APIBaseTest):
     def setUp(self) -> None:
         cache.clear()
 
@@ -61,3 +63,22 @@ class TestDecorators(APIBaseTest):
         response = self.client.get(f"/api/dummy", data={"cache_invalidation_key": "abc"}).json()
 
         assert response["is_cached"] is False
+
+    def test_discards_stale_response(self) -> None:
+        with freeze_time("2023-02-10T12:00:00Z"):
+            # cache the result
+            self.client.get(f"/api/dummy").json()
+
+        with freeze_time("2023-02-12T12:00:00Z"):
+            # we don't need to add filters, since -7d with a
+            # daily interval is the default
+            response = self.client.get(f"/api/dummy").json()
+            assert response["is_cached"] is False
+
+
+class TestIsStaleHelper:
+    def test_discards_stale_hourly_result(self) -> None:
+        filter = Filter()
+
+
+# ceil date_to with current date

@@ -2,6 +2,7 @@ from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
+import posthoganalytics
 from django.urls import resolve
 from django.utils.timezone import now
 from rest_framework.request import Request
@@ -9,8 +10,14 @@ from rest_framework.viewsets import GenericViewSet
 from statshog.defaults.django import statsd
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.cloud_utils import is_cloud
 from posthog.models import User
+from posthog.models.filters.filter import Filter
+from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
+from posthog.models.team.team import Team
 from posthog.utils import refresh_requested_by_client
 
 from .utils import generate_cache_key, get_safe_cache
@@ -74,9 +81,12 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
                 route = "unknown"
 
             if cached_result_package and cached_result_package.get("result"):
-                cached_result_package["is_cached"] = True
-                statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
-                return cached_result_package
+                if not is_stale(team, filter, cached_result_package):
+                    cached_result_package["is_cached"] = True
+                    statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
+                    return cached_result_package
+                else:
+                    statsd.incr("posthog_cached_function_cache_stale", tags={"route": route})
             else:
                 statsd.incr("posthog_cached_function_cache_miss", tags={"route": route})
 
@@ -93,3 +103,52 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
         return fresh_result_package
 
     return wrapper
+
+
+def stale_cache_invalidation_enabled(team: Team) -> bool:
+    """Can be disabled temporarly to help in cases of service degradation."""
+    if is_cloud():  # on PostHog Cloud, use the feature flag
+        return posthoganalytics.feature_enabled(
+            "stale-cache-invalidation-enabled",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    else:
+        return True
+
+
+def is_stale(team: Team, filter: Filter | RetentionFilter | StickinessFilter | PathFilter, cached_result: Any) -> bool:
+    last_refresh = cached_result.get("last_refresh", None)
+
+    if not stale_cache_invalidation_enabled(team):
+        return False
+
+    if last_refresh is None:  # safeguard
+        return False
+
+    if not isinstance(filter, Filter):
+        # TODO: implement for insights other than trends and funnels
+        return False
+
+    if filter.interval == "hour":
+        return filter.date_to.replace(minute=0, second=0, microsecond=0) > last_refresh.replace(
+            minute=0, second=0, microsecond=0
+        )
+    elif filter.interval == "day":
+        return filter.date_to.replace(hour=0, minute=0, second=0, microsecond=0) > last_refresh.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+    elif filter.interval == "week":
+        # TODO: implement with relativedelta?
+        return False
+    elif filter.interval == "month":
+        return filter.date_to.replace(day=0, hour=0, minute=0, second=0, microsecond=0) > last_refresh.replace(
+            day=0, hour=0, minute=0, second=0, microsecond=0
+        )
+
+    return False
