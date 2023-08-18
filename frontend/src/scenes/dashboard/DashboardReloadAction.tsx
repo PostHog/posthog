@@ -61,15 +61,7 @@ export function DashboardReloadAction(): JSX.Element {
                                         title="Auto-refresh will only work while this tab is open"
                                         placement="topRight"
                                     >
-                                        <div
-                                            id="auto-refresh-check"
-                                            key="auto-refresh-check"
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                e.stopPropagation()
-                                                setAutoRefresh(!autoRefresh.enabled, autoRefresh.interval)
-                                            }}
-                                        >
+                                        <div>
                                             <LemonSwitch
                                                 onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
                                                 label={'Auto refresh'}
