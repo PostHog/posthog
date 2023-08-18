@@ -396,16 +396,16 @@ export function PersonsTableByFilter({ properties, emptyState }: PersonsTableByF
 
     return (
         <BindLogic logic={personsLogic} props={personsLogicProps}>
-            <PersonsTableByFilterScene emptyState={emptyState} />
+            <PersonsTableByFilterComponent emptyState={emptyState} />
         </BindLogic>
     )
 }
 
-interface PersonsTableByFilterSceneProps {
+interface PersonsTableByFilterComponentProps {
     emptyState?: JSX.Element
 }
 
-function PersonsTableByFilterScene({ emptyState }: PersonsTableByFilterSceneProps): JSX.Element {
+function PersonsTableByFilterComponent({ emptyState }: PersonsTableByFilterComponentProps): JSX.Element {
     const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
 
     const { persons, personsLoading, listFilters } = useValues(personsLogic)
