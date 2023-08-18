@@ -65,6 +65,18 @@ export function AppsList(): JSX.Element {
                             : 'Check for updates'}
                     </LemonButton>
                 )}
+
+                {canInstallPlugins(user?.organization) && (
+                    <LemonButton
+                        type="secondary"
+                        // onClick={(e) => {
+                        //     e.stopPropagation()
+                        //     checkForUpdates(true)
+                        // }}
+                    >
+                        Advanced options
+                    </LemonButton>
+                )}
             </div>
 
             {filteredPluginsNeedingUpdates.length > 0 && (
