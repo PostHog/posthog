@@ -4,9 +4,6 @@
 #
 name: Run Django tests
 inputs:
-    running-on:
-        required: true
-        description: Which buildjet runner is being used
     python-version:
         required: true
         description: Python version, e.g. 3.10.10
@@ -94,7 +91,7 @@ runs:
 
         # Tests
 
-        - name: Run FOSS tests - ${{ inputs.running-on }}
+        - name: Run FOSS tests
           if: ${{ inputs.segment == 'FOSS' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
@@ -106,7 +103,7 @@ runs:
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
-        - name: Run Decide read replica tests - ${{ inputs.running-on }}
+        - name: Run Decide read replica tests
           if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
           env:
               POSTHOG_DB_NAME: posthog
@@ -120,7 +117,7 @@ runs:
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
-        - name: Run EE tests - ${{ inputs.running-on }}
+        - name: Run EE tests
           if: ${{ inputs.segment == 'EE' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
@@ -138,5 +135,5 @@ runs:
           uses: actions/upload-artifact@v2
           if: ${{ inputs.segment == 'EE' && inputs.person-on-events != 'true'}}
           with:
-              name: timing_data-${{ inputs.group }}-${{ inputs.running-on }}
+              name: timing_data-${{ inputs.group }}
               path: .test_durations

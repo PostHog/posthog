@@ -229,22 +229,16 @@ jobs:
             fail-fast: false
             matrix:
                 runs-on:
-                    [
-                        buildjet-2vcpu-ubuntu-2204,
-                        buildjet-4vcpu-ubuntu-2204,
-                        buildjet-8vcpu-ubuntu-2204,
-                        buildjet-16vcpu-ubuntu-2204,
-                    ]
                 python-version: ['3.10.10']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:23.6.1.1524']
-                segment: ['FOSS']
-                person-on-events: [false]
+                segment: ['FOSS', 'EE']
+                person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
                 concurrency: [5]
                 group: [1, 2, 3, 4, 5]
 
-        name: Django tests – ${{matrix.runs-on}} ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: ${{matrix.runs-on}}
+        name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        runs-on: buildjet-4vcpu-ubuntu-2204
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
