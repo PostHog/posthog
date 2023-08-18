@@ -86,7 +86,7 @@ function filtersToContains(
 async function listNotebooksAPI(filters?: NotebooksListFilters): Promise<NotebookListItemType[]> {
     // TODO: Support pagination
     const createdByForQuery = filters?.createdBy === DEFAULT_FILTERS.createdBy ? undefined : filters?.createdBy
-    const res = await api.notebooks.list(filtersToContains(filters), createdByForQuery)
+    const res = await api.notebooks.list(filtersToContains(filters), createdByForQuery, filters?.search)
     return res.results
 }
 
@@ -216,28 +216,11 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
     })),
 
     selectors({
-        fuse: [
-            (s) => [s.filteredNotebooks],
-            (filteredNotebooks): Fuse => {
-                return new FuseClass<NotebookListItemType>(filteredNotebooks, {
-                    keys: ['title'],
-                    threshold: 0.3,
-                })
-            },
-        ],
-        searchFilteredNotebooks: [
-            (s) => [s.filteredNotebooks, s.notebookTemplates, s.filters, s.fuse],
-            (filteredNotebooks, notebooksTemplates, filters, fuse): NotebookListItemType[] => {
-                const templatesToInclude: NotebookListItemType[] = objectsEqual(filters, DEFAULT_FILTERS)
-                    ? [...notebooksTemplates]
-                    : []
-                let haystack: NotebookListItemType[] = [...filteredNotebooks, ...templatesToInclude]
-
-                if (filters.search) {
-                    haystack = fuse.search(filters.search).map(({ item }) => item)
-                }
-
-                return haystack
+        notebooksAndTemplates: [
+            (s) => [s.filteredNotebooks, s.notebookTemplates, s.filters],
+            (filteredNotebooks, notebooksTemplates, filters): NotebookListItemType[] => {
+                const includeTemplates = objectsEqual(filters, DEFAULT_FILTERS)
+                return [...(includeTemplates ? notebooksTemplates : []), ...filteredNotebooks]
             },
         ],
     }),

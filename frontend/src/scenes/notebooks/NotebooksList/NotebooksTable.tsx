@@ -15,7 +15,8 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksList/ContainsTypeFilter'
 
 export function NotebooksTable(): JSX.Element {
-    const { searchFilteredNotebooks, filters, notebooksLoading, notebookTemplates } = useValues(notebooksListLogic)
+    const { notebooksAndTemplates, filters, notebooksLoading, notebookTemplates, filteredNotebooksLoading } =
+        useValues(notebooksListLogic)
     const { loadNotebooks, setFilters } = useActions(notebooksListLogic)
     const { meFirstMembers } = useValues(membersLogic)
     const { setVisibility, selectNotebook } = useActions(notebookPopoverLogic)
@@ -131,10 +132,10 @@ export function NotebooksTable(): JSX.Element {
             <LemonTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}
-                dataSource={searchFilteredNotebooks}
+                dataSource={notebooksAndTemplates}
                 rowKey="short_id"
                 columns={columns}
-                loading={notebooksLoading}
+                loading={notebooksLoading || filteredNotebooksLoading}
                 defaultSorting={{ columnKey: '-created_at', order: 1 }}
                 emptyState={`No notebooks matching your filters!`}
                 nouns={['notebook', 'notebooks']}

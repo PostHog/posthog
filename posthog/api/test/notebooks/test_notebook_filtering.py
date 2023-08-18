@@ -1,6 +1,5 @@
 from typing import Dict, Any, List
 
-import pytest
 from parameterized import parameterized
 from rest_framework import status
 
@@ -47,20 +46,20 @@ BASIC_TEXT = lambda text: {"type": "paragraph", "content": [{"text": text, "type
 
 
 class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
-    def _create_notebook_with_content(self, inner_content: List[Dict[str, Any]]) -> str:
+    def _create_notebook_with_content(self, inner_content: List[Dict[str, Any]], title: str = "the title") -> str:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
             data={
+                "title": title,
                 "content": {
                     "type": "doc",
                     "content": inner_content,
-                }
+                },
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
         return response.json()["id"]
 
-    @pytest.skip("TODO: what about templates")
     @parameterized.expand(
         [
             ["some text", [0]],
@@ -69,10 +68,10 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
             ["random", []],
         ]
     )
-    def test_filters_based_on_text(self, search_text: str, expected_match_indexes: List[int]) -> None:
+    def test_filters_based_on_title(self, search_text: str, expected_match_indexes: List[int]) -> None:
         notebook_ids = [
-            self._create_notebook_with_content([BASIC_TEXT("some text")]),
-            self._create_notebook_with_content([RECORDING_COMMENT_CONTENT("recording_one", "other text")]),
+            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="some text"),
+            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="other text"),
         ]
 
         response = self.client.get(

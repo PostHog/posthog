@@ -1278,7 +1278,8 @@ const api = {
         },
         async list(
             contains?: { type: NotebookNodeType; attrs: Record<string, string> }[],
-            createdBy?: UserBasicType['uuid']
+            createdBy?: UserBasicType['uuid'],
+            search?: string
         ): Promise<PaginatedResponse<NotebookType>> {
             // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
@@ -1296,6 +1297,9 @@ const api = {
             }
             if (createdBy) {
                 q = { ...q, created_by: createdBy }
+            }
+            if (search) {
+                q = { ...q, s: search }
             }
             return await apiRequest.withQueryString(q).get()
         },
