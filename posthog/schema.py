@@ -894,6 +894,9 @@ class DataTableNode(BaseModel):
     showOpenEditorButton: Optional[bool] = Field(
         None, description="Show a button to open the current query as a new insight. (default: true)"
     )
+    showPersistentColumnConfigurator: Optional[bool] = Field(
+        None, description="Show a button to configure and persist the table's default columns if possible"
+    )
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")

@@ -341,6 +341,10 @@
                     "description": "Show a button to open the current query as a new insight. (default: true)",
                     "type": "boolean"
                 },
+                "showPersistentColumnConfigurator": {
+                    "description": "Show a button to configure and persist the table's default columns if possible",
+                    "type": "boolean"
+                },
                 "showPropertyFilter": {
                     "description": "Include a property filter above the table",
                     "type": "boolean"
