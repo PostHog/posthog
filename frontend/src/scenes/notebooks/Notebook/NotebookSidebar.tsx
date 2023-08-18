@@ -3,22 +3,31 @@ import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { useActions, useValues } from 'kea'
-import { notebookNodeLogic } from './notebookNodeLogic'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { NotebookNodeWidget } from '../Notebook/utils'
+import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
+import clsx from 'clsx'
+import { notebookLogic } from './notebookLogic'
+import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 
-export const NotebookNodeSettings = (): JSX.Element => {
+export const NotebookSidebar = (): JSX.Element | null => {
+    const { selectedNodeLogic } = useValues(notebookLogic)
+
+    const hasContent = !!selectedNodeLogic?.values.widgets.length
+
     return (
-        <>
-            {createPortal(<Actions />, document.getElementsByClassName('NotebookNodeSetting__actions__portal')[0])}
-            {createPortal(<Widgets />, document.getElementsByClassName('NotebookNodeSettings__widgets__portal')[0])}
-        </>
+        <div
+            className={clsx('NotebookSidebar', {
+                'NotebookSidebar--showing': hasContent,
+            })}
+        >
+            <div className="NotebookSidebar__content">{selectedNodeLogic && <Widgets logic={selectedNodeLogic} />}</div>
+        </div>
     )
 }
 
-const Actions = (): JSX.Element => {
+export const Actions = (): JSX.Element => {
     const { widgets, unopenWidgets, domNode } = useValues(notebookNodeLogic)
     const { deleteNode } = useActions(notebookNodeLogic)
 
@@ -30,11 +39,7 @@ const Actions = (): JSX.Element => {
     const verticalOffset = domNode.offsetTop + domNode.offsetHeight - (height || 0)
 
     return (
-        <div
-            ref={ref}
-            className="flex w-full flex-col items-end space-y-1"
-            style={{ position: 'absolute', top: verticalOffset }}
-        >
+        <div ref={ref} className="flex w-full flex-col items-end space-y-1 absolute" style={{ top: verticalOffset }}>
             {selectableWidgets.map((widget) => (
                 <WidgetButton key={widget.key} widget={widget} collapsed={collapsed} />
             ))}
@@ -86,17 +91,17 @@ const WidgetButton = ({
     )
 }
 
-export const Widgets = (): JSX.Element | null => {
-    const { openWidgets, nodeAttributes } = useValues(notebookNodeLogic)
-    const { updateAttributes, removeActiveWidget } = useActions(notebookNodeLogic)
+export const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element | null => {
+    const { unopenWidgets, nodeAttributes } = useValues(logic)
+    const { updateAttributes, removeActiveWidget } = useActions(logic)
 
-    if (openWidgets.length === 0) {
+    if (unopenWidgets.length === 0) {
         return null
     }
 
     return (
         <div className="NotebookNodeSettings__widgets space-y-2 w-full max-w-80">
-            {openWidgets.map(({ key, label, Component }) => (
+            {unopenWidgets.map(({ key, label, Component }) => (
                 <LemonWidget key={key} title={label} onClose={() => removeActiveWidget(key)}>
                     <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
                 </LemonWidget>

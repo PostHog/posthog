@@ -1,4 +1,17 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import {
+    BuiltLogic,
+    actions,
+    connect,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { notebooksListLogic, openNotebook, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
@@ -43,8 +56,8 @@ export const notebookLogic = kea<notebookLogicType>([
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         exportJSON: true,
         showConflictWarning: true,
-        registerNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
-        unregisterNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
+        registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
+        unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
         scrollToSelection: true,
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
@@ -98,7 +111,7 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         nodeLogics: [
-            {} as Record<string, notebookNodeLogicType>,
+            {} as Record<string, BuiltLogic<notebookNodeLogicType>>,
             {
                 registerNodeLogic: (state, { nodeLogic }) => ({
                     ...state,

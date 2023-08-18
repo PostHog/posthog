@@ -15,6 +15,7 @@ import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { NotebookSidebar } from './NotebookSidebar'
 
 export type NotebookProps = {
     shortId: string
@@ -98,50 +99,27 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
 
                 <div className="flex flex-1 justify-center space-x-2">
                     <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOK_SETTINGS_WIDGETS}>
-                        <NotebookSidebar
-                            className="NotebookNodeSetting__actions__portal"
-                            expanded={editable && !isExpanded}
-                        />
+                        <NotebookSidebar />
                     </FlaggedFeature>
-                    <div className={clsx(isExpanded && 'flex flex-1')}>
-                        <Editor
-                            initialContent={content}
-                            onCreate={setEditor}
-                            onUpdate={onEditorUpdate}
-                            onSelectionUpdate={onEditorSelectionUpdate}
-                            placeholder={({ node }: { node: any }) => {
-                                if (node.type.name === 'heading' && node.attrs.level === 1) {
-                                    return `Untitled - maybe.. "${headingPlaceholder}"`
-                                }
+                    <Editor
+                        initialContent={content}
+                        onCreate={setEditor}
+                        onUpdate={onEditorUpdate}
+                        onSelectionUpdate={onEditorSelectionUpdate}
+                        placeholder={({ node }: { node: any }) => {
+                            if (node.type.name === 'heading' && node.attrs.level === 1) {
+                                return `Untitled - maybe.. "${headingPlaceholder}"`
+                            }
 
-                                if (node.type.name === 'heading') {
-                                    return `Heading ${node.attrs.level}`
-                                }
+                            if (node.type.name === 'heading') {
+                                return `Heading ${node.attrs.level}`
+                            }
 
-                                return ''
-                            }}
-                        />
-                    </div>
-                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOK_SETTINGS_WIDGETS}>
-                        <NotebookSidebar
-                            className="NotebookNodeSettings__widgets__portal"
-                            expanded={editable && !isExpanded}
-                        />
-                    </FlaggedFeature>
+                            return ''
+                        }}
+                    />
                 </div>
             </div>
         </BindLogic>
     )
-}
-
-const NotebookSidebar = ({
-    className,
-    expanded,
-    children,
-}: {
-    className?: string
-    expanded: boolean
-    children?: React.ReactChild
-}): JSX.Element => {
-    return <div className={clsx('NotebookSidebar', className, expanded ? 'flex flex-1' : null)}>{children}</div>
 }

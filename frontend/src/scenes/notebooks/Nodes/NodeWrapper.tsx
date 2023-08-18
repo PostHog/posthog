@@ -21,7 +21,6 @@ import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
 import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
-import { NotebookNodeSettings } from './NotebookNodeSettings'
 
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     title: string
@@ -185,7 +184,6 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                             </>
                         )}
                     </ErrorBoundary>
-                    {isEditable && selected && expanded ? <NotebookNodeSettings /> : null}
                 </NodeViewWrapper>
             </BindLogic>
         </NotebookNodeContext.Provider>
