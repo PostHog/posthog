@@ -1,7 +1,7 @@
 import { Link, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonMenuItem, LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { IconLink, IconCheckmark, IconCloudDownload, IconSettings, IconEllipsis } from 'lib/lemon-ui/icons'
+import { IconLink, IconCheckmark, IconCloudDownload, IconSettings, IconEllipsis, IconLegend } from 'lib/lemon-ui/icons'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -15,18 +15,17 @@ export function AppView({
 }: {
     plugin: PluginTypeWithConfig | PluginType | PluginRepositoryEntry
 }): JSX.Element {
-    const { installPlugin, editPlugin, toggleEnabled, updatePlugin } = useActions(pluginsLogic)
     const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating, showAppMetricsForPlugin, loading } =
         useValues(pluginsLogic)
+    const { installPlugin, editPlugin, toggleEnabled, updatePlugin } = useActions(pluginsLogic)
 
     const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
     const isConfigured = !!pluginConfig?.id
-
     const menuItems: LemonMenuItem[] = []
 
     if (plugin.url) {
         menuItems.push({
-            label: 'App info page',
+            label: 'Source',
             sideIcon: <IconLink />,
             to: plugin.url,
             targetBlank: true,
@@ -47,10 +46,8 @@ export function AppView({
 
     return (
         <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-                <div className="shrink-0">
-                    <PluginImage icon={plugin.icon} url={plugin.url} />
-                </div>
+            <div className="flex items-center gap-4">
+                <PluginImage plugin={plugin} />
                 <div>
                     <div className="flex gap-2 items-center">
                         {pluginConfig && showAppMetricsForPlugin(plugin) && pluginConfig.id && (
@@ -77,7 +74,7 @@ export function AppView({
                 </div>
             </div>
 
-            <div className="flex gap-2 whitespace-nowrap justify-end">
+            <div className="flex gap-2 whitespace-nowrap items-center justify-end">
                 {'id' in plugin && pluginConfig ? (
                     <>
                         {!pluginConfig.enabled && isConfigured && (
@@ -106,6 +103,17 @@ export function AppView({
                                 icon={plugin.updateStatus?.updated ? <IconCheckmark /> : <IconCloudDownload />}
                             >
                                 {plugin.updateStatus?.updated ? 'Updated' : 'Update'}
+                            </LemonButton>
+                        )}
+
+                        {pluginConfig.id && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconLegend />}
+                                to={urls.appLogs(pluginConfig.id)}
+                            >
+                                Logs & metrics
                             </LemonButton>
                         )}
 

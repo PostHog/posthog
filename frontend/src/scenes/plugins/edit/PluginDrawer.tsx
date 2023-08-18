@@ -230,12 +230,7 @@ export function PluginDrawer(): JSX.Element {
                     {editingPlugin ? (
                         <div>
                             <div className="flex gap-4">
-                                <PluginImage
-                                    pluginType={editingPlugin.plugin_type}
-                                    url={editingPlugin.url}
-                                    icon={editingPlugin.icon}
-                                    size="large"
-                                />
+                                <PluginImage plugin={editingPlugin} size="large" />
                                 <div className="flex flex-col grow gap-2">
                                     <span>{endWithPunctation(editingPlugin.description)}</span>
                                     <div className="flex items-center">

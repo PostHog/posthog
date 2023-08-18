@@ -75,7 +75,6 @@ export function PluginCard({
         name,
         description,
         url,
-        icon,
         plugin_type: pluginType,
         pluginConfig,
         tag,
@@ -122,22 +121,27 @@ export function PluginCard({
                             <Tag color="#555">-</Tag>
                         </Tooltip>
                     ) : null}
-                    {pluginConfig &&
-                        (pluginConfig.id ? (
-                            <LemonSwitch
-                                checked={pluginConfig.enabled ?? false}
-                                disabled={rearranging}
-                                onChange={() => toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })}
-                            />
-                        ) : (
-                            <Tooltip title="Please configure this plugin before enabling it">
-                                <LemonSwitch checked={false} disabled={true} />
-                            </Tooltip>
-                        ))}
-                    <div className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
-                        <PluginImage pluginType={pluginType} icon={icon} url={url} />
-                    </div>
-                    <div className="flex flex-col flex-1">
+                    {pluginConfig && (
+                        <Col>
+                            {pluginConfig.id ? (
+                                <LemonSwitch
+                                    checked={pluginConfig.enabled ?? false}
+                                    disabled={rearranging}
+                                    onChange={() =>
+                                        toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
+                                    }
+                                />
+                            ) : (
+                                <Tooltip title="Please configure this plugin before enabling it">
+                                    <LemonSwitch checked={false} disabled={true} />
+                                </Tooltip>
+                            )}
+                        </Col>
+                    )}
+                    <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
+                        <PluginImage plugin={plugin} />
+                    </Col>
+                    <Col style={{ flex: 1 }}>
                         <div className="flex items-center">
                             <strong className="flex items-center mr-2 gap-1">
                                 {showAppMetricsForPlugin(plugin) && pluginConfig?.id && (
