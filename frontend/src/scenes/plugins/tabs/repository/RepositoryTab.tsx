@@ -14,23 +14,6 @@ export enum RepositorySection {
 }
 
 export function RepositoryTab(): JSX.Element {
-    const { repositoryLoading, filteredUninstalledPlugins } = useValues(pluginsLogic)
-    const [repositorySectionsOpen, setRepositorySectionsOpen] = useState([
-        RepositorySection.Official,
-        RepositorySection.Community,
-    ])
-
-    const officialPlugins = filteredUninstalledPlugins.filter((plugin) => plugin.maintainer === 'official')
-    const communityPlugins = filteredUninstalledPlugins.filter((plugin) => plugin.maintainer === 'community')
-
-    const toggleRepositorySectionOpen = (section: RepositorySection): void => {
-        if (repositorySectionsOpen.includes(section)) {
-            setRepositorySectionsOpen(repositorySectionsOpen.filter((s) => section !== s))
-            return
-        }
-        setRepositorySectionsOpen([...repositorySectionsOpen, section])
-    }
-
     return (
         <div>
             <Subtitle subtitle="App Repository" />
