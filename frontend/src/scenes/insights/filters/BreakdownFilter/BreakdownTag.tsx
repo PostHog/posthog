@@ -19,7 +19,7 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
     return (
         <BindLogic logic={breakdownTagLogic} props={logicProps}>
             <LemonTag
-                className="taxonomic-breakdown-filter tag-pill"
+                className="taxonomic-breakdown-filter tag-pill max-w-full"
                 // display remove button only if we can edit and don't have a separate menu
                 closable={!isViewOnly && !shouldShowMenu}
                 onClose={removeBreakdown}
@@ -28,7 +28,7 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
                     closeOnClickInside: false,
                 }}
             >
-                <PropertyKeyInfo value={propertyName} />
+                <PropertyKeyInfo value={propertyName} disablePopover={breakdownType === 'hogql'} />
             </LemonTag>
         </BindLogic>
     )
