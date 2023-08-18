@@ -163,19 +163,25 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
 
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
-    """For limited access from sharing views e.g. insights/dashboards for refreshing."""
+    """Limited access for sharing views e.g. insights/dashboards for refreshing.
+    Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.
+    """
+
+    sharing_configuration: SharingConfiguration
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, Any]]:
         if sharing_access_token := request.GET.get("sharing_access_token"):
+            if request.method not in ["GET", "HEAD"]:
+                raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
                 sharing_configuration = SharingConfiguration.objects.get(
                     access_token=sharing_access_token, enabled=True
                 )
-                request.sharing_configuration = sharing_configuration  # type: ignore
-
-                return (AnonymousUser(), None)
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
+            else:
+                self.sharing_configuration = sharing_configuration
+                return (AnonymousUser(), None)
         return None
 
 

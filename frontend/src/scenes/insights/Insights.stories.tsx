@@ -20,6 +20,7 @@ export default {
             get: {
                 '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
                 '/api/projects/:team_id/persons/properties': samplePersonProperties,
+                '/api/projects/:team_id/groups_types': [],
             },
             post: {
                 '/api/projects/:team_id/cohorts/': { id: 1 },
