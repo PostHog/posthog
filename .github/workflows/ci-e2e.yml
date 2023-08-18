@@ -71,8 +71,8 @@ jobs:
               run: echo "chunks=$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)" >> $GITHUB_OUTPUT
 
     cypress:
-        name: Cypress E2E tests (${{ strategy.job-index }})
-        runs-on: buildjet-8vcpu-ubuntu-2204
+        name: Cypress E2E tests - ${{matrix.runs-on}} (${{ strategy.job-index }})
+        runs-on: ${{matrix.runs-on}}
         timeout-minutes: 30
         needs: [chunks, changes]
         permissions:
@@ -84,6 +84,13 @@ jobs:
             # we want to know about.
             fail-fast: false
             matrix:
+                runs-on:
+                    [
+                        buildjet-2vcpu-ubuntu-2204,
+                        buildjet-4vcpu-ubuntu-2204,
+                        buildjet-8vcpu-ubuntu-2204,
+                        buildjet-16vcpu-ubuntu-2204,
+                    ]
                 chunk: ${{ fromJson(needs.chunks.outputs.chunks) }}
 
         steps:
