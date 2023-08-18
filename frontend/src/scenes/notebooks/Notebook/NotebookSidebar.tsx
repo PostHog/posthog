@@ -12,14 +12,12 @@ import { notebookLogic } from './notebookLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 
 export const NotebookSidebar = (): JSX.Element | null => {
-    const { selectedNodeLogic } = useValues(notebookLogic)
-
-    const hasContent = !!selectedNodeLogic?.values.widgets.length
+    const { selectedNodeLogic, isShowingSidebar } = useValues(notebookLogic)
 
     return (
         <div
             className={clsx('NotebookSidebar', {
-                'NotebookSidebar--showing': hasContent,
+                'NotebookSidebar--showing': isShowingSidebar,
             })}
         >
             <div className="NotebookSidebar__content">{selectedNodeLogic && <Widgets logic={selectedNodeLogic} />}</div>

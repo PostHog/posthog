@@ -295,6 +295,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             },
         ],
+        isShowingSidebar: [
+            (s) => [s.selectedNodeLogic],
+            (selectedNodeLogic) => {
+                return !!selectedNodeLogic?.values.widgets.length
+            },
+        ],
     }),
     sharedListeners(({ values, actions }) => ({
         onNotebookChange: () => {
