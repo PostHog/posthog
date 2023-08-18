@@ -1,4 +1,4 @@
-import { actions, events, kea, key, path, props, reducers } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookNodeType } from '~/types'
 
@@ -17,8 +17,15 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
     key((props) => props.sessionRecordingId || 'no recording id yet'),
     actions({
         setShowPopover: (visible: boolean) => ({ visible }),
+        setSearchQuery: (query: string) => ({ query }),
     }),
     reducers(({ props }) => ({
+        searchQuery: [
+            null as string | null,
+            {
+                setSearchQuery: (_, { query }) => (query === '' ? null : query),
+            },
+        ],
         showPopover: [
             props.startVisible,
             {
@@ -26,14 +33,22 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
             },
         ],
     })),
-    loaders(({ props }) => ({
+    listeners(({ actions }) => ({
+        setSearchQuery: () => {
+            actions.loadContainingNotebooks(null)
+        },
+    })),
+    loaders(({ props, values }) => ({
         notebooks: [
             [] as NotebookListItemType[],
             {
-                loadContainingNotebooks: async () => {
-                    const response = await api.notebooks.list([
-                        { type: NotebookNodeType.Recording, attrs: { id: props.sessionRecordingId } },
-                    ])
+                loadContainingNotebooks: async (_, breakpoint) => {
+                    breakpoint(100)
+                    const response = await api.notebooks.list(
+                        [{ type: NotebookNodeType.Recording, attrs: { id: props.sessionRecordingId } }],
+                        undefined,
+                        values.searchQuery ?? undefined
+                    )
                     // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
                 },
@@ -42,7 +57,8 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
     })),
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadContainingNotebooks()
+            // KLUDGE: need to pass an ignored variable because the actoin uses its breakpoint arg :/
+            actions.loadContainingNotebooks(null)
         },
     })),
 ])
