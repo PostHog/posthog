@@ -48,5 +48,7 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelect> = (props: LemonCalendar
     )
 }
 
-export const LemonCalendarSelect_: Story = BasicTemplate.bind({})
-LemonCalendarSelect_.args = {}
+export const LemonCalendarSelect_: Story = {
+    render: BasicTemplate,
+    args: {},
+}

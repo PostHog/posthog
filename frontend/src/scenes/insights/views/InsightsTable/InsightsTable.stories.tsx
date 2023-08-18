@@ -48,40 +48,57 @@ const Template: StoryFn<typeof InsightsTable> = (props, { parameters }) => {
     )
 }
 
-export const Default: Story = Template.bind({})
-Default.args = {}
-
-export const IsLegend: Story = Template.bind({})
-IsLegend.args = {
-    isLegend: true,
+export const Default: Story = {
+    render: Template,
+    args: {},
 }
 
-export const Embedded: Story = Template.bind({})
-Embedded.args = {
-    embedded: true,
-}
+export const IsLegend: Story = {
+    render: Template,
 
-export const Hourly: Story = Template.bind({})
-Hourly.parameters = {
-    mergeFilters: { interval: 'hour' },
-}
-
-export const Aggregation: Story = Template.bind({})
-Aggregation.parameters = {
-    mergeFilters: {
-        events: [
-            {
-                id: '$pageview',
-                name: '$pageview',
-                type: 'events',
-                order: 0,
-                math: BaseMathType.UniqueSessions,
-            },
-        ],
+    args: {
+        isLegend: true,
     },
 }
 
-export const CanEditSeriesName: Story = Template.bind({})
-CanEditSeriesName.args = {
-    canEditSeriesNameInline: true,
+export const Embedded: Story = {
+    render: Template,
+
+    args: {
+        embedded: true,
+    },
+}
+
+export const Hourly: Story = {
+    render: Template,
+
+    parameters: {
+        mergeFilters: { interval: 'hour' },
+    },
+}
+
+export const Aggregation: Story = {
+    render: Template,
+
+    parameters: {
+        mergeFilters: {
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    math: BaseMathType.UniqueSessions,
+                },
+            ],
+        },
+    },
+}
+
+export const CanEditSeriesName: Story = {
+    render: Template,
+
+    args: {
+        canEditSeriesNameInline: true,
+    },
 }

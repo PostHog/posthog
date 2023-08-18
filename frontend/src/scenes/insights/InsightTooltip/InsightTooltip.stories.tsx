@@ -142,12 +142,17 @@ const BasicTemplate: StoryFn<typeof InsightTooltip> = (props: InsightTooltipProp
     return <InsightTooltip {...props} />
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
+export const Default: Story = {
+    render: BasicTemplate,
+    args: {},
+}
 
-export const Columns: Story = BasicTemplate.bind({})
-Columns.args = {
-    entitiesAsColumnsOverride: true,
+export const Columns: Story = {
+    render: BasicTemplate,
+
+    args: {
+        entitiesAsColumnsOverride: true,
+    },
 }
 
 export function InWrapper(): JSX.Element {

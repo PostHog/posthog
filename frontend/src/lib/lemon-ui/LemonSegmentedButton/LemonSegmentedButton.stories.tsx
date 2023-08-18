@@ -42,10 +42,15 @@ const Template: StoryFn<typeof LemonSegmentedButton> = (
     return <LemonSegmentedButton {...props} value={value} onChange={(newValue) => setValue(newValue)} />
 }
 
-export const Default: Story = Template.bind({})
-Default.args = {}
+export const Default: Story = {
+    render: Template,
+    args: {},
+}
 
-export const Small: Story = Template.bind({})
-Small.args = {
-    size: 'small',
+export const Small: Story = {
+    render: Template,
+
+    args: {
+        size: 'small',
+    },
 }

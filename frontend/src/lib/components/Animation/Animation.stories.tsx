@@ -33,5 +33,7 @@ const Template: StoryFn<typeof Animation> = ({ size, type }): JSX.Element => {
     return <Animation type={type} size={size} />
 }
 
-export const Animations: Story = Template.bind({})
-Animations.args = { size: 'large' }
+export const Animations: Story = {
+    render: Template,
+    args: { size: 'large' },
+}

@@ -35,14 +35,20 @@ const Template: StoryFn<typeof CohortTaxonomicField> = (props: CohortTaxonomicFi
     })
 }
 
-export const EventsAndActions: Story = Template.bind({})
-EventsAndActions.args = {
-    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-    placeholder: 'Choose event or action',
+export const EventsAndActions: Story = {
+    render: Template,
+
+    args: {
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+        placeholder: 'Choose event or action',
+    },
 }
 
-export const PersonProperties: Story = Template.bind({})
-PersonProperties.args = {
-    taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
-    placeholder: 'Choose person property',
+export const PersonProperties: Story = {
+    render: Template,
+
+    args: {
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+        placeholder: 'Choose person property',
+    },
 }

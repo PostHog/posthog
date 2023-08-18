@@ -150,87 +150,127 @@ const EmptyTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<Record
     )
 }
 
-export const Basic: Story = BasicTemplate.bind({})
-Basic.args = {}
+export const Basic: Story = {
+    render: BasicTemplate,
+    args: {},
+}
 
-export const Grouped: Story = GroupedTemplate.bind({})
-Grouped.args = {}
+export const Grouped: Story = {
+    render: GroupedTemplate,
+    args: {},
+}
 
-export const Empty: Story = EmptyTemplate.bind({})
-Empty.args = {}
+export const Empty: Story = {
+    render: EmptyTemplate,
+    args: {},
+}
 
-export const PaginatedAutomatically: Story = BasicTemplate.bind({})
-PaginatedAutomatically.args = { nouns: ['person', 'people'], pagination: { pageSize: 3 } }
+export const PaginatedAutomatically: Story = {
+    render: BasicTemplate,
+    args: { nouns: ['person', 'people'], pagination: { pageSize: 3 } },
+}
 
-export const WithExpandableRows: Story = BasicTemplate.bind({})
-WithExpandableRows.args = {
-    expandable: {
-        rowExpandable: (record) => record.occupation !== 'Retired',
-        expandedRowRender: function RenderCow() {
-            return <img src="https://c.tenor.com/WAFH6TX2VIYAAAAC/polish-cow.gif" />
+export const WithExpandableRows: Story = {
+    render: BasicTemplate,
+
+    args: {
+        expandable: {
+            rowExpandable: (record) => record.occupation !== 'Retired',
+            expandedRowRender: function RenderCow() {
+                return <img src="https://c.tenor.com/WAFH6TX2VIYAAAAC/polish-cow.gif" />
+            },
         },
     },
 }
 
-export const Small: Story = BasicTemplate.bind({})
-Small.args = { size: 'small' }
-
-export const XSmall: Story = BasicTemplate.bind({})
-XSmall.args = { size: 'xs' }
-
-export const Embedded: Story = BasicTemplate.bind({})
-Embedded.args = { embedded: true }
-
-export const BorderlessRows: Story = BasicTemplate.bind({})
-BorderlessRows.args = { borderedRows: false }
-
-export const Loading: Story = BasicTemplate.bind({})
-Loading.args = { loading: true }
-
-export const EmptyLoading: Story = EmptyTemplate.bind({})
-EmptyLoading.args = { loading: true }
-
-export const EmptyLoadingWithManySkeletonRows: Story = EmptyTemplate.bind({})
-EmptyLoadingWithManySkeletonRows.args = { loading: true, loadingSkeletonRows: 10 }
-
-export const WithoutHeader: Story = BasicTemplate.bind({})
-WithoutHeader.args = { showHeader: false }
-
-export const WithoutUppercasingInHeader: Story = BasicTemplate.bind({})
-WithoutUppercasingInHeader.args = { uppercaseHeader: false }
-
-export const WithFooter: Story = BasicTemplate.bind({})
-WithFooter.args = {
-    footer: (
-        <>
-            <div className="flex items-center m-2">
-                <LemonButton center fullWidth>
-                    Load more button in the footer!
-                </LemonButton>
-            </div>
-        </>
-    ),
+export const Small: Story = {
+    render: BasicTemplate,
+    args: { size: 'small' },
 }
 
-export const WithColorCodedRows: Story = BasicTemplate.bind({})
-WithColorCodedRows.args = {
-    rowRibbonColor: ({ occupation }) =>
-        occupation === 'Engineer'
-            ? 'var(--success)'
-            : occupation === 'Retired'
-            ? 'var(--warning)'
-            : occupation === 'Body-builder'
-            ? 'var(--danger)'
-            : null,
+export const XSmall: Story = {
+    render: BasicTemplate,
+    args: { size: 'xs' },
 }
 
-export const WithHighlightedRows: Story = BasicTemplate.bind({})
-WithHighlightedRows.args = {
-    rowStatus: ({ occupation }) => (['Retired', 'Body-builder'].includes(occupation) ? 'highlighted' : null),
+export const Embedded: Story = {
+    render: BasicTemplate,
+    args: { embedded: true },
 }
 
-export const WithMandatorySorting: Story = BasicTemplate.bind({})
-WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true }
+export const BorderlessRows: Story = {
+    render: BasicTemplate,
+    args: { borderedRows: false },
+}
+
+export const Loading: Story = {
+    render: BasicTemplate,
+    args: { loading: true },
+}
+
+export const EmptyLoading: Story = {
+    render: EmptyTemplate,
+    args: { loading: true },
+}
+
+export const EmptyLoadingWithManySkeletonRows: Story = {
+    render: EmptyTemplate,
+    args: { loading: true, loadingSkeletonRows: 10 },
+}
+
+export const WithoutHeader: Story = {
+    render: BasicTemplate,
+    args: { showHeader: false },
+}
+
+export const WithoutUppercasingInHeader: Story = {
+    render: BasicTemplate,
+    args: { uppercaseHeader: false },
+}
+
+export const WithFooter: Story = {
+    render: BasicTemplate,
+
+    args: {
+        footer: (
+            <>
+                <div className="flex items-center m-2">
+                    <LemonButton center fullWidth>
+                        Load more button in the footer!
+                    </LemonButton>
+                </div>
+            </>
+        ),
+    },
+}
+
+export const WithColorCodedRows: Story = {
+    render: BasicTemplate,
+
+    args: {
+        rowRibbonColor: ({ occupation }) =>
+            occupation === 'Engineer'
+                ? 'var(--success)'
+                : occupation === 'Retired'
+                ? 'var(--warning)'
+                : occupation === 'Body-builder'
+                ? 'var(--danger)'
+                : null,
+    },
+}
+
+export const WithHighlightedRows: Story = {
+    render: BasicTemplate,
+
+    args: {
+        rowStatus: ({ occupation }) => (['Retired', 'Body-builder'].includes(occupation) ? 'highlighted' : null),
+    },
+}
+
+export const WithMandatorySorting: Story = {
+    render: BasicTemplate,
+    args: { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true },
+}
 
 export const WithStickyFirstColumn = (): JSX.Element => {
     useEffect(() => {

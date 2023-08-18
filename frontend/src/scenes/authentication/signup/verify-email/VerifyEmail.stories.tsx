@@ -1,4 +1,4 @@
-import { Meta, Story } from '@storybook/react'
+import { StoryObj, StoryFn, Meta } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { VerifyEmail } from './VerifyEmail'
@@ -12,7 +12,8 @@ const meta: Meta = {
     },
 }
 export default meta
-export const VerifyEmailPending: Story = () => {
+
+export const VerifyEmailPending: StoryFn = () => {
     useEffect(() => {
         verifyEmailLogic.actions.setView('pending')
         verifyEmailLogic.actions.setUuid('12345678')
@@ -20,26 +21,29 @@ export const VerifyEmailPending: Story = () => {
     return <VerifyEmail />
 }
 
-export const VerifyingEmail: Story = () => {
-    useEffect(() => {
-        verifyEmailLogic.actions.setView('verify')
-    }, [])
-    return <VerifyEmail />
-}
-VerifyingEmail.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
+export const VerifyingEmail: StoryObj = {
+    render: () => {
+        useEffect(() => {
+            verifyEmailLogic.actions.setView('verify')
+        }, [])
+        return <VerifyEmail />
+    },
+
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
     },
 }
 
-export const VerifyEmailSuccess: Story = () => {
+export const VerifyEmailSuccess: StoryFn = () => {
     useEffect(() => {
         verifyEmailLogic.actions.setView('success')
     }, [])
     return <VerifyEmail />
 }
 
-export const VerifyEmailInvalid: Story = () => {
+export const VerifyEmailInvalid: StoryFn = () => {
     useEffect(() => {
         verifyEmailLogic.actions.setView('invalid')
         verifyEmailLogic.actions.setUuid('12345678')

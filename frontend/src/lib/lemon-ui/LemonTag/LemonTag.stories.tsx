@@ -33,5 +33,7 @@ const Template: StoryFn<typeof LemonTagComponent> = (props) => {
     )
 }
 
-export const LemonTag: Story = Template.bind({})
-LemonTag.args = {}
+export const LemonTag: Story = {
+    render: Template,
+    args: {},
+}

@@ -18,29 +18,43 @@ const Template: StoryFn<typeof LemonBanner> = (props: LemonBannerProps) => {
     return <LemonBanner {...props} />
 }
 
-export const Info: Story = Template.bind({})
-Info.args = { type: 'info', children: 'PSA: Every dish can be improved by adding more garlic.' }
-
-export const Warning: Story = Template.bind({})
-Warning.args = { type: 'warning', children: 'This spacecraft is about to explode. Please evacuate immediately.' }
-
-export const Error: Story = Template.bind({})
-Error.args = { type: 'error', children: 'This spacecraft has exploded. Too late...' }
-
-export const Success: Story = Template.bind({})
-Success.args = { type: 'success', children: 'This spacecraft has recovered. Phew!' }
-
-export const Closable: Story = Template.bind({})
-Closable.args = {
-    type: 'info',
-    children: 'This is a one-time message. Acknowledge it and move on with your life.',
-    onClose: () => alert('👋'),
+export const Info: Story = {
+    render: Template,
+    args: { type: 'info', children: 'PSA: Every dish can be improved by adding more garlic.' },
 }
 
-export const Dismissable: Story = Template.bind({})
-Dismissable.args = {
-    type: 'info',
-    children: 'If you dismiss this message, it will be gone forever. (Clear the localstorage key to get it back)',
-    dismissKey: 'storybook-banner',
-    onClose: () => alert('👋'),
+export const Warning: Story = {
+    render: Template,
+    args: { type: 'warning', children: 'This spacecraft is about to explode. Please evacuate immediately.' },
+}
+
+export const Error: Story = {
+    render: Template,
+    args: { type: 'error', children: 'This spacecraft has exploded. Too late...' },
+}
+
+export const Success: Story = {
+    render: Template,
+    args: { type: 'success', children: 'This spacecraft has recovered. Phew!' },
+}
+
+export const Closable: Story = {
+    render: Template,
+
+    args: {
+        type: 'info',
+        children: 'This is a one-time message. Acknowledge it and move on with your life.',
+        onClose: () => alert('👋'),
+    },
+}
+
+export const Dismissable: Story = {
+    render: Template,
+
+    args: {
+        type: 'info',
+        children: 'If you dismiss this message, it will be gone forever. (Clear the localstorage key to get it back)',
+        dismissKey: 'storybook-banner',
+        onClose: () => alert('👋'),
+    },
 }

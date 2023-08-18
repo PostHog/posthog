@@ -22,8 +22,10 @@ const Template: StoryFn<typeof Lettermark> = (props: LettermarkProps) => {
     return <Lettermark {...props} />
 }
 
-export const Base: Story = Template.bind({})
-Base.args = { name: 'Athena' }
+export const Base: Story = {
+    render: Template,
+    args: { name: 'Athena' },
+}
 
 export const Overview = (): JSX.Element => {
     return (
@@ -50,14 +52,22 @@ export const Overview = (): JSX.Element => {
     )
 }
 
-export const String: Story = Template.bind({})
-String.args = { name: 'Athena' }
+export const String: Story = {
+    render: Template,
+    args: { name: 'Athena' },
+}
 
-export const Number: Story = Template.bind({})
-Number.args = { name: 42 }
+export const Number: Story = {
+    render: Template,
+    args: { name: 42 },
+}
 
-export const Unknown: Story = Template.bind({})
-Unknown.args = { name: null }
+export const Unknown: Story = {
+    render: Template,
+    args: { name: null },
+}
 
-export const Gray: Story = Template.bind({})
-Gray.args = { name: 5, color: LettermarkColor.Gray }
+export const Gray: Story = {
+    render: Template,
+    args: { name: 5, color: LettermarkColor.Gray },
+}

@@ -14,18 +14,26 @@ const Template: StoryFn<typeof HogQLEditor> = (props): JSX.Element => {
     return <HogQLEditor {...props} value={value} onChange={onChange} />
 }
 
-export const HogQLEditor_: Story = Template.bind({})
-HogQLEditor_.args = {}
-
-export const NoValue: Story = Template.bind({})
-NoValue.args = {
-    value: '',
-    disableAutoFocus: true,
+export const HogQLEditor_: Story = {
+    render: Template,
+    args: {},
 }
 
-export const NoValuePersonPropertiesDisabled: Story = Template.bind({})
-NoValuePersonPropertiesDisabled.args = {
-    disablePersonProperties: true,
-    value: '',
-    disableAutoFocus: true,
+export const NoValue: Story = {
+    render: Template,
+
+    args: {
+        value: '',
+        disableAutoFocus: true,
+    },
+}
+
+export const NoValuePersonPropertiesDisabled: Story = {
+    render: Template,
+
+    args: {
+        disablePersonProperties: true,
+        value: '',
+        disableAutoFocus: true,
+    },
 }

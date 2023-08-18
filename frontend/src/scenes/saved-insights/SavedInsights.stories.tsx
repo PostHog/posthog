@@ -1,4 +1,4 @@
-import { Meta, Story } from '@storybook/react'
+import { StoryObj, StoryFn, Meta } from '@storybook/react'
 
 import { App } from 'scenes/App'
 import insightsJson from './__mocks__/insights.json'
@@ -40,24 +40,28 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const ListView: Story = () => {
+
+export const ListView: StoryFn = () => {
     useEffect(() => {
         router.actions.push('/insights')
     })
     return <App />
 }
 
-export const CardView: Story = () => {
-    useEffect(() => {
-        router.actions.push('/insights?layoutView=card')
-    })
-    return <App />
-}
-CardView.parameters = {
-    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
+export const CardView: StoryObj = {
+    render: () => {
+        useEffect(() => {
+            router.actions.push('/insights?layoutView=card')
+        })
+        return <App />
+    },
+
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
+    },
 }
 
-export const EmptyState: Story = () => {
+export const EmptyState: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights': EMPTY_PAGINATED_RESPONSE,

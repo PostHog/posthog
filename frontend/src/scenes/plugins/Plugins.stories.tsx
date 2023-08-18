@@ -1,4 +1,4 @@
-import { Meta, Story } from '@storybook/react'
+import { StoryFn, Meta } from '@storybook/react'
 import { App } from 'scenes/App'
 import { useEffect } from 'react'
 import { router } from 'kea-router'
@@ -18,7 +18,7 @@ const meta: Meta = {
     },
 }
 export default meta
-export const Installed: Story = () => {
+export const Installed: StoryFn = () => {
     useAvailableFeatures([AvailableFeature.APP_METRICS])
     useEffect(() => {
         router.actions.push(urls.projectApps(PluginTab.Installed))

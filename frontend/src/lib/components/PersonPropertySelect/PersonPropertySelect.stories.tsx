@@ -61,10 +61,15 @@ const Template: StoryFn<typeof PersonPropertySelect> = (props: Partial<PersonPro
     )
 }
 
-export const Default: Story = Template.bind({})
-Default.args = {}
+export const Default: Story = {
+    render: Template,
+    args: {},
+}
 
-export const Sortable: Story = Template.bind({})
-Sortable.args = {
-    sortable: true,
+export const Sortable: Story = {
+    render: Template,
+
+    args: {
+        sortable: true,
+    },
 }

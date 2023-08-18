@@ -35,10 +35,13 @@ const BasicTemplate: StoryFn<typeof LemonButton> = (props: LemonButtonProps) => 
     return <LemonButton {...props} />
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {
-    icon: <IconCalculate />,
-    children: 'Click me',
+export const Default: Story = {
+    render: BasicTemplate,
+
+    args: {
+        icon: <IconCalculate />,
+        children: 'Click me',
+    },
 }
 
 const StatusesTemplate = ({
@@ -70,8 +73,10 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     )
 }
 
-export const TypesAndStatuses: Story = TypesAndStatusesTemplate.bind({})
-TypesAndStatuses.args = { ...Default.args }
+export const TypesAndStatuses: Story = {
+    render: TypesAndStatusesTemplate,
+    args: { ...Default.args },
+}
 
 type PopoverStory = StoryObj<typeof LemonButtonWithDropdown>
 const PopoverTemplate: StoryFn<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
@@ -119,7 +124,6 @@ export const SizesIconOnly = (): JSX.Element => {
 export const DisabledWithReason = (): JSX.Element => {
     return <StatusesTemplate disabledReason="You're not cool enough to click this." accommodateTooltip />
 }
-// TODO: Add DisabledWithReason.play for a proper snapshot showcasing the tooltip
 
 export const Loading = (): JSX.Element => {
     return <TypesAndStatusesTemplate loading />
@@ -264,77 +268,89 @@ export const AsLinks = (): JSX.Element => {
     )
 }
 
-export const WithDropdownToTheRight: PopoverStory = PopoverTemplate.bind({})
-WithDropdownToTheRight.args = {
-    ...Default.args,
-    dropdown: {
-        overlay: (
-            <>
-                <LemonButton status="stealth" fullWidth>
-                    Kakapo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kangaroo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kingfisher
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Koala
-                </LemonButton>
-            </>
-        ),
-        placement: 'right-start',
-    },
-}
+export const WithDropdownToTheRight: PopoverStory = {
+    render: PopoverTemplate,
 
-export const WithDropdownToTheBottom: PopoverStory = PopoverTemplate.bind({})
-WithDropdownToTheBottom.args = {
-    ...Default.args,
-    dropdown: {
-        overlay: (
-            <>
-                <LemonButton status="stealth" fullWidth>
-                    Kakapo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kangaroo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kingfisher
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Koala
-                </LemonButton>
-            </>
-        ),
-        placement: 'bottom',
-        sameWidth: true,
-    },
-}
-
-export const WithVeryLongPopoverToTheBottom: PopoverStory = PopoverTemplate.bind({})
-WithVeryLongPopoverToTheBottom.args = {
-    ...Default.args,
-    dropdown: {
-        overlay: (
-            <>
-                {range(200).map((n) => (
-                    <LemonButton key={n} status="stealth" fullWidth>
-                        {n.toString()}
+    args: {
+        ...Default.args,
+        dropdown: {
+            overlay: (
+                <>
+                    <LemonButton status="stealth" fullWidth>
+                        Kakapo
                     </LemonButton>
-                ))}
-            </>
-        ),
-        placement: 'bottom',
-        sameWidth: true,
+                    <LemonButton status="stealth" fullWidth>
+                        Kangaroo
+                    </LemonButton>
+                    <LemonButton status="stealth" fullWidth>
+                        Kingfisher
+                    </LemonButton>
+                    <LemonButton status="stealth" fullWidth>
+                        Koala
+                    </LemonButton>
+                </>
+            ),
+            placement: 'right-start',
+        },
     },
 }
 
-export const WithTooltip: Story = BasicTemplate.bind({})
-WithTooltip.args = {
-    ...Default.args,
-    tooltip: 'The flux capacitor will be reloaded. This might take up to 14 hours.',
+export const WithDropdownToTheBottom: PopoverStory = {
+    render: PopoverTemplate,
+
+    args: {
+        ...Default.args,
+        dropdown: {
+            overlay: (
+                <>
+                    <LemonButton status="stealth" fullWidth>
+                        Kakapo
+                    </LemonButton>
+                    <LemonButton status="stealth" fullWidth>
+                        Kangaroo
+                    </LemonButton>
+                    <LemonButton status="stealth" fullWidth>
+                        Kingfisher
+                    </LemonButton>
+                    <LemonButton status="stealth" fullWidth>
+                        Koala
+                    </LemonButton>
+                </>
+            ),
+            placement: 'bottom',
+            sameWidth: true,
+        },
+    },
+}
+
+export const WithVeryLongPopoverToTheBottom: PopoverStory = {
+    render: PopoverTemplate,
+
+    args: {
+        ...Default.args,
+        dropdown: {
+            overlay: (
+                <>
+                    {range(200).map((n) => (
+                        <LemonButton key={n} status="stealth" fullWidth>
+                            {n.toString()}
+                        </LemonButton>
+                    ))}
+                </>
+            ),
+            placement: 'bottom',
+            sameWidth: true,
+        },
+    },
+}
+
+export const WithTooltip: Story = {
+    render: BasicTemplate,
+
+    args: {
+        ...Default.args,
+        tooltip: 'The flux capacitor will be reloaded. This might take up to 14 hours.',
+    },
 }
 
 export const More_ = (): JSX.Element => {

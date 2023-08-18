@@ -102,93 +102,172 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
     )
 }
 
-// This is for actual Storybook users
-export const Library: LibraryType = LibraryTemplate.bind({})
-Library.parameters = { testOptions: { skip: true } }
+export const Library: LibraryType = {
+    render: LibraryTemplate,
+    parameters: { testOptions: { skip: true } },
+}
 
-// These are just for snapshots. As opposed to the full library, the stories below are segmented by the first letter
-// of the icon name, which greatly optimizes both the UX and storage aspects of diffing snapshots.
-export const ShelfA: LibraryType = LibraryTemplate.bind({})
-ShelfA.args = { letter: 'a' }
-ShelfA.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfB: LibraryType = LibraryTemplate.bind({})
-ShelfB.args = { letter: 'b' }
-ShelfB.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfC: LibraryType = LibraryTemplate.bind({})
-ShelfC.args = { letter: 'c' }
-ShelfC.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfD: LibraryType = LibraryTemplate.bind({})
-ShelfD.args = { letter: 'd' }
-ShelfD.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfE: LibraryType = LibraryTemplate.bind({})
-ShelfE.args = { letter: 'e' }
-ShelfE.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfF: LibraryType = LibraryTemplate.bind({})
-ShelfF.args = { letter: 'f' }
-ShelfF.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfG: LibraryType = LibraryTemplate.bind({})
-ShelfG.args = { letter: 'g' }
-ShelfG.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfH: LibraryType = LibraryTemplate.bind({})
-ShelfH.args = { letter: 'h' }
-ShelfH.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfI: LibraryType = LibraryTemplate.bind({})
-ShelfI.args = { letter: 'i' }
-ShelfI.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfJ: LibraryType = LibraryTemplate.bind({})
-ShelfJ.args = { letter: 'j' }
-ShelfJ.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfK: LibraryType = LibraryTemplate.bind({})
-ShelfK.args = { letter: 'k' }
-ShelfK.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfL: LibraryType = LibraryTemplate.bind({})
-ShelfL.args = { letter: 'l' }
-ShelfL.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfM: LibraryType = LibraryTemplate.bind({})
-ShelfM.args = { letter: 'm' }
-ShelfM.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfN: LibraryType = LibraryTemplate.bind({})
-ShelfN.args = { letter: 'n' }
-ShelfN.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfO: LibraryType = LibraryTemplate.bind({})
-ShelfO.args = { letter: 'o' }
-ShelfO.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfP: LibraryType = LibraryTemplate.bind({})
-ShelfP.args = { letter: 'p' }
-ShelfP.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfQ: LibraryType = LibraryTemplate.bind({})
-ShelfQ.args = { letter: 'q' }
-ShelfQ.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfR: LibraryType = LibraryTemplate.bind({})
-ShelfR.args = { letter: 'r' }
-ShelfR.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfS: LibraryType = LibraryTemplate.bind({})
-ShelfS.args = { letter: 's' }
-ShelfS.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfT: LibraryType = LibraryTemplate.bind({})
-ShelfT.args = { letter: 't' }
-ShelfT.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfU: LibraryType = LibraryTemplate.bind({})
-ShelfU.args = { letter: 'u' }
-ShelfU.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfV: LibraryType = LibraryTemplate.bind({})
-ShelfV.args = { letter: 'v' }
-ShelfV.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfW: LibraryType = LibraryTemplate.bind({})
-ShelfW.args = { letter: 'w' }
-ShelfW.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfX: LibraryType = LibraryTemplate.bind({})
-ShelfX.args = { letter: 'x' }
-ShelfX.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfY: LibraryType = LibraryTemplate.bind({})
-ShelfY.args = { letter: 'y' }
-ShelfY.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfZ: LibraryType = LibraryTemplate.bind({})
-ShelfZ.args = { letter: 'z' }
-ShelfZ.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfOther: LibraryType = LibraryTemplate.bind({})
-ShelfOther.args = { letter: null }
-ShelfOther.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfA: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'a' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfB: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'b' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfC: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'c' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfD: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'd' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfE: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'e' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfF: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'f' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfG: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'g' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfH: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'h' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfI: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'i' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfJ: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'j' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfK: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'k' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfL: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'l' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfM: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'm' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfN: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'n' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfO: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'o' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfP: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'p' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfQ: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'q' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfR: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'r' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfS: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 's' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfT: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 't' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfU: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'u' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfV: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'v' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfW: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'w' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfX: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'x' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfY: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'y' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfZ: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: 'z' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+
+export const ShelfOther: LibraryType = {
+    render: LibraryTemplate,
+    args: { letter: null },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
 
 export function IconWithCountBubble(): JSX.Element {
     return (

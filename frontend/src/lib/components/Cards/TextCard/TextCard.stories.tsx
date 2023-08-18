@@ -1,4 +1,4 @@
-import { Meta, Story } from '@storybook/react'
+import { StoryFn, Meta } from '@storybook/react'
 import { DashboardTile, InsightColor } from '~/types'
 import { TextCard } from './TextCard'
 
@@ -30,7 +30,7 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
     }
 }
 
-export const Template: Story = () => {
+export const Template: StoryFn = () => {
     return (
         <div className="flex flex-wrap gap-2">
             <div>

@@ -55,28 +55,43 @@ const Template: StoryFn<typeof PropertyIcon> = (args) => {
     )
 }
 
-export const Default_: Story = Template.bind({})
-Default_.args = {
-    property: '$browser',
-    value: 'Chrome',
+export const Default_: Story = {
+    render: Template,
+
+    args: {
+        property: '$browser',
+        value: 'Chrome',
+    },
 }
 
-export const Browser_: Story = Template.bind({})
-Browser_.args = {
-    property: '$browser',
+export const Browser_: Story = {
+    render: Template,
+
+    args: {
+        property: '$browser',
+    },
 }
 
-export const DeviceType_: Story = Template.bind({})
-DeviceType_.args = {
-    property: '$device_type',
+export const DeviceType_: Story = {
+    render: Template,
+
+    args: {
+        property: '$device_type',
+    },
 }
 
-export const OS_: Story = Template.bind({})
-OS_.args = {
-    property: '$os',
+export const OS_: Story = {
+    render: Template,
+
+    args: {
+        property: '$os',
+    },
 }
 
-export const Country_: Story = Template.bind({})
-Country_.args = {
-    property: '$geoip_country_code',
+export const Country_: Story = {
+    render: Template,
+
+    args: {
+        property: '$geoip_country_code',
+    },
 }

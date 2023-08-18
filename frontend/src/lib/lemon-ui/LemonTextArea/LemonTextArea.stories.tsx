@@ -19,11 +19,15 @@ const Template: StoryFn<typeof LemonTextArea> = (props: LemonTextAreaProps) => {
     return <LemonTextArea {...props} value={value} onChange={(newValue) => setValue(newValue)} />
 }
 
-export const Basic: Story = Template.bind({})
-Basic.args = {}
+export const Basic: Story = {
+    render: Template,
+    args: {},
+}
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = { disabled: true }
+export const Disabled: Story = {
+    render: Template,
+    args: { disabled: true },
+}
 
 export const LemonTextMarkdown = (): JSX.Element => {
     const [value, setValue] = useState('# Title\n\n**bold** _italic_')

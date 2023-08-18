@@ -15,7 +15,6 @@ const meta: Meta = {
     },
 }
 export default meta
-// export more stories with different state
 export const NoSMTP = (): JSX.Element => {
     useStorybookMocks({
         get: {

@@ -17,15 +17,23 @@ const BasicTemplate: StoryFn<typeof Link> = (props: LinkProps) => {
     return <Link {...props} />
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
-
-export const ToLink: Story = BasicTemplate.bind({})
-ToLink.args = {
-    to: urls.projectHomepage(),
+export const Default: Story = {
+    render: BasicTemplate,
+    args: {},
 }
 
-export const DisabledWithReason: Story = BasicTemplate.bind({})
-DisabledWithReason.args = {
-    disabledReason: 'Not allowed',
+export const ToLink: Story = {
+    render: BasicTemplate,
+
+    args: {
+        to: urls.projectHomepage(),
+    },
+}
+
+export const DisabledWithReason: Story = {
+    render: BasicTemplate,
+
+    args: {
+        disabledReason: 'Not allowed',
+    },
 }

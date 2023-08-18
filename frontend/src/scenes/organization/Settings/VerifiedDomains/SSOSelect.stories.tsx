@@ -36,9 +36,11 @@ const Template: StoryFn<typeof SSOSelect> = (args) => {
     )
 }
 
-export const SSOSelect_ = Template.bind({})
+export const SSOSelect_ = {
+    render: Template,
 
-SSOSelect_.args = {
-    loading: false,
-    samlAvailable: true,
+    args: {
+        loading: false,
+        samlAvailable: true,
+    },
 }

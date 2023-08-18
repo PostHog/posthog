@@ -20,5 +20,7 @@ const Template: StoryFn<typeof PathCleanFilters> = (props: Partial<PathCleanFilt
     return <PathCleanFilters filters={filters} setFilters={setFilters} {...props} />
 }
 
-export const Default: Story = Template.bind({})
-Default.args = {}
+export const Default: Story = {
+    render: Template,
+    args: {},
+}

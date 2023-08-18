@@ -23,5 +23,7 @@ const Template: StoryFn<typeof CohortPersonPropertiesValuesField> = (props: Coho
     })
 }
 
-export const Basic: Story = Template.bind({})
-Basic.args = {}
+export const Basic: Story = {
+    render: Template,
+    args: {},
+}

@@ -47,17 +47,27 @@ const VerticalTemplate: StoryFn<typeof LemonDivider> = (props: LemonDividerProps
 }
 VerticalTemplate.args = { vertical: true }
 
-export const Default: Story = HorizontalTemplate.bind({})
-Default.args = {}
+export const Default: Story = {
+    render: HorizontalTemplate,
+    args: {},
+}
 
-export const Large: Story = HorizontalTemplate.bind({})
-Large.args = { className: 'my-6' }
+export const Large: Story = {
+    render: HorizontalTemplate,
+    args: { className: 'my-6' },
+}
 
-export const ThickDashed: Story = HorizontalTemplate.bind({})
-ThickDashed.args = { thick: true, dashed: true }
+export const ThickDashed: Story = {
+    render: HorizontalTemplate,
+    args: { thick: true, dashed: true },
+}
 
-export const Vertical: Story = VerticalTemplate.bind({})
-Vertical.args = { ...VerticalTemplate.args }
+export const Vertical: Story = {
+    render: VerticalTemplate,
+    args: { ...VerticalTemplate.args },
+}
 
-export const VerticalDashed: Story = VerticalTemplate.bind({})
-VerticalDashed.args = { ...VerticalTemplate.args, dashed: true }
+export const VerticalDashed: Story = {
+    render: VerticalTemplate,
+    args: { ...VerticalTemplate.args, dashed: true },
+}

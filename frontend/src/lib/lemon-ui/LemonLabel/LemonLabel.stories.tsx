@@ -28,11 +28,14 @@ const Template: StoryFn<typeof LemonLabel> = (props: LemonLabelProps) => {
     return <LemonLabel {...props} />
 }
 
-export const Basic: Story = Template.bind({})
-Basic.args = {
-    info: 'This field is optional',
-    showOptional: true,
-    children: 'Label',
+export const Basic: Story = {
+    render: Template,
+
+    args: {
+        info: 'This field is optional',
+        showOptional: true,
+        children: 'Label',
+    },
 }
 
 function ExplanationModal({ setOpen, open }: { setOpen: (open: boolean) => void; open: boolean }): JSX.Element {

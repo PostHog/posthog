@@ -27,4 +27,6 @@ const Template: StoryFn<typeof AndOrFilterSelect> = (args) => {
     return <AndOrFilterSelect {...args} value={value} onChange={setValue} />
 }
 
-export const Default: Story = Template.bind({})
+export const Default: Story = {
+    render: Template,
+}

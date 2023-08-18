@@ -26,5 +26,7 @@ const Template: StoryFn<typeof CohortNumberField> = (props: CohortNumberFieldPro
     })
 }
 
-export const Basic: Story = Template.bind({})
-Basic.args = {}
+export const Basic: Story = {
+    render: Template,
+    args: {},
+}

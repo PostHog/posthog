@@ -37,84 +37,138 @@ const Template: StoryFn<typeof Exporter> = (props) => {
     )
 }
 
-export const TrendsLineInsight: Story = Template.bind({})
-TrendsLineInsight.args = { insight: require('../scenes/insights/__mocks__/trendsLine.json') }
-
-export const TrendsLineBreakdownInsight: Story = Template.bind({})
-TrendsLineBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsLineBreakdown.json') }
-
-export const TrendsBarInsight: Story = Template.bind({})
-TrendsBarInsight.args = { insight: require('../scenes/insights/__mocks__/trendsBar.json') }
-
-export const TrendsBarBreakdownInsight: Story = Template.bind({})
-TrendsBarBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsBarBreakdown.json') }
-
-export const TrendsValueInsight: Story = Template.bind({})
-TrendsValueInsight.args = { insight: require('../scenes/insights/__mocks__/trendsValue.json') }
-
-export const TrendsValueBreakdownInsight: Story = Template.bind({})
-TrendsValueBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsValueBreakdown.json') }
-
-export const TrendsAreaInsight: Story = Template.bind({})
-TrendsAreaInsight.args = { insight: require('../scenes/insights/__mocks__/trendsArea.json') }
-
-export const TrendsAreaBreakdownInsight: Story = Template.bind({})
-TrendsAreaBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsAreaBreakdown.json') }
-
-export const TrendsNumberInsight: Story = Template.bind({})
-TrendsNumberInsight.args = { insight: require('../scenes/insights/__mocks__/trendsNumber.json') }
-
-export const TrendsTableInsight: Story = Template.bind({})
-TrendsTableInsight.args = { insight: require('../scenes/insights/__mocks__/trendsTable.json') }
-
-export const TrendsTableBreakdownInsight: Story = Template.bind({})
-TrendsTableBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsTableBreakdown.json') }
-
-export const TrendsPieInsight: Story = Template.bind({})
-TrendsPieInsight.args = { insight: require('../scenes/insights/__mocks__/trendsPie.json') }
-
-export const TrendsPieBreakdownInsight: Story = Template.bind({})
-TrendsPieBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsPieBreakdown.json') }
-
-export const TrendsWorldMapInsight: Story = Template.bind({})
-TrendsWorldMapInsight.args = { insight: require('../scenes/insights/__mocks__/trendsWorldMap.json') }
-
-export const FunnelLeftToRightInsight: Story = Template.bind({})
-FunnelLeftToRightInsight.args = { insight: require('../scenes/insights/__mocks__/funnelLeftToRight.json') }
-
-export const FunnelLeftToRightBreakdownInsight: Story = Template.bind({})
-FunnelLeftToRightBreakdownInsight.args = {
-    insight: require('../scenes/insights/__mocks__/funnelLeftToRightBreakdown.json'),
+export const TrendsLineInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsLine.json') },
 }
 
-export const FunnelTopToBottomInsight: Story = Template.bind({})
-FunnelTopToBottomInsight.args = { insight: require('../scenes/insights/__mocks__/funnelTopToBottom.json') }
-
-export const FunnelTopToBottomBreakdownInsight: Story = Template.bind({})
-FunnelTopToBottomBreakdownInsight.args = {
-    insight: require('../scenes/insights/__mocks__/funnelTopToBottomBreakdown.json'),
+export const TrendsLineBreakdownInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsLineBreakdown.json') },
 }
 
-export const FunnelHistoricalTrendsInsight: Story = Template.bind({})
-FunnelHistoricalTrendsInsight.args = { insight: require('../scenes/insights/__mocks__/funnelHistoricalTrends.json') }
+export const TrendsBarInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsBar.json') },
+}
 
-export const FunnelTimeToConvertInsight: Story = Template.bind({})
-FunnelTimeToConvertInsight.args = { insight: require('../scenes/insights/__mocks__/funnelTimeToConvert.json') }
+export const TrendsBarBreakdownInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsBarBreakdown.json') },
+}
 
-export const RetentionInsight: Story = Template.bind({})
-RetentionInsight.args = { insight: require('../scenes/insights/__mocks__/retention.json') }
+export const TrendsValueInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsValue.json') },
+}
 
-export const RetentionBreakdownInsight: Story = Template.bind({})
-RetentionBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/retentionBreakdown.json') }
+export const TrendsValueBreakdownInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsValueBreakdown.json') },
+}
 
-export const LifecycleInsight: Story = Template.bind({})
-LifecycleInsight.args = { insight: require('../scenes/insights/__mocks__/lifecycle.json') }
+export const TrendsAreaInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsArea.json') },
+}
 
-export const StickinessInsight: Story = Template.bind({})
-StickinessInsight.args = { insight: require('../scenes/insights/__mocks__/stickiness.json') }
+export const TrendsAreaBreakdownInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsAreaBreakdown.json') },
+}
 
-export const UserPathsInsight: Story = Template.bind({})
-UserPathsInsight.args = { insight: require('../scenes/insights/__mocks__/userPaths.json') }
+export const TrendsNumberInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsNumber.json') },
+}
 
-export const Dashboard: Story = Template.bind({})
-Dashboard.args = { dashboard }
+export const TrendsTableInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsTable.json') },
+}
+
+export const TrendsTableBreakdownInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsTableBreakdown.json') },
+}
+
+export const TrendsPieInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsPie.json') },
+}
+
+export const TrendsPieBreakdownInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsPieBreakdown.json') },
+}
+
+export const TrendsWorldMapInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/trendsWorldMap.json') },
+}
+
+export const FunnelLeftToRightInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/funnelLeftToRight.json') },
+}
+
+export const FunnelLeftToRightBreakdownInsight: Story = {
+    render: Template,
+
+    args: {
+        insight: require('../scenes/insights/__mocks__/funnelLeftToRightBreakdown.json'),
+    },
+}
+
+export const FunnelTopToBottomInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/funnelTopToBottom.json') },
+}
+
+export const FunnelTopToBottomBreakdownInsight: Story = {
+    render: Template,
+
+    args: {
+        insight: require('../scenes/insights/__mocks__/funnelTopToBottomBreakdown.json'),
+    },
+}
+
+export const FunnelHistoricalTrendsInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/funnelHistoricalTrends.json') },
+}
+
+export const FunnelTimeToConvertInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/funnelTimeToConvert.json') },
+}
+
+export const RetentionInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/retention.json') },
+}
+
+export const RetentionBreakdownInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/retentionBreakdown.json') },
+}
+
+export const LifecycleInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/lifecycle.json') },
+}
+
+export const StickinessInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/stickiness.json') },
+}
+
+export const UserPathsInsight: Story = {
+    render: Template,
+    args: { insight: require('../scenes/insights/__mocks__/userPaths.json') },
+}
+
+export const Dashboard: Story = {
+    render: Template,
+    args: { dashboard },
+}

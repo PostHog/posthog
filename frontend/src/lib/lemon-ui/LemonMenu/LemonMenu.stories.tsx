@@ -50,74 +50,84 @@ const Template: StoryFn<typeof LemonMenuOverlayComponent> = (props: LemonMenuOve
     )
 }
 
-export const Flat: Story = Template.bind({})
-Flat.args = {}
-
-export const SectionedItems: Story = Template.bind({})
-SectionedItems.args = {
-    items: [
-        {
-            title: 'Reptiles',
-            items: [
-                { label: 'Cobra', onClick: () => alert('Sssss') },
-                { label: 'Boa', onClick: () => alert('Rrrrr') },
-            ],
-        },
-        {
-            title: 'Mammals',
-            items: [
-                { label: 'Dog', onClick: () => alert('Woof') },
-                { label: 'Cat', onClick: () => alert('Meow') },
-            ],
-        },
-        {
-            title: 'Birds',
-            items: [
-                { label: 'Eagle', onClick: () => alert('Screech') },
-                { label: 'Owl', onClick: () => alert('Hoot') },
-            ],
-        },
-    ] as LemonMenuSection[],
+export const Flat: Story = {
+    render: Template,
+    args: {},
 }
 
-export const NestedMenu: Story = Template.bind({})
-NestedMenu.args = {
-    items: [
-        {
-            items: [
-                { label: 'Refresh' },
-                {
-                    label: 'Set color',
-                    items: [
-                        { icon: <Splotch color={SplotchColor.Purple} />, label: 'Purple' },
-                        { icon: <Splotch color={SplotchColor.Blue} />, label: 'Blue' },
-                        { icon: <Splotch color={SplotchColor.Green} />, label: 'Green', active: true },
-                    ],
-                },
-                {
-                    label: 'Open matryoshka',
-                    items: [
-                        {
-                            label: 'Open matryoshka',
-                            items: [
-                                {
-                                    label: 'Baby matryoshka!',
-                                },
-                            ],
-                        },
-                    ],
-                },
-            ],
-            footer: <div className="flex items-center h-10 px-2 rounded bg-mid text-muted">I am a custom footer!</div>,
-        },
-        {
-            items: [
-                {
-                    label: 'Detonate charges',
-                    onClick: () => alert('Twrmzlzktdzuntqniuqpmodxmokjwolbbf'),
-                    status: 'danger',
-                },
-            ],
-        },
-    ] as LemonMenuSection[],
+export const SectionedItems: Story = {
+    render: Template,
+
+    args: {
+        items: [
+            {
+                title: 'Reptiles',
+                items: [
+                    { label: 'Cobra', onClick: () => alert('Sssss') },
+                    { label: 'Boa', onClick: () => alert('Rrrrr') },
+                ],
+            },
+            {
+                title: 'Mammals',
+                items: [
+                    { label: 'Dog', onClick: () => alert('Woof') },
+                    { label: 'Cat', onClick: () => alert('Meow') },
+                ],
+            },
+            {
+                title: 'Birds',
+                items: [
+                    { label: 'Eagle', onClick: () => alert('Screech') },
+                    { label: 'Owl', onClick: () => alert('Hoot') },
+                ],
+            },
+        ] as LemonMenuSection[],
+    },
+}
+
+export const NestedMenu: Story = {
+    render: Template,
+
+    args: {
+        items: [
+            {
+                items: [
+                    { label: 'Refresh' },
+                    {
+                        label: 'Set color',
+                        items: [
+                            { icon: <Splotch color={SplotchColor.Purple} />, label: 'Purple' },
+                            { icon: <Splotch color={SplotchColor.Blue} />, label: 'Blue' },
+                            { icon: <Splotch color={SplotchColor.Green} />, label: 'Green', active: true },
+                        ],
+                    },
+                    {
+                        label: 'Open matryoshka',
+                        items: [
+                            {
+                                label: 'Open matryoshka',
+                                items: [
+                                    {
+                                        label: 'Baby matryoshka!',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+                footer: (
+                    <div className="flex items-center h-10 px-2 rounded bg-mid text-muted">I am a custom footer!</div>
+                ),
+            },
+            {
+                items: [
+                    {
+                        label: 'Detonate charges',
+                        onClick: () => alert('Twrmzlzktdzuntqniuqpmodxmokjwolbbf'),
+                        status: 'danger',
+                    },
+                ],
+            },
+        ] as LemonMenuSection[],
+    },
 }

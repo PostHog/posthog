@@ -17,8 +17,10 @@ const Template: StoryFn<typeof LemonBadge> = (props) => (
     </div>
 )
 
-export const Standard: Story = Template.bind({})
-Standard.args = { content: '@' }
+export const Standard: Story = {
+    render: Template,
+    args: { content: '@' },
+}
 
 export const Positioning: StoryFn<typeof LemonBadge> = () => {
     return (

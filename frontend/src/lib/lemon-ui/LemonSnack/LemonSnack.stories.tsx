@@ -17,9 +17,12 @@ const BasicTemplate: StoryFn<typeof LemonSnack> = (props: LemonSnackProps) => {
     return <LemonSnack {...props} />
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {
-    onClose: null as any,
+export const Default: Story = {
+    render: BasicTemplate,
+
+    args: {
+        onClose: null as any,
+    },
 }
 
 export const Pill = (): JSX.Element => {
@@ -39,17 +42,20 @@ export const Pill = (): JSX.Element => {
     )
 }
 
-export const ComplexContent: Story = BasicTemplate.bind({})
-ComplexContent.args = {
-    children: (
-        <span className="flex gap-2 items-center">
-            <ProfilePicture email="ben@posthog.com" size="sm" />
-            <span>
-                Look at me I'm <b>bold!</b>
+export const ComplexContent: Story = {
+    render: BasicTemplate,
+
+    args: {
+        children: (
+            <span className="flex gap-2 items-center">
+                <ProfilePicture email="ben@posthog.com" size="sm" />
+                <span>
+                    Look at me I'm <b>bold!</b>
+                </span>
             </span>
-        </span>
-    ),
-    onClose: () => alert('Close clicked!'),
+        ),
+        onClose: () => alert('Close clicked!'),
+    },
 }
 
 export const OverflowOptions = (): JSX.Element => {

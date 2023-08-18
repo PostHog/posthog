@@ -24,49 +24,70 @@ const Template: StoryFn<typeof CohortSelectorField> = (props: CohortSelectorFiel
     )
 }
 
-export const AggregationSelector: Story = Template.bind({})
-AggregationSelector.args = {
-    fieldOptionGroupTypes: [FieldOptionsType.EventAggregation, FieldOptionsType.PropertyAggregation],
-    placeholder: 'Choose',
+export const AggregationSelector: Story = {
+    render: Template,
+
+    args: {
+        fieldOptionGroupTypes: [FieldOptionsType.EventAggregation, FieldOptionsType.PropertyAggregation],
+        placeholder: 'Choose',
+    },
 }
 
-export const ActorsSelector: Story = Template.bind({})
-ActorsSelector.args = {
-    fieldOptionGroupTypes: [FieldOptionsType.Actors],
-    placeholder: 'Choose',
+export const ActorsSelector: Story = {
+    render: Template,
+
+    args: {
+        fieldOptionGroupTypes: [FieldOptionsType.Actors],
+        placeholder: 'Choose',
+    },
 }
 
-export const BehavioralSelector: Story = Template.bind({})
-BehavioralSelector.args = {
-    fieldOptionGroupTypes: [
-        FieldOptionsType.EventBehavioral,
-        FieldOptionsType.PersonPropertyBehavioral,
-        FieldOptionsType.CohortBehavioral,
-        FieldOptionsType.LifecycleBehavioral,
-    ],
-    placeholder: 'Choose',
+export const BehavioralSelector: Story = {
+    render: Template,
+
+    args: {
+        fieldOptionGroupTypes: [
+            FieldOptionsType.EventBehavioral,
+            FieldOptionsType.PersonPropertyBehavioral,
+            FieldOptionsType.CohortBehavioral,
+            FieldOptionsType.LifecycleBehavioral,
+        ],
+        placeholder: 'Choose',
+    },
 }
 
-export const TimeUnitSelector: Story = Template.bind({})
-TimeUnitSelector.args = {
-    fieldOptionGroupTypes: [FieldOptionsType.TimeUnits],
-    placeholder: 'Choose',
+export const TimeUnitSelector: Story = {
+    render: Template,
+
+    args: {
+        fieldOptionGroupTypes: [FieldOptionsType.TimeUnits],
+        placeholder: 'Choose',
+    },
 }
 
-export const DateOperatorSelector: Story = Template.bind({})
-DateOperatorSelector.args = {
-    fieldOptionGroupTypes: [FieldOptionsType.DateOperators],
-    placeholder: 'Choose',
+export const DateOperatorSelector: Story = {
+    render: Template,
+
+    args: {
+        fieldOptionGroupTypes: [FieldOptionsType.DateOperators],
+        placeholder: 'Choose',
+    },
 }
 
-export const MathOperatorSelector: Story = Template.bind({})
-MathOperatorSelector.args = {
-    fieldOptionGroupTypes: [FieldOptionsType.MathOperators],
-    placeholder: 'Choose',
+export const MathOperatorSelector: Story = {
+    render: Template,
+
+    args: {
+        fieldOptionGroupTypes: [FieldOptionsType.MathOperators],
+        placeholder: 'Choose',
+    },
 }
 
-export const ValueOptionSelector: Story = Template.bind({})
-ValueOptionSelector.args = {
-    fieldOptionGroupTypes: [FieldOptionsType.ValueOptions],
-    placeholder: 'Choose',
+export const ValueOptionSelector: Story = {
+    render: Template,
+
+    args: {
+        fieldOptionGroupTypes: [FieldOptionsType.ValueOptions],
+        placeholder: 'Choose',
+    },
 }

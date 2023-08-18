@@ -1,4 +1,4 @@
-import { Meta, Story } from '@storybook/react'
+import { StoryFn, Meta } from '@storybook/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
 import { useStorybookMocks } from '~/mocks/browser'
@@ -10,7 +10,7 @@ const meta: Meta = {
     component: PersonsModalComponent,
 }
 export default meta
-export const PersonsModal: Story = () => {
+export const PersonsModal: StoryFn = () => {
     useStorybookMocks({
         get: {
             [EXAMPLE_PERSONS_RESPONSE.initial]: EXAMPLE_PERSONS_RESPONSE,

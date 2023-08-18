@@ -91,10 +91,12 @@ const meta: Meta<typeof CodeInstructions> = {
 }
 export default meta
 
-export const CodeInstructionsOverview = (props: CodeInstructionsProps): JSX.Element => {
-    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS, AvailableFeature.MULTIVARIATE_FLAGS])
+export const CodeInstructionsOverview = {
+    render: (props: CodeInstructionsProps): JSX.Element => {
+        useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS, AvailableFeature.MULTIVARIATE_FLAGS])
 
-    return <CodeInstructions {...props} />
+        return <CodeInstructions {...props} />
+    },
 }
 
 export const CodeInstructionsReactNativeWithBootstrap = (): JSX.Element => {

@@ -34,5 +34,7 @@ const BasicTemplate: StoryFn<typeof LemonCalendarRangeInline> = (props: LemonCal
     )
 }
 
-export const LemonCalendarRangeInline_: Story = BasicTemplate.bind({})
-LemonCalendarRangeInline_.args = {}
+export const LemonCalendarRangeInline_: Story = {
+    render: BasicTemplate,
+    args: {},
+}

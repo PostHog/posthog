@@ -36,39 +36,57 @@ const Template: StoryFn<typeof LemonSelectMultiple> = (props: LemonSelectMultipl
     return <LemonSelectMultiple {...props} value={value} onChange={setValue} />
 }
 
-export const Default: Story = Template.bind({})
-Default.args = {
-    placeholder: 'Pick one email',
+export const Default: Story = {
+    render: Template,
+
+    args: {
+        placeholder: 'Pick one email',
+    },
 }
 
-export const MultipleSelect: Story = Template.bind({})
-MultipleSelect.args = {
-    placeholder: 'Enter emails...',
-    mode: 'multiple',
+export const MultipleSelect: Story = {
+    render: Template,
+
+    args: {
+        placeholder: 'Enter emails...',
+        mode: 'multiple',
+    },
 }
 
-export const MultipleSelectWithCustom: Story = Template.bind({})
-MultipleSelectWithCustom.args = {
-    placeholder: 'Enter any email...',
-    mode: 'multiple-custom',
+export const MultipleSelectWithCustom: Story = {
+    render: Template,
+
+    args: {
+        placeholder: 'Enter any email...',
+        mode: 'multiple-custom',
+    },
 }
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = {
-    placeholder: 'Disabled...',
-    disabled: true,
+export const Disabled: Story = {
+    render: Template,
+
+    args: {
+        placeholder: 'Disabled...',
+        disabled: true,
+    },
 }
 
-export const Loading: Story = Template.bind({})
-Loading.args = {
-    placeholder: 'Loading...',
-    options: [],
-    loading: true,
+export const Loading: Story = {
+    render: Template,
+
+    args: {
+        placeholder: 'Loading...',
+        options: [],
+        loading: true,
+    },
 }
 
-export const NoOptions: Story = Template.bind({})
-NoOptions.args = {
-    mode: 'multiple-custom',
-    placeholder: 'No options...',
-    options: [],
+export const NoOptions: Story = {
+    render: Template,
+
+    args: {
+        mode: 'multiple-custom',
+        placeholder: 'No options...',
+        options: [],
+    },
 }

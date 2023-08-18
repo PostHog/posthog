@@ -1,4 +1,4 @@
-import { Meta, Story } from '@storybook/react'
+import { StoryFn, Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
@@ -29,7 +29,7 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const InAppFeedbackTable: Story = (): JSX.Element => {
+export const InAppFeedbackTable: StoryFn = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.feedback())
         feedbackLogic.mount()
@@ -37,7 +37,7 @@ export const InAppFeedbackTable: Story = (): JSX.Element => {
     return <App />
 }
 
-export const InAppFeedbackInstructions: Story = (): JSX.Element => {
+export const InAppFeedbackInstructions: StoryFn = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.feedback())
         inAppFeedbackLogic.mount()
@@ -46,7 +46,7 @@ export const InAppFeedbackInstructions: Story = (): JSX.Element => {
     return <App />
 }
 
-export const UserInterviewScheduler: Story = (): JSX.Element => {
+export const UserInterviewScheduler: StoryFn = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.feedback())
         feedbackLogic.mount()
@@ -55,7 +55,7 @@ export const UserInterviewScheduler: Story = (): JSX.Element => {
     return <App />
 }
 
-export const UserInterviewSchedulerInstructions: Story = (): JSX.Element => {
+export const UserInterviewSchedulerInstructions: StoryFn = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.feedback())
         feedbackLogic.mount()

@@ -27,26 +27,42 @@ export default meta
 
 const QueryTemplate: StoryFn<typeof Query> = (args) => <Query {...args} context={{ showQueryEditor: true }} />
 
-export const AllDefaults: Story = QueryTemplate.bind({})
-AllDefaults.args = { query: examples['AllDefaults'] }
+export const AllDefaults: Story = {
+    render: QueryTemplate,
+    args: { query: examples['AllDefaults'] },
+}
 
-export const Minimalist: Story = QueryTemplate.bind({})
-Minimalist.args = { query: examples['Minimalist'] }
+export const Minimalist: Story = {
+    render: QueryTemplate,
+    args: { query: examples['Minimalist'] },
+}
 
-export const ManyColumns: Story = QueryTemplate.bind({})
-ManyColumns.args = { query: examples['ManyColumns'] }
+export const ManyColumns: Story = {
+    render: QueryTemplate,
+    args: { query: examples['ManyColumns'] },
+}
 
-export const ShowFilters: Story = QueryTemplate.bind({})
-ShowFilters.args = { query: examples['ShowFilters'] }
+export const ShowFilters: Story = {
+    render: QueryTemplate,
+    args: { query: examples['ShowFilters'] },
+}
 
-export const ShowTools: Story = QueryTemplate.bind({})
-ShowTools.args = { query: examples['ShowTools'] }
+export const ShowTools: Story = {
+    render: QueryTemplate,
+    args: { query: examples['ShowTools'] },
+}
 
-export const ShowAllTheThings: Story = QueryTemplate.bind({})
-ShowAllTheThings.args = { query: examples['ShowAllTheThings'] }
+export const ShowAllTheThings: Story = {
+    render: QueryTemplate,
+    args: { query: examples['ShowAllTheThings'] },
+}
 
-export const Persons: Story = QueryTemplate.bind({})
-Persons.args = { query: examples['Persons'] }
+export const Persons: Story = {
+    render: QueryTemplate,
+    args: { query: examples['Persons'] },
+}
 
-export const PersonsTable: Story = QueryTemplate.bind({})
-PersonsTable.args = { query: examples['PersonsTable'] }
+export const PersonsTable: Story = {
+    render: QueryTemplate,
+    args: { query: examples['PersonsTable'] },
+}

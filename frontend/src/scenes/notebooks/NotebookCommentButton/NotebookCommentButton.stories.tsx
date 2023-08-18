@@ -1,13 +1,13 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { NotebookCommentButton } from 'scenes/notebooks/NotebookCommentButton/NotebookCommentButton'
 import { useStorybookMocks } from '~/mocks/browser'
 
 export default {
     title: 'Scenes-App/Notebooks/Components/Notebook Comment Button',
     component: NotebookCommentButton,
-} as ComponentMeta<typeof NotebookCommentButton>
+} as Meta<typeof NotebookCommentButton>
 
-const Template: ComponentStory<typeof NotebookCommentButton> = (props) => {
+const Template: StoryFn<typeof NotebookCommentButton> = (props) => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/notebooks/': (req, res, ctx) => {
@@ -44,17 +44,26 @@ const Template: ComponentStory<typeof NotebookCommentButton> = (props) => {
     )
 }
 
-export const Default = Template.bind({})
-Default.args = {
-    sessionRecordingId: '123',
+export const Default = {
+    render: Template,
+
+    args: {
+        sessionRecordingId: '123',
+    },
 }
 
-export const WithSlowNetworkResponse = Template.bind({})
-WithSlowNetworkResponse.args = {
-    sessionRecordingId: 'very_slow',
+export const WithSlowNetworkResponse = {
+    render: Template,
+
+    args: {
+        sessionRecordingId: 'very_slow',
+    },
 }
 
-export const WithNoExistingNotebooks = Template.bind({})
-WithNoExistingNotebooks.args = {
-    sessionRecordingId: 'not_already_in_use',
+export const WithNoExistingNotebooks = {
+    render: Template,
+
+    args: {
+        sessionRecordingId: 'not_already_in_use',
+    },
 }

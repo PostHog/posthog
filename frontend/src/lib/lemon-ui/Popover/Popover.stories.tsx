@@ -1,4 +1,4 @@
-import { StoryFn, Meta, StoryObj } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { Popover } from './Popover'
 import { IconArrowDropDown } from 'lib/lemon-ui/icons'
@@ -16,20 +16,19 @@ const meta: Meta<typeof Popover> = {
 }
 export default meta
 
-const Template: StoryFn<typeof Popover> = (args) => <Popover {...args} />
-
-export const Popover_: Story = Template.bind({})
-Popover_.args = {
-    visible: true,
-    children: (
-        <span className="text-2xl">
-            <IconArrowDropDown />
-        </span>
-    ),
-    overlay: (
-        <>
-            <h3>Surprise! 😱</h3>
-            <span>You have been gnomed.</span>
-        </>
-    ),
+export const Popover_: Story = {
+    args: {
+        visible: true,
+        children: (
+            <span className="text-2xl">
+                <IconArrowDropDown />
+            </span>
+        ),
+        overlay: (
+            <>
+                <h3>Surprise! 😱</h3>
+                <span>You have been gnomed.</span>
+            </>
+        ),
+    },
 }

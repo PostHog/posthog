@@ -22,40 +22,59 @@ const Template: StoryFn<typeof LemonInput> = (props) => {
     return <LemonInput {...props} value={value} onChange={(newValue) => setValue(newValue)} />
 }
 
-export const Basic: Story = Template.bind({})
-
-export const WithPrefixAndSuffixAction: Story = Template.bind({})
-WithPrefixAndSuffixAction.args = {
-    prefix: <IconCalendar />,
-    suffix: (
-        <LemonButtonWithDropdown
-            noPadding
-            dropdown={{
-                overlay: 'Surprise! 😱',
-            }}
-            type="tertiary"
-            icon={<IconArrowDropDown />}
-        />
-    ),
+export const Basic: Story = {
+    render: Template,
 }
 
-export const Search: Story = Template.bind({})
-Search.args = { type: 'search', placeholder: 'Search your soul' }
+export const WithPrefixAndSuffixAction: Story = {
+    render: Template,
 
-export const Password: Story = Template.bind({})
-Password.args = { type: 'password', placeholder: 'Enter your password' }
+    args: {
+        prefix: <IconCalendar />,
+        suffix: (
+            <LemonButtonWithDropdown
+                noPadding
+                dropdown={{
+                    overlay: 'Surprise! 😱',
+                }}
+                type="tertiary"
+                icon={<IconArrowDropDown />}
+            />
+        ),
+    },
+}
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = { disabled: true }
+export const Search: Story = {
+    render: Template,
+    args: { type: 'search', placeholder: 'Search your soul' },
+}
 
-export const DangerStatus: Story = Template.bind({})
-DangerStatus.args = { status: 'danger' }
+export const Password: Story = {
+    render: Template,
+    args: { type: 'password', placeholder: 'Enter your password' },
+}
 
-export const Clearable: Story = Template.bind({})
-Clearable.args = { allowClear: true }
+export const Disabled: Story = {
+    render: Template,
+    args: { disabled: true },
+}
 
-export const Numeric: Story = Template.bind({})
-Numeric.args = { type: 'number', min: 0, step: 1, value: 3 }
+export const DangerStatus: Story = {
+    render: Template,
+    args: { status: 'danger' },
+}
 
-export const Small: Story = Template.bind({})
-Small.args = { allowClear: true, size: 'small' }
+export const Clearable: Story = {
+    render: Template,
+    args: { allowClear: true },
+}
+
+export const Numeric: Story = {
+    render: Template,
+    args: { type: 'number', min: 0, step: 1, value: 3 },
+}
+
+export const Small: Story = {
+    render: Template,
+    args: { allowClear: true, size: 'small' },
+}

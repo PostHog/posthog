@@ -33,11 +33,17 @@ const Template: StoryFn<typeof LemonBadge.Number> = ({ count, ...props }: LemonB
     )
 }
 
-export const Standard: Story = Template.bind({})
-Standard.args = { count: 1 }
+export const Standard: Story = {
+    render: Template,
+    args: { count: 1 },
+}
 
-export const MultipleDigits: Story = Template.bind({})
-MultipleDigits.args = { count: 975, maxDigits: 3 }
+export const MultipleDigits: Story = {
+    render: Template,
+    args: { count: 975, maxDigits: 3 },
+}
 
-export const ShowZero: Story = Template.bind({})
-ShowZero.args = { count: 0, showZero: true }
+export const ShowZero: Story = {
+    render: Template,
+    args: { count: 0, showZero: true },
+}

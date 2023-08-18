@@ -65,4 +65,6 @@ const Template: StoryFn<typeof LemonFileInput> = (props) => {
     )
 }
 
-export const Default: Story = Template.bind({})
+export const Default: Story = {
+    render: Template,
+}

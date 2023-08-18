@@ -13,9 +13,12 @@ const Template: StoryFn<typeof LemonCheckbox> = (props: LemonCheckboxProps) => {
     return <LemonCheckbox {...props} />
 }
 
-export const Basic: Story = Template.bind({})
-Basic.args = {
-    label: 'Check this out',
+export const Basic: Story = {
+    render: Template,
+
+    args: {
+        label: 'Check this out',
+    },
 }
 
 export const Overview = (): JSX.Element => {
@@ -35,23 +38,34 @@ export const Overview = (): JSX.Element => {
     )
 }
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = {
-    label: "You can't check this out",
-    disabled: true,
+export const Disabled: Story = {
+    render: Template,
+
+    args: {
+        label: "You can't check this out",
+        disabled: true,
+    },
 }
 
-export const DisabledWithReason: Story = Template.bind({})
-DisabledWithReason.args = {
-    label: "You can't check this out",
-    disabledReason: 'This is not the way to Amarillo',
+export const DisabledWithReason: Story = {
+    render: Template,
+
+    args: {
+        label: "You can't check this out",
+        disabledReason: 'This is not the way to Amarillo',
+    },
 }
 
-export const NoLabel: Story = Template.bind({})
-NoLabel.args = {}
+export const NoLabel: Story = {
+    render: Template,
+    args: {},
+}
 
-export const Bordered: Story = Template.bind({})
-Bordered.args = {
-    label: 'A border makes for good visual separation if there is other content neighboring a checkbox. Probably not used as part of a form.',
-    bordered: true,
+export const Bordered: Story = {
+    render: Template,
+
+    args: {
+        label: 'A border makes for good visual separation if there is other content neighboring a checkbox. Probably not used as part of a form.',
+        bordered: true,
+    },
 }

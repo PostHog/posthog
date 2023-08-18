@@ -37,52 +37,61 @@ const Template: StoryFn<StoryProps> = ({ earlyAccessFeatures, enabledFeatureFlag
     )
 }
 
-export const Basic: Story = Template.bind({})
-Basic.args = {
-    earlyAccessFeatures: [
-        {
-            name: 'Data Warehouse',
-            description:
-                'The PostHog data warehouse gives you a place to put all of your most important data, query across these datasets, and analyze alongside the product analytics data already in PostHog',
-            stage: 'beta',
-            documentationUrl: 'https://docs.example.com',
-            flagKey: 'data-warehouse',
-        },
-    ],
-    enabledFeatureFlags: ['data-warehouse'],
+export const Basic: Story = {
+    render: Template,
+
+    args: {
+        earlyAccessFeatures: [
+            {
+                name: 'Data Warehouse',
+                description:
+                    'The PostHog data warehouse gives you a place to put all of your most important data, query across these datasets, and analyze alongside the product analytics data already in PostHog',
+                stage: 'beta',
+                documentationUrl: 'https://docs.example.com',
+                flagKey: 'data-warehouse',
+            },
+        ],
+        enabledFeatureFlags: ['data-warehouse'],
+    },
 }
 
-export const WithConstrainedFeature: Story = Template.bind({})
-WithConstrainedFeature.args = {
-    earlyAccessFeatures: [
-        {
-            name: 'Constrained Test 1', // Only presented if constrained-test-1-preview is enabled
-            description: '',
-            stage: 'beta',
-            documentationUrl: '',
-            flagKey: 'constrained-test-1',
-        },
-        {
-            name: 'Constrained Test 2', // Only presented if constrained-test-2-preview is enabled
-            description: '',
-            stage: 'beta',
-            documentationUrl: '',
-            flagKey: 'constrained-test-2',
-        },
-        {
-            name: 'Data Warehouse',
-            description:
-                'The PostHog data warehouse gives you a place to put all of your most important data, query across these datasets, and analyze alongside the product analytics data already in PostHog',
-            stage: 'beta',
-            documentationUrl: 'https://docs.example.com',
-            flagKey: 'data-warehouse',
-        },
-    ],
-    enabledFeatureFlags: ['constrained-test-1-preview', 'constrained-test-1', 'constrained-test-2'],
+export const WithConstrainedFeature: Story = {
+    render: Template,
+
+    args: {
+        earlyAccessFeatures: [
+            {
+                name: 'Constrained Test 1', // Only presented if constrained-test-1-preview is enabled
+                description: '',
+                stage: 'beta',
+                documentationUrl: '',
+                flagKey: 'constrained-test-1',
+            },
+            {
+                name: 'Constrained Test 2', // Only presented if constrained-test-2-preview is enabled
+                description: '',
+                stage: 'beta',
+                documentationUrl: '',
+                flagKey: 'constrained-test-2',
+            },
+            {
+                name: 'Data Warehouse',
+                description:
+                    'The PostHog data warehouse gives you a place to put all of your most important data, query across these datasets, and analyze alongside the product analytics data already in PostHog',
+                stage: 'beta',
+                documentationUrl: 'https://docs.example.com',
+                flagKey: 'data-warehouse',
+            },
+        ],
+        enabledFeatureFlags: ['constrained-test-1-preview', 'constrained-test-1', 'constrained-test-2'],
+    },
 }
 
-export const Empty: Story = Template.bind({})
-Empty.args = {
-    earlyAccessFeatures: [],
-    enabledFeatureFlags: [],
+export const Empty: Story = {
+    render: Template,
+
+    args: {
+        earlyAccessFeatures: [],
+        enabledFeatureFlags: [],
+    },
 }

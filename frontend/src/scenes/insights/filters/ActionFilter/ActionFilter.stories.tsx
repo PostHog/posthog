@@ -81,32 +81,49 @@ const Template: StoryFn<typeof ActionFilter> = ({ ...props }: Partial<ActionFilt
     )
 }
 
-export const Standard: Story = Template.bind({})
-Standard.args = {}
-
-export const Bordered: Story = Template.bind({})
-Bordered.args = {
-    bordered: true,
+export const Standard: Story = {
+    render: Template,
+    args: {},
 }
 
-export const PropertyFiltersWithPopover: Story = Template.bind({})
-PropertyFiltersWithPopover.args = {
-    propertyFiltersPopover: true,
+export const Bordered: Story = {
+    render: Template,
+
+    args: {
+        bordered: true,
+    },
 }
 
-export const Sortable: Story = Template.bind({})
-Sortable.args = {
-    sortable: true,
+export const PropertyFiltersWithPopover: Story = {
+    render: Template,
+
+    args: {
+        propertyFiltersPopover: true,
+    },
 }
 
-export const FunnelLike: Story = Template.bind({})
-FunnelLike.args = {
-    sortable: true,
-    bordered: true,
-    seriesIndicatorType: 'numeric',
+export const Sortable: Story = {
+    render: Template,
+
+    args: {
+        sortable: true,
+    },
 }
 
-export const SingleFilter: Story = Template.bind({})
-SingleFilter.args = {
-    entitiesLimit: 1,
+export const FunnelLike: Story = {
+    render: Template,
+
+    args: {
+        sortable: true,
+        bordered: true,
+        seriesIndicatorType: 'numeric',
+    },
+}
+
+export const SingleFilter: Story = {
+    render: Template,
+
+    args: {
+        entitiesLimit: 1,
+    },
 }

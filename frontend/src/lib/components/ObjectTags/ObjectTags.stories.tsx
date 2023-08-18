@@ -13,8 +13,12 @@ const BasicTemplate: StoryFn<typeof ObjectTags> = (props: Partial<ObjectTagsProp
     return <ObjectTags tags={['one', 'two', 'three']} {...props} />
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
+export const Default: Story = {
+    render: BasicTemplate,
+    args: {},
+}
 
-export const StaticOnly: Story = BasicTemplate.bind({})
-StaticOnly.args = { staticOnly: true }
+export const StaticOnly: Story = {
+    render: BasicTemplate,
+    args: { staticOnly: true },
+}

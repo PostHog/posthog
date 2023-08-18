@@ -15,7 +15,6 @@ const meta: Meta = {
     },
 }
 export default meta
-// export more stories with different state
 export const Default = (): JSX.Element => {
     useStorybookMocks({
         get: { '/api/reset/user-uuid-3f32/': { success: true } },

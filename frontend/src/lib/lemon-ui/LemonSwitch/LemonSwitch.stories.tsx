@@ -24,8 +24,10 @@ const Template: StoryFn<typeof RawLemonSwitch> = (props: LemonSwitchProps) => {
     return <LemonSwitch {...props} />
 }
 
-export const Basic: Story = Template.bind({})
-Basic.args = {}
+export const Basic: Story = {
+    render: Template,
+    args: {},
+}
 
 export const Overview = (): JSX.Element => {
     return (
@@ -43,11 +45,17 @@ export const Overview = (): JSX.Element => {
     )
 }
 
-export const Standalone: Story = Template.bind({})
-Standalone.args = { label: undefined }
+export const Standalone: Story = {
+    render: Template,
+    args: { label: undefined },
+}
 
-export const Bordered: Story = Template.bind({})
-Bordered.args = { bordered: true }
+export const Bordered: Story = {
+    render: Template,
+    args: { bordered: true },
+}
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = { disabled: true }
+export const Disabled: Story = {
+    render: Template,
+    args: { disabled: true },
+}

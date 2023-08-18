@@ -30,12 +30,15 @@ const Template: StoryFn<typeof PropertyKeyInfo> = (args) => {
     )
 }
 
-export const PropertyKeyInfo_: Story = Template.bind({})
-PropertyKeyInfo_.args = {
-    value: undefined,
-    type: 'event',
-    tooltipPlacement: undefined,
-    disablePopover: false,
-    disableIcon: false,
-    ellipsis: true,
+export const PropertyKeyInfo_: Story = {
+    render: Template,
+
+    args: {
+        value: undefined,
+        type: 'event',
+        tooltipPlacement: undefined,
+        disablePopover: false,
+        disableIcon: false,
+        ellipsis: true,
+    },
 }

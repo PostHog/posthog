@@ -27,8 +27,12 @@ const Template: StoryFn<typeof LemonCollapseComponent> = (props) => {
     return <LemonCollapseComponent {...props} />
 }
 
-export const Single: Story = Template.bind({})
-Single.args = { defaultActiveKey: '1' }
+export const Single: Story = {
+    render: Template,
+    args: { defaultActiveKey: '1' },
+}
 
-export const Multiple: Story = Template.bind({})
-Multiple.args = { defaultActiveKeys: ['1', '2'], multiple: true }
+export const Multiple: Story = {
+    render: Template,
+    args: { defaultActiveKeys: ['1', '2'], multiple: true },
+}

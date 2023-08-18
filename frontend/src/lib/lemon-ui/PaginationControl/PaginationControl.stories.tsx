@@ -19,8 +19,12 @@ const Template: StoryFn<typeof PaginationControl> = (props: Partial<PaginationCo
     return <PaginationControl {...state} {...props} />
 }
 
-export const PaginationControl_ = Template.bind({})
-PaginationControl_.args = {}
+export const PaginationControl_ = {
+    render: Template,
+    args: {},
+}
 
-export const Bordered: Story = Template.bind({})
-Bordered.args = { bordered: true }
+export const Bordered: Story = {
+    render: Template,
+    args: { bordered: true },
+}

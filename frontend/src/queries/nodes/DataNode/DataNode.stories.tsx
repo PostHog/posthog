@@ -27,8 +27,12 @@ export default meta
 
 const QueryTemplate: StoryFn<typeof Query> = (args) => <Query {...args} context={{ showQueryEditor: true }} />
 
-export const Events: Story = QueryTemplate.bind({})
-Events.args = { query: examples['Events'] }
+export const Events: Story = {
+    render: QueryTemplate,
+    args: { query: examples['Events'] },
+}
 
-export const Persons: Story = QueryTemplate.bind({})
-Persons.args = { query: examples['Persons'] }
+export const Persons: Story = {
+    render: QueryTemplate,
+    args: { query: examples['Persons'] },
+}

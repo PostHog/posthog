@@ -17,5 +17,7 @@ const Template: StoryFn<typeof CohortTextField> = (props: CohortTextFieldProps) 
     })
 }
 
-export const Basic: Story = Template.bind({})
-Basic.args = {}
+export const Basic: Story = {
+    render: Template,
+    args: {},
+}
