@@ -12,6 +12,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PluginTags } from 'scenes/plugins/tabs/apps/components'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { AppLogsTab } from './AppLogsTab'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconSettings } from 'lib/lemon-ui/icons'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 export const scene: SceneExport = {
     component: AppMetrics,
@@ -21,6 +24,7 @@ export const scene: SceneExport = {
 
 export function AppMetrics(): JSX.Element {
     const { activeTab, pluginConfig, pluginConfigLoading, showTab } = useValues(appMetricsSceneLogic)
+    const { editPlugin } = useActions(pluginsLogic)
     const { setActiveTab } = useActions(appMetricsSceneLogic)
 
     return (
@@ -44,6 +48,17 @@ export function AppMetrics(): JSX.Element {
                             )
                         }
                         caption={pluginConfig ? 'An overview of metrics and exports for this app.' : undefined}
+                        buttons={
+                            pluginConfig?.plugin ? (
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconSettings />}
+                                    onClick={() => editPlugin(pluginConfig?.plugin)}
+                                >
+                                    Configure
+                                </LemonButton>
+                            ) : undefined
+                        }
                     />
                 </div>
             </div>
