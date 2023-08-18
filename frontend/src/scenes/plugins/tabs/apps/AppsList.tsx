@@ -13,11 +13,11 @@ import { userLogic } from 'scenes/userLogic'
 import { PluginType } from '~/types'
 import { RepositoryTag } from './components'
 import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
+import { AdvancedInstallModal } from './AdvancedInstallModal'
 
 export function AppsList(): JSX.Element {
     const { user } = useValues(userLogic)
-
-    const { checkForUpdates } = useActions(pluginsLogic)
+    const { checkForUpdates, openAdvancedInstallModal } = useActions(pluginsLogic)
 
     const {
         filteredEnabledPlugins,
@@ -43,63 +43,69 @@ export function AppsList(): JSX.Element {
     )
 
     return (
-        <div className="space-y-4">
-            <div className="flex gap-2 items-center justify-between">
-                <PluginsSearch />
-                {canInstallPlugins(user?.organization) && hasUpdatablePlugins && (
-                    <LemonButton
-                        type="secondary"
-                        icon={pluginsNeedingUpdates.length > 0 ? <IconRefresh /> : <IconCloudDownload />}
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            checkForUpdates(true)
-                        }}
+        <>
+            <div className="space-y-4">
+                <div className="flex gap-2 items-center justify-between">
+                    <PluginsSearch />
+                    <div className="flex gap-2 items-center">
+                        {canInstallPlugins(user?.organization) && hasUpdatablePlugins && (
+                            <LemonButton
+                                type="secondary"
+                                icon={pluginsNeedingUpdates.length > 0 ? <IconRefresh /> : <IconCloudDownload />}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    checkForUpdates(true)
+                                }}
+                                loading={checkingForUpdates}
+                            >
+                                {checkingForUpdates
+                                    ? `Checking app ${Object.keys(updateStatus).length + 1} out of ${
+                                          Object.keys(installedPluginUrls).length
+                                      }`
+                                    : pluginsNeedingUpdates.length > 0
+                                    ? 'Check again for updates'
+                                    : 'Check for updates'}
+                            </LemonButton>
+                        )}
+
+                        {canInstallPlugins(user?.organization) && (
+                            <LemonButton type="secondary" onClick={openAdvancedInstallModal}>
+                                Install app (advanced)
+                            </LemonButton>
+                        )}
+                    </div>
+                </div>
+
+                {filteredPluginsNeedingUpdates.length > 0 && (
+                    <AppsTable
+                        title="Apps to Update"
+                        plugins={filteredPluginsNeedingUpdates}
                         loading={checkingForUpdates}
-                    >
-                        {checkingForUpdates
-                            ? `Checking app ${Object.keys(updateStatus).length + 1} out of ${
-                                  Object.keys(installedPluginUrls).length
-                              }`
-                            : pluginsNeedingUpdates.length > 0
-                            ? 'Check again for updates'
-                            : 'Check for updates'}
-                    </LemonButton>
+                    />
                 )}
 
-                {canInstallPlugins(user?.organization) && (
-                    <LemonButton
-                        type="secondary"
+                <AppsTable title="Enabled Apps" plugins={filteredEnabledPlugins} loading={loading} />
+                <AppsTable title="Available Apps" plugins={filteredDisabledPlugins} loading={loading} />
 
-                        // onClick={(e) => {
-                        //     e.stopPropagation()
-                        //     checkForUpdates(true)
-                        // }}
-                    >
-                        Install app (advanced)
-                    </LemonButton>
+                {canGloballyManagePlugins(user?.organization) && (
+                    <>
+                        <LemonDivider className="my-8" />
+
+                        <AppsTable
+                            title="Repository - Official"
+                            plugins={officialPlugins}
+                            loading={repositoryLoading}
+                        />
+                        <AppsTable
+                            title="Repository - Community"
+                            plugins={communityPlugins}
+                            loading={repositoryLoading}
+                        />
+                    </>
                 )}
             </div>
-
-            {filteredPluginsNeedingUpdates.length > 0 && (
-                <AppsTable
-                    title="Apps to Update"
-                    plugins={filteredPluginsNeedingUpdates}
-                    loading={checkingForUpdates}
-                />
-            )}
-
-            <AppsTable title="Enabled Apps" plugins={filteredEnabledPlugins} loading={loading} />
-            <AppsTable title="Available Apps" plugins={filteredDisabledPlugins} loading={loading} />
-
-            {canGloballyManagePlugins(user?.organization) && (
-                <>
-                    <LemonDivider className="my-8" />
-
-                    <AppsTable title="Repository - Official" plugins={officialPlugins} loading={repositoryLoading} />
-                    <AppsTable title="Repository - Community" plugins={communityPlugins} loading={repositoryLoading} />
-                </>
-            )}
-        </div>
+            <AdvancedInstallModal />
+        </>
     )
 }
 
@@ -153,7 +159,7 @@ export function AppsTable({
                                             {plugin.name}
                                         </Link>
 
-                                        {plugin.maintainer && <RepositoryTag plugin={plugin} />}
+                                        <RepositoryTag plugin={plugin} />
                                     </div>
                                     <div className="text-sm">{plugin.description}</div>
                                 </div>

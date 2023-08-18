@@ -105,6 +105,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
         setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
         toggleSectionOpen: (section: PluginSection) => ({ section }),
         syncFrontendAppState: (id: number) => ({ id }),
+        openAdvancedInstallModal: true,
+        closeAdvancedInstallModal: true,
     }),
 
     loaders(({ actions, values }) => ({
@@ -132,6 +134,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
                         actions.loadPlugins()
                     }
                     capturePluginEvent(`plugin installed`, response, pluginType)
+
+                    actions.closeAdvancedInstallModal()
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
@@ -436,6 +440,13 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     }
                     return [...currentOpenSections, section]
                 },
+            },
+        ],
+        advancedInstallModalOpen: [
+            false,
+            {
+                openAdvancedInstallModal: () => true,
+                closeAdvancedInstallModal: () => false,
             },
         ],
     }),

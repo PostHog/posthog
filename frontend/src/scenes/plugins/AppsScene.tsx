@@ -11,7 +11,6 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportsTab } from './tabs/batch-exports/BatchExportsTab'
 import { AppsTab } from './tabs/apps/AppsTab'
-import { AdvancedTab } from './tabs/advanced/AdvancedTab'
 
 export const scene: SceneExport = {
     component: AppsScene,
@@ -47,11 +46,6 @@ export function AppsScene(): JSX.Element | null {
                         key: 'history',
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.PLUGIN} />,
-                    },
-                    {
-                        key: 'advanced',
-                        label: 'Advanced (testing)',
-                        content: <AdvancedTab />,
                     },
                 ]}
             />
