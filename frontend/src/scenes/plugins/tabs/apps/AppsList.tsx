@@ -1,4 +1,4 @@
-import { LemonTable, LemonButton, Link, LemonTag, LemonDivider } from '@posthog/lemon-ui'
+import { LemonTable, LemonButton, Link, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconCheckmark, IconCloudDownload, IconEllipsis, IconRefresh, IconSettings } from 'lib/lemon-ui/icons'
@@ -11,6 +11,8 @@ import { PluginInstallationType, PluginRepositoryEntry, PluginTypeWithConfig } f
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { PluginType } from '~/types'
+import { RepositoryTag } from './components'
+import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
 
 export function AppsList(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -98,7 +100,8 @@ export function AppsTable({
     loading: boolean
 }): JSX.Element {
     const { installPlugin, editPlugin, toggleEnabled, updatePlugin } = useActions(pluginsLogic)
-    const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating } = useValues(pluginsLogic)
+    const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating, showAppMetricsForPlugin } =
+        useValues(pluginsLogic)
 
     return (
         <LemonTable
@@ -110,6 +113,7 @@ export function AppsTable({
                     key: 'app',
                     render: (_, plugin) => {
                         const isInstalled = 'pluginConfig' in plugin
+                        const isConfigured = isInstalled && !!plugin.pluginConfig.id
                         return (
                             <div className="flex items-center gap-2">
                                 <div className="shrink-0">
@@ -117,24 +121,26 @@ export function AppsTable({
                                 </div>
                                 <div>
                                     <div className="flex gap-2 items-center">
+                                        {isInstalled && showAppMetricsForPlugin(plugin) && plugin.pluginConfig.id && (
+                                            <SuccessRateBadge
+                                                deliveryRate={plugin.pluginConfig.delivery_rate_24h ?? null}
+                                                pluginConfigId={plugin.pluginConfig.id}
+                                            />
+                                        )}
                                         <Link
                                             className="font-semibold truncate"
                                             to={
-                                                isInstalled ? urls.appMetrics(plugin.pluginConfig.id || '') : plugin.url
+                                                isConfigured
+                                                    ? urls.appMetrics(plugin.pluginConfig.id || '')
+                                                    : plugin.url
                                             }
-                                            target={!isInstalled ? 'blank' : undefined}
+                                            target={!isConfigured ? 'blank' : undefined}
                                             // TODO: onClick open configurator
                                         >
                                             {plugin.name}
                                         </Link>
-                                        {plugin.maintainer ? (
-                                            <LemonTag
-                                                type={plugin.maintainer === 'official' ? 'primary' : 'warning'}
-                                                className="uppercase"
-                                            >
-                                                {plugin.maintainer}
-                                            </LemonTag>
-                                        ) : null}
+
+                                        {plugin.maintainer && <RepositoryTag plugin={plugin} />}
                                     </div>
                                     <div className="text-sm">{plugin.description}</div>
                                 </div>
