@@ -22,20 +22,13 @@ interface NotebookCommentButtonProps extends Pick<LemonButtonProps, 'size'>, Pic
 }
 
 function NotebooksChoiceList(props: {
-    notebooksLoading: boolean
     notebooks: NotebookListItemType[]
     emptyState: string
-    loadingState?: string
     onClick: (notebookShortId: NotebookListItemType['short_id']) => void
 }): JSX.Element {
     return (
         <div>
-            {props.notebooksLoading ? (
-                <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
-                    <Spinner />
-                    <span>{props.loadingState}</span>
-                </div>
-            ) : props.notebooks.length === 0 ? (
+            {props.notebooks.length === 0 ? (
                 <div className={'px-2 py-1'}>{props.emptyState}</div>
             ) : (
                 props.notebooks.map((notebook, i) => {
@@ -50,15 +43,126 @@ function NotebooksChoiceList(props: {
     )
 }
 
-function RecordingCommentChoice({
+function NotebooksChoicePopoverBody({
     visible,
     sessionRecordingId,
     getCurrentPlayerTime,
-    size,
 }: NotebookCommentButtonProps): JSX.Element {
     const logic = notebookCommentButtonLogic({ sessionRecordingId, startVisible: !!visible })
-    const { createNotebook, loadNotebooks } = useActions(notebooksListLogic)
     const { notebooks: allNotebooks, notebooksLoading: allNotebooksLoading } = useValues(notebooksListLogic)
+    const { notebooksLoading, notebooks: currentNotebooks } = useValues(logic)
+    const { setShowPopover } = useActions(logic)
+
+    const commentInExistingNotebook = async (notebookShortId: string): Promise<void> => {
+        const currentPlayerTime = getCurrentPlayerTime() * 1000
+        await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
+            theNotebookLogic.actions.insertReplayCommentByTimestamp(currentPlayerTime, sessionRecordingId)
+        })
+    }
+
+    const addToAndCommentInExistingNotebook = async (notebookShortId: string): Promise<void> => {
+        const currentPlayerTime = getCurrentPlayerTime() * 1000
+        await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
+            theNotebookLogic.actions.insertAfterLastNode([
+                buildRecordingContent(sessionRecordingId),
+                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
+            ])
+            notebookCommentButtonLogic.findMounted({ sessionRecordingId })?.actions.loadContainingNotebooks()
+        })
+    }
+
+    const isLoading = notebooksLoading || allNotebooksLoading
+
+    if (isLoading) {
+        return (
+            <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
+                <Spinner />
+                <span>Loading...</span>
+            </div>
+        )
+    }
+
+    if (allNotebooks.length === 0 && currentNotebooks.length === 0) {
+        return (
+            <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
+                <span>You have no notebooks</span>
+            </div>
+        )
+    }
+
+    let continueIn: JSX.Element | null = null
+    if (currentNotebooks.length && allNotebooks.length) {
+        continueIn = (
+            <>
+                <h5>Continue in</h5>
+                <NotebooksChoiceList
+                    notebooks={currentNotebooks.filter(() => {
+                        // TODO follow-up on filtering after https://github.com/PostHog/posthog/pull/17027
+                        // return (
+                        //     searchQuery.length === 0 ||
+                        //     notebook.title?.toLowerCase().includes(searchQuery.toLowerCase())
+                        // )
+                        return true
+                    })}
+                    emptyState={
+                        //!!searchQuery.length ? 'No matching notebooks' : 'Not already in any notebooks'
+                        'Not already in any notebooks'
+                    }
+                    onClick={async (notebookShortId) => {
+                        setShowPopover(false)
+                        await commentInExistingNotebook(notebookShortId)
+                    }}
+                />
+            </>
+        )
+    }
+
+    let addTo: JSX.Element | null = null
+    if (allNotebooks.length > currentNotebooks.length) {
+        addTo = (
+            <>
+                <h5>Add to</h5>
+                <NotebooksChoiceList
+                    notebooks={allNotebooks.filter((notebook) => {
+                        // TODO follow-up on filtering after https://github.com/PostHog/posthog/pull/17027
+                        const isInExisting = currentNotebooks.some(
+                            (containingNotebook) => containingNotebook.short_id === notebook.short_id
+                        )
+                        return !isInExisting
+                        // &&
+                        // (searchQuery.length === 0 ||
+                        //     notebook.title?.toLowerCase().includes(searchQuery.toLowerCase()))
+                    })}
+                    emptyState={
+                        // !!searchQuery.length
+                        //     ? 'No matching notebooks'
+                        //     : currentNotebooks.length === allNotebooks.length
+                        //     ? 'All notebooks already have this recording'
+                        //     : "You don't have any notebooks"
+                        "You don't have any notebooks"
+                    }
+                    onClick={async (notebookShortId) => {
+                        setShowPopover(false)
+                        await addToAndCommentInExistingNotebook(notebookShortId)
+                    }}
+                />
+            </>
+        )
+    }
+
+    return (
+        <>
+            {continueIn}
+            {addTo}
+        </>
+    )
+}
+
+function RecordingCommentChoice(props: NotebookCommentButtonProps): JSX.Element {
+    const { visible, sessionRecordingId, getCurrentPlayerTime, size } = props
+    const logic = notebookCommentButtonLogic({ sessionRecordingId, startVisible: !!visible })
+    const { createNotebook, loadNotebooks } = useActions(notebooksListLogic)
+    const { notebooksLoading: allNotebooksLoading } = useValues(notebooksListLogic)
     const { showPopover, notebooksLoading, notebooks: currentNotebooks } = useValues(logic)
     const { setShowPopover } = useActions(logic)
 
@@ -69,6 +173,8 @@ function RecordingCommentChoice({
         // but there was a horrible circular dependency confusing matters
         loadNotebooks()
     }, [])
+
+    const isLoading = notebooksLoading || allNotebooksLoading
 
     const commentInNewNotebook = (): void => {
         const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
@@ -91,29 +197,12 @@ function RecordingCommentChoice({
         )
     }
 
-    const commentInExistingNotebook = async (notebookShortId: string): Promise<void> => {
-        const currentPlayerTime = getCurrentPlayerTime() * 1000
-        await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
-            theNotebookLogic.actions.insertReplayCommentByTimestamp(currentPlayerTime, sessionRecordingId)
-        })
-    }
-
-    const addToAndCommentInExistingNotebook = async (notebookShortId: string): Promise<void> => {
-        const currentPlayerTime = getCurrentPlayerTime() * 1000
-        await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
-            theNotebookLogic.actions.insertAfterLastNode([
-                buildRecordingContent(sessionRecordingId),
-                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
-            ])
-        })
-    }
-
     return (
         <IconWithCount count={currentNotebooks.length ?? 0} showZero={false}>
             <Popover
                 visible={!!showPopover}
                 onClickOutside={() => {
-                    setShowPopover(!showPopover)
+                    setShowPopover(false)
                 }}
                 actionable
                 overlay={
@@ -127,48 +216,7 @@ function RecordingCommentChoice({
                         />
                         <LemonDivider className="my-1" />
                         <div>
-                            <h5>Continue in</h5>
-                            <NotebooksChoiceList
-                                notebooksLoading={notebooksLoading}
-                                notebooks={currentNotebooks.filter((notebook) => {
-                                    // TODO follow-up on filtering after https://github.com/PostHog/posthog/pull/17027
-                                    return (
-                                        searchQuery.length === 0 ||
-                                        notebook.title?.toLowerCase().includes(searchQuery.toLowerCase())
-                                    )
-                                })}
-                                emptyState={
-                                    !!searchQuery.length ? 'No matching notebooks' : 'Not already in any notebooks'
-                                }
-                                loadingState={'Loading...'}
-                                onClick={async (notebookShortId) => {
-                                    setShowPopover(false)
-                                    await commentInExistingNotebook(notebookShortId)
-                                }}
-                            />
-                            <h5>Add to</h5>
-                            <NotebooksChoiceList
-                                notebooksLoading={notebooksLoading}
-                                notebooks={allNotebooks.filter((notebook) => {
-                                    // TODO follow-up on filtering after https://github.com/PostHog/posthog/pull/17027
-                                    const isInExisting = currentNotebooks.find(
-                                        (existingNotebook) => existingNotebook.short_id === notebook.short_id
-                                    )
-                                    return (
-                                        !isInExisting &&
-                                        (searchQuery.length === 0 ||
-                                            notebook.title?.toLowerCase().includes(searchQuery.toLowerCase()))
-                                    )
-                                })}
-                                emptyState={
-                                    !!searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"
-                                }
-                                loadingState={'Loading...'}
-                                onClick={async (notebookShortId) => {
-                                    setShowPopover(false)
-                                    await addToAndCommentInExistingNotebook(notebookShortId)
-                                }}
-                            />
+                            <NotebooksChoicePopoverBody {...props} />
                         </div>
                         <LemonDivider className="my-1" />
                         <LemonButton fullWidth icon={<IconPlus />} onClick={commentInNewNotebook}>
@@ -178,7 +226,7 @@ function RecordingCommentChoice({
                 }
             >
                 <LemonButton
-                    icon={notebooksLoading || allNotebooksLoading ? <Spinner /> : <IconComment />}
+                    icon={isLoading ? <Spinner /> : <IconComment />}
                     active={showPopover}
                     onClick={() => setShowPopover(!showPopover)}
                     sideIcon={null}
