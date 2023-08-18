@@ -36,6 +36,7 @@ class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, v
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     sharing_enabled_actions = ["list"]
 
