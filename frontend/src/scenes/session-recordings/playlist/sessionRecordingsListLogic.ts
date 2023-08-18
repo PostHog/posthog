@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { objectClean, toParams } from 'lib/utils'
 import {
@@ -75,11 +75,14 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
     },
 }
 
-const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => {
+export const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
 }
 
-const addedAdvancedFilters = (filters: RecordingFilters | undefined, defaultFilters: RecordingFilters): boolean => {
+export const addedAdvancedFilters = (
+    filters: RecordingFilters | undefined,
+    defaultFilters: RecordingFilters
+): boolean => {
     if (!filters) {
         return false
     }
@@ -203,6 +206,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         loadNext: true,
         loadPrev: true,
     }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.filters !== oldProps.filters) {
+            props.filters ? actions.setFilters(props.filters) : actions.resetFilters()
+        }
+    }),
+
     loaders(({ props, values, actions }) => ({
         eventsHaveSessionId: [
             {} as Record<string, boolean>,

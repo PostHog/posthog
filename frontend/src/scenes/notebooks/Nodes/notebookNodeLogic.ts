@@ -82,7 +82,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     selectors({
         domNode: [() => [(_, props) => props], (props): HTMLElement => props.domNode],
         notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
-        nodeAttributes: [() => [(_, props) => props], (props): Record<string, any> => props.nodeAttributes],
+        nodeAttributes: [
+            () => [(_, props) => props.nodeAttributes],
+            (nodeAttributes): Record<string, any> => nodeAttributes,
+        ],
         widgets: [() => [(_, props) => props], (props): NotebookNodeWidget[] => props.widgets],
         unopenWidgets: [
             (s) => [s.openWidgetKeys, (_, props) => props.widgets],
@@ -148,11 +151,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     })),
 
     afterMount((logic) => {
-        logic.props.notebookLogic.actions.registerNodeLogic(logic)
+        logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
     }),
 
     beforeUnmount((logic) => {
-        logic.props.notebookLogic.actions.unregisterNodeLogic(logic)
+        logic.props.notebookLogic.actions.unregisterNodeLogic(logic as any)
     }),
 ])
 

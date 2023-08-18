@@ -3,8 +3,12 @@ import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
 import { Editor as TTEditor } from '@tiptap/core'
 
-export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (value: T) => void] {
-    let value = props.node.attrs[key]
+export function useJsonNodeState<T>(
+    attributes: NodeViewProps['node']['attrs'],
+    updateAttributes: NodeViewProps['updateAttributes'],
+    key: string
+): [T, (value: T) => void] {
+    let value = attributes[key]
     try {
         value = typeof value === 'string' ? JSON.parse(value) : value
     } catch (e) {
@@ -13,7 +17,7 @@ export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (val
     }
 
     const setValue = (value: any): void => {
-        props.updateAttributes({
+        updateAttributes({
             [key]: JSON.stringify(value),
         })
     }
