@@ -69,12 +69,13 @@ export function AppsList(): JSX.Element {
                 {canInstallPlugins(user?.organization) && (
                     <LemonButton
                         type="secondary"
+
                         // onClick={(e) => {
                         //     e.stopPropagation()
                         //     checkForUpdates(true)
                         // }}
                     >
-                        Advanced options
+                        Install app (advanced)
                     </LemonButton>
                 )}
             </div>
