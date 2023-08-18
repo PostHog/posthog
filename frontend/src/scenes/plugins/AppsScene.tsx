@@ -1,6 +1,6 @@
 import './Plugins.scss'
-import { useEffect, useState } from 'react'
-import { useValues } from 'kea'
+import { useEffect } from 'react'
+import { useActions, useValues } from 'kea'
 import { pluginsLogic } from './pluginsLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { canViewPlugins } from './access'
@@ -11,6 +11,7 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportsTab } from './tabs/batch-exports/BatchExportsTab'
 import { AppsTab } from './tabs/apps/AppsTab'
+import { PluginTab } from './types'
 
 export const scene: SceneExport = {
     component: AppsScene,
@@ -19,8 +20,8 @@ export const scene: SceneExport = {
 
 export function AppsScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
-
-    const [tab, setTab] = useState('apps')
+    const { pluginTab } = useValues(pluginsLogic)
+    const { setPluginTab } = useActions(pluginsLogic)
 
     useEffect(() => {
         if (!canViewPlugins(user?.organization)) {
@@ -37,13 +38,13 @@ export function AppsScene(): JSX.Element | null {
             <PageHeader title="Apps & Exports" tabbedPage />
             <LemonTabs
                 data-attr="apps-tabs"
-                activeKey={tab}
-                onChange={(newKey) => setTab(newKey)}
+                activeKey={pluginTab}
+                onChange={(newKey) => setPluginTab(newKey)}
                 tabs={[
-                    { key: 'apps', label: 'Apps', content: <AppsTab /> },
-                    { key: 'batch_exports', label: 'Batch Exports', content: <BatchExportsTab /> },
+                    { key: PluginTab.Apps, label: 'Apps', content: <AppsTab /> },
+                    { key: PluginTab.BatchExports, label: 'Batch Exports', content: <BatchExportsTab /> },
                     {
-                        key: 'history',
+                        key: PluginTab.History,
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.PLUGIN} />,
                     },
