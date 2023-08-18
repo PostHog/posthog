@@ -2190,6 +2190,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     tags: string[]
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
+    has_enriched_analytics?: boolean
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -3027,7 +3028,6 @@ export enum NotebookNodeType {
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
     Person = 'ph-person',
-    Link = 'ph-link',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
@@ -3064,4 +3064,61 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaQueryResponseField[]
+}
+
+export type BatchExportDestinationS3 = {
+    type: 'S3'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+    }
+}
+
+export type BatchExportDestinationSnowflake = {
+    type: 'Snowflake'
+    config: {
+        account: string
+        database: string
+        warehouse: string
+        user: string
+        password: string
+        schema: string
+        table_name: string
+        role: string | null
+    }
+}
+
+export type BatchExportDestination = BatchExportDestinationS3 | BatchExportDestinationSnowflake
+
+export type BatchExportConfiguration = {
+    // User provided data for the export. This is the data that the user
+    // provides when creating the export.
+    id: string
+    name: string
+    destination: BatchExportDestination
+    interval: 'hour' | 'day'
+    created_at: string
+    start_at: string | null
+    end_at: string | null
+    paused: boolean
+    latest_runs?: BatchExportRun[]
+}
+
+export type BatchExportRun = {
+    id: string
+    status: 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut' | 'Running' | 'Starting'
+    created_at: Dayjs
+    data_interval_start: Dayjs
+    data_interval_end: Dayjs
+    last_updated_at?: Dayjs
+}
+
+export type GroupedBatchExportRuns = {
+    last_run_at: Dayjs
+    data_interval_start: Dayjs
+    data_interval_end: Dayjs
+    runs: BatchExportRun[]
 }

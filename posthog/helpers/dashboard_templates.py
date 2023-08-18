@@ -20,6 +20,7 @@ from posthog.constants import (
     TRENDS_WORLD_MAP,
     UNIQUE_USERS,
     AvailableFeature,
+    ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
 )
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
@@ -583,4 +584,77 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
             },
         },
         color="green",
+    )
+
+
+def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
+    # 1 row
+    _create_tile_for_insight(
+        dashboard,
+        name=f"{ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER} Total Volume",
+        description="Shows the total number of times this feature was viewed and interacted with",
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [
+                {"id": "$feature_view", "name": "Feature View - Total", "type": TREND_FILTER_TYPE_EVENTS},
+                {
+                    "id": "$feature_view",
+                    "name": "Feature View - Unique users",
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "math": UNIQUE_USERS,
+                },
+            ],
+            INTERVAL: "day",
+            INSIGHT: INSIGHT_TRENDS,
+            DATE_FROM: "-30d",
+            DISPLAY: TRENDS_LINEAR,
+            PROPERTIES: {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "feature_flag", "type": "event", "value": feature_flag.key},
+                        ],
+                    }
+                ],
+            },
+            FILTER_TEST_ACCOUNTS: False,
+        },
+        layouts={},
+        color=None,
+    )
+
+    _create_tile_for_insight(
+        dashboard,
+        name="Feature Interaction Total Volume",
+        description="Shows the total number of times this feature was viewed and interacted with",
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [
+                {"id": "$feature_interaction", "name": "Feature Interaction - Total", "type": TREND_FILTER_TYPE_EVENTS},
+                {
+                    "id": "$feature_interaction",
+                    "name": "Feature Interaction - Unique users",
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "math": UNIQUE_USERS,
+                },
+            ],
+            INTERVAL: "day",
+            INSIGHT: INSIGHT_TRENDS,
+            DATE_FROM: "-30d",
+            DISPLAY: TRENDS_LINEAR,
+            PROPERTIES: {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "feature_flag", "type": "event", "value": feature_flag.key},
+                        ],
+                    }
+                ],
+            },
+            FILTER_TEST_ACCOUNTS: False,
+        },
+        layouts={},
+        color=None,
     )

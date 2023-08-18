@@ -46,6 +46,7 @@ export interface NotebookEditor {
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
     findNode: (position: number) => Node | null
+    findNodePositionByAttrs: (attrs: Record<string, any>) => any
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
 }
@@ -68,7 +69,6 @@ const textContent = (node: any): string => {
     return getText(node, {
         blockSeparator: ' ',
         textSerializers: {
-            [NotebookNodeType.Link]: ({ node }) => node.attrs.href,
             [NotebookNodeType.ReplayTimestamp]: ({ node }) => `${node.attrs.playbackTime || '00:00'}: `,
         },
     })

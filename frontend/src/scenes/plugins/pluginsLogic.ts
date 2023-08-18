@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import type { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { AvailableFeature, PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
+import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
 import {
     PluginInstallationType,
     PluginRepositoryEntry,
@@ -660,16 +660,9 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 return allPossiblePlugins
             },
         ],
-        shouldShowAppMetrics: [
-            () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.APP_METRICS),
-        ],
         showAppMetricsForPlugin: [
-            (s) => [s.shouldShowAppMetrics],
-            (featureShown) => (plugin: Partial<PluginTypeWithConfig> | undefined) => {
-                if (!featureShown) {
-                    return false
-                }
+            () => [],
+            () => (plugin: Partial<PluginTypeWithConfig> | undefined) => {
                 return plugin?.capabilities?.methods?.length || plugin?.capabilities?.scheduled_tasks?.length
             },
         ],
