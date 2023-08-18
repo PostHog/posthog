@@ -75,7 +75,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
         },
     })),
     selectors({
-        context: [(_, p) => [p.context], (context): QueryContext => context],
         query: [(_, p) => [p.query], (query): DataTableNode => query],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         orderBy: [

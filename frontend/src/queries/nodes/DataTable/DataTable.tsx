@@ -1,7 +1,7 @@
 import './DataTable.scss'
 import { AnyResponseType, DataTableNode, EventsQuery, QueryContext } from '~/queries/schema'
 import { useState } from 'react'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -177,11 +177,11 @@ const DataTable = ({
     )
 }
 
-const HogQLEditor = (): JSX.Element => {
+const HogQLEditor = (): JSX.Element | null => {
     const { query } = useValues(dataTableLogic)
     const { setQuerySource } = useActions(dataTableLogic)
 
-    return <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
+    return isHogQLQuery(query.source) ? <HogQLQueryEditor query={query.source} setQuery={setQuerySource} /> : null
 }
 
 const ResultsTable = ({ isReadOnly }: { isReadOnly: boolean }): JSX.Element => {
@@ -195,11 +195,12 @@ const ResultsTable = ({ isReadOnly }: { isReadOnly: boolean }): JSX.Element => {
         newDataLoading,
         highlightedRows,
     } = useValues(dataNodeLogic)
-    const { query, context, dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } =
-        useValues(dataTableLogic)
-    const { setQuery } = useActions(dataTableLogic)
+    const logic = useMountedLogic(dataTableLogic)
+    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(logic)
+    const { setQuery } = useActions(logic)
 
     const { showActions, expandable, embedded } = queryWithDefaults
+    const { query, context } = logic.props
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
     const columnsInLemonTable = isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery

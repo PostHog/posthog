@@ -91,6 +91,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     title: 'Query', // TODO: allow this to be updated from the component
     Component,
     heightEstimate: 500,
+    minHeight: 600,
     resizeable: true,
     startExpanded: true,
     attributes: {
