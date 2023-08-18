@@ -13,14 +13,16 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
-from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.tests.batch_exports.base import (
     EventValues,
     amaterialize,
     insert_events,
 )
+from posthog.temporal.tests.batch_exports.fixtures import (
+    acreate_batch_export,
+    afetch_batch_export_runs,
+)
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
-from posthog.temporal.workflows.batch_exports import elements_chain_to_elements
 from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.postgres_batch_export import (
     PostgresBatchExportInputs,
@@ -50,7 +52,7 @@ def assert_events_in_postgres(connection, schema, table_name, events):
         elements_chain = event.get("elements_chain", None)
         expected_event = {
             "distinct_id": event.get("distinct_id"),
-            "elements": elements_chain_to_elements(elements_chain) if elements_chain else [],
+            "elements": elements_chain,
             "event": event.get("event"),
             "ip": properties.get("$ip", None) if properties else None,
             "properties": event.get("properties"),
