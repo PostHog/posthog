@@ -8,6 +8,9 @@ name: E2E CI
 on:
     pull_request:
 
+env:
+    DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
+
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: true
