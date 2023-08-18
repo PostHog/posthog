@@ -22,7 +22,7 @@ from posthog import rate_limit
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import TEST_clear_cloud_cache, is_cloud
+from posthog.cloud_utils import TEST_clear_cloud_cache, TEST_clear_instance_license_cache, is_cloud
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -233,6 +233,7 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         super().setUp()
 
         TEST_clear_cloud_cache(self.initial_cloud_mode)
+        TEST_clear_instance_license_cache()
 
         # Sets the cloud mode to stabilise things tests, especially num query counts
         # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots

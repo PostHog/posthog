@@ -46,14 +46,15 @@ from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-    from posthog.models import User, Team
+
+    from posthog.models import Team, User
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -369,9 +370,9 @@ def render_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.api.shared import TeamPublicSerializer
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -872,16 +873,11 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
         return True
 
     if settings.MULTI_ORG_ENABLED:
-        try:
-            from ee.models.license import License
-        except ImportError:
-            pass
+        license = get_cached_instance_license()
+        if license is not None and AvailableFeature.ZAPIER in license.available_features:
+            return True
         else:
-            license = License.objects.first_valid()
-            if license is not None and AvailableFeature.ZAPIER in license.available_features:
-                return True
-            else:
-                logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
+            logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
 
     return False
 
