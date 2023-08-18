@@ -148,8 +148,8 @@ function RecordingCommentChoice(props: NotebookCommentButtonProps): JSX.Element 
     const { notebooksLoading: allNotebooksLoading, filters } = useValues(notebooksListLogic)
 
     useEffect(() => {
-        // really this should be connected in a logic,
-        // but there was a horrible circular dependency confusing matters
+        // TODO really this should be connected in a logic, or not depend on notebooksListLogic
+        // since there was a horrible circular dependency confusing matters
         loadNotebooks()
     }, [])
 
