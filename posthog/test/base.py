@@ -7,8 +7,8 @@ from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
-import freezegun
 
+import freezegun
 import pytest
 import sqlparse
 from django.apps import apps
@@ -45,9 +45,9 @@ from posthog.models.session_recording_event.sql import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.models.session_replay_event.sql import (
-    SESSION_REPLAY_EVENTS_TABLE_SQL,
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.test.assert_faster_than import assert_faster_than
@@ -67,6 +67,7 @@ def _setup_test_data(klass):
         organization=klass.organization,
         api_token=klass.CONFIG_API_TOKEN,
         test_account_filters=[{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
+        has_completed_onboarding_for={"product_analytics": True},
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -97,7 +98,6 @@ class FuzzyInt(int):
 
 
 class ErrorResponsesMixin:
-
     ERROR_INVALID_CREDENTIALS = {
         "type": "validation_error",
         "code": "invalid_credentials",
@@ -158,7 +158,6 @@ class TestMixin:
             _setup_test_data(cls)
 
     def setUp(self):
-
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
@@ -168,7 +167,6 @@ class TestMixin:
             _setup_test_data(self)
 
     def tearDown(self):
-
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(
@@ -232,7 +230,6 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     initial_cloud_mode: Optional[bool] = False
 
     def setUp(self):
-
         super().setUp()
 
         TEST_clear_cloud_cache(self.initial_cloud_mode)
