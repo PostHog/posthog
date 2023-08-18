@@ -43,14 +43,21 @@ jobs:
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
 
     visual-regression:
-        name: Visual regression tests
-        runs-on: ubuntu-latest
+        name: ${{ matrix.runs-on }} - Visual regression tests
+        runs-on: ${{ matrix.runs-on }}
         timeout-minutes: 30
         container:
             image: mcr.microsoft.com/playwright:v1.29.2
         strategy:
             fail-fast: false
             matrix:
+                runs-on:
+                    [
+                        buildjet-2vcpu-ubuntu-2204,
+                        buildjet-4vcpu-ubuntu-2204,
+                        buildjet-8vcpu-ubuntu-2204,
+                        buildjet-16vcpu-ubuntu-2204,
+                    ]
                 browser: ['chromium', 'webkit']
                 shard: [1, 2]
         env:
@@ -112,7 +119,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm
