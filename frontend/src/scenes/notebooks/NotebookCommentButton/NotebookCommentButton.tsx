@@ -97,7 +97,7 @@ function NotebooksChoicePopoverBody({
                             notebook.title?.toLowerCase().includes(searchQuery.toLowerCase())
                         )
                     })}
-                    emptyState={!!searchQuery.length ? 'No matching notebooks' : 'Not already in any notebooks'}
+                    emptyState={searchQuery.length ? 'No matching notebooks' : 'Not already in any notebooks'}
                     onClick={async (notebookShortId) => {
                         setShowPopover(false)
                         await commentInExistingNotebook(notebookShortId)
@@ -124,7 +124,7 @@ function NotebooksChoicePopoverBody({
                                 notebook.title?.toLowerCase().includes(searchQuery.toLowerCase()))
                         )
                     })}
-                    emptyState={!!searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"}
+                    emptyState={searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"}
                     onClick={async (notebookShortId) => {
                         setShowPopover(false)
                         await addToAndCommentInExistingNotebook(notebookShortId)

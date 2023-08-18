@@ -316,7 +316,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isErrored: [false, { setErrorPlayerState: (_, { show }) => show }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
-        errorCount: [0, { incrementErrorCount: (prevErrorCount, {}) => prevErrorCount + 1 }],
+        errorCount: [0, { incrementErrorCount: (prevErrorCount) => prevErrorCount + 1 }],
         warningCount: [0, { incrementWarningCount: (prevWarningCount, { count }) => prevWarningCount + count }],
         matching: [
             props.matching ?? ([] as SessionRecordingType['matching_events']),
@@ -597,7 +597,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
-            if (!!values.player?.replayer) {
+            if (values.player?.replayer) {
                 for (const event of eventsToAdd) {
                     await values.player?.replayer?.addEvent(event)
                 }
