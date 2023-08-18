@@ -55,7 +55,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(showCompare || showValueOnSeries || showPercentStackView
+        ...(showValueOnSeries || showPercentStackView || hasLegend
             ? [
                   {
                       title: 'Display',
@@ -132,13 +132,8 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
                         <LemonButton size="small" status="stealth">
-                            <span className="font-medium">
-                                Options
-                                {advancedOptionsCount ? (
-                                    <>
-                                        &nbsp;<span className="text-muted">({advancedOptionsCount})</span>
-                                    </>
-                                ) : null}
+                            <span className="font-medium whitespace-nowrap">
+                                Options{advancedOptionsCount ? ` (${advancedOptionsCount})` : null}
                             </span>
                         </LemonButton>
                     </LemonMenu>
