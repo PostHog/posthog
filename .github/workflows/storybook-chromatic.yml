@@ -44,15 +44,14 @@ jobs:
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
 
     visual-regression:
-        name: ${{ matrix.runs-on }} - Visual regression tests
-        runs-on: ${{ matrix.runs-on }}
+        name: Visual regression tests
+        runs-on: buildjet-4vcpu-ubuntu-2204
         timeout-minutes: 30
         container:
             image: mcr.microsoft.com/playwright:v1.29.2
         strategy:
             fail-fast: false
             matrix:
-                runs-on: [buildjet-4vcpu-ubuntu-2204, buildjet-8vcpu-ubuntu-2204, buildjet-16vcpu-ubuntu-2204]
                 browser: ['chromium', 'webkit']
                 shard: [1, 2]
         env:
