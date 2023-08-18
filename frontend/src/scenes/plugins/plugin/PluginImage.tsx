@@ -32,10 +32,10 @@ export function PluginImage({
     }, [url])
 
     return pluginType === 'source' ? (
-        <CodeOutlined style={{ fontSize: pixelSize }} className="plugin-image" />
+        <CodeOutlined style={{ fontSize: pixelSize }} className="plugin-image shrink-0" />
     ) : (
         <div
-            className="plugin-image"
+            className="plugin-image shrink-0"
             style={{
                 width: pixelSize,
                 height: pixelSize,

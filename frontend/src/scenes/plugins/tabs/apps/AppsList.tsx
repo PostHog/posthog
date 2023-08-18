@@ -1,10 +1,12 @@
-import { LemonTable, LemonButton, Link, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonTable, LemonButton, Link, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import {
     IconCheckmark,
     IconCloudDownload,
     IconEllipsis,
+    IconLink,
+    IconOpenInNew,
     IconRefresh,
     IconSettings,
     IconUnfoldLess,
@@ -19,12 +21,9 @@ import { PluginInstallationType, PluginRepositoryEntry, PluginTypeWithConfig } f
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { PluginType } from '~/types'
-import { RepositoryTag } from './components'
+import { PluginTags } from './components'
 import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
 import { AdvancedInstallModal } from './AdvancedInstallModal'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { PluginsAccessLevel } from 'lib/constants'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function AppsList(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -129,10 +128,31 @@ export function AppItem({
     const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating, showAppMetricsForPlugin, loading } =
         useValues(pluginsLogic)
 
-    const { currentOrganization } = useValues(organizationLogic)
-
     const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
     const isConfigured = !!pluginConfig?.id
+
+    const menuItems: LemonMenuItem[] = []
+
+    if (plugin.url) {
+        menuItems.push({
+            label: 'App info page',
+            sideIcon: <IconLink />,
+            to: plugin.url,
+            targetBlank: true,
+        })
+    }
+
+    if (isConfigured) {
+        menuItems.push({
+            label: pluginConfig?.enabled ? 'Disable' : 'Enable',
+            status: pluginConfig.enabled ? 'danger' : 'primary',
+            onClick: () =>
+                toggleEnabled({
+                    id: pluginConfig.id,
+                    enabled: !pluginConfig.enabled,
+                }),
+        })
+    }
 
     return (
         <div className="flex justify-between items-center">
@@ -148,27 +168,19 @@ export function AppItem({
                                 pluginConfigId={pluginConfig.id}
                             />
                         )}
-                        <Link
-                            className="font-semibold truncate"
-                            to={isConfigured ? urls.appMetrics(pluginConfig.id || '') : plugin.url}
-                            target={!isConfigured ? 'blank' : undefined}
-                            // TODO: onClick open configurator
-                        >
-                            {plugin.name}
-                        </Link>
-
-                        <RepositoryTag plugin={plugin} />
-
-                        {'is_global' in plugin &&
-                            plugin.is_global &&
-                            !!currentOrganization &&
-                            currentOrganization.plugins_access_level >= PluginsAccessLevel.Install && (
-                                <Tooltip
-                                    title={`This plugin is managed by the ${plugin.organization_name} organization`}
+                        <span className="font-semibold truncate">
+                            {isConfigured ? (
+                                <Link
+                                    to={isConfigured ? urls.appMetrics(pluginConfig.id || '') : plugin.url}
+                                    target={!isConfigured ? 'blank' : undefined}
                                 >
-                                    <LemonTag type="success">Global</LemonTag>
-                                </Tooltip>
+                                    {plugin.name}
+                                </Link>
+                            ) : (
+                                plugin.name
                             )}
+                        </span>
+                        <PluginTags plugin={plugin} />
                     </div>
                     <div className="text-sm">{plugin.description}</div>
                 </div>
@@ -214,25 +226,6 @@ export function AppItem({
                         >
                             Configure
                         </LemonButton>
-
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: pluginConfig.enabled ? 'Disable' : 'Enable',
-                                    status: pluginConfig.enabled ? 'danger' : 'primary',
-                                    onClick: () =>
-                                        isConfigured
-                                            ? toggleEnabled({
-                                                  id: pluginConfig.id,
-                                                  enabled: !pluginConfig.enabled,
-                                              })
-                                            : editPlugin(plugin.id),
-                                },
-                            ]}
-                            placement="left"
-                        >
-                            <LemonButton size="small" icon={<IconEllipsis />} />
-                        </LemonMenu>
                     </>
                 ) : (
                     <LemonButton
@@ -247,6 +240,10 @@ export function AppItem({
                         Install
                     </LemonButton>
                 )}
+
+                <LemonMenu items={menuItems} placement="left">
+                    <LemonButton size="small" icon={<IconEllipsis />} />
+                </LemonMenu>
             </div>
         </div>
     )
