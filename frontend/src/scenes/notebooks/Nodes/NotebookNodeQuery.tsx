@@ -10,6 +10,8 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import clsx from 'clsx'
+import DataTable from '~/queries/nodes/DataTable/DataTable'
+import { isDataTableNode } from '~/queries/utils'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -67,7 +69,14 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <div className={clsx('flex flex-1 flex-col overflow-hidden', isEditable && 'p-3')}>
-                <Query query={modifiedQuery} setQuery={(t) => setQuery(t as QuerySchema)} />
+                <Query query={modifiedQuery} setQuery={(t) => setQuery(t as QuerySchema)}>
+                    {isDataTableNode(modifiedQuery) && (
+                        <>
+                            {isEditable && <DataTable.HogQLQueryEditor />}
+                            <DataTable.Results isReadOnly={isEditable} />
+                        </>
+                    )}
+                </Query>
             </div>
         </BindLogic>
     )
