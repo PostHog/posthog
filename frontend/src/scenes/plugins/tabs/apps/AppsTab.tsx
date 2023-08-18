@@ -11,6 +11,7 @@ import { PluginType } from '~/types'
 import { AdvancedInstallModal } from './AdvancedInstallModal'
 import { AppView } from './AppView'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
+import { BatchExportsAlternativeWarning } from './components'
 
 export function AppsTab(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -44,6 +45,7 @@ export function AppsTab(): JSX.Element {
             <div className="space-y-4">
                 <div className="flex gap-2 items-center justify-between">
                     <PluginsSearch />
+
                     <div className="flex gap-2 items-center">
                         {canInstallPlugins(user?.organization) && hasUpdatablePlugins && (
                             <LemonButton
@@ -72,6 +74,8 @@ export function AppsTab(): JSX.Element {
                         )}
                     </div>
                 </div>
+
+                <BatchExportsAlternativeWarning />
 
                 {filteredPluginsNeedingUpdates.length > 0 && (
                     <AppsTable

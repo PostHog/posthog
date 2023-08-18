@@ -1,12 +1,14 @@
 import { PluginType } from '~/types'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Link } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PluginRepositoryEntry } from 'scenes/plugins/types'
+import { PluginRepositoryEntry, PluginTab } from 'scenes/plugins/types'
 import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { urls } from 'scenes/urls'
 
 export function RepositoryTag({ plugin }: { plugin: PluginType | PluginRepositoryEntry }): JSX.Element | null {
     const { pluginUrlToMaintainer } = useValues(pluginsLogic)
@@ -61,5 +63,21 @@ export function PluginTags({ plugin }: { plugin: PluginType | PluginRepositoryEn
                     </Tooltip>
                 )}
         </>
+    )
+}
+
+export function BatchExportsAlternativeWarning(): JSX.Element | null {
+    const { searchTerm } = useValues(pluginsLogic)
+
+    const exporterTerms = ['export', 'batch', 's3', 'snowflake', 'redshift', 'bigquery']
+
+    if (!searchTerm || !exporterTerms.includes(searchTerm?.toLowerCase())) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning">
+            It looks like you're trying to search for an exporter. There is now a dedicated{' '}
+            <Link to={urls.projectApps(PluginTab.BatchExports)}>Batch Exports</Link> area for these.
+        </LemonBanner>
     )
 }
