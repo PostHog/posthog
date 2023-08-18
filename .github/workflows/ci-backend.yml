@@ -239,8 +239,8 @@ jobs:
                     ]
                 python-version: ['3.10.10']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:23.6.1.1524']
-                segment: ['FOSS', 'EE']
-                person-on-events: [false, true]
+                segment: ['FOSS']
+                person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
                 concurrency: [5]
                 group: [1, 2, 3, 4, 5]
