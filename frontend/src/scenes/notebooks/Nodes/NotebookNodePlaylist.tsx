@@ -73,7 +73,11 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
 }
 
 export const Settings = ({ attributes, updateAttributes }: NotebookNodeWidgetSettings): JSX.Element => {
-    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(attributes, updateAttributes, 'filters')
+    const [filters, setFilters] = useJsonNodeState<RecordingFilters | undefined>(
+        attributes,
+        updateAttributes,
+        'filters'
+    )
     const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
     const defaultFilters = getDefaultFilters()
 
@@ -88,7 +92,7 @@ export const Settings = ({ attributes, updateAttributes }: NotebookNodeWidgetSet
                 filters={{ ...defaultFilters, ...filters }}
                 setFilters={setFilters}
                 showPropertyFilters
-                onReset={() => setFilters({})}
+                onReset={() => setFilters(undefined)}
                 hasAdvancedFilters={hasAdvancedFilters}
                 showAdvancedFilters={showAdvancedFilters}
                 setShowAdvancedFilters={setShowAdvancedFilters}
