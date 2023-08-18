@@ -1,8 +1,16 @@
 import { LemonTable, LemonButton, Link, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { IconCheckmark, IconCloudDownload, IconEllipsis, IconRefresh, IconSettings } from 'lib/lemon-ui/icons'
-import { useMemo } from 'react'
+import {
+    IconCheckmark,
+    IconCloudDownload,
+    IconEllipsis,
+    IconRefresh,
+    IconSettings,
+    IconUnfoldLess,
+    IconUnfoldMore,
+} from 'lib/lemon-ui/icons'
+import { useMemo, useState } from 'react'
 import { PluginsSearch } from 'scenes/plugins/PluginsSearch'
 import { canGloballyManagePlugins, canInstallPlugins } from 'scenes/plugins/access'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -112,6 +120,138 @@ export function AppsList(): JSX.Element {
     )
 }
 
+export function AppItem({
+    plugin,
+}: {
+    plugin: PluginTypeWithConfig | PluginType | PluginRepositoryEntry
+}): JSX.Element {
+    const { installPlugin, editPlugin, toggleEnabled, updatePlugin } = useActions(pluginsLogic)
+    const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating, showAppMetricsForPlugin, loading } =
+        useValues(pluginsLogic)
+
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
+    const isConfigured = !!pluginConfig?.id
+
+    return (
+        <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+                <div className="shrink-0">
+                    <PluginImage icon={plugin.icon} url={plugin.url} />
+                </div>
+                <div>
+                    <div className="flex gap-2 items-center">
+                        {pluginConfig && showAppMetricsForPlugin(plugin) && pluginConfig.id && (
+                            <SuccessRateBadge
+                                deliveryRate={pluginConfig.delivery_rate_24h ?? null}
+                                pluginConfigId={pluginConfig.id}
+                            />
+                        )}
+                        <Link
+                            className="font-semibold truncate"
+                            to={isConfigured ? urls.appMetrics(pluginConfig.id || '') : plugin.url}
+                            target={!isConfigured ? 'blank' : undefined}
+                            // TODO: onClick open configurator
+                        >
+                            {plugin.name}
+                        </Link>
+
+                        <RepositoryTag plugin={plugin} />
+
+                        {'is_global' in plugin &&
+                            plugin.is_global &&
+                            !!currentOrganization &&
+                            currentOrganization.plugins_access_level >= PluginsAccessLevel.Install && (
+                                <Tooltip
+                                    title={`This plugin is managed by the ${plugin.organization_name} organization`}
+                                >
+                                    <LemonTag type="success">Global</LemonTag>
+                                </Tooltip>
+                            )}
+                    </div>
+                    <div className="text-sm">{plugin.description}</div>
+                </div>
+            </div>
+
+            <div className="flex gap-2 whitespace-nowrap justify-end">
+                {'id' in plugin && pluginConfig ? (
+                    <>
+                        {!pluginConfig.enabled && isConfigured && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() =>
+                                    toggleEnabled({
+                                        id: pluginConfig.id,
+                                        enabled: true,
+                                    })
+                                }
+                            >
+                                Enable
+                            </LemonButton>
+                        )}
+
+                        {'updateStatus' in plugin && pluginsNeedingUpdates.find((x) => x.id === plugin.id) && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    plugin.updateStatus?.updated ? editPlugin(plugin.id) : updatePlugin(plugin.id)
+                                }}
+                                loading={pluginsUpdating.includes(plugin.id)}
+                                icon={plugin.updateStatus?.updated ? <IconCheckmark /> : <IconCloudDownload />}
+                            >
+                                {plugin.updateStatus?.updated ? 'Updated' : 'Update'}
+                            </LemonButton>
+                        )}
+
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconSettings />}
+                            onClick={() => editPlugin(plugin.id)}
+                        >
+                            Configure
+                        </LemonButton>
+
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: pluginConfig.enabled ? 'Disable' : 'Enable',
+                                    status: pluginConfig.enabled ? 'danger' : 'primary',
+                                    onClick: () =>
+                                        isConfigured
+                                            ? toggleEnabled({
+                                                  id: pluginConfig.id,
+                                                  enabled: !pluginConfig.enabled,
+                                              })
+                                            : editPlugin(plugin.id),
+                                },
+                            ]}
+                            placement="left"
+                        >
+                            <LemonButton size="small" icon={<IconEllipsis />} />
+                        </LemonMenu>
+                    </>
+                ) : (
+                    <LemonButton
+                        type="primary"
+                        loading={loading && installingPluginUrl === plugin.url}
+                        icon={<IconCloudDownload />}
+                        size="small"
+                        onClick={() =>
+                            plugin.url ? installPlugin(plugin.url, PluginInstallationType.Repository) : undefined
+                        }
+                    >
+                        Install
+                    </LemonButton>
+                )}
+            </div>
+        </div>
+    )
+}
+
 export function AppsTable({
     title = 'Apps',
     plugins,
@@ -121,159 +261,46 @@ export function AppsTable({
     plugins: (PluginTypeWithConfig | PluginType | PluginRepositoryEntry)[]
     loading: boolean
 }): JSX.Element {
-    const { installPlugin, editPlugin, toggleEnabled, updatePlugin } = useActions(pluginsLogic)
-    const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating, showAppMetricsForPlugin } =
-        useValues(pluginsLogic)
-
-    const { currentOrganization } = useValues(organizationLogic)
+    const [expanded, setExpanded] = useState(true)
+    const { searchTerm } = useValues(pluginsLogic)
 
     return (
         <LemonTable
-            dataSource={plugins}
+            dataSource={expanded ? plugins : []}
             loading={loading}
             columns={[
                 {
-                    title: title,
+                    title: (
+                        <>
+                            <LemonButton
+                                size="small"
+                                status="stealth"
+                                sideIcon={!expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                onClick={() => setExpanded(!expanded)}
+                                className="-ml-2 mr-2"
+                            />
+                            {title}
+                        </>
+                    ),
                     key: 'app',
                     render: (_, plugin) => {
-                        const isInstalled = 'pluginConfig' in plugin
-                        const isConfigured = isInstalled && !!plugin.pluginConfig.id
-                        return (
-                            <div className="flex items-center gap-2">
-                                <div className="shrink-0">
-                                    <PluginImage icon={plugin.icon} url={plugin.url} />
-                                </div>
-                                <div>
-                                    <div className="flex gap-2 items-center">
-                                        {isInstalled && showAppMetricsForPlugin(plugin) && plugin.pluginConfig.id && (
-                                            <SuccessRateBadge
-                                                deliveryRate={plugin.pluginConfig.delivery_rate_24h ?? null}
-                                                pluginConfigId={plugin.pluginConfig.id}
-                                            />
-                                        )}
-                                        <Link
-                                            className="font-semibold truncate"
-                                            to={
-                                                isConfigured
-                                                    ? urls.appMetrics(plugin.pluginConfig.id || '')
-                                                    : plugin.url
-                                            }
-                                            target={!isConfigured ? 'blank' : undefined}
-                                            // TODO: onClick open configurator
-                                        >
-                                            {plugin.name}
-                                        </Link>
-
-                                        <RepositoryTag plugin={plugin} />
-
-                                        {'is_global' in plugin &&
-                                            plugin.is_global &&
-                                            !!currentOrganization &&
-                                            currentOrganization.plugins_access_level >= PluginsAccessLevel.Install && (
-                                                <Tooltip
-                                                    title={`This plugin is managed by the ${plugin.organization_name} organization`}
-                                                >
-                                                    <LemonTag type="success">Global</LemonTag>
-                                                </Tooltip>
-                                            )}
-                                    </div>
-                                    <div className="text-sm">{plugin.description}</div>
-                                </div>
-                            </div>
-                        )
-                    },
-                },
-                {
-                    key: 'actions',
-                    width: 0,
-
-                    render: (_, plugin) => {
-                        if ('pluginConfig' in plugin) {
-                            const isConfigured = !!plugin.pluginConfig.id
-                            return (
-                                <div className="flex gap-2 whitespace-nowrap justify-end">
-                                    {!plugin.pluginConfig.enabled && isConfigured && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() =>
-                                                toggleEnabled({
-                                                    id: plugin.pluginConfig.id,
-                                                    enabled: true,
-                                                })
-                                            }
-                                        >
-                                            Enable
-                                        </LemonButton>
-                                    )}
-
-                                    {pluginsNeedingUpdates.find((x) => x.id === plugin.id) && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => {
-                                                plugin.updateStatus?.updated
-                                                    ? editPlugin(plugin.id)
-                                                    : updatePlugin(plugin.id)
-                                            }}
-                                            loading={pluginsUpdating.includes(plugin.id)}
-                                            icon={
-                                                plugin.updateStatus?.updated ? <IconCheckmark /> : <IconCloudDownload />
-                                            }
-                                        >
-                                            {plugin.updateStatus?.updated ? 'Updated' : 'Update'}
-                                        </LemonButton>
-                                    )}
-
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        icon={<IconSettings />}
-                                        onClick={() => editPlugin(plugin.id)}
-                                    >
-                                        Configure
-                                    </LemonButton>
-
-                                    <LemonMenu
-                                        items={[
-                                            {
-                                                label: plugin.pluginConfig.enabled ? 'Disable' : 'Enable',
-                                                status: plugin.pluginConfig.enabled ? 'danger' : 'primary',
-                                                onClick: () =>
-                                                    isConfigured
-                                                        ? toggleEnabled({
-                                                              id: plugin.pluginConfig.id,
-                                                              enabled: !plugin.pluginConfig.enabled,
-                                                          })
-                                                        : editPlugin(plugin.id),
-                                            },
-                                        ]}
-                                        placement="left"
-                                    >
-                                        <LemonButton size="small" icon={<IconEllipsis />} />
-                                    </LemonMenu>
-                                </div>
-                            )
-                        }
-
-                        return (
-                            <LemonButton
-                                type="primary"
-                                loading={loading && installingPluginUrl === plugin.url}
-                                icon={<IconCloudDownload />}
-                                size="small"
-                                onClick={() =>
-                                    plugin.url
-                                        ? installPlugin(plugin.url, PluginInstallationType.Repository)
-                                        : undefined
-                                }
-                            >
-                                Install
-                            </LemonButton>
-                        )
+                        return <AppItem plugin={plugin} />
                     },
                 },
             ]}
+            emptyState={
+                !expanded ? (
+                    <span className="flex gap-2 items-center">
+                        <LemonButton size="small" onClick={() => setExpanded(true)}>
+                            Show apps
+                        </LemonButton>
+                    </span>
+                ) : searchTerm ? (
+                    'No apps matching your search criteria'
+                ) : (
+                    'No apps found'
+                )
+            }
         />
     )
 }
