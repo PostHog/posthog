@@ -80,8 +80,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         highlightedRows,
     } = useValues(builtDataNodeLogic)
 
-    // console.log('query changed in component')
-
     const dataTableLogicProps: DataTableLogicProps = { query, key, context }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
         dataTableLogic(dataTableLogicProps)
@@ -101,6 +99,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         showPersistentColumnConfigurator,
         showSavedQueries,
         expandable,
+        embedded,
         showOpenEditorButton,
     } = queryWithDefaults
 
@@ -342,16 +341,16 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     ].filter((x) => !!x)
 
     const secondRowLeft = [
-        showReload ? <Reload /> : null,
-        showReload && canLoadNewData ? <AutoLoad /> : null,
-        showElapsedTime ? <ElapsedTime /> : null,
+        showReload ? <Reload key="reload" /> : null,
+        showReload && canLoadNewData ? <AutoLoad key="auto-load" /> : null,
+        showElapsedTime ? <ElapsedTime key="elapsed-time" /> : null,
     ].filter((x) => !!x)
 
     const secondRowRight = [
         (showColumnConfigurator || showPersistentColumnConfigurator) && isEventsQuery(query.source) ? (
-            <ColumnConfigurator query={query} setQuery={setQuery} />
+            <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
-        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
+        showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
@@ -400,6 +399,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 '::'
                             ) /* Bust the LemonTable cache when columns change */
                         }
+                        embedded={embedded}
                         dataSource={(dataTableRows ?? []) as DataTableRow[]}
                         rowKey={({ result }: DataTableRow, rowIndex) => {
                             if (result) {

@@ -8,8 +8,8 @@ import { useJsonNodeState } from './utils'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
-import { isEditable } from '@testing-library/user-event/dist/utils'
 import { notebookLogic } from '../Notebook/notebookLogic'
+import clsx from 'clsx'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -53,18 +53,12 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
+            modifiedQuery.embedded = !isEditable
             modifiedQuery.full = isEditable
         }
+
         return modifiedQuery
     }, [query, isEditable])
-
-    // const modifiedQuery = { ...query }
-
-    if (NodeKind.DataTableNode === modifiedQuery.kind) {
-        // We don't want to show the insights button for now
-        modifiedQuery.showOpenEditorButton = false
-        modifiedQuery.full = isEditable
-    }
 
     if (!expanded) {
         return null
@@ -72,7 +66,9 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
+            <div className={clsx('flex flex-1 flex-col overflow-hidden', isEditable && 'p-3')}>
+                <Query query={modifiedQuery} setQuery={(t) => setQuery(t as QuerySchema)} />
+            </div>
         </BindLogic>
     )
 }

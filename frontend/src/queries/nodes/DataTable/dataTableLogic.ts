@@ -62,9 +62,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         orderBy: [
             (_, p) => [p.query],
-            (query): string[] | null => {
-                return isEventsQuery(query.source) ? query.source.orderBy || ['timestamp DESC'] : null
-            },
+            (query): string[] | null =>
+                isEventsQuery(query.source) ? query.source.orderBy || ['timestamp DESC'] : null,
             { resultEqualityCheck: objectsEqual },
         ],
         columnsInResponse: [
@@ -138,11 +137,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
         queryWithDefaults: [
             (s, p) => [p.query, s.columnsInQuery, s.featureFlags, (_, props) => props.context],
             (query: DataTableNode, columnsInQuery, featureFlags, context): Required<DataTableNode> => {
-                // console.log('query changed in selector')
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
-
                 return {
                     kind,
                     columns: columnsInQuery,
@@ -152,6 +149,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         ...rest,
                         full: query.full ?? false,
                         expandable: query.expandable ?? true,
+                        embedded: query.embedded ?? false,
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? showIfFull,
                         showEventFilter: query.showEventFilter ?? showIfFull,
@@ -174,14 +172,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 : query.showOpenEditorButton ?? true,
                     }),
                 }
-            },
-            {
-                equalityCheck: (obj1, obj2) => {
-                    if (!objectsEqual(obj1, obj2)) {
-                        // console.log('different')
-                    }
-                    return false
-                },
             },
         ],
         canSort: [
