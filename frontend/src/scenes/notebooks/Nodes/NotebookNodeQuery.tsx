@@ -2,7 +2,7 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
 import { useEffect, useMemo } from 'react'
@@ -12,6 +12,8 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import clsx from 'clsx'
 import DataTable from '~/queries/nodes/DataTable/DataTable'
 import { isDataTableNode } from '~/queries/utils'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -31,7 +33,8 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
     const { setTitle } = useActions(notebookNodeLogic)
-    const { expanded } = useValues(notebookNodeLogic)
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { expanded } = useValues(nodeLogic)
     const { isEditable } = useValues(notebookLogic)
 
     const title = useMemo(() => {
@@ -69,7 +72,11 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <div className={clsx('flex flex-1 flex-col overflow-hidden', isEditable && 'p-3')}>
-                <Query query={modifiedQuery} setQuery={(t) => setQuery(t as QuerySchema)}>
+                <Query
+                    query={modifiedQuery}
+                    setQuery={(t) => setQuery(t as QuerySchema)}
+                    uniqueKey={nodeLogic.props.nodeId}
+                >
                     {isDataTableNode(modifiedQuery) && (
                         <>
                             {isEditable && <DataTable.HogQLQueryEditor />}
@@ -99,4 +106,15 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
     },
+    widgets: [
+        {
+            icon: <IconRefresh />,
+            onClick: ({ query, nodeId }) => {
+                const dataNodeLogicProps = { query: query.source, key: `DataTable.${nodeId}` }
+                const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
+
+                builtDataNodeLogic.actions.loadData()
+            },
+        },
+    ],
 })

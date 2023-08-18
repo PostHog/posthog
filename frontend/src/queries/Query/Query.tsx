@@ -17,6 +17,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
+    uniqueKey?: string | number
     /** The query to render */
     query: T | string | null
     /** Set this if you're controlling the query parameter */
@@ -62,7 +63,13 @@ export function Query(props: QueryProps): JSX.Element | null {
     let component
     if (isDataTableNode(query)) {
         component = (
-            <DataTable query={query} setQuery={setQuery} context={queryContext} cachedResults={props.cachedResults}>
+            <DataTable
+                query={query}
+                setQuery={setQuery}
+                context={queryContext}
+                cachedResults={props.cachedResults}
+                uniqueKey={props.uniqueKey}
+            >
                 {props.children}
             </DataTable>
         )

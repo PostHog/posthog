@@ -36,6 +36,7 @@ import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 
 interface DataTableProps {
+    uniqueKey?: string | number
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
@@ -55,13 +56,14 @@ const groupTypes = [
 let uniqueNode = 0
 
 const DataTable = ({
+    uniqueKey,
     query,
     setQuery,
     context,
     cachedResults,
     children,
 }: DataTableProps & { children?: React.ReactNode }): JSX.Element => {
-    const [key] = useState(() => `DataTable.${uniqueNode++}`)
+    const [key] = useState(() => `DataTable.${uniqueKey || uniqueNode++}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key, cachedResults: cachedResults }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)

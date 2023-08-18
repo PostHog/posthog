@@ -22,6 +22,11 @@ import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
 import { NotebookNodeAttributes, NotebookNodeViewProps } from '../Notebook/utils'
 
+type NotebookNodeWidget<T extends NotebookNodeAttributes> = {
+    icon: JSX.Element
+    onClick: (attrs: T & { nodeId?: string; height?: string | number }) => void
+}
+
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     title: string
     nodeType: NotebookNodeType
@@ -36,6 +41,7 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
     autoHideMetadata?: boolean
+    widgets?: NotebookNodeWidget<T>[]
 }
 
 export function NodeWrapper<T extends NotebookNodeAttributes>({
@@ -53,6 +59,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     node,
     getPos,
     updateAttributes,
+    widgets = [],
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
@@ -150,6 +157,15 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                                             icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                         />
                                     )}
+
+                                    {widgets.map(({ icon, onClick }, index) => (
+                                        <LemonButton
+                                            key={index}
+                                            onClick={() => onClick({ ...node.attrs, nodeId })}
+                                            size="small"
+                                            icon={icon}
+                                        />
+                                    ))}
 
                                     {isEditable && (
                                         <LemonButton
