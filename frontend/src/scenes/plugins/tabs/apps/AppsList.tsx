@@ -1,4 +1,4 @@
-import { LemonTable, LemonButton, Link, LemonDivider } from '@posthog/lemon-ui'
+import { LemonTable, LemonButton, Link, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconCheckmark, IconCloudDownload, IconEllipsis, IconRefresh, IconSettings } from 'lib/lemon-ui/icons'
@@ -14,6 +14,9 @@ import { PluginType } from '~/types'
 import { RepositoryTag } from './components'
 import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
 import { AdvancedInstallModal } from './AdvancedInstallModal'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { PluginsAccessLevel } from 'lib/constants'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function AppsList(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -122,6 +125,8 @@ export function AppsTable({
     const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating, showAppMetricsForPlugin } =
         useValues(pluginsLogic)
 
+    const { currentOrganization } = useValues(organizationLogic)
+
     return (
         <LemonTable
             dataSource={plugins}
@@ -160,6 +165,17 @@ export function AppsTable({
                                         </Link>
 
                                         <RepositoryTag plugin={plugin} />
+
+                                        {'is_global' in plugin &&
+                                            plugin.is_global &&
+                                            !!currentOrganization &&
+                                            currentOrganization.plugins_access_level >= PluginsAccessLevel.Install && (
+                                                <Tooltip
+                                                    title={`This plugin is managed by the ${plugin.organization_name} organization`}
+                                                >
+                                                    <LemonTag type="success">Global</LemonTag>
+                                                </Tooltip>
+                                            )}
                                     </div>
                                     <div className="text-sm">{plugin.description}</div>
                                 </div>
