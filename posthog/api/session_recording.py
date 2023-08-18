@@ -140,7 +140,6 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    authentication_classes = StructuredViewSetMixin.authentication_classes + [SharingAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
@@ -148,12 +147,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
 
     def get_permissions(self):
-        if hasattr(self.request, "sharing_configuration"):
-            return [permission() for permission in [SharingTokenPermission]]
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            return [SharingTokenPermission()]
         return super().get_permissions()
 
+    def get_authenticators(self):
+        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
+
     def get_serializer_class(self) -> Type[serializers.Serializer]:
-        if hasattr(self.request, "sharing_configuration"):
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             return SessionRecordingSharedSerializer
         else:
             return SessionRecordingSerializer
