@@ -17,7 +17,7 @@ concurrency:
 jobs:
     frontend-code-quality:
         name: Code quality checks
-        runs-on: ubuntu-latest
+        runs-on: buildjet-2vcpu-ubuntu-2204
         steps:
             - uses: actions/checkout@v3
 
@@ -27,7 +27,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
 
@@ -35,7 +35,7 @@ jobs:
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v3
+            - uses: buildjet/cache@v3
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
@@ -58,7 +58,7 @@ jobs:
               run: pnpm schema:build:json && git diff --exit-code
 
     jest:
-        runs-on: ubuntu-latest
+        runs-on: buildjet-2vcpu-ubuntu-2204
         name: Jest test (${{ matrix.chunk }})
 
         strategy:
@@ -76,7 +76,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm
