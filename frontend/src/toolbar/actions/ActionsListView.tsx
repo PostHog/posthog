@@ -27,10 +27,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                                 >
                                     {index + 1}.
                                 </span>
-                                {
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    action.name || <span style={{ color: '#888' }}>Untitled</span>
-                                }
+                                {action.name || <span className="italic text-muted-alt">Untitled</span>}
                             </Space>
                         }
                     />
