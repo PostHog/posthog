@@ -1,8 +1,6 @@
 import contextlib
-import csv
 import datetime as dt
 import json
-import tempfile
 from dataclasses import dataclass
 
 import psycopg2
@@ -20,6 +18,7 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
+    BatchExportTemporaryFile,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
@@ -29,6 +28,7 @@ from posthog.temporal.workflows.clickhouse import get_client
 
 @contextlib.contextmanager
 def postgres_connection(inputs):
+    """Manage a Postgres connection."""
     connection = psycopg2.connect(
         user=inputs.user,
         password=inputs.password,
@@ -46,6 +46,19 @@ def postgres_connection(inputs):
         connection.commit()
     finally:
         connection.close()
+
+
+def copy_tsv_to_posgtres(tsv_file, postgres_connection, schema: str, table_name: str, schema_columns):
+    """Execute a COPY FROM query with given connection to copy contents of tsv_file."""
+    tsv_file.seek(0)
+
+    with postgres_connection.cursor() as cursor:
+        cursor.copy_from(
+            tsv_file,
+            sql.Identifier(schema, table_name).as_string(postgres_connection),
+            null="",
+            columns=schema_columns,
+        )
 
 
 @dataclass
@@ -96,9 +109,6 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
         )
-        local_results_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".csv")
-        writer = csv.writer(local_results_file, delimiter="\t", quotechar='"', escapechar="\\", quoting=csv.QUOTE_NONE)
-
         with postgres_connection(inputs) as connection:
             with connection.cursor() as cursor:
                 result = cursor.execute(
@@ -121,7 +131,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                     ).format(sql.Identifier(inputs.schema, inputs.table_name))
                 )
 
-        schema_columns = (
+        schema_columns = [
             "uuid",
             "event",
             "properties",
@@ -133,51 +143,34 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             "ip",
             "site_url",
             "timestamp",
-        )
+        ]
+        json_columns = ("properties", "elements", "set", "set_once")
 
-        with postgres_connection(inputs) as connection:
-            for result in results_iterator:
-                row = (
-                    json.dumps(result[column]) if isinstance(result[column], (dict, list)) else result[column]
-                    for column in schema_columns
-                )
-                writer.writerow(row)
+        with BatchExportTemporaryFile() as pg_file:
+            with postgres_connection(inputs) as connection:
+                for result in results_iterator:
+                    row = {
+                        key: json.dumps(result[key]) if key in json_columns and result[key] is not None else result[key]
+                        for key in schema_columns
+                    }
+                    pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
 
-                if (
-                    local_results_file.tell()
-                    and local_results_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES
-                ):
-                    activity.logger.info("Copying to Postgres")
-
-                    local_results_file.flush()
-                    local_results_file.seek(0)
-
-                    with connection.cursor() as cursor:
-                        cursor.copy_from(
-                            local_results_file,
-                            sql.Identifier(inputs.schema, inputs.table_name).as_string(connection),
-                            null="",
-                            columns=schema_columns,
+                    if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
+                        activity.logger.info(
+                            "Copying %s records of size %s bytes to Postgres",
+                            pg_file.records_since_last_reset,
+                            pg_file.bytes_since_last_reset,
                         )
+                        copy_tsv_to_posgtres(pg_file, connection, inputs.schema, inputs.table_name, schema_columns)
+                        pg_file.reset()
 
-                    local_results_file.close()
-                    local_results_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".csv")
-                    writer = csv.writer(
-                        local_results_file, delimiter="\t", quotechar='"', escapechar="\\", quoting=csv.QUOTE_NONE
+                if pg_file.tell() > 0:
+                    activity.logger.info(
+                        "Copying %s records of size %s bytes to Postgres",
+                        pg_file.records_since_last_reset,
+                        pg_file.bytes_since_last_reset,
                     )
-
-            local_results_file.flush()
-            local_results_file.seek(0)
-
-            with connection.cursor() as cursor:
-                cursor.copy_from(
-                    local_results_file,
-                    sql.Identifier(inputs.schema, inputs.table_name).as_string(connection),
-                    null="",
-                    columns=schema_columns,
-                )
-
-            local_results_file.close()
+                    copy_tsv_to_posgtres(pg_file, connection, inputs.schema, inputs.table_name, schema_columns)
 
 
 @workflow.defn(name="postgres-export")

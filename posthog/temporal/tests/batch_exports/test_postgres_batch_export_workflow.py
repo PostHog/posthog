@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 from random import randint
 from uuid import uuid4
 
@@ -52,7 +53,7 @@ def assert_events_in_postgres(connection, schema, table_name, events):
         elements_chain = event.get("elements_chain", None)
         expected_event = {
             "distinct_id": event.get("distinct_id"),
-            "elements": elements_chain,
+            "elements": json.dumps(elements_chain),
             "event": event.get("event"),
             "ip": properties.get("$ip", None) if properties else None,
             "properties": event.get("properties"),
