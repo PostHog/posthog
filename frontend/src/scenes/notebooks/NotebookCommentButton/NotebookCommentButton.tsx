@@ -49,11 +49,12 @@ function NotebooksChoicePopoverBody({
     getCurrentPlayerTime,
 }: NotebookCommentButtonProps): JSX.Element {
     const logic = notebookCommentButtonLogic({ sessionRecordingId, startVisible: !!visible })
-    const { notebooks: containingNotebooks } = useValues(logic)
+    const { notebooks: containingNotebooks, notebooksLoading: containingNotebooksLoading } = useValues(logic)
     const { setShowPopover } = useActions(logic)
 
     const {
         filteredNotebooks: allNotebooks,
+        filteredNotebooksLoading: allNotebooksLoading,
         filters: { search },
     } = useValues(notebooksListLogic)
 
@@ -78,7 +79,13 @@ function NotebooksChoicePopoverBody({
     if (allNotebooks.length === 0 && containingNotebooks.length === 0) {
         return (
             <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
-                {search.length ? <>No matching notebooks</> : <>You have no notebooks</>}
+                {allNotebooksLoading || containingNotebooksLoading ? (
+                    'Loading...'
+                ) : search.length ? (
+                    <>No matching notebooks</>
+                ) : (
+                    <>You have no notebooks</>
+                )}
             </div>
         )
     }
