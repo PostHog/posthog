@@ -1,92 +1,22 @@
-import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
 
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType, NotebookNodeType, NotebookTarget, NotebookType } from '~/types'
+import { NotebookListItemType, NotebookTarget, NotebookType } from '~/types'
 
 import type { notebooksListLogicType } from './notebooksListLogicType'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates'
-import { deleteWithUndo, objectClean, objectsEqual } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import FuseClass from 'fuse.js'
 import { notebookPopoverLogic } from './notebookPopoverLogic'
-import { defaultNotebookContent, EditorFocusPosition, JSONContent } from './utils'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
-
-// Helping kea-typegen navigate the exported default class for Fuse
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface Fuse extends FuseClass<NotebookListItemType> {}
+import { defaultNotebookContent, JSONContent, openNotebook } from './utils'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
     title: 'Scratchpad',
     created_at: '',
     created_by: null,
-}
-
-export const openNotebook = async (
-    notebookId: string,
-    target: NotebookTarget = NotebookTarget.Auto,
-    focus: EditorFocusPosition = null,
-    // operations to run against the notebook once it has opened and the editor is ready
-    onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
-): Promise<void> => {
-    const popoverLogic = notebookPopoverLogic.findMounted()
-
-    if (NotebookTarget.Popover === target) {
-        popoverLogic?.actions.setVisibility('visible')
-    }
-
-    if (popoverLogic?.values.visibility === 'visible') {
-        popoverLogic?.actions.selectNotebook(notebookId)
-    } else {
-        router.actions.push(urls.notebookEdit(notebookId))
-    }
-
-    popoverLogic?.actions.setInitialAutofocus(focus)
-
-    const theNotebookLogic = notebookLogic({ shortId: notebookId })
-    const unmount = theNotebookLogic.mount()
-
-    try {
-        onOpen(theNotebookLogic)
-    } finally {
-        unmount()
-    }
-}
-
-export interface NotebooksListFilters {
-    search: string
-    // UUID of the user that created the notebook
-    createdBy: string
-    contains: NotebookNodeType[]
-}
-
-export const DEFAULT_FILTERS: NotebooksListFilters = {
-    search: '',
-    createdBy: 'All users',
-    contains: [],
-}
-
-function filtersToContains(
-    filters?: NotebooksListFilters
-): { type: NotebookNodeType; attrs: Record<string, string> }[] | undefined {
-    if (filters === undefined || filters.contains.length === 0) {
-        return undefined
-    }
-
-    return filters.contains.map((type) => ({ type, attrs: {} }))
-}
-
-async function listNotebooksAPI(filters?: NotebooksListFilters): Promise<NotebookListItemType[]> {
-    // TODO: Support pagination
-    const createdByForQuery = filters?.createdBy === DEFAULT_FILTERS.createdBy ? undefined : filters?.createdBy
-    const res = await api.notebooks.list(filtersToContains(filters), createdByForQuery, filters?.search)
-    return res.results
 }
 
 export const notebooksListLogic = kea<notebooksListLogicType>([
@@ -106,61 +36,30 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
         }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
-        loadFilteredNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
-        setFilters: (filters: Partial<NotebooksListFilters>) => ({ filters }),
     }),
     connect({
         values: [teamLogic, ['currentTeamId']],
     }),
 
     reducers({
-        filters: [
-            DEFAULT_FILTERS as NotebooksListFilters,
-            {
-                setFilters: (state, { filters }) =>
-                    objectClean({
-                        ...(state || {}),
-                        ...filters,
-                    }),
-            },
-        ],
-
         scratchpadNotebook: [
             SCRATCHPAD_NOTEBOOK as NotebookListItemType,
             {
                 setScratchpadNotebook: (_, { notebook }) => notebook,
             },
         ],
-
-        filteredNotebooks: [
-            [] as NotebookListItemType[],
-            {
-                // if we already have filtered notebooks, don't replace them
-                loadNotebooksSuccess: (state, { notebooks }) => (!!state.length ? state : notebooks),
-            },
-        ],
     }),
 
     loaders(({ actions, values }) => ({
-        filteredNotebooks: [
-            [] as NotebookListItemType[],
-            {
-                loadFilteredNotebooks: async (_, breakpoint) => {
-                    // the notebooks list logic is used in several components
-                    // so, we can't just use the default loader when filtering
-                    await breakpoint(100)
-                    return await listNotebooksAPI(values.filters)
-                },
-            },
-        ],
         notebooks: [
             [] as NotebookListItemType[],
             {
                 loadNotebooks: async (_, breakpoint) => {
                     // TODO: Support pagination
                     await breakpoint(100)
-                    return await listNotebooksAPI()
+                    const res = await api.notebooks.list()
+                    return res.results
                 },
                 createNotebook: async ({ title, location, content, onCreate }, breakpoint) => {
                     await breakpoint(100)
@@ -207,20 +106,4 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
             },
         ],
     })),
-
-    listeners(({ actions }) => ({
-        setFilters: () => {
-            actions.loadFilteredNotebooks()
-        },
-    })),
-
-    selectors({
-        notebooksAndTemplates: [
-            (s) => [s.filteredNotebooks, s.notebookTemplates, s.filters],
-            (filteredNotebooks, notebooksTemplates, filters): NotebookListItemType[] => {
-                const includeTemplates = objectsEqual(filters, DEFAULT_FILTERS)
-                return [...(includeTemplates ? notebooksTemplates : []), ...filteredNotebooks]
-            },
-        ],
-    }),
 ])

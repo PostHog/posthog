@@ -5,19 +5,19 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { DEFAULT_FILTERS, notebooksListLogic } from '../Notebook/notebooksListLogic'
+import { notebooksListLogic } from '../Notebook/notebooksListLogic'
 import { useEffect } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
 import { notebookPopoverLogic } from '../Notebook/notebookPopoverLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksList/ContainsTypeFilter'
+import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
+import { DEFAULT_FILTERS, notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 
 export function NotebooksTable(): JSX.Element {
-    const { notebooksAndTemplates, filters, notebooksLoading, notebookTemplates, filteredNotebooksLoading } =
-        useValues(notebooksListLogic)
-    const { loadNotebooks, setFilters } = useActions(notebooksListLogic)
+    const { notebooksAndTemplates, filters, notebooksLoading, notebookTemplates } = useValues(notebooksTableLogic)
+    const { loadNotebooks, setFilters } = useActions(notebooksTableLogic)
     const { meFirstMembers } = useValues(membersLogic)
     const { setVisibility, selectNotebook } = useActions(notebookPopoverLogic)
 
@@ -135,7 +135,7 @@ export function NotebooksTable(): JSX.Element {
                 dataSource={notebooksAndTemplates}
                 rowKey="short_id"
                 columns={columns}
-                loading={notebooksLoading || filteredNotebooksLoading}
+                loading={notebooksLoading}
                 defaultSorting={{ columnKey: '-created_at', order: 1 }}
                 emptyState={`No notebooks matching your filters!`}
                 nouns={['notebook', 'notebooks']}

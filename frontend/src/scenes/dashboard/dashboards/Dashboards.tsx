@@ -15,7 +15,7 @@ import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/D
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { NotebooksTable } from 'scenes/notebooks/NotebooksList/NotebooksTable'
+import { NotebooksTable } from 'scenes/notebooks/NotebooksTable/NotebooksTable'
 import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
 import { LemonTag } from '@posthog/lemon-ui'
 

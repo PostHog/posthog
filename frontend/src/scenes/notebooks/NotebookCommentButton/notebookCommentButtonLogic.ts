@@ -1,4 +1,4 @@
-import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookNodeType } from '~/types'
 
@@ -18,12 +18,14 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
     actions({
         setShowPopover: (visible: boolean) => ({ visible }),
         setSearchQuery: (query: string) => ({ query }),
+        loadContainingNotebooks: true,
+        loadAllNotebooks: true,
     }),
     reducers(({ props }) => ({
         searchQuery: [
-            null as string | null,
+            '',
             {
-                setSearchQuery: (_, { query }) => (query === '' ? null : query),
+                setSearchQuery: (_, { query }) => query,
             },
         ],
         showPopover: [
@@ -35,11 +37,23 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
     })),
     listeners(({ actions }) => ({
         setSearchQuery: () => {
-            actions.loadContainingNotebooks(null)
+            actions.loadAllNotebooks()
+            actions.loadContainingNotebooks()
         },
     })),
     loaders(({ props, values }) => ({
-        notebooks: [
+        allNotebooks: [
+            [] as NotebookListItemType[],
+            {
+                loadAllNotebooks: async (_, breakpoint) => {
+                    breakpoint(100)
+                    const response = await api.notebooks.list(undefined, undefined, values.searchQuery ?? undefined)
+                    // TODO for simplicity we'll assume the results will fit into one page
+                    return response.results
+                },
+            },
+        ],
+        containingNotebooks: [
             [] as NotebookListItemType[],
             {
                 loadContainingNotebooks: async (_, breakpoint) => {
@@ -57,8 +71,14 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
     })),
     events(({ actions }) => ({
         afterMount: () => {
-            // KLUDGE: need to pass an ignored variable because the actoin uses its breakpoint arg :/
-            actions.loadContainingNotebooks(null)
+            actions.loadAllNotebooks()
+            actions.loadContainingNotebooks()
         },
+    })),
+    selectors(({}) => ({
+        notebooksLoading: [
+            (s) => [s.allNotebooksLoading, s.containingNotebooksLoading],
+            (allNotebooksLoading, containingNotebooksLoading) => allNotebooksLoading || containingNotebooksLoading,
+        ],
     })),
 ])

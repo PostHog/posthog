@@ -9,7 +9,13 @@ import {
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, NotebookTarget } from '~/types'
+import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
+import { urls } from 'scenes/urls'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { BuiltLogic } from 'kea'
+import { router } from 'kea-router'
 
 /* eslint-disable @typescript-eslint/no-empty-interface */
 export interface Node extends PMNode {}
@@ -88,4 +94,35 @@ export function defaultNotebookContent(title?: string, content?: JSONContent[]):
     }
 
     return { type: 'doc', content: initialContent }
+}
+
+export const openNotebook = async (
+    notebookId: string,
+    target: NotebookTarget = NotebookTarget.Auto,
+    focus: EditorFocusPosition = null,
+    // operations to run against the notebook once it has opened and the editor is ready
+    onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
+): Promise<void> => {
+    const popoverLogic = notebookPopoverLogic.findMounted()
+
+    if (NotebookTarget.Popover === target) {
+        popoverLogic?.actions.setVisibility('visible')
+    }
+
+    if (popoverLogic?.values.visibility === 'visible') {
+        popoverLogic?.actions.selectNotebook(notebookId)
+    } else {
+        router.actions.push(urls.notebookEdit(notebookId))
+    }
+
+    popoverLogic?.actions.setInitialAutofocus(focus)
+
+    const theNotebookLogic = notebookLogic({ shortId: notebookId })
+    const unmount = theNotebookLogic.mount()
+
+    try {
+        onOpen(theNotebookLogic)
+    } finally {
+        unmount()
+    }
 }

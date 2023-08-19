@@ -8,13 +8,14 @@ import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { dayjs } from 'lib/dayjs'
 import { NotebookListItemType, NotebookNodeType, NotebookTarget } from '~/types'
 import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
-import { notebooksListLogic, openNotebook } from 'scenes/notebooks/Notebook/notebooksListLogic'
+import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { useEffect } from 'react'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { buildRecordingContent } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
+import { openNotebook } from 'scenes/notebooks/Notebook/utils'
 
 interface NotebookCommentButtonProps extends Pick<LemonButtonProps, 'size'>, Pick<LemonMenuProps, 'visible'> {
     sessionRecordingId: string
@@ -49,14 +50,9 @@ function NotebooksChoicePopoverBody({
     getCurrentPlayerTime,
 }: NotebookCommentButtonProps): JSX.Element {
     const logic = notebookCommentButtonLogic({ sessionRecordingId, startVisible: !!visible })
-    const { notebooks: containingNotebooks, notebooksLoading: containingNotebooksLoading } = useValues(logic)
+    const { containingNotebooks, containingNotebooksLoading, allNotebooks, allNotebooksLoading, searchQuery } =
+        useValues(logic)
     const { setShowPopover } = useActions(logic)
-
-    const {
-        filteredNotebooks: allNotebooks,
-        filteredNotebooksLoading: allNotebooksLoading,
-        filters: { search },
-    } = useValues(notebooksListLogic)
 
     const commentInExistingNotebook = async (notebookShortId: string): Promise<void> => {
         const currentPlayerTime = getCurrentPlayerTime() * 1000
@@ -72,7 +68,7 @@ function NotebooksChoicePopoverBody({
                 buildRecordingContent(sessionRecordingId),
                 buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
             ])
-            notebookCommentButtonLogic.findMounted({ sessionRecordingId })?.actions.loadContainingNotebooks(null)
+            notebookCommentButtonLogic.findMounted({ sessionRecordingId })?.actions.loadContainingNotebooks()
         })
     }
 
@@ -81,7 +77,7 @@ function NotebooksChoicePopoverBody({
             <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
                 {allNotebooksLoading || containingNotebooksLoading ? (
                     'Loading...'
-                ) : search.length ? (
+                ) : searchQuery.length ? (
                     <>No matching notebooks</>
                 ) : (
                     <>You have no notebooks</>
@@ -98,9 +94,12 @@ function NotebooksChoicePopoverBody({
                 <NotebooksChoiceList
                     notebooks={containingNotebooks.filter((notebook) => {
                         // notebook comment logic doesn't know anything about backend filtering 🤔
-                        return search.length === 0 || notebook.title?.toLowerCase().includes(search.toLowerCase())
+                        return (
+                            searchQuery.length === 0 ||
+                            notebook.title?.toLowerCase().includes(searchQuery.toLowerCase())
+                        )
                     })}
-                    emptyState={!!search.length ? 'No matching notebooks' : 'Not already in any notebooks'}
+                    emptyState={!!searchQuery.length ? 'No matching notebooks' : 'Not already in any notebooks'}
                     onClick={async (notebookShortId) => {
                         setShowPopover(false)
                         await commentInExistingNotebook(notebookShortId)
@@ -123,10 +122,11 @@ function NotebooksChoicePopoverBody({
                         )
                         return (
                             !isInExisting &&
-                            (search.length === 0 || notebook.title?.toLowerCase().includes(search.toLowerCase()))
+                            (searchQuery.length === 0 ||
+                                notebook.title?.toLowerCase().includes(searchQuery.toLowerCase()))
                         )
                     })}
-                    emptyState={!!search.length ? 'No matching notebooks' : "You don't have any notebooks"}
+                    emptyState={!!searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"}
                     onClick={async (notebookShortId) => {
                         setShowPopover(false)
                         await addToAndCommentInExistingNotebook(notebookShortId)
@@ -148,19 +148,16 @@ function RecordingCommentChoice(props: NotebookCommentButtonProps): JSX.Element 
     const { visible, sessionRecordingId, getCurrentPlayerTime, size } = props
 
     const logic = notebookCommentButtonLogic({ sessionRecordingId, startVisible: !!visible })
-    const { showPopover, notebooksLoading, notebooks: containingNotebooks } = useValues(logic)
+    const { showPopover, notebooksLoading, containingNotebooks, searchQuery } = useValues(logic)
     const { setShowPopover, setSearchQuery } = useActions(logic)
 
-    const { createNotebook, loadNotebooks, setFilters } = useActions(notebooksListLogic)
-    const { notebooksLoading: allNotebooksLoading, filters } = useValues(notebooksListLogic)
+    const { createNotebook, loadNotebooks } = useActions(notebooksListLogic)
 
     useEffect(() => {
         // TODO really this should be connected in a logic, or not depend on notebooksListLogic
         // since there was a horrible circular dependency confusing matters
         loadNotebooks()
     }, [])
-
-    const isLoading = notebooksLoading || allNotebooksLoading
 
     const commentInNewNotebook = (): void => {
         const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
@@ -178,7 +175,7 @@ function RecordingCommentChoice(props: NotebookCommentButtonProps): JSX.Element 
             () => {
                 // refresh the comment button so that it includes the new notebook
                 // after the new notebook is created
-                notebookCommentButtonLogic.findMounted({ sessionRecordingId })?.actions.loadContainingNotebooks(null)
+                notebookCommentButtonLogic.findMounted({ sessionRecordingId })?.actions.loadContainingNotebooks()
             }
         )
     }
@@ -196,9 +193,8 @@ function RecordingCommentChoice(props: NotebookCommentButtonProps): JSX.Element 
                         <LemonInput
                             type="search"
                             placeholder="Search notebooks..."
-                            value={filters.search}
+                            value={searchQuery}
                             onChange={(s) => {
-                                setFilters({ search: s })
                                 setSearchQuery(s)
                             }}
                             fullWidth
@@ -215,7 +211,7 @@ function RecordingCommentChoice(props: NotebookCommentButtonProps): JSX.Element 
                 }
             >
                 <LemonButton
-                    icon={isLoading ? <Spinner /> : <IconComment />}
+                    icon={notebooksLoading ? <Spinner /> : <IconComment />}
                     active={showPopover}
                     onClick={() => setShowPopover(!showPopover)}
                     sideIcon={null}
