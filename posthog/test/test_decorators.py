@@ -1,5 +1,6 @@
+from datetime import datetime
 from freezegun import freeze_time
-from posthog.decorators import cached_by_filters
+from posthog.decorators import cached_by_filters, is_stale
 
 from django.core.cache import cache
 
@@ -8,7 +9,7 @@ from rest_framework.viewsets import GenericViewSet
 from rest_framework.response import Response
 from posthog.models.filters.filter import Filter
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from posthog.api import router
 
 factory = APIRequestFactory()
@@ -65,20 +66,95 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         assert response["is_cached"] is False
 
     def test_discards_stale_response(self) -> None:
-        with freeze_time("2023-02-10T12:00:00Z"):
+        with freeze_time("2023-02-08T12:05:23Z"):
             # cache the result
             self.client.get(f"/api/dummy").json()
 
-        with freeze_time("2023-02-12T12:00:00Z"):
+        with freeze_time("2023-02-10T12:00:00Z"):
             # we don't need to add filters, since -7d with a
             # daily interval is the default
             response = self.client.get(f"/api/dummy").json()
             assert response["is_cached"] is False
 
 
-class TestIsStaleHelper:
+class TestIsStaleHelper(BaseTest):
+    cached_response = {"last_refresh": datetime.fromisoformat("2023-02-08T12:05:23+00:00"), "result": "bla"}
+
+    def test_keeps_fresh_hourly_result(self) -> None:
+        with freeze_time("2023-02-08T12:59:59Z"):
+            filter = Filter(data={"interval": "hour"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is False
+
     def test_discards_stale_hourly_result(self) -> None:
-        filter = Filter()
+        with freeze_time("2023-02-08T13:00:00Z"):
+            filter = Filter(data={"interval": "hour"})
 
+            stale = is_stale(self.team, filter, self.cached_response)
 
-# ceil date_to with current date
+            assert stale is True
+
+    def test_keeps_fresh_daily_result(self) -> None:
+        with freeze_time("2023-02-08T23:59:59Z"):
+            filter = Filter(data={"interval": "day"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is False
+
+    def test_discards_stale_daily_result(self) -> None:
+        with freeze_time("2023-02-09T00:00:00Z"):
+            filter = Filter(data={"interval": "day"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is True
+
+    def test_keeps_fresh_weekly_result(self) -> None:
+        with freeze_time("2023-02-11T23:59:59Z"):
+            filter = Filter(data={"interval": "week"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is False
+
+    def test_discards_stale_weekly_result(self) -> None:
+        with freeze_time("2023-02-12T00:00:00Z"):
+            filter = Filter(data={"interval": "week"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is True
+
+    def test_keeps_fresh_monthly_result(self) -> None:
+        with freeze_time("2023-02-28T23:59:59Z"):
+            filter = Filter(data={"interval": "month"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is False
+
+    def test_discards_stale_monthly_result(self) -> None:
+        with freeze_time("2023-03-01T00:00:00Z"):
+            filter = Filter(data={"interval": "month"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is True
+
+    def test_keeps_fresh_result_from_fixed_range(self) -> None:
+        filter = Filter(data={"interval": "day", "date_from": "2000-01-01", "date_to": "2000-01-10"})
+
+        stale = is_stale(self.team, filter, self.cached_response)
+
+        assert stale is False
+
+    def test_keeps_fresh_result_with_date_to_in_future(self) -> None:
+        with freeze_time("2023-02-08T23:59:59Z"):
+            filter = Filter(data={"interval": "day", "date_to": "2999-01-01"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is False

@@ -1,6 +1,8 @@
+from datetime import datetime
 from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Dict, List, TypeVar, Union, cast
+from zoneinfo import ZoneInfo
 
 import posthoganalytics
 from django.urls import resolve
@@ -11,6 +13,7 @@ from statshog.defaults.django import statsd
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
+from posthog.datetime import start_of_day, start_of_hour, start_of_month, start_of_week
 from posthog.models import User
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -105,10 +108,10 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
     return wrapper
 
 
-def stale_cache_invalidation_enabled(team: Team) -> bool:
+def stale_cache_invalidation_disabled(team: Team) -> bool:
     """Can be disabled temporarly to help in cases of service degradation."""
     if is_cloud():  # on PostHog Cloud, use the feature flag
-        return posthoganalytics.feature_enabled(
+        return not posthoganalytics.feature_enabled(
             "stale-cache-invalidation-enabled",
             str(team.uuid),
             groups={"organization": str(team.organization.id)},
@@ -119,36 +122,33 @@ def stale_cache_invalidation_enabled(team: Team) -> bool:
             send_feature_flag_events=False,
         )
     else:
-        return True
+        return False
 
 
 def is_stale(team: Team, filter: Filter | RetentionFilter | StickinessFilter | PathFilter, cached_result: Any) -> bool:
-    last_refresh = cached_result.get("last_refresh", None)
+    """Indicates wether a cache item is obviously outdated based on filters,
+    i.e. the next time interval was entered since the last computation. For
+    example an insight with -7d date range that was last computed yesterday.
+    The same insight refreshed today wouldn't be marked as stale.
+    """
 
-    if not stale_cache_invalidation_enabled(team):
+    if stale_cache_invalidation_disabled(team):
         return False
+
+    last_refresh = cached_result.get("last_refresh", None)
+    date_to = min([filter.date_to, datetime.now(tz=ZoneInfo("UTC"))])  # can't be later than now
 
     if last_refresh is None:  # safeguard
         return False
 
-    if not isinstance(filter, Filter):
-        # TODO: implement for insights other than trends and funnels
-        return False
-
-    if filter.interval == "hour":
-        return filter.date_to.replace(minute=0, second=0, microsecond=0) > last_refresh.replace(
-            minute=0, second=0, microsecond=0
-        )
-    elif filter.interval == "day":
-        return filter.date_to.replace(hour=0, minute=0, second=0, microsecond=0) > last_refresh.replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-    elif filter.interval == "week":
-        # TODO: implement with relativedelta?
-        return False
-    elif filter.interval == "month":
-        return filter.date_to.replace(day=0, hour=0, minute=0, second=0, microsecond=0) > last_refresh.replace(
-            day=0, hour=0, minute=0, second=0, microsecond=0
-        )
+    if isinstance(filter, Filter):
+        if filter.interval == "hour":
+            return start_of_hour(date_to) > start_of_hour(last_refresh)
+        elif filter.interval == "day":
+            return start_of_day(date_to) > start_of_day(last_refresh)
+        elif filter.interval == "week":
+            return start_of_week(date_to) > start_of_week(last_refresh)
+        elif filter.interval == "month":
+            return start_of_month(date_to) > start_of_month(last_refresh)
 
     return False
