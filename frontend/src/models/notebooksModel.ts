@@ -3,7 +3,6 @@ import { actions, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookTarget, NotebookType } from '~/types'
 
-import type { notebooksListLogicType } from './notebooksListLogicType'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
@@ -12,6 +11,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
 import { defaultNotebookContent, JSONContent, openNotebook } from 'scenes/notebooks/Notebook/utils'
 
+import type { notebooksModelType } from './notebooksModelType'
+
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
     title: 'Scratchpad',
@@ -19,7 +20,7 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
-export const notebooksModel = kea<notebooksListLogicType>([
+export const notebooksModel = kea<notebooksModelType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksModel']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
