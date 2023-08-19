@@ -187,7 +187,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             create_snapshot(
                 has_full_snapshot=False,
                 distinct_id="user",
-                session_id="1",
+                session_id="test_get_snapshots_with_date_filter-1",
                 timestamp=now() - relativedelta(days=2),
                 team_id=self.team.id,
                 use_replay_table=False,
@@ -197,7 +197,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             create_snapshot(
                 has_full_snapshot=False,
                 distinct_id="user",
-                session_id="1",
+                session_id="test_get_snapshots_with_date_filter-1",
                 timestamp=now(),
                 team_id=self.team.id,
                 use_replay_table=False,
@@ -205,10 +205,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             )
 
             filter = create_recording_filter(
-                "1",
+                session_recording_id="test_get_snapshots_with_date_filter-1",
             )
             recording: DecompressedRecordingData = SessionRecordingEvents(
-                team=self.team, session_recording_id="1", recording_start_time=now()
+                team=self.team, session_recording_id="test_get_snapshots_with_date_filter-1", recording_start_time=now()
             ).get_snapshots(filter.limit, filter.offset)
 
             self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), 1)

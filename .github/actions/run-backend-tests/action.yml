@@ -101,6 +101,7 @@ runs:
               pytest hogvm posthog -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
+                  -n 4 --dist loadscope \
                   $PYTEST_ARGS
 
         - name: Run Decide read replica tests
@@ -115,6 +116,7 @@ runs:
           run: |
               pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                   --durations=100 --durations-min=1.0 \
+                  -n 4 --dist loadscope \
                   $PYTEST_ARGS
 
         - name: Run EE tests
@@ -127,6 +129,7 @@ runs:
               pytest ee -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
+                  -n 4 --dist loadscope \
                   $PYTEST_ARGS
 
         # Post-tests

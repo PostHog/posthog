@@ -61,6 +61,10 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties
         )
 
+    def setUp(self):
+        super().setUp()
+        self.team = Team.objects.create(organization=self.organization)
+
     @property
     def base_time(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
@@ -2114,32 +2118,40 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id="test_top_level_event_property_test_account_filter-1",
             first_timestamp=self.base_time,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
             self.base_time,
-            properties={"$session_id": "1", "$window_id": "1", "is_internal_user": False},
+            properties={
+                "$session_id": "test_top_level_event_property_test_account_filter-1",
+                "$window_id": "1",
+                "is_internal_user": False,
+            },
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id="test_top_level_event_property_test_account_filter-1",
             first_timestamp=self.base_time + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
-            session_id="2",
+            session_id="test_top_level_event_property_test_account_filter-2",
             first_timestamp=self.base_time,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
             self.base_time,
-            properties={"$session_id": "2", "$window_id": "1", "is_internal_user": True},
+            properties={
+                "$session_id": "test_top_level_event_property_test_account_filter-2",
+                "$window_id": "1",
+                "is_internal_user": True,
+            },
         )
 
         # there are 2 pageviews
@@ -2186,32 +2198,40 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id="test_top_level_hogql_event_property_test_account_filter-1",
             first_timestamp=self.base_time,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
             self.base_time,
-            properties={"$session_id": "1", "$window_id": "1", "is_internal_user": False},
+            properties={
+                "$session_id": "test_top_level_hogql_event_property_test_account_filter-1",
+                "$window_id": "1",
+                "is_internal_user": False,
+            },
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id="test_top_level_hogql_event_property_test_account_filter-1",
             first_timestamp=self.base_time + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
-            session_id="2",
+            session_id="test_top_level_hogql_event_property_test_account_filter-2",
             first_timestamp=self.base_time,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
             self.base_time,
-            properties={"$session_id": "2", "$window_id": "1", "is_internal_user": True},
+            properties={
+                "$session_id": "test_top_level_hogql_event_property_test_account_filter-2",
+                "$window_id": "1",
+                "is_internal_user": True,
+            },
         )
 
         # there are 2 pageviews
@@ -2258,32 +2278,40 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id="test_top_level_hogql_person_property_test_account_filter-1",
             first_timestamp=self.base_time,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
             self.base_time,
-            properties={"$session_id": "1", "$window_id": "1", "is_internal_user": False},
+            properties={
+                "$session_id": "test_top_level_hogql_person_property_test_account_filter-1",
+                "$window_id": "1",
+                "is_internal_user": False,
+            },
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id="test_top_level_hogql_person_property_test_account_filter-1",
             first_timestamp=self.base_time + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
-            session_id="2",
+            session_id="test_top_level_hogql_person_property_test_account_filter-2",
             first_timestamp=self.base_time,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
             self.base_time,
-            properties={"$session_id": "2", "$window_id": "1", "is_internal_user": True},
+            properties={
+                "$session_id": "test_top_level_hogql_person_property_test_account_filter-2",
+                "$window_id": "1",
+                "is_internal_user": True,
+            },
         )
 
         # there are 2 pageviews
@@ -2328,32 +2356,40 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id="test_top_level_person_property_test_account_filter-1",
             first_timestamp=self.base_time,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
             self.base_time,
-            properties={"$session_id": "1", "$window_id": "1", "is_internal_user": False},
+            properties={
+                "$session_id": "test_top_level_person_property_test_account_filter-1",
+                "$window_id": "1",
+                "is_internal_user": False,
+            },
         )
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id="test_top_level_person_property_test_account_filter-1",
             first_timestamp=self.base_time + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
-            session_id="2",
+            session_id="test_top_level_person_property_test_account_filter-2",
             first_timestamp=self.base_time,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
             self.base_time,
-            properties={"$session_id": "2", "$window_id": "1", "is_internal_user": True},
+            properties={
+                "$session_id": "test_top_level_person_property_test_account_filter-2",
+                "$window_id": "1",
+                "is_internal_user": True,
+            },
         )
 
         # there are 2 pageviews
