@@ -12,7 +12,6 @@ export function SessionPlayerModal(): JSX.Element | null {
     const logicProps: SessionRecordingPlayerLogicProps = {
         playerKey: 'modal',
         sessionRecordingId: activeSessionRecording?.id || '',
-        matching: activeSessionRecording?.matching_events,
         autoPlay: true,
     }
 

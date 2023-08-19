@@ -32,7 +32,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     const { expanded } = useValues(notebookNodeLogic)
 
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
     if (!expanded) {
@@ -52,9 +52,9 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
             <SessionRecordingPlayer
                 playerKey={playerKey}
                 sessionRecordingId={activeSessionRecording.id}
-                matching={activeSessionRecording?.matching_events}
                 recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                 nextSessionRecording={nextSessionRecording}
+                matchingEventsMatchType={matchingEventsMatchType}
             />
         </>
     )

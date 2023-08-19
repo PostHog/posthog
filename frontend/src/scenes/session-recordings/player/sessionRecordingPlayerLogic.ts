@@ -1,24 +1,10 @@
-import {
-    actions,
-    afterMount,
-    beforeUnmount,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    propsChanged,
-    reducers,
-    selectors,
-} from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     AvailableFeature,
-    MatchedRecording,
     RecordingSegment,
     SessionPlayerData,
     SessionPlayerState,
@@ -29,7 +15,6 @@ import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import equal from 'fast-deep-equal'
 import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
@@ -88,7 +73,6 @@ export interface SessionRecordingLogicProps {
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicProps {
     sessionRecordingData?: SessionPlayerData
     playlistShortId?: string
-    matching?: MatchedRecording[]
     matchingEventsMatchType?: MatchingEventsMatchType
     recordingStartTime?: string
     nextSessionRecording?: Partial<SessionRecordingType>
@@ -138,12 +122,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ],
         ],
     })),
-    propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
-        // Ensures that if filter results change, then matching results in this player logic will also change
-        if (!equal(matching, oldMatching)) {
-            actions.setMatching(matching)
-        }
-    }),
     actions({
         tryInitReplayer: () => true,
         setPlayer: (player: Player | null) => ({ player }),
@@ -175,7 +153,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         initializePlayerFromStart: true,
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
-        setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
         updateFromMetadata: true,
         exportRecordingToFile: true,
         deleteRecording: true,
@@ -186,7 +163,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
     }),
-    reducers(({ props }) => ({
+    reducers(() => ({
         clickCount: [
             0,
             {
@@ -318,12 +295,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         errorCount: [0, { incrementErrorCount: (prevErrorCount, {}) => prevErrorCount + 1 }],
         warningCount: [0, { incrementWarningCount: (prevWarningCount, { count }) => prevWarningCount + count }],
-        matching: [
-            props.matching ?? ([] as SessionRecordingType['matching_events']),
-            {
-                setMatching: (_, { matching }) => matching,
-            },
-        ],
         endReached: [
             false,
             {
@@ -431,10 +402,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
 
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
-        matchingEvents: [
-            (s) => [s.matching],
-            (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
-        ],
 
         playerSpeed: [
             (s) => [s.speed, s.isSkippingInactivity, s.currentSegment, s.currentTimestamp],

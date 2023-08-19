@@ -302,6 +302,9 @@ class ApiRequest {
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recordings')
     }
+    public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent('matching_events')
+    }
     public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
     }
@@ -1172,6 +1175,9 @@ const api = {
     recordings: {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
+        },
+        async getMatchingEvents(params: string): Promise<{ results: string[] }> {
+            return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
         async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(params).get()

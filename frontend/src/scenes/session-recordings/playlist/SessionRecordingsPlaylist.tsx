@@ -393,7 +393,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                             playerKey="playlist"
                             playlistShortId={playlistShortId}
                             sessionRecordingId={activeSessionRecording?.id}
-                            matching={activeSessionRecording?.matching_events}
                             matchingEventsMatchType={matchingEventsMatchType}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                             nextSessionRecording={nextSessionRecording}

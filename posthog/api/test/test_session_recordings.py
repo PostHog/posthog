@@ -13,6 +13,7 @@ from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.api.test.test_team import create_team
+from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
@@ -26,6 +27,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_postgres_queries,
     FuzzyInt,
+    _create_event,
 )
 
 
@@ -805,3 +807,89 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&version={api_version-1}"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
+        query_params = [
+            f'{SESSION_RECORDINGS_FILTER_IDS}=["{str(uuid.uuid4())}", "{str(uuid.uuid4())}"]',
+        ]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Must specify exactly one session_id",
+            "type": "validation_error",
+        }
+
+    def test_get_matching_events_for_must_send_a_single_session_id_filter(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/matching_events?")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Must specify exactly one session_id",
+            "type": "validation_error",
+        }
+
+    def test_get_matching_events_for_must_send_at_least_an_event_filter(self) -> None:
+        query_params = [
+            f'{SESSION_RECORDINGS_FILTER_IDS}=["{str(uuid.uuid4())}"]',
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Must specify at least one event or action filter",
+            "type": "validation_error",
+        }
+
+    def test_get_matching_events_for_unknown_session(self) -> None:
+        session_id = str(uuid.uuid4())
+        query_params = [
+            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
+        ]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": []}
+
+    def test_get_matching_events(self) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        # the matching session
+        session_id = f"test_get_matching_events-1-{uuid.uuid4()}"
+        self.create_snapshot("user", session_id, base_time)
+        event_id = _create_event(
+            event="$pageview", properties={"$session_id": session_id}, team=self.team, distinct_id=uuid.uuid4()
+        )
+
+        # a non-matching session
+        non_matching_session_id = f"test_get_matching_events-2-{uuid.uuid4()}"
+        self.create_snapshot("user", non_matching_session_id, base_time)
+        _create_event(
+            event="$pageview",
+            properties={"$session_id": non_matching_session_id},
+            team=self.team,
+            distinct_id=uuid.uuid4(),
+        )
+
+        flush_persons_and_events()
+
+        query_params = [
+            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
+        ]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": [event_id]}
