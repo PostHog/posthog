@@ -9,9 +9,9 @@ import clsx from 'clsx'
 import { router } from 'kea-router'
 import { posthogNodePasteRule } from './utils'
 import api from 'lib/api'
-import { openNotebook } from '../Notebook/notebooksListLogic'
 import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
+import { openNotebook } from 'scenes/notebooks/Notebook/utils'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,

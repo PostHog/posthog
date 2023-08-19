@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
-import { notebooksListLogic, openNotebook, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '../../../models/notebooksModel'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
@@ -48,8 +48,8 @@ export const notebookLogic = kea<notebookLogicType>([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
     connect({
-        values: [notebooksListLogic, ['scratchpadNotebook', 'notebookTemplates']],
-        actions: [notebooksListLogic, ['receiveNotebookUpdate']],
+        values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
+        actions: [notebooksModel, ['receiveNotebookUpdate']],
     }),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),

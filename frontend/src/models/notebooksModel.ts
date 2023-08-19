@@ -6,11 +6,11 @@ import { NotebookListItemType, NotebookTarget, NotebookType } from '~/types'
 import type { notebooksListLogicType } from './notebooksListLogicType'
 import api from 'lib/api'
 import posthog from 'posthog-js'
-import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates'
+import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { notebookPopoverLogic } from './notebookPopoverLogic'
-import { defaultNotebookContent, JSONContent, openNotebook } from './utils'
+import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
+import { defaultNotebookContent, JSONContent, openNotebook } from 'scenes/notebooks/Notebook/utils'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
@@ -19,8 +19,8 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
-export const notebooksListLogic = kea<notebooksListLogicType>([
-    path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
+export const notebooksModel = kea<notebooksListLogicType>([
+    path(['scenes', 'notebooks', 'Notebook', 'notebooksModel']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
         createNotebook: (

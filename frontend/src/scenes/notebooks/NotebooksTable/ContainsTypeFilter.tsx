@@ -1,5 +1,5 @@
 import { NotebookNodeType } from '~/types'
-import { NotebooksListFilters } from 'scenes/notebooks/Notebook/notebooksListLogic'
+import { NotebooksListFilters } from '~/models/notebooksModel'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
 
 export const fromNodeTypeToLabel: Omit<Record<NotebookNodeType, string>, NotebookNodeType.Backlink> = {

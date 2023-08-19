@@ -16,7 +16,7 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebooksTable } from 'scenes/notebooks/NotebooksTable/NotebooksTable'
-import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
+import { notebooksModel } from '~/models/notebooksModel'
 import { LemonTag } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
@@ -31,8 +31,8 @@ export function Dashboards(): JSX.Element {
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { notebooksLoading } = useValues(notebooksListLogic)
-    const { createNotebook } = useActions(notebooksListLogic)
+    const { notebooksLoading } = useValues(notebooksModel)
+    const { createNotebook } = useActions(notebooksModel)
 
     const notebooksEnabled = featureFlags[FEATURE_FLAGS.NOTEBOOKS]
 

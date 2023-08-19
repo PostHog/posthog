@@ -8,10 +8,9 @@ import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { dayjs } from 'lib/dayjs'
 import { NotebookListItemType, NotebookNodeType, NotebookTarget } from '~/types'
 import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
-import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
+import { notebooksModel } from '~/models/notebooksModel'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { useEffect } from 'react'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { buildRecordingContent } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
@@ -151,13 +150,7 @@ function RecordingCommentChoice(props: NotebookCommentButtonProps): JSX.Element 
     const { showPopover, notebooksLoading, containingNotebooks, searchQuery } = useValues(logic)
     const { setShowPopover, setSearchQuery } = useActions(logic)
 
-    const { createNotebook, loadNotebooks } = useActions(notebooksListLogic)
-
-    useEffect(() => {
-        // TODO really this should be connected in a logic, or not depend on notebooksListLogic
-        // since there was a horrible circular dependency confusing matters
-        loadNotebooks()
-    }, [])
+    const { createNotebook } = useActions(notebooksModel)
 
     const commentInNewNotebook = (): void => {
         const title = `Session Replay Notes ${dayjs().format('DD/MM')}`

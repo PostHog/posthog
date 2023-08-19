@@ -5,7 +5,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { notebooksListLogic } from '../Notebook/notebooksListLogic'
+import { notebooksModel } from '~/models/notebooksModel'
 import { useEffect } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -65,10 +65,7 @@ export function NotebooksTable(): JSX.Element {
                                         status: 'danger',
 
                                         onClick: () => {
-                                            notebooksListLogic.actions.deleteNotebook(
-                                                notebook.short_id,
-                                                notebook?.title
-                                            )
+                                            notebooksModel.actions.deleteNotebook(notebook.short_id, notebook?.title)
                                         },
                                     },
                                 ],

@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconPlus, IconJournal } from 'lib/lemon-ui/icons'
-import { notebooksListLogic } from './notebooksListLogic'
+import { notebooksModel } from '../../../models/notebooksModel'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { NotebookListItemType } from '~/types'
 import { useCallback } from 'react'
@@ -17,8 +17,8 @@ export function NotebookListMini({
     onSelectNotebook,
     onNewNotebook,
 }: NotebookListMiniProps): JSX.Element {
-    const { notebooks, notebookTemplates, notebooksLoading, scratchpadNotebook } = useValues(notebooksListLogic)
-    const { loadNotebooks } = useActions(notebooksListLogic)
+    const { notebooks, notebookTemplates, notebooksLoading, scratchpadNotebook } = useValues(notebooksModel)
+    const { loadNotebooks } = useActions(notebooksModel)
 
     const onVisibilityChange = useCallback((visible: boolean): void => {
         if (visible && !notebooksLoading) {

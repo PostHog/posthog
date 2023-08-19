@@ -6,12 +6,11 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { dayjs } from 'lib/dayjs'
-import { JSONContent } from '../Notebook/utils'
+import { JSONContent, openNotebook } from '../Notebook/utils'
 import clsx from 'clsx'
 import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
 import { LemonButton } from '@posthog/lemon-ui'
-import { openNotebook } from '../Notebook/notebooksListLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'

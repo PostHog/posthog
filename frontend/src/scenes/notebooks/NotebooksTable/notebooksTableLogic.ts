@@ -5,7 +5,7 @@ import { objectClean, objectsEqual } from 'lib/utils'
 import { loaders } from 'kea-loaders'
 
 import type { notebooksTableLogicType } from './notebooksTableLogicType'
-import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
+import { notebooksModel } from '~/models/notebooksModel'
 
 export interface NotebooksListFilters {
     search: string
@@ -27,7 +27,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
         setFilters: (filters: Partial<NotebooksListFilters>) => ({ filters }),
     }),
     connect({
-        values: [notebooksListLogic, ['notebookTemplates']],
+        values: [notebooksModel, ['notebookTemplates']],
     }),
     reducers({
         filters: [
