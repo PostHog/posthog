@@ -196,12 +196,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             [] as MatchedRecordingEvent[] | null,
             {
                 loadMatchingEvents: async () => {
-                    const matchType = props.matchingEventsMatchType?.matchType
-                    if (matchType === 'none' || matchType === 'simple') {
+                    const matchingEventsMatchType = props.matchingEventsMatchType
+                    const matchType = matchingEventsMatchType?.matchType
+                    if (!matchingEventsMatchType || matchType === 'none' || matchType === 'name') {
                         return null
                     }
 
-                    const filters = props.matchingEventsMatchType?.filters
+                    if (matchType === 'uuid') {
+                        if (!matchingEventsMatchType?.eventUUIDs) {
+                            console.error('UUID matching events type must include its event ids')
+                        }
+                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                    }
+
+                    const filters = matchingEventsMatchType?.filters
                     if (!filters) {
                         throw new Error('Backend matching events type must include its filters')
                     }
@@ -364,7 +372,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                     if (!!matchingEventUUIDs?.length) {
                         isMatchingEvent = !!matchingEventUUIDs.find((x) => x.uuid === String(event.id))
-                    } else if (props.matchingEventsMatchType?.matchType === 'simple') {
+                    } else if (props.matchingEventsMatchType?.matchType === 'name') {
                         isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
                     }
 
