@@ -334,6 +334,7 @@ def also_test_with_materialized_columns(
 
     def decorator(fn):
         @pytest.mark.ee
+        @pytest.mark.xdist_group("also_test_with_materialized_columns")
         def fn_with_materialized(self, *args, **kwargs):
             # Don't run these tests under non-clickhouse classes even if decorated in base classes
             if not getattr(self, "RUN_MATERIALIZED_COLUMN_TESTS", False):
