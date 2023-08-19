@@ -716,6 +716,7 @@ def run_clickhouse_statement_in_parallel(statements: List[str]):
             j.join()
 
 
+@pytest.mark.xdist_group("ClickhouseDestroyTablesMixin")
 class ClickhouseDestroyTablesMixin(BaseTest):
     """
     To speed up tests we normally don't destroy the tables between tests, so clickhouse tables will have data from previous tests.
