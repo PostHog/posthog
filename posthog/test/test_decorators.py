@@ -8,6 +8,9 @@ from rest_framework.test import APIRequestFactory
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.response import Response
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 
 from posthog.test.base import APIBaseTest, BaseTest
 from posthog.api import router
@@ -158,3 +161,67 @@ class TestIsStaleHelper(BaseTest):
             stale = is_stale(self.team, filter, self.cached_response)
 
             assert stale is False
+
+    def test_keeps_fresh_stickiness_result(self) -> None:
+        with freeze_time("2023-02-08T23:59:59Z"):
+            filter = StickinessFilter(data={}, team=self.team)
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is False
+
+    def test_discards_stale_stickiness_result(self) -> None:
+        with freeze_time("2023-02-09T00:00:00Z"):
+            filter = StickinessFilter(data={}, team=self.team)
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is True
+
+    def test_keeps_fresh_path_result(self) -> None:
+        with freeze_time("2023-02-08T23:59:59Z"):
+            filter = PathFilter()
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is False
+
+    def test_discards_stale_path_result(self) -> None:
+        with freeze_time("2023-02-09T00:00:00Z"):
+            filter = PathFilter()
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is True
+
+    def test_keeps_fresh_retention_hourly_result(self) -> None:
+        with freeze_time("2023-02-08T12:59:59Z"):
+            filter = RetentionFilter(data={"period": "Hour"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is False
+
+    def test_discards_stale_retention_hourly_result(self) -> None:
+        with freeze_time("2023-02-08T13:00:00Z"):
+            filter = RetentionFilter(data={"period": "Hour"})
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is True
+
+    def test_keeps_fresh_retention_result(self) -> None:
+        with freeze_time("2023-02-08T23:59:59Z"):
+            filter = RetentionFilter()
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is False
+
+    def test_discards_stale_retention_result(self) -> None:
+        with freeze_time("2023-02-09T00:00:00Z"):
+            filter = RetentionFilter()
+
+            stale = is_stale(self.team, filter, self.cached_response)
+
+            assert stale is True

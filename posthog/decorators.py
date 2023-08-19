@@ -137,18 +137,18 @@ def is_stale(team: Team, filter: Filter | RetentionFilter | StickinessFilter | P
 
     last_refresh = cached_result.get("last_refresh", None)
     date_to = min([filter.date_to, datetime.now(tz=ZoneInfo("UTC"))])  # can't be later than now
+    interval = filter.period.lower() if isinstance(filter, RetentionFilter) else filter.interval
 
-    if last_refresh is None:  # safeguard
+    if last_refresh is None:
+        raise Exception("Cached results require a last_refresh")
+
+    if interval == "hour":
+        return start_of_hour(date_to) > start_of_hour(last_refresh)
+    elif interval == "day":
+        return start_of_day(date_to) > start_of_day(last_refresh)
+    elif interval == "week":
+        return start_of_week(date_to) > start_of_week(last_refresh)
+    elif interval == "month":
+        return start_of_month(date_to) > start_of_month(last_refresh)
+    else:
         return False
-
-    if isinstance(filter, Filter):
-        if filter.interval == "hour":
-            return start_of_hour(date_to) > start_of_hour(last_refresh)
-        elif filter.interval == "day":
-            return start_of_day(date_to) > start_of_day(last_refresh)
-        elif filter.interval == "week":
-            return start_of_week(date_to) > start_of_week(last_refresh)
-        elif filter.interval == "month":
-            return start_of_month(date_to) > start_of_month(last_refresh)
-
-    return False
