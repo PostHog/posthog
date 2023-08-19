@@ -8,13 +8,12 @@ import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { dayjs } from 'lib/dayjs'
 import { NotebookListItemType, NotebookNodeType, NotebookTarget } from '~/types'
 import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
-import { notebooksModel } from '~/models/notebooksModel'
+import { notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { buildRecordingContent } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
-import { openNotebook } from 'scenes/notebooks/Notebook/utils'
 
 interface NotebookCommentButtonProps extends Pick<LemonButtonProps, 'size'>, Pick<LemonMenuProps, 'visible'> {
     sessionRecordingId: string

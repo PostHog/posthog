@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers } from 'kea'
+import { actions, BuiltLogic, connect, kea, path, reducers } from 'kea'
 
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookTarget, NotebookType } from '~/types'
@@ -9,9 +9,13 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/not
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
-import { defaultNotebookContent, JSONContent, openNotebook } from 'scenes/notebooks/Notebook/utils'
+import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 import type { notebooksModelType } from './notebooksModelType'
+import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import { urls } from 'scenes/urls'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { router } from 'kea-router'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
@@ -20,6 +24,36 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
+export const openNotebook = async (
+    notebookId: string,
+    target: NotebookTarget = NotebookTarget.Auto,
+    focus: EditorFocusPosition = null,
+    // operations to run against the notebook once it has opened and the editor is ready
+    onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
+): Promise<void> => {
+    const popoverLogic = notebookPopoverLogic.findMounted()
+
+    if (NotebookTarget.Popover === target) {
+        popoverLogic?.actions.setVisibility('visible')
+    }
+
+    if (popoverLogic?.values.visibility === 'visible') {
+        popoverLogic?.actions.selectNotebook(notebookId)
+    } else {
+        router.actions.push(urls.notebookEdit(notebookId))
+    }
+
+    popoverLogic?.actions.setInitialAutofocus(focus)
+
+    const theNotebookLogic = notebookLogic({ shortId: notebookId })
+    const unmount = theNotebookLogic.mount()
+
+    try {
+        onOpen(theNotebookLogic)
+    } finally {
+        unmount()
+    }
+}
 export const notebooksModel = kea<notebooksModelType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksModel']),
     actions({

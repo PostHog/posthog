@@ -11,7 +11,8 @@ import { posthogNodePasteRule } from './utils'
 import api from 'lib/api'
 import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
-import { openNotebook } from 'scenes/notebooks/Notebook/utils'
+
+import { openNotebook } from '~/models/notebooksModel'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,

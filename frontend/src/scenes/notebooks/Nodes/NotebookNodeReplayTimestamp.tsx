@@ -6,7 +6,7 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { dayjs } from 'lib/dayjs'
-import { JSONContent, openNotebook } from '../Notebook/utils'
+import { JSONContent } from '../Notebook/utils'
 import clsx from 'clsx'
 import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
@@ -15,6 +15,7 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import { useMemo } from 'react'
+import { openNotebook } from '~/models/notebooksModel'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { shortId, findNodeLogic } = useValues(notebookLogic)
