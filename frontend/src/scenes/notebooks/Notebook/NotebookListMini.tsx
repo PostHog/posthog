@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconPlus, IconJournal } from 'lib/lemon-ui/icons'
-import { notebooksModel } from '../../../models/notebooksModel'
+import { notebooksModel } from '~/models/notebooksModel'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { NotebookListItemType } from '~/types'
 import { useCallback } from 'react'
