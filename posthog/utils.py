@@ -239,7 +239,10 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
     if "hours" in delta_mapping:
         date = date.replace(minute=0, second=0, microsecond=0)
     else:
-        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        if match.group("type") == "d" and match.group("position") == "End":
+            date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        else:
+            date = date.replace(hour=0, minute=0, second=0, microsecond=0)
     return date, delta_mapping
 
 

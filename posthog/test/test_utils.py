@@ -163,6 +163,9 @@ class TestRelativeDateParse(TestCase):
         self.assertEqual(relative_date_parse("-1d").strftime("%Y-%m-%d"), "2020-01-30")
         self.assertEqual(relative_date_parse("-2d").strftime("%Y-%m-%d"), "2020-01-29")
 
+        self.assertEqual(relative_date_parse("-1dStart").isoformat(), "2020-01-30T00:00:00+00:00")
+        self.assertEqual(relative_date_parse("-1dEnd").isoformat(), "2020-01-30T23:59:59.999999+00:00")
+
     @freeze_time("2020-01-31")
     def test_month(self):
         self.assertEqual(relative_date_parse("-1m").strftime("%Y-%m-%d"), "2019-12-31")
