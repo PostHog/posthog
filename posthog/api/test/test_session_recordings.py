@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List
@@ -171,7 +172,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthog.api.session_recording.SessionRecordingListFromReplaySummary")
     def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):
+        mock_summary_lister.return_value.run.return_value = ([], False)
+
         self.client.get(f'/api/projects/{self.team.id}/session_recordings?console_logs=["warn", "error"]')
+
         assert len(mock_summary_lister.call_args_list) == 1
         filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
         assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
@@ -882,11 +886,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         flush_persons_and_events()
+        # data needs time to settle :'(
+        time.sleep(0.5)
 
         query_params = [
             f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
             'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
         ]
+
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
         )
