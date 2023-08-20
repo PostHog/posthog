@@ -14,7 +14,7 @@ from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_
 
 
 class QueryDateRange:
-    """Translation of the raw `date_from` and `date_to` filter values to datetimes in the relevant project's timezone.
+    """Translation of the raw `date_from` and `date_to` filter values to datetimes.
 
     A raw `date_from` and `date_to` value can either be:
     - unset, in which case `date_from` takes the timestamp of the earliest event in the project and `date_to` equals now
@@ -55,12 +55,7 @@ class QueryDateRange:
         return date_to
 
     def get_earliest_timestamp(self):
-        try:
-            earliest_date = get_earliest_timestamp(self._team.pk)
-        except IndexError:
-            return timezone.now()  # TODO: fix
-        else:
-            return earliest_date
+        return get_earliest_timestamp(self._team.pk)
 
     @cached_property
     def date_from_param(self) -> datetime:
