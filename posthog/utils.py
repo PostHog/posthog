@@ -5,6 +5,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -35,7 +36,7 @@ import pytz
 import structlog
 from celery.schedules import crontab
 from dateutil import parser
-from dateutil.relativedelta import relativedelta
+from dateutil.relativedelta import relativedelta, SU, SA
 from django.conf import settings
 from django.core.cache import cache
 from django.db.utils import DatabaseError
@@ -215,6 +216,12 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
     elif match.group("type") == "w":
         if match.group("number"):
             delta_mapping["weeks"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            # Assuming Sunday as the start of the week
+            delta_mapping["weekday"] = SU(-1)
+        if match.group("position") == "End":
+            # Assuming Saturday as the end of the week
+            delta_mapping["weekday"] = SA(+1)
     elif match.group("type") == "m":
         if match.group("number"):
             delta_mapping["months"] = int(match.group("number"))
@@ -225,6 +232,17 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
     elif match.group("type") == "q":
         if match.group("number"):
             delta_mapping["weeks"] = 13 * int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["day"] = 1
+            delta_mapping["month"] = (3 * math.floor((date.month - 1) / 3)) + 1
+            # For some reason using "weeks" and "month" together results in the
+            # wrong start date. Therefore using "months" here
+            if match.group("number"):
+                delta_mapping.pop("weeks")
+                delta_mapping["months"] = 3 * int(match.group("number"))
+        if match.group("position") == "End":
+            delta_mapping["day"] = 31
+            delta_mapping["month"] = (3 * math.floor((date.month - 1) / 3)) + 3
     elif match.group("type") == "y":
         if match.group("number"):
             delta_mapping["years"] = int(match.group("number"))
@@ -235,11 +253,19 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
             delta_mapping["month"] = 12
             delta_mapping["day"] = 31
     date -= relativedelta(**delta_mapping)  # type: ignore
-    # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
+    # Truncate to the start or end of the hour for hour-precision datetimes
     if "hours" in delta_mapping:
-        date = date.replace(minute=0, second=0, microsecond=0)
+        if match.group("position") == "End":
+            date = date.replace(minute=59, second=59, microsecond=999999)
+        else:
+            date = date.replace(minute=0, second=0, microsecond=0)
+
+    # Truncate to the start or end of the day for larger intervals
     else:
-        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        if match.group("position") == "End":
+            date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        else:
+            date = date.replace(hour=0, minute=0, second=0, microsecond=0)
     return date, delta_mapping
 
 
