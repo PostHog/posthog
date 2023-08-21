@@ -174,6 +174,10 @@ export const personsLogic = kea<personsLogicType>({
             ],
         ],
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
+        showCustomerSuccessDashboards: [
+            (s) => [s.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.CS_DASHBOARDS],
+        ],
     }),
     listeners: ({ actions, values }) => ({
         editProperty: async ({ key, newValue }) => {

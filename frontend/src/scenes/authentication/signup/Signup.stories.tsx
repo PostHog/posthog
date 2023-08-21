@@ -6,11 +6,10 @@ import { userLogic } from 'scenes/userLogic'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { SignupContainer } from './SignupContainer'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/Signup',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
     decorators: [
@@ -19,8 +18,8 @@ export default {
             post: { '/api/signup': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })] },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export const SelfHosted = (): JSX.Element => {
     useStorybookMocks({
         get: {

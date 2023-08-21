@@ -1,6 +1,5 @@
-import { NodeViewProps } from '@tiptap/core'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, RecordingFilters } from '~/types'
+import { FilterType, NotebookNodeType, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
@@ -15,8 +14,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeViewProps } from '../Notebook/utils'
 
-const Component = (props: NodeViewProps): JSX.Element => {
+const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
     const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
 
     const playerKey = useRef(`notebook-${uuid()}`).current
@@ -62,7 +62,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
 }
 
-export const NotebookNodePlaylist = createPostHogWidgetNode({
+type NotebookNodePlaylistAttributes = {
+    filters: FilterType
+}
+
+export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylistAttributes>({
     nodeType: NotebookNodeType.RecordingPlaylist,
     title: 'Session Replays',
     Component,
@@ -80,7 +84,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode({
     },
     pasteOptions: {
         find: urls.replay() + '(.+)',
-        getAttributes: (match) => {
+        getAttributes: async (match) => {
             const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
             return { filters: searchParams.filters }
         },

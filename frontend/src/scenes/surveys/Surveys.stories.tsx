@@ -145,11 +145,10 @@ const MOCK_SURVEY_RESULTS = {
     ],
 }
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Surveys',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -176,8 +175,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function SurveysList(): JSX.Element {
     useFeatureFlags([FEATURE_FLAGS.SURVEYS])
     useEffect(() => {

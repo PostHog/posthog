@@ -12,6 +12,8 @@ import { urls } from 'scenes/urls'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { tagsModel } from '~/models/tagsModel'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
@@ -32,7 +34,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     path(['scenes', 'actions', 'actionEditLogic']),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
-    connect({ actions: [tagsModel, ['loadTags']] }),
+    connect({ actions: [tagsModel, ['loadTags']], values: [sceneLogic, ['activeScene']] }),
     actions({
         setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
             action,
@@ -178,7 +180,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     beforeUnload(({ values }) => ({
-        enabled: () => values.actionChanged && !values.wasDeleted,
+        enabled: () => values.activeScene !== Scene.Action && values.actionChanged && !values.wasDeleted,
         message: `Leave action?\nChanges you made will be discarded.`,
     })),
 ])

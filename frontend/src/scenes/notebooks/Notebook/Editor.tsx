@@ -1,29 +1,32 @@
+import posthog from 'posthog-js'
+import { useActions } from 'kea'
+import { useCallback, useRef } from 'react'
+
 import { Editor as TTEditor } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
-import { useCallback, useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, EditorFocusPosition, Node } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
-import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
-import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
-import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
+import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
+import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
+import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
-import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
-
-import posthog from 'posthog-js'
-import { SlashCommandsExtension } from './SlashCommands'
-import { JSONContent, NotebookEditor } from './utils'
-import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
+import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
-import { useActions } from 'kea'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
+import { lemonToast } from '@posthog/lemon-ui'
+import { NotebookNodeType } from '~/types'
+import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
+
+import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
+import { SlashCommandsExtension } from './SlashCommands'
+import { BacklinkCommandsExtension } from './BacklinkCommands'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -74,7 +77,7 @@ export function Editor({
                     }
                 },
             }),
-            NotebookNodeLink,
+            NotebookMarkLink,
             NotebookNodeBacklink,
             NotebookNodeInsight,
             NotebookNodeQuery,
@@ -83,6 +86,7 @@ export function Editor({
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
+            NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
         ],
@@ -126,12 +130,38 @@ export function Editor({
                         return true
                     }
 
-                    if (event.dataTransfer.files && event.dataTransfer.files[0]) {
+                    if (!moved && event.dataTransfer.files && event.dataTransfer.files[0]) {
                         // if dropping external files
                         const file = event.dataTransfer.files[0] // the dropped file
 
-                        console.warn('TODO: Dropped file!', file)
-                        // TODO: Detect if it is an image and add image upload handler
+                        posthog.capture('notebook file dropped', { file_type: file.type })
+
+                        if (!file.type.startsWith('image/')) {
+                            lemonToast.warning('Only images can be added to Notebooks at this time.')
+                            return true
+                        }
+
+                        const coordinates = view.posAtCoords({
+                            left: event.clientX,
+                            top: event.clientY,
+                        })
+
+                        if (!coordinates) {
+                            // TODO: Seek to end of document instead
+                            return true
+                        }
+
+                        editor
+                            .chain()
+                            .focus()
+                            .setTextSelection(coordinates.pos)
+                            .insertContent({
+                                type: NotebookNodeType.Image,
+                                attrs: {
+                                    file,
+                                },
+                            })
+                            .run()
 
                         return true
                     }
@@ -155,9 +185,11 @@ export function Editor({
                     const endPosition = findEndPositionOfNode(editor, position)
                     if (endPosition) {
                         editor.chain().focus().insertContentAt(endPosition, content).run()
+                        editor.commands.scrollIntoView()
                     }
                 },
                 findNode: (position: number) => findNode(editor, position),
+                findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
                 nextNode: (position: number) => nextNode(editor, position),
                 hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
             })
@@ -171,6 +203,10 @@ export function Editor({
             {_editor && <FloatingSuggestions editor={_editor} />}
         </>
     )
+}
+
+function findNodePositionByAttrs(editor: TTEditor, attrs: { [attr: string]: any }): number {
+    return findPositionOfClosestNodeMatchingAttrs(editor, 0, attrs)
 }
 
 function findEndPositionOfNode(editor: TTEditor, position: number): number | null {

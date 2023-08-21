@@ -38,7 +38,7 @@ export class PluginsApiKeyManager {
         }
 
         const cachedKeyRedisKey = `plugins-api-key-manager/${organizationId}`
-        const cachedKey = await this.db.redisGet<string | null>(cachedKeyRedisKey, null)
+        const cachedKey = await this.db.redisGet<string | null>(cachedKeyRedisKey, null, 'fetchOrCreatePersonalApiKey')
         if (cachedKey) {
             return cachedKey as string
         }
@@ -84,7 +84,7 @@ export class PluginsApiKeyManager {
                 throw new Error('Unable to find or create a personal API key')
             }
 
-            await this.db.redisSet(cachedKeyRedisKey, key, 86_400 * 14) // Don't cache keys longer than 14 days
+            await this.db.redisSet(cachedKeyRedisKey, key, 'fetchOrCreatePersonalApiKey', 86_400 * 14) // Don't cache keys longer than 14 days
 
             return key
         } finally {

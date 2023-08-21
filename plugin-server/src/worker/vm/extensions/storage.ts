@@ -28,7 +28,7 @@ export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageE
                     DO UPDATE SET value = $3
                 `,
                 [pluginConfig.id, key, JSON.stringify(value)],
-                `storageSet(pluginConfig.id=${pluginConfig.id})`
+                `storageSet`
             )
         }
 

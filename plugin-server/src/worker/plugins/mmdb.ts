@@ -31,7 +31,7 @@ export async function setupMmdb(hub: Hub): Promise<schedule.Job | undefined> {
 
 /** Check if MMDB is being currently fetched by any other plugin server worker in the cluster. */
 async function getMmdbStatus(hub: Hub): Promise<MMDBFileStatus> {
-    return (await hub.db.redisGet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle)) as MMDBFileStatus
+    return (await hub.db.redisGet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle, 'getMmdbStatus')) as MMDBFileStatus
 }
 
 /** Decompress a Brotli-compressed MMDB buffer and open a reader from it. */
@@ -114,14 +114,19 @@ async function distributableFetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderMod
         return prepareMmdb(hub)
     }
     // Allow 120 seconds of download until another worker retries
-    await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Fetching, 120)
+    await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Fetching, 'distributableFetchAndInsertFreshMmdb', 120)
     try {
         const mmdb = await fetchAndInsertFreshMmdb(hub)
-        await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle)
+        await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle, 'distributableFetchAndInsertFreshMmdb')
         return mmdb
     } catch (e) {
         // In case of an error mark the MMDB feature unavailable for an hour
-        await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Unavailable, 120)
+        await hub.db.redisSet(
+            MMDB_STATUS_REDIS_KEY,
+            MMDBFileStatus.Unavailable,
+            'distributableFetchAndInsertFreshMmdb',
+            120
+        )
         status.error('❌', 'An error occurred during MMDB fetch and insert:', e)
         return null
     }

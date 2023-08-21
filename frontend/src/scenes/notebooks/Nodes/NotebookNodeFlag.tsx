@@ -1,16 +1,16 @@
-import { NodeViewProps } from '@tiptap/core'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { useValues } from 'kea'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { IconFlag, IconRecording } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeViewProps } from '../Notebook/utils'
 
-const Component = (props: NodeViewProps): JSX.Element => {
+const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = props.node.attrs
     const logic = featureFlagLogic({ id })
     const { featureFlag, featureFlagLoading } = useValues(logic)
@@ -55,7 +55,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const NotebookNodeFlag = createPostHogWidgetNode({
+type NotebookNodeFlagAttributes = {
+    id: FeatureFlagLogicProps['id']
+}
+
+export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
     title: 'Feature Flag',
     Component,
@@ -67,8 +71,8 @@ export const NotebookNodeFlag = createPostHogWidgetNode({
     },
     pasteOptions: {
         find: urls.featureFlag('') + '(.+)',
-        getAttributes: (match) => {
-            return { id: match[1] }
+        getAttributes: async (match) => {
+            return { id: match[1] as FeatureFlagLogicProps['id'] }
         },
     },
 })

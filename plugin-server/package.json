@@ -4,7 +4,7 @@
     "description": "PostHog Plugin Server",
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
-    "packageManager": "pnpm@8.3.1",
+    "packageManager": "pnpm@8.6.0",
     "scripts": {
         "test": "jest --runInBand --forceExit",
         "functional_tests": "jest --config ./jest.config.functional.js",

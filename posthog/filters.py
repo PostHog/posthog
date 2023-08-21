@@ -53,7 +53,9 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         return queryset.filter(term_filter)
 
 
-def term_search_filter_sql(search_fields: List[str], search_terms: Optional[str] = "") -> Tuple[str, dict]:
+def term_search_filter_sql(
+    search_fields: List[str], search_terms: Optional[str] = "", search_extra: Optional[str] = ""
+) -> Tuple[str, dict]:
     if not search_fields or not search_terms:
         return "", {}
 
@@ -70,6 +72,6 @@ def term_search_filter_sql(search_fields: List[str], search_terms: Optional[str]
         term_filter.append(f"({' OR '.join(search_filter_query)})")
 
     if term_filter:
-        return f"AND ({' AND '.join(term_filter)})", kwargs
+        return f"AND (({' AND '.join(term_filter)}) {search_extra})", kwargs
     else:
         return "", {}

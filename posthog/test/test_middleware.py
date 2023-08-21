@@ -1,7 +1,8 @@
 import json
 from urllib.parse import quote
-from rest_framework import status
+
 from django.test.client import Client
+from rest_framework import status
 
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
@@ -19,7 +20,6 @@ class TestAccessMiddleware(APIBaseTest):
         """
 
         with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):
-
             # not in list
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -95,7 +95,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 41
+        cls.base_app_num_queries = 42
         # Create another team that the user does have access to
         cls.second_team = Team.objects.create(organization=cls.organization, name="Second Life")
 
@@ -108,6 +108,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
+
         with self.assertNumQueries(self.base_app_num_queries + 4):  # AutoProjectMiddleware adds 4 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
@@ -355,12 +356,17 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_current_project_name"].value, self.team.name)
         self.assertEqual(response.cookies["ph_current_project_name"]["max-age"], 31536000)
 
+        self.assertEqual(response.cookies["ph_current_instance"].key, "ph_current_instance")
+        self.assertEqual(response.cookies["ph_current_instance"].value, SITE_URL)
+        self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
+
         response = self.client.get("/logout")
 
         # Check that the local cookies will be removed by having 'expires' in the past
         self.assertTrue(response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
         self.assertTrue(response.cookies["ph_current_project_name"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
-        self.assertTrue(response.cookies["ph_current_instance"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
+        # We don't want to remove the ph_current_instance cookie
+        self.assertNotIn("ph_current_instance", response.cookies)
 
         # Request a page after logging out
         response = self.client.get("/")
@@ -368,4 +374,3 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         # Check if the cookies are not present in the response
         self.assertNotIn("ph_current_project_token", response.cookies)
         self.assertNotIn("ph_current_project_name", response.cookies)
-        self.assertNotIn("ph_current_instance", response.cookies)

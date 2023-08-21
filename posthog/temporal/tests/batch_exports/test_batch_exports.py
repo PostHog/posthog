@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import operator
 from random import randint
@@ -10,6 +11,7 @@ import pytest_asyncio
 from django.conf import settings
 
 from posthog.temporal.workflows.batch_exports import (
+    get_data_interval,
     get_results_iterator,
     get_rows_count,
 )
@@ -29,7 +31,12 @@ EventValues = TypedDict(
         "person_properties": dict | None,
         "team_id": int,
         "properties": dict | None,
-        "elements_chain": str,
+        "elements_chain": str | None,
+        "elements": str | None,
+        "ip": str | None,
+        "site_url": str | None,
+        "set": str | None,
+        "set_once": str | None,
     },
 )
 
@@ -113,8 +120,18 @@ async def test_get_rows_count(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(10000)
     ]
@@ -145,8 +162,18 @@ async def test_get_rows_count_handles_duplicates(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(10000)
     ]
@@ -180,8 +207,18 @@ async def test_get_results_iterator(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(20000)
     ]
@@ -222,8 +259,18 @@ async def test_get_results_iterator_handles_duplicates(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(10000)
     ]
@@ -247,3 +294,30 @@ async def test_get_results_iterator_handles_duplicates(client):
         for key, value in result.items():
             # Some keys will be missing from result, so let's only check the ones we have.
             assert value == expected[key], f"{key} value in {result} didn't match value in {expected}"
+
+
+@pytest.mark.parametrize(
+    "interval,data_interval_end,expected",
+    [
+        (
+            "hour",
+            "2023-08-01T00:00:00+00:00",
+            (
+                dt.datetime(2023, 7, 31, 23, 0, 0, tzinfo=dt.timezone.utc),
+                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+            ),
+        ),
+        (
+            "day",
+            "2023-08-01T00:00:00+00:00",
+            (
+                dt.datetime(2023, 7, 31, 0, 0, 0, tzinfo=dt.timezone.utc),
+                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+            ),
+        ),
+    ],
+)
+def test_get_data_interval(interval, data_interval_end, expected):
+    """Test get_data_interval returns the expected data interval tuple."""
+    result = get_data_interval(interval, data_interval_end)
+    assert result == expected

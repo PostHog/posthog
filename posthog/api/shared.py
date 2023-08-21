@@ -31,6 +31,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "api_token",
             "name",
             "completed_snippet_onboarding",
+            "has_completed_onboarding_for",
             "ingested_event",
             "is_demo",
             "timezone",

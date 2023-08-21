@@ -1,26 +1,38 @@
 // Helpers for Kea issue with double importing
 import {
-    JSONContent as TTJSONContent,
-    Editor as TTEditor,
     ChainedCommands as EditorCommands,
+    Editor as TTEditor,
     FocusPosition as EditorFocusPosition,
-    Range as EditorRange,
     getText,
+    JSONContent as TTJSONContent,
+    Range as EditorRange,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
+import { NodeViewProps } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
 
 /* eslint-disable @typescript-eslint/no-empty-interface */
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
 /* eslint-enable @typescript-eslint/no-empty-interface */
-// export type FocusPosition = number | boolean | 'start' | 'end' | 'all' | null
 
 export {
     ChainedCommands as EditorCommands,
     Range as EditorRange,
     FocusPosition as EditorFocusPosition,
 } from '@tiptap/core'
+
+export type NotebookNodeAttributes = Record<string, any>
+type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
+    attrs: T & {
+        nodeId?: string
+        height?: string | number
+    }
+}
+
+export type NotebookNodeViewProps<T extends NotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
+    node: NotebookNode<T>
+}
 
 export interface NotebookEditor {
     getJSON: () => JSONContent
@@ -33,6 +45,7 @@ export interface NotebookEditor {
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
     findNode: (position: number) => Node | null
+    findNodePositionByAttrs: (attrs: Record<string, any>) => any
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
 }
@@ -55,7 +68,6 @@ const textContent = (node: any): string => {
     return getText(node, {
         blockSeparator: ' ',
         textSerializers: {
-            [NotebookNodeType.Link]: ({ node }) => node.attrs.href,
             [NotebookNodeType.ReplayTimestamp]: ({ node }) => `${node.attrs.playbackTime || '00:00'}: `,
         },
     })

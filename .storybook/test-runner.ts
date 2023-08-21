@@ -1,17 +1,16 @@
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { OptionsParameter } from '@storybook/addons'
 import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
 import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 import type { Mocks } from '~/mocks/utils'
-import { StoryContext } from '@storybook/react'
 
+type StoryContext = ReturnType<typeof getStoryContext> extends Promise<infer T> ? T : never
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/react' {
     interface Parameters {
-        options?: OptionsParameter
+        options?: any
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
             /**
@@ -146,10 +145,10 @@ async function expectStoryToMatchComponentSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    targetSelector: string = '#root'
+    targetSelector: string = '#storybook-root'
 ): Promise<void> {
     await page.evaluate(() => {
-        const rootEl = document.getElementById('root')
+        const rootEl = document.getElementById('storybook-root')
         if (!rootEl) {
             throw new Error('Could not find root element')
         }

@@ -13,6 +13,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     EXPECTED_PROPERTY_DEFINITIONS: List[Dict[str, Union[str, Optional[int], bool]]] = [
         {"name": "$browser", "is_numerical": False},
         {"name": "$current_url", "is_numerical": False},
+        {"name": "$lib", "is_numerical": False},
+        {"name": "$performance_raw", "is_numerical": False},
         {"name": "is_first_movie", "is_numerical": False},
         {"name": "app_rating", "is_numerical": True},
         {"name": "plan", "is_numerical": False},
@@ -27,7 +29,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         EventDefinition.objects.get_or_create(team=self.team, name="$pageview")
 
         PropertyDefinition.objects.get_or_create(team=self.team, name="$current_url")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="$lib")
         PropertyDefinition.objects.get_or_create(team=self.team, name="$browser")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="$performance_raw")
         PropertyDefinition.objects.get_or_create(team=self.team, name="first_visit")
         PropertyDefinition.objects.get_or_create(team=self.team, name="is_first_movie")
         PropertyDefinition.objects.get_or_create(team=self.team, name="app_rating", defaults={"is_numerical": True})
@@ -75,10 +79,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         PropertyDefinition.objects.bulk_create(
             [PropertyDefinition(team=self.team, name="z_property_{}".format(i)) for i in range(1, 301)]
         )
+        expected_property_count = 310
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 308)
+        self.assertEqual(response.json()["count"], expected_property_count)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
         self.assertEqual(response.json()["results"][0]["name"], "$browser")
         self.assertEqual(
@@ -86,9 +91,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         )
 
         property_checkpoints = [
-            182,
-            272,
-            92,
+            180,
+            270,
+            90,
         ]  # Because Postgres's sorter does this: property_1; property_100, ..., property_2, property_200, ..., it's
         # easier to deterministically set the expected events
 
@@ -96,9 +101,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             response = self.client.get(response.json()["next"])
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            self.assertEqual(response.json()["count"], 308)
+            self.assertEqual(response.json()["count"], expected_property_count)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 8
+                len(response.json()["results"]), 100 if i < 2 else 10
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_property_{property_checkpoints[i]}")
 
@@ -126,6 +131,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert sorted([r["name"] for r in response_data["results"]]) == [
             "$browser",
             "$current_url",
+            "$lib",
+            "$performance_raw",
             "app_rating",
             "first_visit",
             "is_first_movie",
@@ -148,6 +155,25 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["app_rating"])
 
+        # Searching by alias
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=ary")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["name"], "$lib")
+
+        # Searching by alias with two parts
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=brow%20perf")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["name"], "$performance_raw")
+
+        # Searching from both a name and an alias
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=brow")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["results"][0]["name"], "$browser")  # uses name ilike 'brow'
+        self.assertEqual(response.json()["results"][1]["name"], "$performance_raw")  # uses name in (...)
+
         # Handles URL encoding properly
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=%24cur")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -160,11 +186,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             "/api/projects/@current/property_definitions/?search=%24&event_names=%5B%22%24pageview%22%5D"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2, response.json()["results"])
+        self.assertEqual(response.json()["count"], 4, response.json()["results"])
         self.assertEqual(response.json()["results"][0]["name"], "$browser")
         self.assertEqual(response.json()["results"][0]["is_seen_on_filtered_events"], True)
         self.assertEqual(response.json()["results"][1]["name"], "$current_url")
         self.assertEqual(response.json()["results"][1]["is_seen_on_filtered_events"], False)
+        self.assertEqual(response.json()["results"][2]["name"], "$lib")
+        self.assertEqual(response.json()["results"][2]["is_seen_on_filtered_events"], False)
+        self.assertEqual(response.json()["results"][3]["name"], "$performance_raw")
+        self.assertEqual(response.json()["results"][3]["is_seen_on_filtered_events"], False)
 
         # Fuzzy search 2
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=hase%20")
@@ -193,6 +223,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         ) == [
             ("$browser", True),
             ("$current_url", False),
+            ("$lib", False),
+            ("$performance_raw", False),
             ("app_rating", False),
             ("first_visit", True),
             ("is_first_movie", False),

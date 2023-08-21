@@ -287,3 +287,6 @@ class EventDefinitionType(str, Enum):
 class FlagRequestType(str, Enum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
+
+
+ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
