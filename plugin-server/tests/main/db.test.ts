@@ -1,9 +1,12 @@
 import { DateTime } from 'luxon'
+import { Pool } from 'pg'
 
+import { defaultConfig } from '../../src/config/config'
 import { ClickHouseTimestamp, Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
 import { DB, GroupId } from '../../src/utils/db/db'
+import { DependencyUnavailableError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
-import { PostgresUse } from '../../src/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -1090,5 +1093,21 @@ describe('DB', () => {
             const fetchedTeam = await hub.db.fetchTeamByToken('token2')
             expect(fetchedTeam).toEqual(null)
         })
+    })
+})
+
+describe('PostgresRouter()', () => {
+    test('throws DependencyUnavailableError on postgres errors', async () => {
+        const errorMessage =
+            'connection to server at "posthog-pgbouncer" (171.20.65.128), port 6543 failed: server closed the connection unexpectedly'
+        const pgQueryMock = jest.spyOn(Pool.prototype, 'query').mockImplementation(() => {
+            return Promise.reject(new Error(errorMessage))
+        })
+
+        const router = new PostgresRouter(defaultConfig, null)
+        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', null, 'testing')).rejects.toEqual(
+            new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage))
+        )
+        pgQueryMock.mockRestore()
     })
 })
