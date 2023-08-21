@@ -295,8 +295,6 @@ export interface DataTableNode extends Node {
     showSavedQueries?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
-    /** Query results are rendered without a border (default: false) */
-    embedded?: boolean
     /** Link properties via the URL (default: false) */
     propertiesViaUrl?: boolean
     /** Can the user click on column headers to sort the table? (default: true) */

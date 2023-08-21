@@ -186,7 +186,7 @@ const HogQLEditor = (): JSX.Element | null => {
     return isHogQLQuery(query.source) ? <HogQLQueryEditor query={query.source} setQuery={setQuerySource} /> : null
 }
 
-const ResultsTable = ({ isReadOnly }: { isReadOnly: boolean }): JSX.Element => {
+const ResultsTable = ({ isReadOnly, ...props }: { isReadOnly: boolean; embedded?: boolean }): JSX.Element => {
     const {
         response,
         responseLoading,
@@ -201,7 +201,7 @@ const ResultsTable = ({ isReadOnly }: { isReadOnly: boolean }): JSX.Element => {
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(logic)
     const { setQuery } = useActions(logic)
 
-    const { showActions, expandable, embedded } = queryWithDefaults
+    const { showActions, expandable } = queryWithDefaults
     const { query, context } = logic.props
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
@@ -414,6 +414,7 @@ const ResultsTable = ({ isReadOnly }: { isReadOnly: boolean }): JSX.Element => {
 
     return (
         <LemonTable
+            {...props}
             className="DataTable"
             loading={responseLoading && !nextDataLoading && !newDataLoading}
             columns={lemonColumns}
@@ -422,7 +423,6 @@ const ResultsTable = ({ isReadOnly }: { isReadOnly: boolean }): JSX.Element => {
                     '::'
                 ) /* Bust the LemonTable cache when columns change */
             }
-            embedded={embedded}
             dataSource={(dataTableRows ?? []) as DataTableRow[]}
             rowKey={({ result }: DataTableRow, rowIndex) => {
                 if (result) {

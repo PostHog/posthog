@@ -58,7 +58,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
-            modifiedQuery.embedded = !isEditable
             modifiedQuery.full = isEditable
         }
 
@@ -80,7 +79,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
                     {isDataTableNode(modifiedQuery) && (
                         <>
                             {isEditable && <DataTable.HogQLQueryEditor />}
-                            <DataTable.Results isReadOnly={isEditable} />
+                            <DataTable.Results isReadOnly={isEditable} embedded={!isEditable} />
                         </>
                     )}
                 </Query>
