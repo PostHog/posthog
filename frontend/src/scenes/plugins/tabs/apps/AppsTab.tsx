@@ -19,7 +19,8 @@ export function AppsTab(): JSX.Element {
     const { checkForUpdates, openAdvancedInstallModal } = useActions(pluginsLogic)
 
     const {
-        filteredEnabledPlugins,
+        sortableEnabledPlugins,
+        unsortableEnabledPlugins,
         filteredDisabledPlugins,
         installedPluginUrls,
         filteredPluginsNeedingUpdates,
@@ -86,7 +87,11 @@ export function AppsTab(): JSX.Element {
                     />
                 )}
 
-                <AppsTable title="Enabled Apps" plugins={filteredEnabledPlugins} loading={loading} />
+                <AppsTable
+                    title="Enabled Apps"
+                    plugins={[...sortableEnabledPlugins, ...unsortableEnabledPlugins]}
+                    loading={loading}
+                />
                 <AppsTable title="Available Apps" plugins={filteredDisabledPlugins} loading={loading} />
 
                 {canGloballyManagePlugins(user?.organization) && (

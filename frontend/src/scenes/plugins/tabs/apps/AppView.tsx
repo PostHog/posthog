@@ -24,12 +24,19 @@ export function AppView({
 }: {
     plugin: PluginTypeWithConfig | PluginType | PluginRepositoryEntry
 }): JSX.Element {
-    const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating, showAppMetricsForPlugin, loading } =
-        useValues(pluginsLogic)
+    const {
+        installingPluginUrl,
+        pluginsNeedingUpdates,
+        pluginsUpdating,
+        showAppMetricsForPlugin,
+        loading,
+        sortableEnabledPlugins,
+    } = useValues(pluginsLogic)
     const { installPlugin, editPlugin, toggleEnabled, updatePlugin, openReorderModal } = useActions(pluginsLogic)
 
     const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
     const isConfigured = !!pluginConfig?.id
+    const orderedIndex = sortableEnabledPlugins.indexOf(plugin as unknown as any) + 1
     const menuItems: LemonMenuItem[] = []
 
     if (plugin.url) {
@@ -61,15 +68,26 @@ export function AppView({
                         <Tooltip
                             title={
                                 <>
-                                    Apps that react to incoming events run in order. This app runs in position{' '}
-                                    {pluginConfig.order}.
-                                    <br />
-                                    Click to change the order of the plugins.
+                                     
+                                    {orderedIndex ? (
+                                        <>
+                                            Apps that react to incoming events run in order. This app runs in position{' '}
+                                            {orderedIndex}.
+                                            <br />
+                                            Click to change the order of the plugins.
+                                        </>
+                                    ) : (
+                                        <>As this app is not part of the processing flow, the order is unimportant </>
+                                    )}
                                 </>
                             }
                         >
                             <LemonButton onClick={() => openReorderModal()} noPadding>
-                                <LemonBadge.Number status="primary" count={pluginConfig.order} maxDigits={3} />
+                                {orderedIndex ? (
+                                    <LemonBadge.Number status="primary" count={orderedIndex} maxDigits={3} />
+                                ) : (
+                                    <LemonBadge status="primary" content={'-'} />
+                                )}
                             </LemonButton>
                         </Tooltip>
                     </span>

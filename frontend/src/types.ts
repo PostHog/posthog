@@ -1480,6 +1480,7 @@ export interface PluginConfigType {
     team_id: number
     enabled: boolean
     order: number
+
     config: Record<string, any>
     error?: PluginErrorType
     delivery_rate_24h?: number | null
