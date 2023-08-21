@@ -41,6 +41,28 @@ export function InsightEmptyState({
     )
 }
 
+function FastModeLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
+    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
+    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    return (
+        <Tooltip
+            title={`Fast mode enables ${suggestedSamplingPercentage}% sampling for all insights you refresh, speeding up the calculation of results.`}
+            placement="bottom"
+        >
+            <Link
+                onClick={() => {
+                    setSamplingPercentage(suggestedSamplingPercentage)
+                    posthog.capture('sampling_enabled_on_slow_query', {
+                        samplingPercentage: suggestedSamplingPercentage,
+                    })
+                }}
+            >
+                <ThunderboltFilled className="mt-1" /> Fast mode {`(${suggestedSamplingPercentage}%)`}
+            </Link>
+        </Tooltip>
+    )
+}
+
 export function InsightTimeoutState({
     isLoading,
     queryId,
@@ -50,8 +72,7 @@ export function InsightTimeoutState({
     queryId?: string | null
     insightProps: InsightLogicProps
 }): JSX.Element {
-    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
-    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
 
     return (
         <div className="insight-empty-state warning">
@@ -65,34 +86,25 @@ export function InsightTimeoutState({
                     </>
                 )}
                 <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
-                <div className="p-4 rounded-lg bg-mid flex gap-x-2">
+                <div className="p-4 rounded-lg bg-mid flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>
-                    <p className="text-xs m-0">
-                        Need to speed things up? Try reducing the date range{suggestedSamplingPercentage ? ',' : ' or'}{' '}
-                        removing breakdowns
-                        {isLoading && suggestedSamplingPercentage && (
+                    <p className="text-xs m-0 leading-5">
+                        {isLoading && suggestedSamplingPercentage && !samplingPercentage ? (
                             <>
-                                , or turning on sampling with{' '}
-                                <Tooltip
-                                    title="Turning on fast mode will automatically enable 10% sampling for all insights you refresh, speeding up the calculation of results"
-                                    placement="bottom"
-                                >
-                                    <Link
-                                        onClick={() => {
-                                            setSamplingPercentage(suggestedSamplingPercentage)
-                                            posthog.capture('sampling_enabled_on_slow_query', {
-                                                samplingPercentage: suggestedSamplingPercentage,
-                                            })
-                                        }}
-                                    >
-                                        <ThunderboltFilled className="mt-1" /> Fast mode
-                                    </Link>
-                                </Tooltip>
+                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on
+                                sampling with <FastModeLink insightProps={insightProps} />.
                             </>
+                        ) : isLoading && suggestedSamplingPercentage && samplingPercentage ? (
+                            <>
+                                Still waiting around? You must have lots of data! Kick it up a notch with{' '}
+                                <FastModeLink insightProps={insightProps} />. Or try reducing the date range and
+                                removing breakdowns.
+                            </>
+                        ) : (
+                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
                         )}
-                        .
                     </p>
                 </div>
                 {queryId ? (
