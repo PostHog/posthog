@@ -29,7 +29,6 @@ export type NotebookNodeLogicProps = {
     getPos: () => number
     title: string
     widgets: NotebookNodeWidget[]
-    domNode: HTMLElement
 }
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -42,9 +41,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Record<string, any>) => ({ attributes }),
-        setopenWidgetKeys: (widgetKeys: string[]) => ({ widgetKeys }),
-        addActiveWidget: (key: string) => ({ key }),
-        removeActiveWidget: (key: string) => ({ key }),
         insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
             timestamp,
             sessionRecordingId,
@@ -71,35 +67,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setTitle: (_, { title }) => title,
             },
         ],
-        openWidgetKeys: [
-            [] as string[],
-            {
-                setopenWidgetKeys: (_, { widgetKeys }) => widgetKeys,
-            },
-        ],
     }),
 
     selectors({
-        domNode: [() => [(_, props) => props], (props): HTMLElement => props.domNode],
         notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
         nodeAttributes: [
             () => [(_, props) => props.nodeAttributes],
             (nodeAttributes): Record<string, any> => nodeAttributes,
         ],
         widgets: [() => [(_, props) => props], (props): NotebookNodeWidget[] => props.widgets],
-        unopenWidgets: [
-            (s) => [s.openWidgetKeys, (_, props) => props.widgets],
-            (openWidgetKeys, widgets: NotebookNodeWidget[]) =>
-                widgets.filter((widget) => !openWidgetKeys.includes(widget.key)),
-        ],
-        openWidgets: [
-            (s) => [s.openWidgetKeys, (_, props) => props.widgets],
-            (openWidgetKeys, widgets: NotebookNodeWidget[]) =>
-                widgets.filter((widget) => openWidgetKeys.includes(widget.key)),
-        ],
     }),
 
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, props }) => ({
         insertAfter: ({ content }) => {
             const logic = values.notebookLogic
             logic.values.editor?.insertContentAfterNode(props.getPos(), content)
@@ -135,18 +114,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
-        },
-
-        addActiveWidget: ({ key }) => {
-            actions.setopenWidgetKeys(
-                [...values.openWidgetKeys, key].filter((value, index, array) => array.indexOf(value) === index)
-            )
-        },
-        removeActiveWidget: ({ key }) => {
-            const index = values.openWidgetKeys.indexOf(key)
-            const newopenWidgetKeys = [...values.openWidgetKeys]
-            newopenWidgetKeys.splice(index, 1)
-            actions.setopenWidgetKeys(newopenWidgetKeys)
         },
     })),
 

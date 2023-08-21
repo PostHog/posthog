@@ -55,7 +55,6 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     getPos,
     updateAttributes,
     widgets = [],
-    editor,
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable } = useValues(mountedNotebookLogic)
@@ -71,7 +70,6 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
         getPos,
         title: defaultTitle,
         widgets,
-        domNode: editor.view.nodeDOM(getPos()) as HTMLElement,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { title, expanded } = useValues(nodeLogic)
