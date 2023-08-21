@@ -333,13 +333,17 @@ export const dashboardsModel = kea<dashboardsModelType>({
 })
 
 export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {
+    // No matter where we're comparing dashboards, we want to sort generated dashboards last
     const firstName = a.name ?? 'Untitled'
     const secondName = b.name ?? 'Untitled'
 
-    if (firstName.startsWith(GENERATED_DASHBOARD_PREFIX) && !secondName.startsWith(GENERATED_DASHBOARD_PREFIX)) {
+    const firstNameIsGenerated = firstName.startsWith(GENERATED_DASHBOARD_PREFIX)
+    const secondNameIsGenerated = secondName.startsWith(GENERATED_DASHBOARD_PREFIX)
+
+    if (firstNameIsGenerated && !secondNameIsGenerated) {
         return 1 // a should come after b
     }
-    if (!firstName.startsWith(GENERATED_DASHBOARD_PREFIX) && secondName.startsWith(GENERATED_DASHBOARD_PREFIX)) {
+    if (!firstNameIsGenerated && secondNameIsGenerated) {
         return -1 // a should come before b
     }
 
