@@ -162,7 +162,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
-    reducers(({}) => ({
+    reducers(() => ({
         windowIdFilter: [
             null as string | null,
             {
@@ -370,7 +370,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 for (const event of eventsData || []) {
                     let isMatchingEvent = false
 
-                    if (!!matchingEventUUIDs?.length) {
+                    if (matchingEventUUIDs?.length) {
                         isMatchingEvent = !!matchingEventUUIDs.find((x) => x.uuid === String(event.id))
                     } else if (props.matchingEventsMatchType?.matchType === 'name') {
                         isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)

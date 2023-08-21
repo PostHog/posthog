@@ -73,7 +73,7 @@ export interface LemonButtonProps extends LemonButtonPropsBase {
 }
 
 /** Styled button. */
-export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAttributes<HTMLElement>> =
+export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAttributes<HTMLButtonElement>> =
     React.forwardRef(
         (
             {
@@ -225,7 +225,7 @@ export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
  * We can't use `LemonRow`'s `sideIcon` prop because putting `onClick` on it clashes with the parent`s `onClick`.
  */
 export const LemonButtonWithSideAction: React.FunctionComponent<
-    LemonButtonWithSideActionProps & React.RefAttributes<HTMLElement>
+    LemonButtonWithSideActionProps & React.RefAttributes<HTMLButtonElement>
 > = React.forwardRef(({ sideAction, children, ...buttonProps }, ref) => {
     const { dropdown: sideDropdown, divider = !buttonProps.fullWidth, ...sideActionRest } = sideAction
     const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton

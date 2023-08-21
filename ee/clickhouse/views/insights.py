@@ -10,7 +10,7 @@ from ee.clickhouse.queries.paths import ClickhousePaths
 from ee.clickhouse.queries.retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.api.insight import InsightViewSet
-from posthog.decorators import cached_function
+from posthog.decorators import cached_by_filters
 from posthog.models import Insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import Filter
@@ -47,7 +47,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         result = self.calculate_funnel_correlation(request)
         return Response(result)
 
-    @cached_function
+    @cached_by_filters
     def calculate_funnel_correlation(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=team)

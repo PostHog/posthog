@@ -110,7 +110,7 @@ export function RecordingsLists({
         <>
             <div className="SessionRecordingsPlaylist__lists">
                 {/* Pinned recordings */}
-                {!!playlistShortId ? (
+                {playlistShortId ? (
                     <SessionRecordingsList
                         className={clsx({
                             'max-h-1/2 h-fit': !collapsed.other,
@@ -139,7 +139,7 @@ export function RecordingsLists({
                         empty={
                             pinnedRecordingsAPIErrored ? (
                                 <LemonBanner type="error">Error while trying to load pinned recordings.</LemonBanner>
-                            ) : !!unusableEventsInFilter.length ? (
+                            ) : unusableEventsInFilter.length ? (
                                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                             ) : undefined
                         }
@@ -205,15 +205,17 @@ export function RecordingsLists({
                     }
                     subheader={
                         showFilters ? (
-                            <SessionRecordingsFilters
-                                filters={filters}
-                                setFilters={setFilters}
-                                showPropertyFilters={!personUUID}
-                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                hasAdvancedFilters={hasAdvancedFilters}
-                                showAdvancedFilters={showAdvancedFilters}
-                                setShowAdvancedFilters={setShowAdvancedFilters}
-                            />
+                            <div className="bg-side border-b">
+                                <SessionRecordingsFilters
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    showPropertyFilters={!personUUID}
+                                    onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                                    hasAdvancedFilters={hasAdvancedFilters}
+                                    showAdvancedFilters={showAdvancedFilters}
+                                    setShowAdvancedFilters={setShowAdvancedFilters}
+                                />
+                            </div>
                         ) : showSettings ? (
                             <SessionRecordingsPlaylistSettings />
                         ) : null
@@ -222,7 +224,7 @@ export function RecordingsLists({
                     onPropertyClick={onPropertyClick}
                     collapsed={collapsed.other}
                     onCollapse={
-                        !!playlistShortId ? () => setCollapsed({ ...collapsed, other: !collapsed.other }) : undefined
+                        playlistShortId ? () => setCollapsed({ ...collapsed, other: !collapsed.other }) : undefined
                     }
                     recordings={visibleRecordings}
                     loading={sessionRecordingsResponseLoading}
@@ -230,7 +232,7 @@ export function RecordingsLists({
                     empty={
                         sessionRecordingsAPIErrored ? (
                             <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
-                        ) : !!unusableEventsInFilter.length ? (
+                        ) : unusableEventsInFilter.length ? (
                             <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                         ) : (
                             <div className={'flex flex-col items-center space-y-2'}>

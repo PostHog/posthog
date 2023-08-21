@@ -1,22 +1,23 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-export default {
+type Story = StoryObj<typeof LemonSelect>
+const meta: Meta<typeof LemonSelect> = {
     title: 'Lemon UI/Lemon Select',
     component: LemonSelect,
-    argTypes: {
-        options: {
-            defaultValue: [
-                { value: 'husky', label: 'Husky' },
-                { value: 'poodle', label: 'Poodle' },
-                { value: 'labrador', label: 'Labrador' },
-            ] as LemonSelectOptions<string>,
-        },
+    args: {
+        options: [
+            { value: 'husky', label: 'Husky' },
+            { value: 'poodle', label: 'Poodle' },
+            { value: 'labrador', label: 'Labrador' },
+        ] as LemonSelectOptions<string>,
     },
-} as ComponentMeta<typeof LemonSelect>
+    tags: ['autodocs'],
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
+const Template: StoryFn<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
     return (
         <div className="flex flex-row items-center w-full border p-4 gap-2">
             {(['small', undefined] as const).map((size, index) => (
@@ -29,10 +30,10 @@ const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<an
     )
 }
 
-export const Flat = Template.bind({})
+export const Flat: Story = Template.bind({})
 Flat.args = {}
 
-export const SectionedOptions = Template.bind({})
+export const SectionedOptions: Story = Template.bind({})
 SectionedOptions.args = {
     dropdownMatchSelectWidth: false,
     options: [
@@ -71,7 +72,7 @@ SectionedOptions.args = {
     ] as LemonSelectOptions<string>,
 }
 
-export const MixedValuesTypes = Template.bind({})
+export const MixedValuesTypes: Story = Template.bind({})
 MixedValuesTypes.args = {
     dropdownMatchSelectWidth: false,
     options: [
@@ -84,7 +85,7 @@ MixedValuesTypes.args = {
     ] as LemonSelectOptions<string | number>,
 }
 
-export const NestedSelect = Template.bind({})
+export const NestedSelect: Story = Template.bind({})
 NestedSelect.args = {
     dropdownMatchSelectWidth: false,
     options: [
@@ -99,17 +100,17 @@ NestedSelect.args = {
     ] as LemonSelectOptions<string | number>,
 }
 
-export const Clearable = Template.bind({})
+export const Clearable: Story = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }
 
-export const LongOptions = Template.bind({})
+export const LongOptions: Story = Template.bind({})
 LongOptions.args = {
     allowClear: true,
     value: '1',
     options: [...Array(100)].map((_, x) => ({ value: `${x}`, label: `${x}` })),
 }
 
-export const CustomElement = Template.bind({})
+export const CustomElement: Story = Template.bind({})
 CustomElement.args = {
     value: 1,
     options: [
@@ -126,7 +127,7 @@ CustomElement.args = {
     ],
 }
 
-export const FullWidth: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
+export const FullWidth: StoryFn<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
     return (
         <div className="items-center w-full border p-4 gap-2">
             <LemonSelect {...props} fullWidth={true} allowClear={true} value={'poodle'} />

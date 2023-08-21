@@ -11,7 +11,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Dashboards',
     decorators: [
         mswDecorator({
@@ -31,15 +31,14 @@ export default {
     ],
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
         viewMode: 'story',
         mockDate: '2023-02-01',
     },
-} as Meta
-
+}
+export default meta
 export const List = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.dashboards())

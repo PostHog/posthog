@@ -10,17 +10,16 @@ import dashboardsJson from '../../../scenes/dashboard/__mocks__/dashboards.json'
 import { with3000 } from 'storybook/decorators/with3000'
 import { SidebarNavbarItem } from '../types'
 
-export default {
+const meta: Meta = {
     title: 'PostHog 3000/Sidebar',
     parameters: {
         mockDate: '2023-02-01',
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
     decorators: [with3000],
-} as Meta
-
+}
+export default meta
 /** featureFlagsJson * 6 to fill the sidebar up more. */
 const multipliedFeatureFlagsJson = {
     ...featureFlagsJson,
