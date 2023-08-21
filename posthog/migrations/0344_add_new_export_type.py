@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0342_alter_featureflag_usage_dashboard"),
+        ("posthog", "0343_team_has_completed_onboarding_for"),
     ]
 
     operations = [
