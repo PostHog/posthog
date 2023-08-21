@@ -12,7 +12,10 @@ export function useAnchor(hash: string): void {
 
             element.classList.add('highlighted')
 
-            element.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'smooth' })
+            // allow time for layout and repainting
+            window.requestAnimationFrame(() => {
+                element.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'smooth' })
+            })
         }
-    }, [hash]) // Fires every time hash changes
+    }, [hash])
 }
