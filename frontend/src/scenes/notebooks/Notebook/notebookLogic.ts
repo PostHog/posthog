@@ -48,8 +48,9 @@ export const notebookLogic = kea<notebookLogicType>([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
     connect({
-        values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
-        actions: [notebooksModel, ['receiveNotebookUpdate']],
+        // TODO: Why does uncommenting this break things
+        // values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
+        // actions: [notebooksModel, ['receiveNotebookUpdate']],
     }),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
