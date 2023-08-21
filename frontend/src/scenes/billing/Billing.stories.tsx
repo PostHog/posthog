@@ -5,11 +5,10 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import billingJson from '~/mocks/fixtures/_billing_v2.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_v2_with_discount.json'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/Billing v2',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-05-25',
     },
@@ -24,8 +23,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export const _BillingV2 = (): JSX.Element => {
     useStorybookMocks({
         get: {

@@ -1,25 +1,21 @@
-import { actions, BuiltLogic, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, BuiltLogic, connect, kea, path, reducers } from 'kea'
 
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookTarget, NotebookType } from '~/types'
 
-import type { notebooksListLogicType } from './notebooksListLogicType'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import posthog from 'posthog-js'
-import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates'
+import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import FuseClass from 'fuse.js'
-import { notebookPopoverLogic } from './notebookPopoverLogic'
-import { EditorFocusPosition, JSONContent, defaultNotebookContent } from './utils'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
+import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
 
-// Helping kea-typegen navigate the exported default class for Fuse
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface Fuse extends FuseClass<NotebookListItemType> {}
+import type { notebooksModelType } from './notebooksModelType'
+import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import { urls } from 'scenes/urls'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { router } from 'kea-router'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
@@ -53,15 +49,13 @@ export const openNotebook = async (
     const unmount = theNotebookLogic.mount()
 
     try {
-        await theNotebookLogic.asyncActions.editorIsReady()
         onOpen(theNotebookLogic)
     } finally {
         unmount()
     }
 }
-
-export const notebooksListLogic = kea<notebooksListLogicType>([
-    path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
+export const notebooksModel = kea<notebooksModelType>([
+    path(['scenes', 'notebooks', 'Notebook', 'notebooksModel']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
         createNotebook: (
@@ -147,16 +141,4 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
             },
         ],
     })),
-
-    selectors({
-        fuse: [
-            (s) => [s.notebooks],
-            (notebooks): Fuse => {
-                return new FuseClass<NotebookListItemType>(notebooks, {
-                    keys: ['title'],
-                    threshold: 0.3,
-                })
-            },
-        ],
-    }),
 ])

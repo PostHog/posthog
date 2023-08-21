@@ -50,7 +50,7 @@ export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the 
 export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     type: PropertyFilterType.Recording,
     key: 'duration',
-    value: 60,
+    value: 1,
     operator: PropertyOperator.GreaterThan,
 }
 
@@ -67,12 +67,6 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
     ...DEFAULT_RECORDING_FILTERS,
     date_from: '-21d',
-    session_recording_duration: {
-        type: PropertyFilterType.Recording,
-        key: 'duration',
-        value: 1,
-        operator: PropertyOperator.GreaterThan,
-    },
 }
 
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => {

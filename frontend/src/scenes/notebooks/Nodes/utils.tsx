@@ -60,23 +60,16 @@ export function posthogNodePasteRule(options: {
     })
 }
 
-export function posthogLinkPasteRule(): PasteRule {
-    return markPasteRule(true)
-}
-
-export function externalLinkPasteRule(): PasteRule {
-    return markPasteRule(false)
-}
-
-function markPasteRule(internal: boolean): PasteRule {
-    const regex = createUrlRegex("([a-zA-Z0-9-._~:/?#\\[\\]!@$&'()*,;=]*)", internal ? undefined : '(https?|mailto)://')
-
+export function linkPasteRule(): PasteRule {
     return new PasteRule({
-        find: regex,
+        find: createUrlRegex(
+            `(?!${window.location.host})([a-zA-Z0-9-._~:/?#\\[\\]!@$&'()*,;=]*)`,
+            '^(https?|mailto)://'
+        ),
         handler: ({ match, chain, range }) => {
             if (match.input) {
                 const url = new URL(match[0])
-                const href = internal ? url.pathname : url.toString()
+                const href = url.origin === window.location.origin ? url.pathname : url.toString()
                 chain()
                     .deleteRange(range)
                     .insertContent([

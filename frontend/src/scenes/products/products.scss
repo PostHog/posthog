@@ -1,0 +1,7 @@
+.ProductCard {
+    transition: 200ms ease;
+    &:hover {
+        transform: scale(1.01);
+        box-shadow: var(--shadow-elevation);
+    }
+}

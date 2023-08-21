@@ -9,8 +9,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import './EmptyStates.scss'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/lemon-ui/Link'
-import { Animation } from 'lib/components/Animation/Animation'
-import { AnimationType } from 'lib/animations/animations'
 import { LemonButton } from '@posthog/lemon-ui'
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { posthog } from 'posthog-js'
@@ -57,18 +55,13 @@ export function InsightTimeoutState({
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main">
-                    {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
-                </div>
-                {isLoading ? (
-                    <div className="m-auto text-center">
-                        Your query is taking a long time to complete. <b>We're still working on it.</b>
-                        <br />
-                        {suggestedSamplingPercentage ? 'See below some options to speed things up.' : ''}
-                        <br />
-                    </div>
-                ) : (
-                    <h2>Your query took too long to complete</h2>
+                {!isLoading && (
+                    <>
+                        <div className="illustration-main">
+                            <IconErrorOutline />
+                        </div>
+                        <h2>Your query took too long to complete</h2>
+                    </>
                 )}
                 {isLoading && suggestedSamplingPercentage ? (
                     <div>

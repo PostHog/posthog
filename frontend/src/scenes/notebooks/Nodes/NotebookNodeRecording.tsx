@@ -15,8 +15,8 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { NotebookNodeViewProps } from '../Notebook/utils'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
@@ -107,5 +107,14 @@ export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionReco
     return {
         sessionRecordingId: id,
         playerKey: `notebook-${id}`,
+    }
+}
+
+export function buildRecordingContent(sessionRecordingId: string): JSONContent {
+    return {
+        type: 'ph-recording',
+        attrs: {
+            id: sessionRecordingId,
+        },
     }
 }
