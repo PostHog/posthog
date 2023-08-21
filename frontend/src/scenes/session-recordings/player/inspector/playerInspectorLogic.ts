@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -14,7 +14,7 @@ import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getKeyMapping } from 'lib/taxonomy'
-import { eventToDescription, toParams } from 'lib/utils'
+import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
 import { eventWithTime } from '@rrweb/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
@@ -745,4 +745,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             actions.loadMatchingEvents()
         },
     })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!objectsEqual(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
+            actions.loadMatchingEvents()
+        }
+    }),
 ])
