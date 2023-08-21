@@ -1,7 +1,7 @@
 import { actions, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 import {
+    breakdownFilterToTaxonomicFilterType,
     propertyFilterTypeToPropertyDefinitionType,
-    propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import {
@@ -63,8 +63,8 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
         taxonomicBreakdownType: [
             (s) => [s.breakdownFilter],
-            ({ breakdown_type, breakdown_group_type_index }) => {
-                let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type, breakdown_group_type_index)
+            (breakdownFilter) => {
+                let breakdownType = breakdownFilterToTaxonomicFilterType(breakdownFilter)
                 if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
                     breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
                 }

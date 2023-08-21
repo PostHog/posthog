@@ -20,6 +20,7 @@ import {
 } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
+import { BreakdownFilter } from '~/queries/schema'
 
 /** Make sure unverified user property filter input has at least a "type" */
 export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
@@ -164,6 +165,22 @@ export function propertyFilterTypeToTaxonomicFilterType(
         return `${TaxonomicFilterGroupType.GroupsPrefix}_${groupTypeIndex}` as TaxonomicFilterGroupType
     }
     return propertyFilterMapping[filterType]
+}
+
+export function breakdownFilterToTaxonomicFilterType(
+    breakdownFilter: BreakdownFilter
+): TaxonomicFilterGroupType | undefined {
+    const { breakdown, breakdown_type, breakdown_group_type_index } = breakdownFilter
+    if (!breakdown_type) {
+        return undefined
+    }
+    if (breakdown_type === 'group') {
+        return `${TaxonomicFilterGroupType.GroupsPrefix}_${breakdown_group_type_index}` as TaxonomicFilterGroupType
+    }
+    if (breakdown_type === 'event' && typeof breakdown === 'string' && breakdown?.startsWith('$feature/')) {
+        return TaxonomicFilterGroupType.EventFeatureFlags
+    }
+    return propertyFilterMapping[breakdown_type]
 }
 
 export function propertyFilterTypeToPropertyDefinitionType(
