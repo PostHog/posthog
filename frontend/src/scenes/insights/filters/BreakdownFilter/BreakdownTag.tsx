@@ -27,7 +27,7 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
                 <div>
                     {/* :TRICKY: we don't want the close button to be active when the edit popover is open.
                      * Therefore we're wrapping the lemon tag a context provider to override the parent context. */}
-                    <PopoverReferenceContext.Provider value={[false, 'bottom']}>
+                    <PopoverReferenceContext.Provider value={null}>
                         <LemonTag
                             className="taxonomic-breakdown-filter tag-pill"
                             // display remove button only if we can edit and don't have a separate menu
