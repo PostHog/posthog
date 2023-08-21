@@ -52,5 +52,5 @@ const Header = ({ children, className }: { children: React.ReactNode; className?
 }
 
 const Content = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    return <div className="px-2.5 py-2 border-t border-border">{children}</div>
+    return <div className="border-t border-border">{children}</div>
 }

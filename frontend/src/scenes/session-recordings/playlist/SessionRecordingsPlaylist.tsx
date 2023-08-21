@@ -205,15 +205,17 @@ export function RecordingsLists({
                     }
                     subheader={
                         showFilters ? (
-                            <SessionRecordingsFilters
-                                filters={filters}
-                                setFilters={setFilters}
-                                showPropertyFilters={!personUUID}
-                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                hasAdvancedFilters={hasAdvancedFilters}
-                                showAdvancedFilters={showAdvancedFilters}
-                                setShowAdvancedFilters={setShowAdvancedFilters}
-                            />
+                            <div className="bg-side border-b">
+                                <SessionRecordingsFilters
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    showPropertyFilters={!personUUID}
+                                    onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                                    hasAdvancedFilters={hasAdvancedFilters}
+                                    showAdvancedFilters={showAdvancedFilters}
+                                    setShowAdvancedFilters={setShowAdvancedFilters}
+                                />
+                            </div>
                         ) : showSettings ? (
                             <SessionRecordingsPlaylistSettings />
                         ) : null
