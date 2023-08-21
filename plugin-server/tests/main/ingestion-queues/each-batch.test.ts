@@ -1,9 +1,4 @@
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
-import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
-import {
-    eachBatchAppsOnEventHandlers,
-    eachBatchWebhooksHandlers,
-} from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
@@ -13,6 +8,11 @@ import {
     eachBatchLegacyIngestion,
     splitKafkaJSIngestionBatch,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion-kafkajs'
+import {
+    eachBatch,
+    eachBatchAppsOnEventHandlers,
+} from '../../../src/main/ingestion-queues/batch-processing/each-batch-onevent'
+import { eachBatchWebhooksHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
 import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
@@ -190,6 +190,8 @@ describe('eachBatchX', () => {
                 queue.pluginsServer.organizationManager
             )
             const matchSpy = jest.spyOn(actionMatcher, 'match')
+            // mock hasWebhooks to return true
+            actionMatcher.hasWebhooks = jest.fn(() => true)
             await eachBatchWebhooksHandlers(
                 createKafkaJSBatch(clickhouseEvent),
                 actionMatcher,
