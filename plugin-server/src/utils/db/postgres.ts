@@ -70,7 +70,7 @@ export class PostgresRouter {
         tx?: TransactionClient
     ): Promise<QueryResult<R>> {
         if (tx) {
-            const wrappedTag = `${PostgresUse[tx.target]}<${tag}>`
+            const wrappedTag = `${PostgresUse[tx.target]}:Tx<${tag}>`
             return postgresQuery(tx.client, queryString, values, wrappedTag, this.statsd)
         } else {
             const wrappedTag = `${PostgresUse[target]}<${tag}>`
@@ -105,7 +105,7 @@ export class PostgresRouter {
         tag: string,
         transaction: (client: TransactionClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
-        const wrappedTag = `${PostgresUse[usage]}<${tag}>`
+        const wrappedTag = `${PostgresUse[usage]}:Tx<${tag}>`
         return instrumentQuery(this.statsd, 'query.postgres_transation', wrappedTag, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
             const client = await this.pools.get(usage)!.connect()
