@@ -153,6 +153,7 @@ export function EnabledPluginSection(): JSX.Element {
         if (!rearranging) {
             rearrange()
         }
+
         setTemporaryOrder(newTemporaryOrder, movedPluginId)
     }
 

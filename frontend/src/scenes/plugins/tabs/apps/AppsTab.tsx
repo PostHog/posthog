@@ -12,6 +12,7 @@ import { AdvancedInstallModal } from './AdvancedInstallModal'
 import { AppView } from './AppView'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { BatchExportsAlternativeWarning } from './components'
+import { InstalledAppsReorderModal } from './InstalledAppsReorderModal'
 
 export function AppsTab(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -107,6 +108,7 @@ export function AppsTab(): JSX.Element {
             </div>
             <AdvancedInstallModal />
             <PluginDrawer />
+            <InstalledAppsReorderModal />
         </>
     )
 }

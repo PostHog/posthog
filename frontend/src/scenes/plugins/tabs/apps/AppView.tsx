@@ -1,4 +1,4 @@
-import { Link, LemonButton } from '@posthog/lemon-ui'
+import { Link, LemonButton, LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonMenuItem, LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import {
@@ -17,6 +17,7 @@ import { PluginTypeWithConfig, PluginRepositoryEntry, PluginInstallationType } f
 import { urls } from 'scenes/urls'
 import { PluginType } from '~/types'
 import { PluginTags } from './components'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function AppView({
     plugin,
@@ -25,7 +26,7 @@ export function AppView({
 }): JSX.Element {
     const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating, showAppMetricsForPlugin, loading } =
         useValues(pluginsLogic)
-    const { installPlugin, editPlugin, toggleEnabled, updatePlugin } = useActions(pluginsLogic)
+    const { installPlugin, editPlugin, toggleEnabled, updatePlugin, openReorderModal } = useActions(pluginsLogic)
 
     const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
     const isConfigured = !!pluginConfig?.id
@@ -55,6 +56,24 @@ export function AppView({
     return (
         <div className="flex justify-between items-center">
             <div className="flex items-center gap-4">
+                {isConfigured && pluginConfig.enabled && (
+                    <span>
+                        <Tooltip
+                            title={
+                                <>
+                                    Apps that react to incoming events run in order. This app runs in position{' '}
+                                    {pluginConfig.order}.
+                                    <br />
+                                    Click to change the order of the plugins.
+                                </>
+                            }
+                        >
+                            <LemonButton onClick={() => openReorderModal()} noPadding>
+                                <LemonBadge.Number status="primary" count={pluginConfig.order} />
+                            </LemonButton>
+                        </Tooltip>
+                    </span>
+                )}
                 <PluginImage plugin={plugin} />
                 <div>
                     <div className="flex gap-2 items-center">

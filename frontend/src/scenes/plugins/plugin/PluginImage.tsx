@@ -9,11 +9,15 @@ export function PluginImage({
     size = 'medium',
 }: {
     plugin: Partial<Pick<PluginType, 'plugin_type' | 'url' | 'icon'>>
-    size?: 'medium' | 'large'
+    size?: 'medium' | 'large' | 'small'
 }): JSX.Element {
     const { plugin_type: pluginType, url, icon } = plugin
     const [state, setState] = useState({ image: imgPluginDefault })
-    const pixelSize = size === 'large' ? 100 : 60
+    const pixelSize = {
+        medium: 60,
+        large: 100,
+        small: 30,
+    }[size]
 
     useEffect(() => {
         if (icon) {

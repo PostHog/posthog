@@ -107,6 +107,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
         syncFrontendAppState: (id: number) => ({ id }),
         openAdvancedInstallModal: true,
         closeAdvancedInstallModal: true,
+        openReorderModal: true,
+        closeReorderModal: true,
     }),
 
     loaders(({ actions, values }) => ({
@@ -449,6 +451,13 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 closeAdvancedInstallModal: () => false,
             },
         ],
+        reorderModalOpen: [
+            false,
+            {
+                openReorderModal: () => true,
+                closeReorderModal: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -468,6 +477,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 }
 
                 const pluginValues = Object.values(plugins)
+
                 return pluginValues
                     .map((plugin, index) => {
                         let pluginConfig: PluginConfigType = { ...pluginConfigs[plugin.id] }
@@ -478,6 +488,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                                     config[key] = def
                                 }
                             )
+
                             pluginConfig = {
                                 id: undefined,
                                 team_id: currentTeam.id,
@@ -757,6 +768,10 @@ export const pluginsLogic = kea<pluginsLogicType>([
             ) {
                 form.setFieldsValue({ posthogHost: window.location.origin })
             }
+        },
+
+        savePluginOrdersSuccess: () => {
+            actions.closeReorderModal()
         },
     })),
     actionToUrl(({ values }) => {
