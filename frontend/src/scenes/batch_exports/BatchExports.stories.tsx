@@ -15,6 +15,7 @@ export default {
             excludeNavigationFromSnapshot: true,
             waitForLoadersToDisappear: true,
         },
+        mockDate: '2023-02-01',
         viewMode: 'story',
     },
     decorators: [

@@ -11,11 +11,10 @@ import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_e
 import recording_playlists from './__mocks__/recording_playlists.json'
 import { ReplayTabs } from '~/types'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Recordings',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-02-01',
     },
@@ -96,8 +95,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function RecordingsList(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.replay())

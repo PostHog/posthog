@@ -5,11 +5,11 @@ import { ModalPrompt, PopupPrompt, Prompt } from './Prompt'
 import { promptLogic } from './promptLogic'
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 
-export default {
+const meta: Meta = {
     title: 'Components/Prompts',
     component: Prompt,
-} as Meta
-
+}
+export default meta
 export function ModalPrompt_(): JSX.Element {
     // Ideally we'd instead mock the feature flag and payload but I couldn't get that to work
     const payload = {
