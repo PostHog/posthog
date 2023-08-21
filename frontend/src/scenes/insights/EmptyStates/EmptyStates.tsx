@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IconErrorOutline, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { PlusCircleOutlined, ThunderboltFilled, WarningOutlined } from '@ant-design/icons'
+import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -19,6 +19,7 @@ import { FunnelsQuery } from '~/queries/schema'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -63,29 +64,40 @@ export function InsightTimeoutState({
                         <h2>Your query took too long to complete</h2>
                     </>
                 )}
-                {isLoading && suggestedSamplingPercentage ? (
-                    <div>
-                        <LemonButton
-                            className="mx-auto mt-4"
-                            type="primary"
-                            onClick={() => {
-                                setSamplingPercentage(suggestedSamplingPercentage)
-                                posthog.capture('sampling_enabled_on_slow_query', {
-                                    samplingPercentage: suggestedSamplingPercentage,
-                                })
-                            }}
-                        >
-                            Click here to speed up calculation with {suggestedSamplingPercentage}% sampling
-                        </LemonButton>
-                        <br />
+                <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
+                <div className="p-4 rounded-lg bg-mid flex gap-x-2">
+                    <div className="flex">
+                        <IconInfo className="w-4 h-4" />
                     </div>
+                    <p className="text-xs m-0">
+                        Need to speed things up? Try reducing the date range{suggestedSamplingPercentage ? ',' : ' or'}{' '}
+                        removing breakdowns
+                        {isLoading && suggestedSamplingPercentage && (
+                            <>
+                                , or turning on sampling with{' '}
+                                <Tooltip
+                                    title="Turning on fast mode will automatically enable 10% sampling for all insights you refresh, speeding up the calculation of results"
+                                    placement="bottom"
+                                >
+                                    <Link
+                                        onClick={() => {
+                                            setSamplingPercentage(suggestedSamplingPercentage)
+                                            posthog.capture('sampling_enabled_on_slow_query', {
+                                                samplingPercentage: suggestedSamplingPercentage,
+                                            })
+                                        }}
+                                    >
+                                        <ThunderboltFilled className="mt-1" /> Fast mode
+                                    </Link>
+                                </Tooltip>
+                            </>
+                        )}
+                        .
+                    </p>
+                </div>
+                {queryId ? (
+                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
                 ) : null}
-                <p className="m-auto text-center">
-                    In order to improve the performance of the query, you can{' '}
-                    {suggestedSamplingPercentage ? 'also' : ''} try to reduce the date range of your query, or remove
-                    breakdowns.
-                </p>
-                {queryId ? <div className="text-muted text-xs m-auto text-center">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )
