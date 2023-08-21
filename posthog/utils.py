@@ -165,7 +165,7 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
 
 
 def relative_date_parse_with_delta_mapping(
-    input: str, timezone_info: ZoneInfo
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False
 ) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
@@ -230,16 +230,18 @@ def relative_date_parse_with_delta_mapping(
             delta_mapping["month"] = 12
             delta_mapping["day"] = 31
     parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
-    # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
-    if "hours" in delta_mapping:
-        parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
-    else:
-        parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    if always_truncate:
+        # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
+        # TODO: Remove this from this function, this should not be the responsibility of it
+        if "hours" in delta_mapping:
+            parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
+        else:
+            parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
     return parsed_dt, delta_mapping
 
 
-def relative_date_parse(input: str, timezone_info: ZoneInfo) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input, timezone_info)[0]
+def relative_date_parse(input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate)[0]
 
 
 def get_git_branch() -> Optional[str]:

@@ -40,7 +40,7 @@ class QueryDateRange:
         delta_mapping = None
         if isinstance(self._filter._date_to, str):
             date_to, delta_mapping = relative_date_parse_with_delta_mapping(
-                self._filter._date_to, self._team.timezone_info
+                self._filter._date_to, self._team.timezone_info, always_truncate=True
             )
         elif isinstance(self._filter._date_to, datetime):
             date_to = self._localize_to_team(self._filter._date_to)

@@ -98,7 +98,7 @@ def run_events_query(
     try:
         parsed_date = isoparse(before)
     except ValueError:
-        parsed_date = relative_date_parse(before, team.timezone_info)
+        parsed_date = relative_date_parse(before, team.timezone_info, always_truncate=True)
     where_exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # limit to the last 24h by default
@@ -107,7 +107,7 @@ def run_events_query(
         try:
             parsed_date = isoparse(after)
         except ValueError:
-            parsed_date = relative_date_parse(after, team.timezone_info)
+            parsed_date = relative_date_parse(after, team.timezone_info, always_truncate=True)
         where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # where & having

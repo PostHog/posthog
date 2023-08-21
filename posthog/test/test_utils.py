@@ -155,14 +155,17 @@ class TestGeneralUtils(TestCase):
 class TestRelativeDateParse(TestCase):
     @freeze_time("2020-01-31T12:22:23")
     def test_hour(self):
-        self.assertEqual(relative_date_parse("-24h", ZoneInfo("UTC")).isoformat(), "2020-01-30T12:00:00+00:00")
-        self.assertEqual(relative_date_parse("-48h", ZoneInfo("UTC")).isoformat(), "2020-01-29T12:00:00+00:00")
+        self.assertEqual(relative_date_parse("-24h", ZoneInfo("UTC")).isoformat(), "2020-01-30T12:22:23+00:00")
+        self.assertEqual(relative_date_parse("-48h", ZoneInfo("UTC")).isoformat(), "2020-01-29T12:22:23+00:00")
 
     @freeze_time("2020-01-31")
     def test_day(self):
         self.assertEqual(relative_date_parse("dStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"), "2020-01-31")
         self.assertEqual(relative_date_parse("-1d", ZoneInfo("UTC")).strftime("%Y-%m-%d"), "2020-01-30")
         self.assertEqual(relative_date_parse("-2d", ZoneInfo("UTC")).strftime("%Y-%m-%d"), "2020-01-29")
+
+        self.assertEqual(relative_date_parse("-1dStart", ZoneInfo("UTC")).isoformat(), "2020-01-30T00:00:00+00:00")
+        self.assertEqual(relative_date_parse("-1dEnd", ZoneInfo("UTC")).isoformat(), "2020-01-30T23:59:59.999999+00:00")
 
     @freeze_time("2020-01-31")
     def test_month(self):
