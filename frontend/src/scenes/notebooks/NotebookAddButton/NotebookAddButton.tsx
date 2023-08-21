@@ -16,6 +16,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 type NotebookAddButtonProps = NotebookAddButtonLogicProps &
     Omit<LemonButtonProps, 'onClick'> &
@@ -130,27 +132,17 @@ function NotebookAddButtonPopover({ ...props }: NotebookAddButtonProps): JSX.Ele
     const { resource, newNotebookTitle, children } = props
     const logic = notebookAddButtonLogic(props)
     const { showPopover, notebooksLoading, containingNotebooks, searchQuery } = useValues(logic)
-    const { setShowPopover, setSearchQuery } = useActions(logic)
+    const { setShowPopover, setSearchQuery, loadContainingNotebooks } = useActions(logic)
     const { createNotebook } = useActions(notebooksModel)
 
     const openNewNotebook = (): void => {
         const title = newNotebookTitle ?? `Notes ${dayjs().format('DD/MM')}`
         // const title = newNotebookTitle ?? `Session Replay Notes ${dayjs().format('DD/MM')}`
         // const currentPlayerTime = getCurrentPlayerTime() * 1000
-        createNotebook(
-            title,
-            NotebookTarget.Popover,
-            [
-                resource,
-                // buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
-            ],
-            (theNotebookLogic) => {
-                props.onNotebookOpened?.(theNotebookLogic)
-                // refresh the comment button so that it includes the new notebook
-                // after the new notebook is created
-                // notebookAddButtonLogic.findMounted({ sessionRecordingId })?.actions.loadContainingNotebooks()
-            }
-        )
+        createNotebook(title, NotebookTarget.Popover, [resource], (theNotebookLogic) => {
+            props.onNotebookOpened?.(theNotebookLogic)
+            loadContainingNotebooks()
+        })
 
         setShowPopover(false)
     }
@@ -204,23 +196,27 @@ function NotebookAddButtonPopover({ ...props }: NotebookAddButtonProps): JSX.Ele
     )
 }
 
-export function NotebookAddButton({ children, ...props }: NotebookAddButtonProps): JSX.Element {
+export function NotebookAddButton({ ...props }: NotebookAddButtonProps): JSX.Element {
     // if nodeLogic is available then the button is on a resource that _is already and currently in a notebook_
     const nodeLogic = useNotebookNode()
 
-    return nodeLogic ? (
-        <LemonButton
-            icon={<IconJournalPlus />}
-            data-attr={'notebooks-add-button-in-a-notebook'}
-            {...props}
-            onClick={() => {
-                props.onClick?.()
-                props.onNotebookOpened?.(nodeLogic.props.notebookLogic, nodeLogic)
-            }}
-        >
-            {children ?? 'Add to notebook'}
-        </LemonButton>
-    ) : (
-        <NotebookAddButtonPopover {...props} />
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+            {nodeLogic ? (
+                <LemonButton
+                    icon={<IconJournalPlus />}
+                    data-attr={'notebooks-add-button-in-a-notebook'}
+                    {...props}
+                    onClick={() => {
+                        props.onClick?.()
+                        props.onNotebookOpened?.(nodeLogic.props.notebookLogic, nodeLogic)
+                    }}
+                >
+                    {props.children ?? 'Add to notebook'}
+                </LemonButton>
+            ) : (
+                <NotebookAddButtonPopover {...props} />
+            )}
+        </FlaggedFeature>
     )
 }

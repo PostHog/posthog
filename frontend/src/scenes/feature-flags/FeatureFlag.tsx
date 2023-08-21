@@ -36,6 +36,7 @@ import {
     FeatureFlagType,
     ReplayTabs,
     FeatureFlagGroupType,
+    NotebookNodeType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -80,6 +81,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { PostHogFeature } from 'posthog-js/react'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -528,6 +530,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     buttons={
                                         <>
                                             <div className="flex items-center gap-2 mb-2">
+                                                <NotebookAddButton
+                                                    resource={{
+                                                        type: NotebookNodeType.FeatureFlag,
+                                                        attrs: { id: featureFlag.id },
+                                                    }}
+                                                    type="secondary"
+                                                />
                                                 {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
                                                     <>
                                                         <LemonButton

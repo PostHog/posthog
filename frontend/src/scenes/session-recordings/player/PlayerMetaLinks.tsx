@@ -12,6 +12,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
 import { NotebookNodeType } from '~/types'
+import { dayjs } from 'lib/dayjs'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -57,29 +58,26 @@ export function PlayerMetaLinks(): JSX.Element {
         <div className="flex flex-row gap-1 items-center justify-end">
             {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
-                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                        <>
-                            <NotebookAddButton
-                                size="small"
-                                icon={<IconComment />}
-                                resource={{ type: NotebookNodeType.Recording, attrs: { id: sessionRecordingId } }}
-                                onClick={() => setPause()}
-                                onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
-                                    const time = getCurrentPlayerTime()
+                    <NotebookAddButton
+                        size="small"
+                        icon={<IconComment />}
+                        resource={{ type: NotebookNodeType.Recording, attrs: { id: sessionRecordingId } }}
+                        onClick={() => setPause()}
+                        newNotebookTitle={`Notes ${dayjs().format('DD/MM')}`}
+                        onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
+                            const time = getCurrentPlayerTime() * 1000
 
-                                    if (theNodeLogic) {
-                                        // Node already exists, we just add a comment
-                                        theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
-                                        return
-                                    }
+                            if (theNodeLogic) {
+                                // Node already exists, we just add a comment
+                                theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
+                                return
+                            }
 
-                                    theNotebookLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
-                                }}
-                            >
-                                Comment
-                            </NotebookAddButton>
-                        </>
-                    )}
+                            theNotebookLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
+                        }}
+                    >
+                        Comment
+                    </NotebookAddButton>
 
                     <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
                         <span>Share</span>
