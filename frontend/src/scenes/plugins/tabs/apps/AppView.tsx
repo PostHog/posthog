@@ -69,7 +69,7 @@ export function AppView({
                             }
                         >
                             <LemonButton onClick={() => openReorderModal()} noPadding>
-                                <LemonBadge.Number status="primary" count={pluginConfig.order} />
+                                <LemonBadge.Number status="primary" count={pluginConfig.order} maxDigits={3} />
                             </LemonButton>
                         </Tooltip>
                     </span>

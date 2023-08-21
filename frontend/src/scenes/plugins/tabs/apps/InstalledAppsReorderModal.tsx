@@ -58,6 +58,12 @@ export function InstalledAppsReorderModal(): JSX.Element {
             isOpen={reorderModalOpen}
             width={600}
             title="Re-order processing apps"
+            description={
+                <p>
+                    The order of some apps is important as they are processed sequentially. You can{' '}
+                    <b>drag and drop the apps below</b> to change their order.
+                </p>
+            }
             footer={
                 <>
                     <LemonButton type="secondary" onClick={onClose}>
