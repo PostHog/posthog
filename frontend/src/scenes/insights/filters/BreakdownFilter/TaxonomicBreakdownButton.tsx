@@ -2,7 +2,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -54,13 +53,9 @@ export function TaxonomicBreakdownButton(): JSX.Element {
                 className="taxonomic-breakdown-filter tag-button"
                 sideIcon={null}
             >
-                <PropertyKeyInfo
-                    value={
-                        taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
-                            ? 'Add cohort'
-                            : 'Add breakdown'
-                    }
-                />
+                {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                    ? 'Add cohort'
+                    : 'Add breakdown'}
             </LemonButton>
         </Popover>
     )
