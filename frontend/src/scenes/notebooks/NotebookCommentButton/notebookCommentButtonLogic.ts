@@ -75,7 +75,7 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
             actions.loadContainingNotebooks()
         },
     })),
-    selectors(({}) => ({
+    selectors(() => ({
         notebooksLoading: [
             (s) => [s.allNotebooksLoading, s.containingNotebooksLoading],
             (allNotebooksLoading, containingNotebooksLoading) => allNotebooksLoading || containingNotebooksLoading,

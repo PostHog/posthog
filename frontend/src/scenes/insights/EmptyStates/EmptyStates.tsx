@@ -85,7 +85,7 @@ export function InsightTimeoutState({
                     {suggestedSamplingPercentage ? 'also' : ''} try to reduce the date range of your query, or remove
                     breakdowns.
                 </p>
-                {!!queryId ? <div className="text-muted text-xs m-auto text-center">Query ID: {queryId}</div> : null}
+                {queryId ? <div className="text-muted text-xs m-auto text-center">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )
@@ -133,7 +133,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                         </ol>
                     </div>
                 )}
-                {!!queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
+                {queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )

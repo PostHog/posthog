@@ -45,7 +45,7 @@ import { InlineHogQLEditor } from './InlineHogQLEditor'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
-        if (!!KEY_MAPPING.event[eventDefinition.name]) {
+        if (KEY_MAPPING.event[eventDefinition.name]) {
             return 'PostHog event'
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} event`

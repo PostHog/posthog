@@ -250,7 +250,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
             await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
 
-            if (!!values.insightDataLoading) {
+            if (values.insightDataLoading) {
                 actions.setTimedOutQueryId(queryId)
                 const tags = {
                     kind: values.querySource?.kind,

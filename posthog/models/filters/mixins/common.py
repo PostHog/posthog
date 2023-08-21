@@ -55,7 +55,7 @@ from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_ind
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 
 # When updating this regex, remember to update the regex with the same name in TrendsFormula.tsx
-ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)\.]+)"
+ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-*^0-9+/().]+)"
 
 
 class SmoothingIntervalsMixin(BaseParamMixin):
