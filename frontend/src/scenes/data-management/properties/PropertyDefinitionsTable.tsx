@@ -117,12 +117,12 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     currentPage: propertyDefinitions?.page ?? 1,
                     entryCount: propertyDefinitions?.count ?? 0,
                     pageSize: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-                    onForward: !!propertyDefinitions.next
+                    onForward: propertyDefinitions.next
                         ? () => {
                               loadPropertyDefinitions(propertyDefinitions.next)
                           }
                         : undefined,
-                    onBackward: !!propertyDefinitions.previous
+                    onBackward: propertyDefinitions.previous
                         ? () => {
                               loadPropertyDefinitions(propertyDefinitions.previous)
                           }

@@ -1,11 +1,11 @@
 // Helpers for Kea issue with double importing
 import {
-    JSONContent as TTJSONContent,
-    Editor as TTEditor,
     ChainedCommands as EditorCommands,
+    Editor as TTEditor,
     FocusPosition as EditorFocusPosition,
-    Range as EditorRange,
     getText,
+    JSONContent as TTJSONContent,
+    Range as EditorRange,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
@@ -15,7 +15,6 @@ import { NotebookNodeType } from '~/types'
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
 /* eslint-enable @typescript-eslint/no-empty-interface */
-// export type FocusPosition = number | boolean | 'start' | 'end' | 'all' | null
 
 export {
     ChainedCommands as EditorCommands,
@@ -69,7 +68,6 @@ const textContent = (node: any): string => {
     return getText(node, {
         blockSeparator: ' ',
         textSerializers: {
-            [NotebookNodeType.Link]: ({ node }) => node.attrs.href,
             [NotebookNodeType.ReplayTimestamp]: ({ node }) => `${node.attrs.playbackTime || '00:00'}: `,
         },
     })
