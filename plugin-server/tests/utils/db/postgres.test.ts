@@ -36,7 +36,7 @@ describe('assertTablesExist()', () => {
         await assertTablesExist(client, ['posthog_pluginconfig', 'posthog_team'])
     })
 
-    it('succeeds if one table is missing', async () => {
+    it('fails if one table is missing', async () => {
         await expect(assertTablesExist(client, ['posthog_pluginconfig', 'not_found1', 'not_found2'])).rejects.toEqual(
             new Error('Configured PG target does not hold the expected tables: not_found1, not_found2')
         )
