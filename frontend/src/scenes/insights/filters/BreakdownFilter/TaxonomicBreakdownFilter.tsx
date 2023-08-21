@@ -6,7 +6,7 @@ import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 
-export interface TaxonomicBreakdownFilterComponentProps {
+export interface TaxonomicBreakdownFilterProps {
     breakdownFilter?: BreakdownFilter | null
     display?: ChartDisplayType | null
     isTrends: boolean
@@ -14,13 +14,13 @@ export interface TaxonomicBreakdownFilterComponentProps {
     updateDisplay?: (display: ChartDisplayType | undefined) => void
 }
 
-export function TaxonomicBreakdownFilterComponent({
+export function TaxonomicBreakdownFilter({
     breakdownFilter,
     display,
     isTrends,
     updateBreakdown,
     updateDisplay,
-}: TaxonomicBreakdownFilterComponentProps): JSX.Element {
+}: TaxonomicBreakdownFilterProps): JSX.Element {
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
         isTrends,
         display,

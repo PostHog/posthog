@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { allOperatorsMapping, alphabet, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { TaxonomicBreakdownFilterComponent } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
+import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -294,7 +294,7 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
         <>
             <h5>Breakdown by</h5>
             <section>
-                <TaxonomicBreakdownFilterComponent
+                <TaxonomicBreakdownFilter
                     isTrends={filters.insight === InsightType.TRENDS}
                     breakdownFilter={filters as BreakdownFilter}
                 />
