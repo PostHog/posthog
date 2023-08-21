@@ -284,7 +284,7 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
 function getPreviousNode(editor: TTEditor): Node | null {
     const { $anchor } = editor.state.selection
     const node = $anchor.node(1)
-    return !!node ? editor.state.doc.childBefore($anchor.pos - 1).node : null
+    return node ? editor.state.doc.childBefore($anchor.pos - 1).node : null
 }
 
 export function hasMatchingNode(

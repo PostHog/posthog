@@ -77,7 +77,7 @@ export function Query(props: QueryProps): JSX.Element | null {
         return (
             <ErrorBoundary>
                 <>
-                    {!!props.context?.showQueryEditor ? (
+                    {props.context?.showQueryEditor ? (
                         <>
                             <QueryEditor
                                 query={JSON.stringify(query)}

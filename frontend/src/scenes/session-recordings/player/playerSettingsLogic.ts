@@ -183,7 +183,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
     }),
-    reducers(({}) => ({
+    reducers(() => ({
         showFilters: [
             true,
             {

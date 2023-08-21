@@ -20,6 +20,7 @@ const config: PlaywrightTestConfig = {
          * For example in `await expect(locator).toHaveText();`
          */
         timeout: 5000,
+        toHaveScreenshot: { maxDiffPixelRatio: 0.003 },
     },
     /* Run tests in files in parallel */
     fullyParallel: true,
@@ -28,7 +29,7 @@ const config: PlaywrightTestConfig = {
     /* Retry on CI only */
     retries: process.env.CI ? 2 : 0,
     /* Run one worker per core in GitHub Actions. */
-    workers: process.env.CI ? 2 : undefined,
+    workers: process.env.CI ? 4 : undefined,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
