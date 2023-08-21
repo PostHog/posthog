@@ -20,6 +20,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { SupportModal } from 'lib/components/Support/SupportModal'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -73,19 +74,21 @@ export function InsightTimeoutState({
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                {!isLoading && (
+                {!isLoading ? (
                     <>
                         <div className="illustration-main">
                             <IconErrorOutline />
                         </div>
-                        <h2>Your query took too long to complete</h2>
+                        <h2 className="mb-6">Your query took too long to complete</h2>
                     </>
+                ) : (
+                    <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
                 )}
-                <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
                 <div className="p-4 rounded-lg bg-mid flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
@@ -102,8 +105,22 @@ export function InsightTimeoutState({
                                 <FastModeLink insightProps={insightProps} />. Or try reducing the date range and
                                 removing breakdowns.
                             </>
-                        ) : (
+                        ) : isLoading ? (
                             <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
+                        ) : (
+                            <>
+                                Sometimes this happens. Try refreshing the page, reducing the date range, or removing
+                                breakdowns. If you're still having issues,{' '}
+                                <Link
+                                    onClick={() => {
+                                        openSupportForm('bug', 'analytics')
+                                    }}
+                                >
+                                    let us know
+                                </Link>
+                                .
+                                <SupportModal />
+                            </>
                         )}
                     </p>
                 </div>
