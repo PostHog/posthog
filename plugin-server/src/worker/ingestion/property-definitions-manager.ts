@@ -213,7 +213,7 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
         let eventDefinitionsCache = this.eventDefinitionsCache.get(teamId)
         if (!eventDefinitionsCache) {
             const eventNames = await this.db.postgres.query(
-                PostgresUse.COMMON_READ,
+                PostgresUse.COMMON_WRITE,
                 'SELECT name FROM posthog_eventdefinition WHERE team_id = $1',
                 [teamId],
                 'fetchEventDefinitions'
@@ -240,7 +240,7 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             // All-in-all, not the end of the world, but a slight nuisance.
 
             const eventProperties = await this.db.postgres.query(
-                PostgresUse.COMMON_READ,
+                PostgresUse.COMMON_WRITE,
                 'SELECT property FROM posthog_eventproperty WHERE team_id = $1 AND event = $2',
                 [teamId, event],
                 'fetchEventProperties'

@@ -38,7 +38,7 @@ export class PropertyDefinitionsCache {
 
     async initialize(teamId: number, db: DB): Promise<void> {
         const properties = await db.postgres.query(
-            PostgresUse.COMMON_READ,
+            PostgresUse.COMMON_WRITE,
             'SELECT name, property_type, type, group_type_index FROM posthog_propertydefinition WHERE team_id = $1',
             [teamId],
             'fetchPropertyDefinitions'

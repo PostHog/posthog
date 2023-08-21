@@ -148,7 +148,7 @@ export async function prepareMmdb(hub: Hub, onlyBackground = false): Promise<Rea
     const { db } = hub
 
     const readResults = await db.postgres.query<PluginAttachmentDB>(
-        PostgresUse.COMMON_READ,
+        PostgresUse.COMMON_WRITE,
         `
             SELECT *
             FROM posthog_pluginattachment
