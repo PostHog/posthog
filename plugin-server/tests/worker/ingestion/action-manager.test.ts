@@ -128,8 +128,8 @@ describe('ActionManager', () => {
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_action
-                                                               SET deleted = TRUE
-                                                               WHERE id = $1`,
+             SET deleted = TRUE
+             WHERE id = $1`,
             [ACTION_ID],
             'testKey'
         )

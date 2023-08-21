@@ -1156,8 +1156,8 @@ test('capture first team event', async () => {
     await hub.db.postgres.query(
         PostgresUse.COMMON_WRITE,
         `UPDATE posthog_team
-                                   SET ingested_event = $1
-                                   WHERE id = $2`,
+         SET ingested_event = $1
+         WHERE id = $2`,
         [false, team.id],
         'testTag'
     )
