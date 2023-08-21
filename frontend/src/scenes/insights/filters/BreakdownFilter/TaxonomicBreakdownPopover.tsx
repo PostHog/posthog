@@ -6,7 +6,7 @@ import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 type TaxonomicBreakdownPopoverProps = {
     open: boolean
@@ -19,6 +19,7 @@ export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: Taxonomic
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { taxonomicBreakdownType, includeSessions } = useValues(taxonomicBreakdownFilterLogic)
 
+    const { breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
     const { addBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
     const taxonomicGroupTypes = [
@@ -36,6 +37,7 @@ export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: Taxonomic
             overlay={
                 <TaxonomicFilter
                     groupType={taxonomicBreakdownType}
+                    value={breakdownFilter?.breakdown as TaxonomicFilterValue}
                     onChange={(taxonomicGroup, value) => {
                         if (value) {
                             addBreakdown(value, taxonomicGroup)

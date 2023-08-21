@@ -53,9 +53,13 @@ export function LemonTag({
                 />
             )}
             {closable && (
-                <LemonButton onClick={onClose} status="primary" size="small" className="LemonTag__right-button">
-                    <IconClose />
-                </LemonButton>
+                <LemonButton
+                    icon={<IconClose className="h-3.5 w-3.5" />}
+                    onClick={onClose}
+                    status="primary"
+                    size="small"
+                    className="LemonTag__right-button"
+                />
             )}
         </div>
     )
