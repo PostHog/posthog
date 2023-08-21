@@ -1,7 +1,15 @@
 import { Link, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonMenuItem, LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { IconLink, IconCheckmark, IconCloudDownload, IconSettings, IconEllipsis, IconLegend } from 'lib/lemon-ui/icons'
+import {
+    IconLink,
+    IconCheckmark,
+    IconCloudDownload,
+    IconSettings,
+    IconEllipsis,
+    IconLegend,
+    IconErrorOutline,
+} from 'lib/lemon-ui/icons'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -106,16 +114,27 @@ export function AppView({
                             </LemonButton>
                         )}
 
-                        {pluginConfig.id && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconLegend />}
-                                to={urls.appLogs(pluginConfig.id)}
-                            >
-                                Logs & metrics
-                            </LemonButton>
-                        )}
+                        {pluginConfig.id &&
+                            (pluginConfig.error ? (
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    icon={<IconErrorOutline />}
+                                    to={urls.appLogs(pluginConfig.id)}
+                                >
+                                    Errors
+                                </LemonButton>
+                            ) : (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconLegend />}
+                                    to={urls.appLogs(pluginConfig.id)}
+                                >
+                                    Logs & metrics
+                                </LemonButton>
+                            ))}
 
                         <LemonButton
                             type="primary"
