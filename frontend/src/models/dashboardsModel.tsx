@@ -235,38 +235,18 @@ export const dashboardsModel = kea<dashboardsModelType>({
     },
 
     selectors: ({ selectors }) => ({
-        nameCompareFunction: [
-            () => [() => 1],
-            () => (a: DashboardBasicType, b: DashboardBasicType) => {
-                const firstName = a.name ?? 'Untitled'
-                const secondName = b.name ?? 'Untitled'
-
-                if (
-                    firstName.startsWith(GENERATED_DASHBOARD_PREFIX) &&
-                    !secondName.startsWith(GENERATED_DASHBOARD_PREFIX)
-                ) {
-                    return 1 // a should come after b
-                }
-                if (
-                    !firstName.startsWith(GENERATED_DASHBOARD_PREFIX) &&
-                    secondName.startsWith(GENERATED_DASHBOARD_PREFIX)
-                ) {
-                    return -1 // a should come before b
-                }
-
-                return firstName.localeCompare(secondName)
-            },
-        ],
         nameSortedDashboards: [
-            () => [selectors.rawDashboards, selectors.nameCompareFunction],
-            (rawDashboards, nameCompareFunction) => {
-                return [...Object.values(rawDashboards)].sort(nameCompareFunction)
+            () => [selectors.rawDashboards],
+            (rawDashboards) => {
+                return [...Object.values(rawDashboards)]
+                    .filter((dashboard) => !(dashboard.name ?? 'Untitled').startsWith(GENERATED_DASHBOARD_PREFIX))
+                    .sort(nameCompareFunction)
             },
         ],
         /** Display dashboards are additionally sorted by pin status: pinned first. */
         pinSortedDashboards: [
-            () => [selectors.nameSortedDashboards, selectors.nameCompareFunction],
-            (nameSortedDashboards, nameCompareFunction) => {
+            () => [selectors.nameSortedDashboards],
+            (nameSortedDashboards) => {
                 return [...nameSortedDashboards].sort(
                     (a, b) => (Number(b.pinned) - Number(a.pinned)) * 10 + nameCompareFunction(a, b)
                 )
@@ -351,3 +331,17 @@ export const dashboardsModel = kea<dashboardsModelType>({
         },
     }),
 })
+
+export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {
+    const firstName = a.name ?? 'Untitled'
+    const secondName = b.name ?? 'Untitled'
+
+    if (firstName.startsWith(GENERATED_DASHBOARD_PREFIX) && !secondName.startsWith(GENERATED_DASHBOARD_PREFIX)) {
+        return 1 // a should come after b
+    }
+    if (!firstName.startsWith(GENERATED_DASHBOARD_PREFIX) && secondName.startsWith(GENERATED_DASHBOARD_PREFIX)) {
+        return -1 // a should come before b
+    }
+
+    return firstName.localeCompare(secondName)
+}

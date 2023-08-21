@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -47,7 +47,6 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { nameCompareFunction } = useValues(dashboardsModel)
     const { setFilters } = useActions(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)

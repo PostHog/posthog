@@ -2,7 +2,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { DashboardBasicType } from '~/types'
 import { useMocks } from '~/mocks/jest'
-import { dashboardsModel } from './dashboardsModel'
+import { dashboardsModel, nameCompareFunction } from './dashboardsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
 const dashboards: Partial<DashboardBasicType>[] = [
@@ -105,18 +105,6 @@ describe('the dashboards model', () => {
                         {
                             id: 7,
                         },
-                        {
-                            id: 4,
-                            name: 'Generated Dashboard: 101',
-                        },
-                        {
-                            id: 1,
-                            name: 'Generated Dashboard: 123',
-                        },
-                        {
-                            id: 2,
-                            name: 'Generated Dashboard: 456',
-                        },
                     ],
                 })
         })
@@ -126,20 +114,20 @@ describe('the dashboards model', () => {
             const untitledDashboard = { ...basicDashboard, id: 2, name: 'Untitled' }
             const randomDashboard = { ...basicDashboard, id: 3, name: 'Random' }
             const randomDashboard2 = { ...basicDashboard, id: 3, name: 'Too Random' }
-            expect(logic.values.nameCompareFunction(generatedDashboardA, untitledDashboard)).toEqual(1)
-            expect(logic.values.nameCompareFunction(untitledDashboard, generatedDashboardA)).toEqual(-1)
-            expect(logic.values.nameCompareFunction(generatedDashboardA, randomDashboard)).toEqual(1)
-            expect(logic.values.nameCompareFunction(randomDashboard, generatedDashboardA)).toEqual(-1)
-            expect(logic.values.nameCompareFunction(generatedDashboardA, randomDashboard2)).toEqual(1)
-            expect(logic.values.nameCompareFunction(randomDashboard2, generatedDashboardA)).toEqual(-1)
+            expect(nameCompareFunction(generatedDashboardA, untitledDashboard)).toEqual(1)
+            expect(nameCompareFunction(untitledDashboard, generatedDashboardA)).toEqual(-1)
+            expect(nameCompareFunction(generatedDashboardA, randomDashboard)).toEqual(1)
+            expect(nameCompareFunction(randomDashboard, generatedDashboardA)).toEqual(-1)
+            expect(nameCompareFunction(generatedDashboardA, randomDashboard2)).toEqual(1)
+            expect(nameCompareFunction(randomDashboard2, generatedDashboardA)).toEqual(-1)
 
-            expect(logic.values.nameCompareFunction(untitledDashboard, randomDashboard)).toEqual(1)
-            expect(logic.values.nameCompareFunction(randomDashboard, untitledDashboard)).toEqual(-1)
-            expect(logic.values.nameCompareFunction(untitledDashboard, randomDashboard2)).toEqual(1)
-            expect(logic.values.nameCompareFunction(randomDashboard2, untitledDashboard)).toEqual(-1)
+            expect(nameCompareFunction(untitledDashboard, randomDashboard)).toEqual(1)
+            expect(nameCompareFunction(randomDashboard, untitledDashboard)).toEqual(-1)
+            expect(nameCompareFunction(untitledDashboard, randomDashboard2)).toEqual(1)
+            expect(nameCompareFunction(randomDashboard2, untitledDashboard)).toEqual(-1)
 
-            expect(logic.values.nameCompareFunction(randomDashboard2, randomDashboard)).toEqual(1)
-            expect(logic.values.nameCompareFunction(randomDashboard, randomDashboard2)).toEqual(-1)
+            expect(nameCompareFunction(randomDashboard2, randomDashboard)).toEqual(1)
+            expect(nameCompareFunction(randomDashboard, randomDashboard2)).toEqual(-1)
         })
     })
 })
