@@ -1,27 +1,10 @@
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { BreakdownFilter } from '~/queries/schema'
-import { ChartDisplayType, FilterType, InsightType, PropertyFilterType, TrendsFilterType } from '~/types'
+import { ChartDisplayType, PropertyFilterType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
-
-export interface TaxonomicBreakdownFilterProps {
-    filters: Partial<FilterType>
-    setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
-}
-
-export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
-    return (
-        <TaxonomicBreakdownFilterComponent
-            breakdownFilter={filters}
-            display={(filters as TrendsFilterType).display}
-            isTrends={filters.insight === InsightType.TRENDS}
-            updateBreakdown={setFilters ? (breakdownFilter) => setFilters(breakdownFilter, true) : undefined}
-            updateDisplay={setFilters ? (display) => setFilters({ display } as TrendsFilterType, true) : undefined}
-        />
-    )
-}
 
 export interface TaxonomicBreakdownFilterComponentProps {
     breakdownFilter?: BreakdownFilter | null

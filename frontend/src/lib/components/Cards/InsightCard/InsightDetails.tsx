@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { allOperatorsMapping, alphabet, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
+import { TaxonomicBreakdownFilterComponent } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -32,6 +32,7 @@ import {
     isPropertyFilterWithOperator,
 } from 'lib/components/PropertyFilters/utils'
 import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
+import { BreakdownFilter } from '~/queries/schema'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -293,7 +294,10 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
         <>
             <h5>Breakdown by</h5>
             <section>
-                <TaxonomicBreakdownFilter filters={filters} />
+                <TaxonomicBreakdownFilterComponent
+                    isTrends={filters.insight === InsightType.TRENDS}
+                    breakdownFilter={filters as BreakdownFilter}
+                />
             </section>
         </>
     )
