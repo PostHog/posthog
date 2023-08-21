@@ -56,6 +56,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
         it('sets breakdown for cohorts', async () => {
             logic = taxonomicBreakdownFilterLogic({
                 breakdownFilter: {
+                    breakdown_type: 'cohort',
                     breakdown: ['all', 1],
                 },
                 isTrends: true,
