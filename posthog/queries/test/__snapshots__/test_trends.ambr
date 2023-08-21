@@ -2775,8 +2775,8 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 10:01:01', 'UTC') - toIntervalHour(number)) AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), toDateTime('2020-01-05 10:01:01', 'UTC')))
+               toStartOfHour(toDateTime('2020-01-05 10:59:59', 'UTC') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), toDateTime('2020-01-05 10:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
@@ -2792,7 +2792,7 @@
         WHERE team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 10:01:01', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 10:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2837,8 +2837,8 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 10:01:01', 'UTC') - toIntervalHour(number)) AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), toDateTime('2020-01-05 10:01:01', 'UTC')))
+               toStartOfHour(toDateTime('2020-01-05 10:59:59', 'UTC') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), toDateTime('2020-01-05 10:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) AS total,
@@ -2847,7 +2847,7 @@
         WHERE team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 10:01:01', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 10:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2863,8 +2863,8 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 10:01:01', 'America/Phoenix') - toIntervalHour(number)) AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 10:01:01', 'America/Phoenix')))
+               toStartOfHour(toDateTime('2020-01-05 10:59:59', 'America/Phoenix') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 10:59:59', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix'))
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
@@ -2880,7 +2880,7 @@
         WHERE team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 10:01:01', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 10:59:59', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2925,8 +2925,8 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 10:01:01', 'America/Phoenix') - toIntervalHour(number)) AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 10:01:01', 'America/Phoenix')))
+               toStartOfHour(toDateTime('2020-01-05 10:59:59', 'America/Phoenix') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 10:59:59', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix'))
         UNION ALL SELECT count(*) AS total,
@@ -2935,7 +2935,7 @@
         WHERE team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 10:01:01', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 10:59:59', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2951,8 +2951,8 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 10:01:01', 'Asia/Tokyo') - toIntervalHour(number)) AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 10:01:01', 'Asia/Tokyo')))
+               toStartOfHour(toDateTime('2020-01-05 10:59:59', 'Asia/Tokyo') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 10:59:59', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo'))
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
@@ -2968,7 +2968,7 @@
         WHERE team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 10:01:01', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 10:59:59', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -3013,8 +3013,8 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 10:01:01', 'Asia/Tokyo') - toIntervalHour(number)) AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 10:01:01', 'Asia/Tokyo')))
+               toStartOfHour(toDateTime('2020-01-05 10:59:59', 'Asia/Tokyo') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 10:59:59', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo'))
         UNION ALL SELECT count(*) AS total,
@@ -3023,7 +3023,7 @@
         WHERE team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 10:01:01', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 10:59:59', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
