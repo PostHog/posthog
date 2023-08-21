@@ -50,7 +50,7 @@ export const SimpleSessionRecordingsFilters = ({
 
     return (
         <div className="space-y-2">
-            <div className="flex space-x-1 px-3 overflow-x-scroll pb-3">
+            <div className="flex flex-wrap gap-1">
                 {personPropertyOptions.map(({ label, key }) => (
                     <SimpleSessionRecordingsFiltersInserter
                         key={key}
@@ -94,41 +94,39 @@ export const SimpleSessionRecordingsFilters = ({
                 )}
             </div>
 
-            <div className="mx-3">
-                {personProperties && (
-                    <PropertyFilters
-                        pageKey={'session-recordings'}
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                        propertyFilters={personProperties}
-                        onChange={(properties) => setFilters({ properties })}
-                        allowNew={false}
-                    />
-                )}
-                {pageviewEvent && (
-                    <PropertyFilters
-                        pageKey={`session-recordings-$current_url`}
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                        propertyFilters={eventProperties}
-                        onChange={(properties) => {
-                            setLocalFilters({
-                                ...filters,
-                                events:
-                                    properties.length > 0
-                                        ? [
-                                              {
-                                                  id: '$pageview',
-                                                  name: '$pageview',
-                                                  type: EntityTypes.EVENTS,
-                                                  properties: properties,
-                                              },
-                                          ]
-                                        : [],
-                            })
-                        }}
-                        allowNew={false}
-                    />
-                )}
-            </div>
+            {personProperties && (
+                <PropertyFilters
+                    pageKey={'session-recordings'}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                    propertyFilters={personProperties}
+                    onChange={(properties) => setFilters({ properties })}
+                    allowNew={false}
+                />
+            )}
+            {pageviewEvent && (
+                <PropertyFilters
+                    pageKey={`session-recordings-$current_url`}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                    propertyFilters={eventProperties}
+                    onChange={(properties) => {
+                        setLocalFilters({
+                            ...filters,
+                            events:
+                                properties.length > 0
+                                    ? [
+                                          {
+                                              id: '$pageview',
+                                              name: '$pageview',
+                                              type: EntityTypes.EVENTS,
+                                              properties: properties,
+                                          },
+                                      ]
+                                    : [],
+                        })
+                    }}
+                    allowNew={false}
+                />
+            )}
         </div>
     )
 }
