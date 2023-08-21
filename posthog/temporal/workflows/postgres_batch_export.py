@@ -48,7 +48,7 @@ def postgres_connection(inputs):
         connection.close()
 
 
-def copy_tsv_to_posgtres(tsv_file, postgres_connection, schema: str, table_name: str, schema_columns):
+def copy_tsv_to_postgres(tsv_file, postgres_connection, schema: str, table_name: str, schema_columns):
     """Execute a COPY FROM query with given connection to copy contents of tsv_file."""
     tsv_file.seek(0)
 
@@ -161,7 +161,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                             pg_file.records_since_last_reset,
                             pg_file.bytes_since_last_reset,
                         )
-                        copy_tsv_to_posgtres(pg_file, connection, inputs.schema, inputs.table_name, schema_columns)
+                        copy_tsv_to_postgres(pg_file, connection, inputs.schema, inputs.table_name, schema_columns)
                         pg_file.reset()
 
                 if pg_file.tell() > 0:
@@ -170,7 +170,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                         pg_file.records_since_last_reset,
                         pg_file.bytes_since_last_reset,
                     )
-                    copy_tsv_to_posgtres(pg_file, connection, inputs.schema, inputs.table_name, schema_columns)
+                    copy_tsv_to_postgres(pg_file, connection, inputs.schema, inputs.table_name, schema_columns)
 
 
 @workflow.defn(name="postgres-export")
