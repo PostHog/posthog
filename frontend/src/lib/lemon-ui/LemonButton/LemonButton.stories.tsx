@@ -1,4 +1,4 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import {
     LemonButton,
     LemonButtonProps,
@@ -12,32 +12,34 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '../LemonBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import clsx from 'clsx'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
-export default {
+type Story = StoryObj<typeof LemonButton>
+const meta: Meta<typeof LemonButton> = {
     title: 'Lemon UI/Lemon Button',
     component: LemonButton,
+    tags: ['autodocs'],
     argTypes: {
         icon: {
-            defaultValue: <IconCalculate />,
-        },
-        children: {
-            defaultValue: 'Click me',
+            type: 'function',
         },
     },
-} as ComponentMeta<typeof LemonButton>
-
-const BasicTemplate: ComponentStory<typeof LemonButton> = (props: LemonButtonProps) => {
+}
+export default meta
+const BasicTemplate: StoryFn<typeof LemonButton> = (props: LemonButtonProps) => {
     return <LemonButton {...props} />
 }
 
-export const Default = BasicTemplate.bind({})
-Default.args = {}
+export const Default: Story = BasicTemplate.bind({})
+Default.args = {
+    icon: <IconCalculate />,
+    children: 'Click me',
+}
 
 const StatusesTemplate = ({
     noText,
@@ -55,7 +57,7 @@ const StatusesTemplate = ({
     )
 }
 
-const TypesAndStatusesTemplate: ComponentStory<typeof LemonButton> = (props) => {
+const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     return (
         <div className="space-y-2">
             {types.map((type) => (
@@ -68,10 +70,11 @@ const TypesAndStatusesTemplate: ComponentStory<typeof LemonButton> = (props) => 
     )
 }
 
-export const TypesAndStatuses = TypesAndStatusesTemplate.bind({})
-TypesAndStatuses.args = {}
+export const TypesAndStatuses: Story = TypesAndStatusesTemplate.bind({})
+TypesAndStatuses.args = { ...Default.args }
 
-const PopoverTemplate: ComponentStory<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
+type PopoverStory = StoryObj<typeof LemonButtonWithDropdown>
+const PopoverTemplate: StoryFn<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
     return <LemonButtonWithDropdown {...props} />
 }
 
@@ -261,8 +264,9 @@ export const AsLinks = (): JSX.Element => {
     )
 }
 
-export const WithDropdownToTheRight = PopoverTemplate.bind({})
+export const WithDropdownToTheRight: PopoverStory = PopoverTemplate.bind({})
 WithDropdownToTheRight.args = {
+    ...Default.args,
     dropdown: {
         overlay: (
             <>
@@ -284,8 +288,9 @@ WithDropdownToTheRight.args = {
     },
 }
 
-export const WithDropdownToTheBottom = PopoverTemplate.bind({})
+export const WithDropdownToTheBottom: PopoverStory = PopoverTemplate.bind({})
 WithDropdownToTheBottom.args = {
+    ...Default.args,
     dropdown: {
         overlay: (
             <>
@@ -308,8 +313,9 @@ WithDropdownToTheBottom.args = {
     },
 }
 
-export const WithVeryLongPopoverToTheBottom = PopoverTemplate.bind({})
+export const WithVeryLongPopoverToTheBottom: PopoverStory = PopoverTemplate.bind({})
 WithVeryLongPopoverToTheBottom.args = {
+    ...Default.args,
     dropdown: {
         overlay: (
             <>
@@ -325,8 +331,9 @@ WithVeryLongPopoverToTheBottom.args = {
     },
 }
 
-export const WithTooltip = BasicTemplate.bind({})
+export const WithTooltip: Story = BasicTemplate.bind({})
 WithTooltip.args = {
+    ...Default.args,
     tooltip: 'The flux capacitor will be reloaded. This might take up to 14 hours.',
 }
 

@@ -8,11 +8,10 @@ import featureFlags from './__mocks__/feature_flags.json'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Feature Flags',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -30,8 +29,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function FeatureFlagsList(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.featureFlags())
