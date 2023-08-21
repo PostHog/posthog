@@ -1,10 +1,10 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 
 import { LemonSkeleton } from './LemonSkeleton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-export default {
+const meta: Meta<typeof LemonSkeleton> = {
     title: 'Lemon UI/Lemon Skeleton',
     component: LemonSkeleton,
     parameters: {
@@ -17,7 +17,9 @@ Skeleton screens are used to indicate that a screen is loading, are perceived as
             },
         },
     },
-} as ComponentMeta<typeof LemonSkeleton>
+    tags: ['autodocs'],
+}
+export default meta
 
 export function Default(): JSX.Element {
     return <LemonSkeleton />

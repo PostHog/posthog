@@ -66,10 +66,6 @@ function createEntry(entry) {
         module: {
             rules: [
                 {
-                    test: /\.stories\.[jt]sx?$/,
-                    use: [require.resolve('@storybook/source-loader')],
-                },
-                {
                     test: /\.[jt]sx?$/,
                     exclude: /(node_modules)/,
                     use: {
