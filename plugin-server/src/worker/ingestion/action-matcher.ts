@@ -137,6 +137,10 @@ export class ActionMatcher {
         this.statsd = statsd
     }
 
+    public hasWebhooks(teamId: number): boolean {
+        return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0
+    }
+
     /** Get all actions matched to the event. */
     public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
         const matchingStart = new Date()

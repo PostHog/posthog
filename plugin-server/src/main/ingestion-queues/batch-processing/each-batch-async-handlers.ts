@@ -37,6 +37,10 @@ export async function eachMessageWebhooksHandlers(
     statsd: StatsD | undefined
 ): Promise<void> {
     const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+    if (!actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
+        // exit early if no webhooks nor resthooks
+        return
+    }
     const event = convertToIngestionEvent(clickHouseEvent)
 
     // TODO: previously onEvent and Webhooks were executed in the same process,
@@ -62,6 +66,26 @@ export async function eachBatchAppsOnEventHandlers(
     await eachBatch(payload, queue, eachMessageAppsOnEventHandlers, groupIntoBatches, 'async_handlers_on_event')
 }
 
+function groupIntoBatchesWebhooks(actionMatcher: ActionMatcher) {
+    function groupIntoBatchesHelper(array: KafkaMessage[], batchSize: number): KafkaMessage[][] {
+        const batches = []
+        let currentCount = 0
+        let currentStart = 0
+        // group into batches of batchSize of actionMatcher.hasWebhooks and include all the other messages in the middle
+        for (const message of array) {
+            const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+            currentCount += actionMatcher.hasWebhooks(clickHouseEvent.team_id) ? 1 : 0
+            if (currentCount === batchSize) {
+                batches.push(array.slice(currentStart, currentStart + currentCount))
+                currentStart += currentCount
+                currentCount = 0
+            }
+        }
+        return batches
+    }
+    return groupIntoBatchesHelper
+}
+
 export async function eachBatchWebhooksHandlers(
     payload: EachBatchPayload,
     actionMatcher: ActionMatcher,
@@ -73,7 +97,7 @@ export async function eachBatchWebhooksHandlers(
         payload,
         statsd,
         (message) => eachMessageWebhooksHandlers(message, actionMatcher, hookCannon, statsd),
-        groupIntoBatches,
+        groupIntoBatchesWebhooks(actionMatcher),
         concurrency,
         'async_handlers_webhooks'
     )
