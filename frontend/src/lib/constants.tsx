@@ -160,9 +160,9 @@ export const FEATURE_FLAGS = {
     REFERRAL_SOURCE_SELECT: 'referral-source-select', // owner: @raquelmsmith
     SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
     SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
-    SESSION_REPLAY_SIMPLE_FILTERS: 'simple-session-replay-filters', // owner: #team-monitoring
     SURVEYS_MULTIPLE_CHOICE: 'surveys-multiple-choice', // owner: @liyiy
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
+    NOTEBOOK_SETTINGS_WIDGETS: 'notebook-settings-widgets', // owner: #team-monitoring
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
