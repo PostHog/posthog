@@ -647,7 +647,7 @@ export class DB {
 
         const person = await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'createPerson', async (tx) => {
             const insertResult = await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
+                tx,
                 'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
                 [
                     createdAt.toISO(),
@@ -660,8 +660,7 @@ export class DB {
                     uuid,
                     0,
                 ],
-                'insertPerson',
-                tx
+                'insertPerson'
             )
             const personCreated = insertResult.rows[0] as RawPerson
             const person = {
@@ -710,11 +709,10 @@ export class DB {
         RETURNING *`
 
         const updateResult: QueryResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             queryString,
             values,
-            'updatePerson',
-            tx
+            'updatePerson'
         )
         if (updateResult.rows.length == 0) {
             throw new NoRowsUpdatedError(
@@ -755,11 +753,10 @@ export class DB {
 
     public async deletePerson(person: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
         const result = await this.postgres.query<{ version: string }>(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
             [person.team_id, person.id],
-            'deletePerson',
-            tx
+            'deletePerson'
         )
 
         let kafkaMessages: ProducerRecord[] = []
@@ -832,11 +829,10 @@ export class DB {
         tx?: TransactionClient
     ): Promise<ProducerRecord[]> {
         const insertResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, 0) RETURNING *',
             [distinctId, person.id, person.team_id],
-            'addDistinctIdPooled',
-            tx
+            'addDistinctIdPooled'
         )
 
         const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
@@ -864,7 +860,7 @@ export class DB {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
+                tx ?? PostgresUse.COMMON_WRITE,
                 `
                     UPDATE posthog_persondistinctid
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
@@ -873,8 +869,7 @@ export class DB {
                     RETURNING *
                 `,
                 [target.id, source.id, target.team_id],
-                'updateDistinctIdPerson',
-                tx
+                'updateDistinctIdPerson'
             )
         } catch (error) {
             if (
@@ -978,7 +973,7 @@ export class DB {
         // this also happens rarely, so we're just going to do the performance optimal thing
         // i.e. do nothing on conflicts, so we keep using the value that the person merged into had
         await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             `
             WITH deletions AS (
                 DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2
@@ -990,8 +985,7 @@ export class DB {
                 ON CONFLICT DO NOTHING
             `,
             [teamID, sourcePersonID, targetPersonID],
-            'addFeatureFlagHashKeysForMergedPerson',
-            tx
+            'addFeatureFlagHashKeysForMergedPerson'
         )
     }
 
@@ -1314,11 +1308,10 @@ export class DB {
         }
 
         const selectResult: QueryResult = await this.postgres.query(
-            PostgresUse.COMMON_READ,
+            tx ?? PostgresUse.COMMON_READ,
             queryString,
             [teamId, groupTypeIndex, groupKey],
-            'fetchGroup',
-            tx
+            'fetchGroup'
         )
 
         if (selectResult.rows.length > 0) {
@@ -1344,7 +1337,7 @@ export class DB {
         options: { cache?: boolean } = { cache: true }
     ): Promise<void> {
         const result = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1361,8 +1354,7 @@ export class DB {
                 JSON.stringify(propertiesLastOperation),
                 version,
             ],
-            'upsertGroup',
-            tx
+            'upsertGroup'
         )
 
         if (result.rows.length === 0) {
@@ -1389,7 +1381,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<void> {
         await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             `
             UPDATE posthog_group SET
             created_at = $4,
@@ -1409,8 +1401,7 @@ export class DB {
                 JSON.stringify(propertiesLastOperation),
                 version,
             ],
-            'upsertGroup',
-            tx
+            'upsertGroup'
         )
 
         await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
@@ -1471,11 +1462,10 @@ export class DB {
         await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'addOrUpdatePublicJob', async (tx) => {
             let publicJobs: Record<string, any> = (
                 await this.postgres.query(
-                    PostgresUse.COMMON_WRITE,
+                    tx,
                     'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
                     [pluginId],
-                    'selectPluginPublicJobsForUpdate',
-                    tx
+                    'selectPluginPublicJobsForUpdate'
                 )
             ).rows[0]?.public_jobs
 
@@ -1487,11 +1477,10 @@ export class DB {
                 publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
 
                 await this.postgres.query(
-                    PostgresUse.COMMON_WRITE,
+                    tx,
                     'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
                     [JSON.stringify(publicJobs), pluginId],
-                    'updatePublicJob',
-                    tx
+                    'updatePublicJob'
                 )
             }
         })

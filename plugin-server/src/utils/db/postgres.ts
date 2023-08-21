@@ -63,15 +63,14 @@ export class PostgresRouter {
     }
 
     public async query<R extends QueryResultRow = any, I extends any[] = any[]>(
-        target: PostgresUse,
+        target: PostgresUse | TransactionClient,
         queryString: string | QueryConfig<I>,
         values: I | undefined,
-        tag: string,
-        tx?: TransactionClient
+        tag: string
     ): Promise<QueryResult<R>> {
-        if (tx) {
-            const wrappedTag = `${PostgresUse[tx.target]}:Tx<${tag}>`
-            return postgresQuery(tx.client, queryString, values, wrappedTag, this.statsd)
+        if (target instanceof TransactionClient) {
+            const wrappedTag = `${PostgresUse[target.target]}:Tx<${tag}>`
+            return postgresQuery(target.client, queryString, values, wrappedTag, this.statsd)
         } else {
             const wrappedTag = `${PostgresUse[target]}<${tag}>`
             return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag, this.statsd)
@@ -79,7 +78,7 @@ export class PostgresRouter {
     }
 
     public async bulkInsert<T extends Array<any>>(
-        usage: PostgresUse,
+        usage: PostgresUse | TransactionClient,
         // Should have {VALUES} as a placeholder
         queryWithPlaceholder: string,
         values: Array<T>,

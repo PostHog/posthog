@@ -483,7 +483,7 @@ export class PersonState {
         const overridePersonId = await this.addPersonOverrideMapping(overridePerson, tx)
 
         await this.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx,
             SQL`
                 INSERT INTO posthog_personoverride (
                     team_id,
@@ -500,14 +500,13 @@ export class PersonState {
                 )
             `,
             undefined,
-            'personOverride',
-            tx
+            'personOverride'
         )
 
         // The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
         // of the IDs we updated from the mapping table.
         const { rows: transitiveUpdates } = await this.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx,
             SQL`
                 WITH updated_ids AS (
                     UPDATE
@@ -533,8 +532,7 @@ export class PersonState {
                     helper.id = updated_ids.old_person_id;
             `,
             undefined,
-            'transitivePersonOverrides',
-            tx
+            'transitivePersonOverrides'
         )
 
         status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
@@ -583,7 +581,7 @@ export class PersonState {
         const {
             rows: [{ id }],
         } = await this.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx,
             `WITH insert_id AS (
                     INSERT INTO posthog_personoverridemapping(
                         team_id,
@@ -603,8 +601,7 @@ export class PersonState {
                 WHERE uuid = '${person.uuid}'
             `,
             undefined,
-            'personOverrideMapping',
-            tx
+            'personOverrideMapping'
         )
 
         return id
@@ -619,11 +616,10 @@ export class PersonState {
 
         // For Cohorts
         await this.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx,
             'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
             [targetPerson.id, sourcePerson.id],
-            'updateCohortPeople',
-            tx
+            'updateCohortPeople'
         )
 
         // For FeatureFlagHashKeyOverrides
