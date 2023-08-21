@@ -50,6 +50,9 @@ export function LemonTag({
                     size="small"
                     className="LemonTag__right-button"
                     icon={<IconEllipsis />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                    }}
                 />
             )}
             {closable && (
