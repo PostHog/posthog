@@ -15,7 +15,8 @@ type BreakdownTagProps = {
 }
 
 export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTagProps): JSX.Element {
-    const [open, setOpen] = useState(false)
+    const [filterOpen, setFilterOpen] = useState(false)
+    const [menuOpen, setMenuOpen] = useState(false)
 
     const logicProps = { breakdown, isTrends, breakdownType }
     const { isViewOnly, shouldShowMenu, propertyName } = useValues(breakdownTagLogic(logicProps))
@@ -23,7 +24,7 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
 
     return (
         <BindLogic logic={breakdownTagLogic} props={logicProps}>
-            <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
+            <TaxonomicBreakdownPopover open={filterOpen} setOpen={setFilterOpen}>
                 <div>
                     {/* :TRICKY: we don't want the close button to be active when the edit popover is open.
                      * Therefore we're wrapping the lemon tag a context provider to override the parent context. */}
@@ -33,15 +34,18 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
                             // display remove button only if we can edit and don't have a separate menu
                             closable={!isViewOnly && !shouldShowMenu}
                             onClick={() => {
-                                setOpen(!open)
+                                setFilterOpen(!filterOpen)
                             }}
                             onClose={removeBreakdown}
                             popover={{
                                 overlay: shouldShowMenu ? <BreakdownTagMenu /> : undefined,
                                 closeOnClickInside: false,
+                                onVisibilityChange: (visible) => {
+                                    setMenuOpen(visible)
+                                },
                             }}
                         >
-                            <PropertyKeyInfo value={propertyName} disablePopover={open} />
+                            <PropertyKeyInfo value={propertyName} disablePopover={filterOpen || menuOpen} />
                         </LemonTag>
                     </PopoverReferenceContext.Provider>
                 </div>
