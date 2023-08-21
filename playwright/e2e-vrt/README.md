@@ -29,7 +29,7 @@ We're using Playwright to run visual regression tests against Storybook. To crea
     - Capture content within a container element:
 
         ```ts
-        const locator = page.locator('#root')
+        const locator = page.locator('#storybook-root')
         await expect(locator).toHaveScreenshot()
         ```
 
