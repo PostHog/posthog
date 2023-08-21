@@ -185,6 +185,7 @@ export function Editor({
                     const endPosition = findEndPositionOfNode(editor, position)
                     if (endPosition) {
                         editor.chain().focus().insertContentAt(endPosition, content).run()
+                        editor.commands.scrollIntoView()
                     }
                 },
                 findNode: (position: number) => findNode(editor, position),
