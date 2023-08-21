@@ -6,6 +6,7 @@ import { BreakdownTagMenu } from './BreakdownTagMenu'
 import { PropertyFilterType } from '~/types'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 import { useState } from 'react'
+import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 
 type BreakdownTagProps = {
     breakdown: string | number
@@ -24,21 +25,25 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
         <BindLogic logic={breakdownTagLogic} props={logicProps}>
             <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
                 <div>
-                    <LemonTag
-                        className="taxonomic-breakdown-filter tag-pill"
-                        // display remove button only if we can edit and don't have a separate menu
-                        closable={!isViewOnly && !shouldShowMenu}
-                        onClick={() => {
-                            setOpen(!open)
-                        }}
-                        onClose={removeBreakdown}
-                        popover={{
-                            overlay: shouldShowMenu ? <BreakdownTagMenu /> : undefined,
-                            closeOnClickInside: false,
-                        }}
-                    >
-                        <PropertyKeyInfo value={propertyName} disablePopover={open} />
-                    </LemonTag>
+                    {/* :TRICKY: we don't want the close button to be active when the edit popover is open.
+                     * Therefore we're wrapping the lemon tag a context provider to override the parent context. */}
+                    <PopoverReferenceContext.Provider value={[false, 'bottom']}>
+                        <LemonTag
+                            className="taxonomic-breakdown-filter tag-pill"
+                            // display remove button only if we can edit and don't have a separate menu
+                            closable={!isViewOnly && !shouldShowMenu}
+                            onClick={() => {
+                                setOpen(!open)
+                            }}
+                            onClose={removeBreakdown}
+                            popover={{
+                                overlay: shouldShowMenu ? <BreakdownTagMenu /> : undefined,
+                                closeOnClickInside: false,
+                            }}
+                        >
+                            <PropertyKeyInfo value={propertyName} disablePopover={open} />
+                        </LemonTag>
+                    </PopoverReferenceContext.Provider>
                 </div>
             </TaxonomicBreakdownPopover>
         </BindLogic>
