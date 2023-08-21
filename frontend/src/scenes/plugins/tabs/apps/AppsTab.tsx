@@ -83,7 +83,7 @@ export function AppsTab(): JSX.Element {
                     <AppsTable
                         title="Apps to Update"
                         plugins={filteredPluginsNeedingUpdates}
-                        loading={checkingForUpdates}
+                        loading={loading || checkingForUpdates}
                     />
                 )}
 

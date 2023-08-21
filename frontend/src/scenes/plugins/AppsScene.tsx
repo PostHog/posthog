@@ -12,6 +12,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportsTab } from './tabs/batch-exports/BatchExportsTab'
 import { AppsTab } from './tabs/apps/AppsTab'
 import { PluginTab } from './types'
+import { LemonButton } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: AppsScene,
@@ -35,7 +37,17 @@ export function AppsScene(): JSX.Element | null {
 
     return (
         <>
-            <PageHeader title="Apps & Exports" tabbedPage />
+            <PageHeader
+                title="Apps & Exports"
+                tabbedPage
+                buttons={
+                    pluginTab === PluginTab.BatchExports ? (
+                        <LemonButton type="primary" to={urls.batchExportNew()}>
+                            Create export workflow
+                        </LemonButton>
+                    ) : undefined
+                }
+            />
             <LemonTabs
                 data-attr="apps-tabs"
                 activeKey={pluginTab}
