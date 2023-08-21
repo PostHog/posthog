@@ -138,7 +138,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
 
                     let changelogNotification: ChangelogFlagPayload | null = null
                     const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
-                    if (!!flagPayload) {
+                    if (flagPayload) {
                         changelogNotification = {
                             markdown: flagPayload['markdown'],
                             notificationDate: dayjs(flagPayload['notificationDate']),
