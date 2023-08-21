@@ -1244,7 +1244,7 @@ export class DB {
 
     public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
         const { rows } = await this.postgres.query(
-            PostgresUse.COMMON_READ,
+            PostgresUse.COMMON_WRITE,
             `SELECT * FROM posthog_grouptypemapping WHERE team_id = $1`,
             [teamId],
             'fetchGroupTypes'
@@ -1308,7 +1308,7 @@ export class DB {
         }
 
         const selectResult: QueryResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_READ,
+            tx ?? PostgresUse.COMMON_WRITE,
             queryString,
             [teamId, groupTypeIndex, groupKey],
             'fetchGroup'
