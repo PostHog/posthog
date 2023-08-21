@@ -337,15 +337,5 @@ export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType
     const firstName = a.name ?? 'Untitled'
     const secondName = b.name ?? 'Untitled'
 
-    const firstNameIsGenerated = firstName.startsWith(GENERATED_DASHBOARD_PREFIX)
-    const secondNameIsGenerated = secondName.startsWith(GENERATED_DASHBOARD_PREFIX)
-
-    if (firstNameIsGenerated && !secondNameIsGenerated) {
-        return 1 // a should come after b
-    }
-    if (!firstNameIsGenerated && secondNameIsGenerated) {
-        return -1 // a should come before b
-    }
-
     return firstName.localeCompare(secondName)
 }

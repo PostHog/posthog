@@ -114,12 +114,12 @@ describe('the dashboards model', () => {
             const untitledDashboard = { ...basicDashboard, id: 2, name: 'Untitled' }
             const randomDashboard = { ...basicDashboard, id: 3, name: 'Random' }
             const randomDashboard2 = { ...basicDashboard, id: 3, name: 'Too Random' }
-            expect(nameCompareFunction(generatedDashboardA, untitledDashboard)).toEqual(1)
-            expect(nameCompareFunction(untitledDashboard, generatedDashboardA)).toEqual(-1)
-            expect(nameCompareFunction(generatedDashboardA, randomDashboard)).toEqual(1)
-            expect(nameCompareFunction(randomDashboard, generatedDashboardA)).toEqual(-1)
-            expect(nameCompareFunction(generatedDashboardA, randomDashboard2)).toEqual(1)
-            expect(nameCompareFunction(randomDashboard2, generatedDashboardA)).toEqual(-1)
+            expect(nameCompareFunction(generatedDashboardA, untitledDashboard)).toEqual(-1)
+            expect(nameCompareFunction(untitledDashboard, generatedDashboardA)).toEqual(1)
+            expect(nameCompareFunction(generatedDashboardA, randomDashboard)).toEqual(-1)
+            expect(nameCompareFunction(randomDashboard, generatedDashboardA)).toEqual(1)
+            expect(nameCompareFunction(generatedDashboardA, randomDashboard2)).toEqual(-1)
+            expect(nameCompareFunction(randomDashboard2, generatedDashboardA)).toEqual(1)
 
             expect(nameCompareFunction(untitledDashboard, randomDashboard)).toEqual(1)
             expect(nameCompareFunction(randomDashboard, untitledDashboard)).toEqual(-1)
