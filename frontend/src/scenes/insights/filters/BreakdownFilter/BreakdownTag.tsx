@@ -7,6 +7,7 @@ import { PropertyFilterType } from '~/types'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 import { useState } from 'react'
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
+import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
 
 type BreakdownTagProps = {
     breakdown: string | number
@@ -45,7 +46,11 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
                                 },
                             }}
                         >
-                            <PropertyKeyInfo value={propertyName} disablePopover={filterOpen || menuOpen} />
+                            {breakdownType === 'hogql' ? (
+                                <HoqQLPropertyInfo value={propertyName as string} />
+                            ) : (
+                                <PropertyKeyInfo value={propertyName} disablePopover={filterOpen || menuOpen} />
+                            )}
                         </LemonTag>
                     </PopoverReferenceContext.Provider>
                 </div>
