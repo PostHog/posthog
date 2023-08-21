@@ -14,7 +14,6 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
             isTrends={isTrends}
             updateBreakdown={updateBreakdown}
             updateDisplay={updateDisplay}
-            isDataExploration
         />
     )
 }
