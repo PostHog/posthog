@@ -63,8 +63,8 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
         taxonomicBreakdownType: [
             (s) => [s.breakdownFilter],
-            ({ breakdown_type }) => {
-                let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
+            ({ breakdown_type, breakdown_group_type_index }) => {
+                let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type, breakdown_group_type_index)
                 if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
                     breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
                 }
