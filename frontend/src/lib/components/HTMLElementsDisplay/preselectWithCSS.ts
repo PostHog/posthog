@@ -115,7 +115,7 @@ export const matchesSelector = (e: ElementType, s: ParsedCSSSelector): boolean =
         } else {
             // s.class is a string or a string[]
             const val: string | string[] | undefined = s[key]
-            if (!!val) {
+            if (val) {
                 const keysToMatch: string[] | undefined = Array.isArray(val) ? val : [val]
                 // it matches if every item in s[key] is in e.attributes[key]
                 if (

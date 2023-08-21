@@ -129,7 +129,7 @@ export const personsLogic = kea<personsLogicType>({
         apiDocsURL: [
             () => [(_, props) => props.cohort],
             (cohort: PersonsLogicProps['cohort']) =>
-                !!cohort
+                cohort
                     ? 'https://posthog.com/docs/api/cohorts#get-api-projects-project_id-cohorts-id-persons'
                     : 'https://posthog.com/docs/api/persons',
         ],

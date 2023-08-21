@@ -685,7 +685,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*\.-]+[\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.]+$/
+    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
     return !!input.trim().match(regexp)
 }
 
@@ -703,7 +703,7 @@ export function isEmail(string: string): boolean {
     }
     // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
     const regexp =
-        /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+        /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
@@ -986,7 +986,7 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
         return dayjs(date)
     }
-    const parseDate = /^([\-\+]?)([0-9]*)([dmwqy])(|Start|End)$/
+    const parseDate = /^([-+]?)([0-9]*)([dmwqy])(|Start|End)$/
     const matches = (date || '').match(parseDate)
     let response: null | dayjs.Dayjs = null
     if (matches) {
@@ -1144,7 +1144,7 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
     const match = url.match(
-        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
+        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-/]+))?/
     )
 
     if (!match) {

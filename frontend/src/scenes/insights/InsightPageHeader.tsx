@@ -235,7 +235,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         icon={
                                             <ThunderboltFilled
                                                 style={
-                                                    !!globalInsightFilters.sampling_factor
+                                                    globalInsightFilters.sampling_factor
                                                         ? { color: 'var(--primary)' }
                                                         : {}
                                                 }
