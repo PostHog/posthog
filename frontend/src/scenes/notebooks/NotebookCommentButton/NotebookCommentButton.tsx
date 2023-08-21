@@ -170,6 +170,8 @@ function RecordingCommentChoice(props: NotebookCommentButtonProps): JSX.Element 
                 notebookCommentButtonLogic.findMounted({ sessionRecordingId })?.actions.loadContainingNotebooks()
             }
         )
+
+        setShowPopover(false)
     }
 
     return (
