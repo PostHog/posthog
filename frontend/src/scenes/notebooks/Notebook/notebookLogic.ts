@@ -1,4 +1,16 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import {
+    BuiltLogic,
+    actions,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
@@ -55,15 +67,18 @@ export const notebookLogic = kea<notebookLogicType>([
         setEditor: (editor: NotebookEditor) => ({ editor }),
         editorIsReady: true,
         onEditorUpdate: true,
+        onEditorSelectionUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearLocalContent: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         exportJSON: true,
         showConflictWarning: true,
-        registerNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
-        unregisterNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
+        registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
+        unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
+        scrollToSelection: true,
         insertAfterLastNode: (content: JSONContent) => ({
             content,
         }),
@@ -111,9 +126,14 @@ export const notebookLogic = kea<notebookLogicType>([
                 loadNotebookSuccess: () => false,
             },
         ],
-
+        selectedNodeId: [
+            null as string | null,
+            {
+                setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
+            },
+        ],
         nodeLogics: [
-            {} as Record<string, notebookNodeLogicType>,
+            {} as Record<string, BuiltLogic<notebookNodeLogicType>>,
             {
                 registerNodeLogic: (state, { nodeLogic }) => ({
                     ...state,
@@ -274,7 +294,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 return 'unsaved'
             },
         ],
-
+        selectedNodeLogic: [
+            (s) => [s.selectedNodeId, s.nodeLogics],
+            (selectedNodeId, nodeLogics) =>
+                Object.values(nodeLogics).find((nodeLogic) => nodeLogic.props.nodeId === selectedNodeId),
+        ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
             (nodeLogics) => {
@@ -291,6 +315,12 @@ export const notebookLogic = kea<notebookLogicType>([
                         }) ?? null
                     )
                 }
+            },
+        ],
+        isShowingSidebar: [
+            (s) => [s.selectedNodeLogic],
+            (selectedNodeLogic) => {
+                return !!selectedNodeLogic?.values.widgets.length
             },
         ],
     }),
@@ -402,6 +432,20 @@ export const notebookLogic = kea<notebookLogicType>([
             )
 
             downloadFile(file)
+        },
+
+        onEditorSelectionUpdate: () => {
+            const node = values.editor?.getSelectedNode()
+            actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
+
+            if (node?.attrs.nodeId) {
+                actions.scrollToSelection()
+            }
+        },
+        scrollToSelection: () => {
+            if (values.editor) {
+                values.editor.scrollToSelection()
+            }
         },
     })),
 ])

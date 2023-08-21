@@ -68,7 +68,7 @@ export function SessionRecordingsFilters({
     }, [filters])
 
     return (
-        <div className="relative flex flex-col gap-2 p-3 bg-side border-b">
+        <div className="relative flex flex-col gap-2 p-3">
             {onReset && (
                 <span className="absolute top-2 right-2">
                     <LemonButton size="small" onClick={onReset}>

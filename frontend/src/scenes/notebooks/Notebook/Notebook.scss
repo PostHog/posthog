@@ -1,10 +1,8 @@
 .Notebook {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-
     .NotebookEditor {
         flex: 1;
+        width: 100%;
+        overflow: hidden;
 
         > h1,
         > h2,
@@ -18,7 +16,7 @@
             margin-bottom: 0.2rem;
         }
 
-        > &.ProseMirror-focused {
+        > .ProseMirror-focused {
             outline: none;
         }
 
@@ -99,10 +97,9 @@
     }
 
     &--compact {
-        max-width: 1000px;
-        width: 100%;
-        margin-left: auto;
-        margin-right: auto;
+        .NotebookEditor {
+            max-width: 800px;
+        }
     }
 
     &--editable {
@@ -110,6 +107,36 @@
             // Add some padding to help clicking below the last element
             padding-bottom: 10rem;
         }
+    }
+
+    .NotebookSidebar {
+        position: relative;
+        width: 0px;
+        margin-top: 3.5rem; // Account for title
+        transition: width var(--notebook-popover-transition-properties);
+
+        .NotebookSidebar__content {
+            position: sticky;
+            align-self: flex-start;
+            top: 65px;
+            width: var(--notebook-sidebar-width);
+            transform: translateX(-100%);
+            transition: transform var(--notebook-popover-transition-properties);
+        }
+
+        &--showing {
+            width: var(--notebook-sidebar-width);
+
+            .NotebookSidebar__content {
+                transform: translateX(0);
+            }
+        }
+    }
+
+    .NotebookNodeSettings__widgets {
+        position: sticky;
+        align-self: flex-start;
+        top: 65px;
     }
 
     .LemonTable__content > table > thead {
