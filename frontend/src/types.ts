@@ -119,6 +119,8 @@ export type Product = {
     key: ProductKey
     description: string
     productUrl: string
+    productInfoUrl?: string
+    docsUrl?: string
 }
 
 export enum LicensePlan {

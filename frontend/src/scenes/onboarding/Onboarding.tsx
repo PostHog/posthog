@@ -4,30 +4,38 @@ import { useEffect } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
+import { LemonButton } from '@posthog/lemon-ui'
+import { onboardingLogic } from './onboardingLogic'
 
 export const scene: SceneExport = {
     component: Onboarding,
     // logic: featureFlagsLogic,
 }
 
-export function Onboarding(): JSX.Element {
+export function Onboarding(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { product } = useValues(onboardingLogic)
+
     useEffect(() => {
         if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
             location.href = urls.ingestion()
         }
     }, [])
 
-    return (
-        <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">
+    return product ? (
+        <div className="flex flex-col w-full min-h-full p-6 bg-mid">
             <div className="mb-8">
-                <h1 className="text-center text-4xl">Product analytics</h1>
-                <p className="text-center">
-                    Pick your first product to get started with. You can set up any others you'd like later.
-                </p>
+                <h1 className="text-4xl font-bold">{product.name}</h1>
+                <h3 className="font-bold">{product.description}</h3>
+                <div className="flex gap-x-2">
+                    <LemonButton type="primary">Get started</LemonButton>
+                    <LemonButton type="secondary" to="https://posthog.com/product-analytics">
+                        Learn more
+                    </LemonButton>
+                </div>
             </div>
 
             <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap" />
         </div>
-    )
+    ) : null
 }
