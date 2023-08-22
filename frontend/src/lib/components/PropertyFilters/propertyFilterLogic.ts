@@ -78,7 +78,6 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                         newFiltersCache[index] = { ...newFiltersCache[index], [operator]: property }
                         return newFiltersCache
                     }
-
                     return parsePropertiesForFiltersCache(props.propertyFilters)
                 },
             },
