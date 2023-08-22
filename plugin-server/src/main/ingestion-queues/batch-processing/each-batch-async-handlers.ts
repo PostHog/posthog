@@ -71,16 +71,19 @@ function groupIntoBatchesWebhooks(actionMatcher: ActionMatcher) {
         const batches = []
         let currentCount = 0
         let currentStart = 0
+
         // group into batches of batchSize of actionMatcher.hasWebhooks and include all the other messages in the middle
-        for (const message of array) {
+        for (let i = 0; i < array.length; i++) {
+            const message = array[i]
             const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
             currentCount += actionMatcher.hasWebhooks(clickHouseEvent.team_id) ? 1 : 0
-            if (currentCount === batchSize) {
-                batches.push(array.slice(currentStart, currentStart + currentCount))
-                currentStart += currentCount
+            if (currentCount === batchSize || i === array.length - 1) {
+                batches.push(array.slice(currentStart, i + 1))
+                currentStart = i + 1
                 currentCount = 0
             }
         }
+
         return batches
     }
     return groupIntoBatchesHelper
