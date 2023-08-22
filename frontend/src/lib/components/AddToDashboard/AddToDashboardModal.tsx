@@ -61,7 +61,7 @@ const DashboardRelationRow = ({
                 className="overflow-hidden text-ellipsis whitespace-nowrap"
                 title={dashboard.name}
             >
-                <span className={isAlreadyOnDashboard ? 'font-bold' : ''}>{dashboard.name || 'Untitled'}</span>
+                {dashboard.name || 'Untitled'}
             </Link>
             {isPrimary && (
                 <Tooltip title="Primary dashboards are shown on the project home page">
