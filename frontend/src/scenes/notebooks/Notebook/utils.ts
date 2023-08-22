@@ -25,7 +25,7 @@ export {
 export type NotebookNodeAttributes = Record<string, any>
 type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
     attrs: T & {
-        nodeId?: string
+        nodeId: string
         height?: string | number
     }
 }
@@ -34,10 +34,24 @@ export type NotebookNodeViewProps<T extends NotebookNodeAttributes> = Omit<NodeV
     node: NotebookNode<T>
 }
 
+export type NotebookNodeWidgetSettings<T extends NotebookNodeAttributes> = {
+    attributes: T
+    updateAttributes: (attributes: Partial<T>) => void
+}
+
+export type NotebookNodeWidget<T extends NotebookNodeAttributes> = {
+    key: string
+    label: string
+    icon: JSX.Element
+    Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings<T>) => JSX.Element
+}
+
 export interface NotebookEditor {
     getJSON: () => JSONContent
+    getSelectedNode: () => Node | null
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
+    setSelection: (position: number) => void
     focus: (position: EditorFocusPosition) => void
     destroy: () => void
     isEmpty: () => boolean
@@ -48,6 +62,7 @@ export interface NotebookEditor {
     findNodePositionByAttrs: (attrs: Record<string, any>) => any
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
+    scrollToSelection: () => void
 }
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4

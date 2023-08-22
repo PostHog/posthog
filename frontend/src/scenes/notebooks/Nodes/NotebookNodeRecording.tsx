@@ -14,19 +14,23 @@ import {
     SessionRecordingPreviewSkeleton,
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { IconSettings } from 'lib/lemon-ui/icons'
+import { JSONContent, NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>): JSX.Element => {
     const id = props.node.attrs.id
+    const noInspector: boolean = props.node.attrs.noInspector
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
         autoPlay: false,
         mode: SessionRecordingPlayerMode.Notebook,
         noBorder: true,
+        noInspector: noInspector,
     }
 
     const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
@@ -51,8 +55,23 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
     )
 }
 
+export const Settings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeWidgetSettings<NotebookNodeRecordingAttributes>): JSX.Element => {
+    return (
+        <LemonSwitch
+            onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
+            label="Hide Inspector"
+            checked={attributes.noInspector}
+            fullWidth={true}
+        />
+    )
+}
+
 type NotebookNodeRecordingAttributes = {
     id: string
+    noInspector: boolean
 }
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
@@ -67,13 +86,24 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         id: {
             default: null,
         },
+        noInspector: {
+            default: false,
+        },
     },
     pasteOptions: {
         find: urls.replaySingle('(.+)'),
         getAttributes: async (match) => {
-            return { id: match[1] }
+            return { id: match[1], noInspector: false }
         },
     },
+    widgets: [
+        {
+            key: 'settings',
+            label: 'Settings',
+            icon: <IconSettings />,
+            Component: Settings,
+        },
+    ],
 })
 
 export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {
