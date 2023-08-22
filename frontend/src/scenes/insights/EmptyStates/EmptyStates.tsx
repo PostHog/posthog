@@ -42,12 +42,12 @@ export function InsightEmptyState({
     )
 }
 
-function FastModeLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
+function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
     const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
     return (
         <Tooltip
-            title={`Fast mode enables ${suggestedSamplingPercentage}% sampling for all insights you refresh, speeding up the calculation of results.`}
+            title={`Calculate results from ${suggestedSamplingPercentage}% of the total dataset for this insight, speeding up the calculation of results.`}
             placement="bottom"
         >
             <Link
@@ -58,7 +58,7 @@ function FastModeLink({ insightProps }: { insightProps: InsightLogicProps }): JS
                     })
                 }}
             >
-                <ThunderboltFilled className="mt-1" /> Fast mode {`(${suggestedSamplingPercentage}%)`}
+                <ThunderboltFilled className="mt-1" /> {suggestedSamplingPercentage}% sampling
             </Link>
         </Tooltip>
     )
@@ -96,13 +96,13 @@ export function InsightTimeoutState({
                     <p className="text-xs m-0 leading-5">
                         {isLoading && suggestedSamplingPercentage && !samplingPercentage ? (
                             <>
-                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on
-                                sampling with <FastModeLink insightProps={insightProps} />.
+                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
+                                <SamplingLink insightProps={insightProps} />.
                             </>
                         ) : isLoading && suggestedSamplingPercentage && samplingPercentage ? (
                             <>
                                 Still waiting around? You must have lots of data! Kick it up a notch with{' '}
-                                <FastModeLink insightProps={insightProps} />. Or try reducing the date range and
+                                <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
                                 removing breakdowns.
                             </>
                         ) : isLoading ? (
