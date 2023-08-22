@@ -1,7 +1,15 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { propertyFilterLogicType } from './propertyFilterLogicType'
-import { AnyPropertyFilter, EmptyPropertyFilter, FilterOperatorCache, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    EmptyPropertyFilter,
+    EventPropertyFilter,
+    FilterOperatorCache,
+    GroupPropertyFilter,
+    PersonPropertyFilter,
+    PropertyOperator,
+} from '~/types'
 import {
     isValidPropertyFilter,
     parseProperties,
@@ -16,6 +24,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
 
     actions({
         update: true,
+        setFilterInner: (index: number, property: AnyPropertyFilter) => ({ index, property }),
         setFilter: (index: number, property: AnyPropertyFilter) => ({ index, property }),
         setFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
         remove: (index: number) => ({ index }),
@@ -30,7 +39,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
         filters: [
             props.propertyFilters ? parseProperties(props.propertyFilters) : ([] as AnyPropertyFilter[]),
             {
-                setFilter: (state, { index, property }) => {
+                setFilterInner: (state, { index, property }) => {
                     const newFilters: AnyPropertyFilter[] = [...state]
                     newFilters[index] = property
                     return newFilters
@@ -55,19 +64,6 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                 ? parsePropertiesForFiltersCache(props.propertyFilters)
                 : ([] as FilterOperatorCache[]),
             {
-                setFilter: (state, { index, property }) => {
-                    const newFilters: FilterOperatorCache[] = [...state]
-                    if (
-                        property?.operator &&
-                        newFilters?.[index]?.[property.operator] &&
-                        newFilters[index][property.operator].key === property.key
-                    ) {
-                        newFilters[index] = { ...newFilters[index], [property.operator]: property }
-                        return newFilters
-                    }
-                    newFilters[index] = { [property.operator]: property }
-                    return newFilters
-                },
                 remove: (state, { index }) => {
                     const newState = state.filter((_: AnyPropertyFilter, i: number) => i !== index)
                     if (newState.length === 0) {
@@ -76,9 +72,14 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                     return parsePropertiesForFiltersCache(newState)
                 },
                 setFilterCaches: (state, { index, operator, property }) => {
-                    const newFilters: FilterOperatorCache[] = [...state]
-                    newFilters[index] = { ...newFilters[index], [operator]: property }
-                    return newFilters
+                    const newFiltersCache: FilterOperatorCache[] = [...state]
+                    const cachedFilterKey = newFiltersCache[index]?.[operator]?.key
+                    if (!cachedFilterKey || cachedFilterKey === property.key) {
+                        newFiltersCache[index] = { ...newFiltersCache[index], [operator]: property }
+                        return newFiltersCache
+                    }
+
+                    return parsePropertiesForFiltersCache(props.propertyFilters)
                 },
             },
         ],
@@ -86,7 +87,16 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
 
     listeners(({ actions, props, values }) => ({
         // Only send update if value is set to something
-        setFilter: ({ property }) => {
+        setFilter: ({ index, property }) => {
+            const operator = (property as EventPropertyFilter | PersonPropertyFilter | GroupPropertyFilter)?.operator
+            const cachedProperty = operator && values.filtersOperatorsCache?.[index]?.[operator]
+            const storedFilterOperator = (
+                values.filters[index] as EventPropertyFilter | PersonPropertyFilter | GroupPropertyFilter
+            )?.operator
+            actions.setFilterInner(
+                index,
+                cachedProperty?.value && operator !== storedFilterOperator ? cachedProperty : property
+            )
             if (props.sendAllKeyUpdates || property?.value || (property?.key && property.type === 'hogql')) {
                 actions.update()
             }
