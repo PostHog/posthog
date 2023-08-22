@@ -18,7 +18,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     props({} as BreakdownTagLogicProps),
     key(({ breakdown }) => breakdown),
     path((key) => ['scenes', 'insights', 'BreakdownFilter', 'breakdownTagLogic', key]),
-    connect((props) => ({
+    connect((props: BreakdownTagLogicProps) => ({
         values: [
             taxonomicBreakdownFilterLogic(props.taxonomicBreakdownFilterProps),
             ['isViewOnly'],
