@@ -9,6 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { expectLogic } from 'kea-test-utils'
+import { InsightShortId } from '~/types'
 
 interface APIMockSetup {
     name: string
@@ -36,6 +37,7 @@ const makeAPIItem = ({
         merge,
         name,
         trigger,
+        short_id: 'T6G3KTkh' as InsightShortId,
     },
     created_at: '2022-02-05T16:28:39.594Z',
 })
