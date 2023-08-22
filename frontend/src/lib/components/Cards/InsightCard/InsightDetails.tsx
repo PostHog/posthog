@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import {
     FilterLogicalOperator,
     FilterType,
+    InsightLogicProps,
     InsightModel,
     InsightType,
     PathsFilterType,
@@ -289,12 +290,20 @@ export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): J
     )
 }
 
-export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+export function BreakdownSummary({
+    insight,
+    filters,
+}: {
+    insight: InsightModel
+    filters: Partial<FilterType>
+}): JSX.Element {
+    const insightProps: InsightLogicProps = { dashboardItemId: insight.short_id }
     return (
         <>
             <h5>Breakdown by</h5>
             <section>
                 <TaxonomicBreakdownFilter
+                    insightProps={insightProps}
                     isTrends={filters.insight === InsightType.TRENDS}
                     breakdownFilter={filters as BreakdownFilter}
                 />
@@ -313,7 +322,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
         <div className="InsightDetails" ref={ref}>
             <QuerySummary filters={filters} />
             <FiltersSummary filters={filters} />
-            {filters.breakdown_type && <BreakdownSummary filters={filters} />}
+            {filters.breakdown_type && <BreakdownSummary insight={insight} filters={filters} />}
             <div className="InsightDetails__footer">
                 <div>
                     <h5>Created by</h5>

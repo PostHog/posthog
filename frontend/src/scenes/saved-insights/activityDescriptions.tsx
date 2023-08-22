@@ -66,12 +66,12 @@ const insightActionsMapping: Record<
             suffix: <></>,
         }
     },
-    filters: function onChangedFilter(change) {
+    filters: function onChangedFilter(change, logItem) {
         const filtersAfter = change?.after as Partial<FilterType>
 
-        return areObjectValuesEmpty(filtersAfter) ? null : summarizeChanges(filtersAfter)
+        return areObjectValuesEmpty(filtersAfter) ? null : summarizeChanges(logItem, filtersAfter)
     },
-    query: function onChangedQuery(change) {
+    query: function onChangedQuery(change, logItem) {
         if (change?.action === 'deleted') {
             // if the query was deleted, then someone has added a filter and that will be summarized
             return null
@@ -79,7 +79,7 @@ const insightActionsMapping: Record<
 
         const queryAfter = change?.after as QuerySchema
         return isInsightQueryNode(queryAfter)
-            ? summarizeChanges(queryNodeToFilter(change?.after as InsightQueryNode))
+            ? summarizeChanges(logItem, queryNodeToFilter(change?.after as InsightQueryNode))
             : { description: ["cannot yet summarize changes to this insight's query: " + queryAfter?.kind] }
     },
     deleted: function onSoftDelete(change, logItem, asNotification) {
@@ -225,14 +225,26 @@ const insightActionsMapping: Record<
     dashboard_tiles: () => null, // changes are sent as dashboards
 }
 
-function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
+function summarizeChanges(
+    logItem: ActivityLogItem | undefined,
+    filtersAfter: Partial<FilterType>
+): ChangeMapping | null {
+    if (!logItem?.detail.short_id) {
+        return null
+    }
+
     return {
         description: ['changed query definition'],
         extendedDescription: (
             <div className="summary-card">
                 <QuerySummary filters={filtersAfter} />
                 <FiltersSummary filters={filtersAfter} />
-                {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
+                {filtersAfter.breakdown_type && (
+                    <BreakdownSummary
+                        insight={{ short_id: logItem.detail.short_id } as InsightModel}
+                        filters={filtersAfter}
+                    />
+                )}
             </div>
         ),
     }

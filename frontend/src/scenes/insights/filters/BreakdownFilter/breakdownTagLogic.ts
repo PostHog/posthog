@@ -1,13 +1,14 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
-import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 import { isAllCohort, isCohort, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 
 export interface BreakdownTagLogicProps {
+    taxonomicBreakdownFilterProps: TaxonomicBreakdownFilterLogicProps
     breakdown: string | number
     breakdownType: string
     isTrends: boolean
@@ -17,16 +18,19 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     props({} as BreakdownTagLogicProps),
     key(({ breakdown }) => breakdown),
     path((key) => ['scenes', 'insights', 'BreakdownFilter', 'breakdownTagLogic', key]),
-    connect(() => ({
+    connect((props) => ({
         values: [
-            taxonomicBreakdownFilterLogic,
+            taxonomicBreakdownFilterLogic(props.taxonomicBreakdownFilterProps),
             ['isViewOnly'],
             propertyDefinitionsModel,
             ['getPropertyDefinition'],
             cohortsModel,
             ['cohortsById'],
         ],
-        actions: [taxonomicBreakdownFilterLogic, ['removeBreakdown as removeBreakdownFromList']],
+        actions: [
+            taxonomicBreakdownFilterLogic(props.taxonomicBreakdownFilterProps),
+            ['removeBreakdown as removeBreakdownFromList'],
+        ],
     })),
     actions(() => ({
         removeBreakdown: true,

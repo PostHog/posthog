@@ -8,6 +8,7 @@ import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 import React, { useState } from 'react'
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
+import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 type EditWrapperProps = {
     isViewOnly: boolean
@@ -39,7 +40,9 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
     const [filterOpen, setFilterOpen] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
 
-    const logicProps = { breakdown, breakdownType, isTrends }
+    const { taxonomicBreakdownFilterProps } = useValues(taxonomicBreakdownFilterLogic)
+
+    const logicProps = { breakdown, breakdownType, isTrends, taxonomicBreakdownFilterProps }
     const { isViewOnly, shouldShowMenu, propertyName } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
 
