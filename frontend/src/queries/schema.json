@@ -286,6 +286,10 @@
                     },
                     "type": "array"
                 },
+                "embedded": {
+                    "description": "Uses the embedded version of LemonTable",
+                    "type": "boolean"
+                },
                 "expandable": {
                     "description": "Can expand row to show raw event data (default: true)",
                     "type": "boolean"
@@ -351,6 +355,10 @@
                 },
                 "showReload": {
                     "description": "Show a reload button",
+                    "type": "boolean"
+                },
+                "showResults": {
+                    "description": "Show a results table",
                     "type": "boolean"
                 },
                 "showSavedQueries": {
