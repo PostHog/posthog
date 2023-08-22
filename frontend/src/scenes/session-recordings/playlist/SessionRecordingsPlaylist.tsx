@@ -12,7 +12,7 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
-import { IconFilter, IconMagnifier, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -337,14 +337,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
 
     return (
         <>
-            {/* This was added around Jun 23 so at some point can just be removed */}
-            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-4 leading-7">
-                <b>Filters have moved!</b> You can now find all filters including time and duration by clicking the{' '}
-                <span className="mx-1 text-lg">
-                    <IconMagnifier />
-                </span>
-                icon at the top of the list of recordings.
-            </LemonBanner>
             {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName="Session replay"

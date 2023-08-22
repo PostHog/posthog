@@ -663,7 +663,11 @@ export const insightLogic = kea<insightLogicType>([
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
-            eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
+            eventUsageLogic.actions.reportInsightSaved(
+                filters || {},
+                values.globalInsightFilters,
+                insightNumericId === undefined
+            )
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
