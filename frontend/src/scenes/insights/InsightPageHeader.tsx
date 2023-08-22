@@ -204,31 +204,34 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             ]}
                                                         />
                                                     ) : null}
+                                                    {isInsightVizNode(query) ? (
+                                                        <LemonButton
+                                                            status="stealth"
+                                                            onClick={() => {
+                                                                // for an existing insight in view mode
+                                                                if (
+                                                                    hasDashboardItemId &&
+                                                                    insightMode !== ItemMode.Edit
+                                                                ) {
+                                                                    // enter edit mode
+                                                                    setInsightMode(ItemMode.Edit, null)
+
+                                                                    // exit early if query editor doesn't need to be toggled
+                                                                    if (showQueryEditor !== false) {
+                                                                        return
+                                                                    }
+                                                                }
+                                                                toggleQueryEditorPanel()
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            {showQueryEditor ? 'Hide source' : 'View source'}
+                                                        </LemonButton>
+                                                    ) : null}
                                                     <LemonDivider />
                                                 </>
                                             )}
 
-                                            {isInsightVizNode(query) ? (
-                                                <LemonButton
-                                                    status="stealth"
-                                                    onClick={() => {
-                                                        // for an existing insight in view mode
-                                                        if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
-                                                            // enter edit mode
-                                                            setInsightMode(ItemMode.Edit, null)
-
-                                                            // exit early if query editor doesn't need to be toggled
-                                                            if (showQueryEditor !== false) {
-                                                                return
-                                                            }
-                                                        }
-                                                        toggleQueryEditorPanel()
-                                                    }}
-                                                    fullWidth
-                                                >
-                                                    {showQueryEditor ? 'Hide source' : 'View source'}
-                                                </LemonButton>
-                                            ) : null}
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
