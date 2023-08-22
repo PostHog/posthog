@@ -13,10 +13,6 @@ export function AddToDashboard({ insight, setOpenModal }: SaveToDashboardProps):
     const { rawDashboards } = useValues(dashboardsModel)
     const dashboards = insight.dashboard_tiles?.map((tile) => rawDashboards[tile.dashboard_id]).filter((d) => !!d) || []
 
-    if (dashboards.length === 0) {
-        return null
-    }
-
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
             <LemonButton
@@ -28,7 +24,7 @@ export function AddToDashboard({ insight, setOpenModal }: SaveToDashboardProps):
                     </IconWithCount>
                 }
             >
-                Edit dashboard(s)
+                {dashboards.length === 0 ? 'Add to dashboard' : 'Manage dashboards'}
             </LemonButton>
         </span>
     )
