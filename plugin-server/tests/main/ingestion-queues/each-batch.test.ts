@@ -190,6 +190,8 @@ describe('eachBatchX', () => {
                 queue.pluginsServer.organizationManager
             )
             const matchSpy = jest.spyOn(actionMatcher, 'match')
+            // mock hasWebhooks to return true
+            actionMatcher.hasWebhooks = jest.fn(() => true)
             await eachBatchWebhooksHandlers(
                 createKafkaJSBatch(clickhouseEvent),
                 actionMatcher,
