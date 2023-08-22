@@ -1,4 +1,3 @@
-import { NodeViewProps } from '@tiptap/core'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -8,6 +7,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeViewProps } from '../Notebook/utils'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -22,8 +22,8 @@ const DEFAULT_QUERY: QuerySchema = {
     expandable: false,
 }
 
-const Component = (props: NodeViewProps): JSX.Element | null => {
-    const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
+const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
+    const [query, setQuery] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
     const { setTitle } = useActions(notebookNodeLogic)
@@ -66,7 +66,11 @@ const Component = (props: NodeViewProps): JSX.Element | null => {
     )
 }
 
-export const NotebookNodeQuery = createPostHogWidgetNode({
+type NotebookNodeQueryAttributes = {
+    query: QuerySchema
+}
+
+export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
     title: 'Query', // TODO: allow this to be updated from the component
     Component,

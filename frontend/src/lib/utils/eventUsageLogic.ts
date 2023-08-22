@@ -221,7 +221,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
         // insights
         reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
-        reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
+        reportInsightSaved: (
+            filters: Partial<FilterType>,
+            globalFilters: Partial<FilterType>,
+            isNewInsight: boolean
+        ) => ({ filters, globalFilters, isNewInsight }),
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             filters: Partial<FilterType>,
@@ -548,9 +552,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
             posthog.capture('insight created', { insight: insightType })
         },
-        reportInsightSaved: async ({ filters, isNewInsight }) => {
+        reportInsightSaved: async ({ filters, globalFilters, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
-            posthog.capture('insight saved', { ...filters, is_new_insight: isNewInsight })
+            posthog.capture('insight saved', {
+                ...filters,
+                is_new_insight: isNewInsight,
+                global_filters: globalFilters,
+            })
         },
         reportInsightViewed: ({
             insightModel,
@@ -657,7 +665,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
 
             for (const item of dashboard.tiles || []) {
-                if (!!item.insight) {
+                if (item.insight) {
                     const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                     if (!properties[key]) {
                         properties[key] = 1

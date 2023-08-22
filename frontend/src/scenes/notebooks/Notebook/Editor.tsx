@@ -1,32 +1,32 @@
+import posthog from 'posthog-js'
+import { useActions } from 'kea'
+import { useCallback, useRef } from 'react'
+
 import { Editor as TTEditor } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
-import { useCallback, useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, EditorFocusPosition, Node } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
-import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
-import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
-import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
+import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
+import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
+import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
-import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
-
-import posthog from 'posthog-js'
-import { SlashCommandsExtension } from './SlashCommands'
-import { JSONContent, NotebookEditor } from './utils'
-import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
+import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
-import { useActions } from 'kea'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
+
+import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
+import { SlashCommandsExtension } from './SlashCommands'
+import { BacklinkCommandsExtension } from './BacklinkCommands'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -36,11 +36,13 @@ export function Editor({
     initialContent,
     onCreate,
     onUpdate,
+    onSelectionUpdate,
     placeholder,
 }: {
     initialContent: JSONContent
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
+    onSelectionUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
@@ -77,7 +79,7 @@ export function Editor({
                     }
                 },
             }),
-            NotebookNodeLink,
+            NotebookMarkLink,
             NotebookNodeBacklink,
             NotebookNodeInsight,
             NotebookNodeQuery,
@@ -92,7 +94,6 @@ export function Editor({
         ],
         content: initialContent,
         editorProps: {
-            attributes: { class: 'NotebookEditor' },
             handleDrop: (view, event, _slice, moved) => {
                 const editor = editorRef.current
                 if (!editor) {
@@ -172,10 +173,13 @@ export function Editor({
         },
         onCreate: ({ editor }) => {
             editorRef.current = editor
+
             onCreate({
                 getJSON: () => editor.getJSON(),
+                getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
+                setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 destroy: () => editor.destroy(),
                 isEmpty: () => editor.isEmpty,
@@ -185,22 +189,34 @@ export function Editor({
                     const endPosition = findEndPositionOfNode(editor, position)
                     if (endPosition) {
                         editor.chain().focus().insertContentAt(endPosition, content).run()
+                        editor.commands.scrollIntoView()
                     }
                 },
                 findNode: (position: number) => findNode(editor, position),
+                findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
                 nextNode: (position: number) => nextNode(editor, position),
                 hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
+                scrollToSelection: () => {
+                    const position = editor.state.selection.$anchor.pos
+                    const domEl = editor.view.nodeDOM(position) as HTMLElement
+                    domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                },
             })
         },
         onUpdate: onUpdate,
+        onSelectionUpdate: onSelectionUpdate,
     })
 
     return (
         <>
-            <EditorContent editor={_editor} className="flex flex-col flex-1" />
+            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
             {_editor && <FloatingSuggestions editor={_editor} />}
         </>
     )
+}
+
+function findNodePositionByAttrs(editor: TTEditor, attrs: { [attr: string]: any }): number {
+    return findPositionOfClosestNodeMatchingAttrs(editor, 0, attrs)
 }
 
 function findEndPositionOfNode(editor: TTEditor, position: number): number | null {
@@ -268,7 +284,7 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
 function getPreviousNode(editor: TTEditor): Node | null {
     const { $anchor } = editor.state.selection
     const node = $anchor.node(1)
-    return !!node ? editor.state.doc.childBefore($anchor.pos - 1).node : null
+    return node ? editor.state.doc.childBefore($anchor.pos - 1).node : null
 }
 
 export function hasMatchingNode(

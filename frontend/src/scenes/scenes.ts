@@ -55,17 +55,17 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Event Explorer',
     },
-    [Scene.Exports]: {
+    [Scene.BatchExports]: {
         projectBased: true,
-        name: 'Exports',
+        name: 'Batch Exports',
     },
-    [Scene.CreateExport]: {
+    [Scene.BatchExportEdit]: {
         projectBased: true,
-        name: 'Create Export',
+        name: 'Edit Batch Export',
     },
-    [Scene.ViewExport]: {
+    [Scene.BatchExport]: {
         projectBased: true,
-        name: 'View Export',
+        name: 'Batch Export',
     },
     [Scene.DataManagement]: {
         projectBased: true,
@@ -220,6 +220,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         layout: 'plain',
     },
+    [Scene.Products]: {
+        projectBased: true,
+        layout: 'plain',
+    },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch Toolbar',
@@ -335,7 +339,7 @@ export const redirects: Record<
         const query = getDefaultEventsSceneQuery([
             {
                 type: PropertyFilterType.HogQL,
-                key: `uuid = '${id.replaceAll(/[^a-f0-9\-]/g, '')}'`,
+                key: `uuid = '${id.replaceAll(/[^a-f0-9-]/g, '')}'`,
                 value: null,
             },
         ])
@@ -361,6 +365,7 @@ export const redirects: Record<
         return urls.replay()
     },
     '/replay': urls.replay(),
+    '/exports': urls.batchExports(),
 }
 
 export const routes: Record<string, Scene> = {
@@ -384,9 +389,10 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
-    [urls.exports()]: Scene.Exports,
-    [urls.createExport()]: Scene.CreateExport,
-    [urls.viewExport(':id')]: Scene.ViewExport,
+    [urls.batchExports()]: Scene.BatchExports,
+    [urls.batchExportNew()]: Scene.BatchExportEdit,
+    [urls.batchExport(':id')]: Scene.BatchExport,
+    [urls.batchExportEdit(':id')]: Scene.BatchExportEdit,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,
@@ -459,6 +465,7 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
+    [urls.products()]: Scene.Products,
     [urls.verifyEmail()]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,

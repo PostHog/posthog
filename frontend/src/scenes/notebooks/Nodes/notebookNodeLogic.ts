@@ -1,21 +1,21 @@
 import {
-    kea,
-    props,
-    key,
-    path,
-    BuiltLogic,
-    selectors,
     actions,
-    listeners,
-    reducers,
-    defaults,
     afterMount,
     beforeUnmount,
+    BuiltLogic,
+    defaults,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
 } from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
-import { JSONContent, Node } from '../Notebook/utils'
+import { JSONContent, Node, NotebookNodeWidget } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 
@@ -23,9 +23,12 @@ export type NotebookNodeLogicProps = {
     node: Node
     nodeId: string
     nodeType: NotebookNodeType
+    nodeAttributes: Record<string, any>
+    updateAttributes: (attributes: Record<string, any>) => void
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     title: string
+    widgets: NotebookNodeWidget[]
 }
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -37,6 +40,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setTitle: (title: string) => ({ title }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
+        updateAttributes: (attributes: Record<string, any>) => ({ attributes }),
+        insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
+            timestamp,
+            sessionRecordingId,
+        }),
         deleteNode: true,
         // TODO: Implement this
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
@@ -63,6 +71,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     selectors({
         notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
+        nodeAttributes: [
+            () => [(_, props) => props.nodeAttributes],
+            (nodeAttributes): Record<string, any> => nodeAttributes,
+        ],
+        widgets: [() => [(_, props) => props], (props): NotebookNodeWidget[] => props.widgets],
     }),
 
     listeners(({ values, props }) => ({
@@ -76,36 +89,40 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
         },
 
-        insertAfterLastNodeOfType: ({ content, nodeType }) => {
-            const logic = values.notebookLogic
+        insertAfterLastNodeOfType: ({ nodeType, content }) => {
+            const insertionPosition = props.getPos()
+            values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
+        },
 
-            let insertionPosition = props.getPos()
-            let nextNode = logic?.values.editor?.nextNode(insertionPosition)
-
-            while (nextNode && logic.values.editor?.hasChildOfType(nextNode.node, nodeType)) {
-                insertionPosition = nextNode.position
-                nextNode = logic?.values.editor?.nextNode(insertionPosition)
-            }
-
-            logic.values.editor?.insertContentAfterNode(insertionPosition, content)
+        insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
+            const insertionPosition = props.getPos()
+            values.notebookLogic.actions.insertReplayCommentByTimestamp(
+                timestamp,
+                sessionRecordingId,
+                insertionPosition
+            )
         },
 
         setExpanded: ({ expanded }) => {
             if (expanded) {
-                posthog.capture('notebook node selected', {
+                posthog.capture('notebook node expanded', {
                     node_type: props.nodeType,
                     short_id: props.notebookLogic.props.shortId,
                 })
             }
         },
+
+        updateAttributes: ({ attributes }) => {
+            props.updateAttributes(attributes)
+        },
     })),
 
     afterMount((logic) => {
-        logic.props.notebookLogic.actions.registerNodeLogic(logic)
+        logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
     }),
 
     beforeUnmount((logic) => {
-        logic.props.notebookLogic.actions.unregisterNodeLogic(logic)
+        logic.props.notebookLogic.actions.unregisterNodeLogic(logic as any)
     }),
 ])
 

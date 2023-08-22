@@ -3,7 +3,7 @@ import { PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent } from '../../plugins/run'
 import { ActionMatcher } from '../action-matcher'
-import { HookCommander } from '../hooks'
+import { HookCommander, instrumentWebhookStep } from '../hooks'
 import { EventPipelineRunner } from './runner'
 
 export async function processOnEventStep(runner: EventPipelineRunner, event: PostIngestionEvent) {
@@ -24,8 +24,12 @@ export async function processWebhooksStep(
     actionMatcher: ActionMatcher,
     hookCannon: HookCommander
 ) {
-    const elements = event.elementsList
-    const actionMatches = await actionMatcher.match(event, elements)
-    await hookCannon.findAndFireHooks(event, actionMatches)
+    const actionMatches = await instrumentWebhookStep('actionMatching', async () => {
+        const elements = event.elementsList
+        return await actionMatcher.match(event, elements)
+    })
+    await instrumentWebhookStep('findAndfireHooks', async () => {
+        await hookCannon.findAndFireHooks(event, actionMatches)
+    })
     return null
 }

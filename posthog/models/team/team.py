@@ -38,6 +38,7 @@ DEPRECATED_ATTRS = (
     "event_properties_numerical",
 )
 
+
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
 class AvailableExtraSettings:
     poe_v2_enabled = "poe_v2_enabled"
@@ -132,6 +133,7 @@ class Team(UUIDClassicModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
+    has_completed_onboarding_for: models.JSONField = models.JSONField(null=True, blank=True)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     autocapture_opt_out: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
@@ -218,7 +220,6 @@ class Team(UUIDClassicModel):
 
     @property
     def _person_on_events_querying_enabled(self) -> bool:
-
         if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_OVERRIDE
 

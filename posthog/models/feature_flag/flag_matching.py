@@ -601,7 +601,7 @@ def get_all_feature_flags(
     cache_hit = True
     if all_feature_flags is None:
         cache_hit = False
-        all_feature_flags = set_feature_flags_for_team_in_cache(team_id, using_database=DATABASE_FOR_FLAG_MATCHING)
+        all_feature_flags = set_feature_flags_for_team_in_cache(team_id)
 
     FLAG_CACHE_HIT_COUNTER.labels(team_id=label_for_team_id_to_track(team_id), cache_hit=cache_hit).inc()
 
@@ -654,7 +654,7 @@ def get_all_feature_flags(
                 flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
                 should_write_hash_key_override = len(flags_with_no_overrides) > 0
         except Exception as e:
-            handle_feature_flag_exception(e)
+            handle_feature_flag_exception(e, "[Feature Flags] Error figuring out hash key overrides")
 
         if should_write_hash_key_override:
             try:
@@ -688,6 +688,7 @@ def get_all_feature_flags(
                 )
 
     # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
+    using_database = None
     try:
         # when we're writing a hash_key_override, we query the main database, not the replica
         # this is because we need to make sure the write is successful before we read it
@@ -699,7 +700,12 @@ def get_all_feature_flags(
                 target_distinct_ids.append(str(hash_key_override))
             person_overrides = get_feature_flag_hash_key_overrides(team_id, target_distinct_ids, using_database)
 
-    except Exception:
+    except Exception as e:
+        handle_feature_flag_exception(
+            e,
+            f"[Feature Flags] Error fetching hash key overrides from {using_database} db",
+            set_healthcheck=not writing_hash_key_override,
+        )
         # database is down, we can't handle experience continuity flags at all.
         # Treat this same as if there are no experience continuity flags.
         # This automatically sets 'errorsWhileComputingFlags' to True.

@@ -164,7 +164,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     View recordings
                                 </LemonButton>
                             ) : null}
-                            {!!id ? deleteButton() : cancelButton()}
+                            {id ? deleteButton() : cancelButton()}
                         </>
                     }
                 />
@@ -318,7 +318,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     )}
                 </div>
                 <div className="flex justify-end gap-2">
-                    {!!id ? deleteButton() : cancelButton()}
+                    {id ? deleteButton() : cancelButton()}
                     <LemonButton
                         data-attr="save-action-button"
                         type="primary"

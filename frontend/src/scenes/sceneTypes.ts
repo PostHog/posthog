@@ -2,6 +2,7 @@ import { LogicWrapper } from 'kea'
 
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
+
 export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
@@ -31,9 +32,9 @@ export enum Scene {
     Actions = 'ActionsTable',
     Experiments = 'Experiments',
     Experiment = 'Experiment',
-    Exports = 'Exports',
-    CreateExport = 'CreateExport',
-    ViewExport = 'ViewExport',
+    BatchExports = 'BatchExports',
+    BatchExport = 'BatchExport',
+    BatchExportEdit = 'BatchExportEdit',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
@@ -78,6 +79,7 @@ export enum Scene {
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
     Notebook = 'Notebook',
+    Products = 'Products',
 }
 
 export type SceneProps = Record<string, any>

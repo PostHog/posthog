@@ -13,7 +13,6 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
@@ -51,11 +50,11 @@ from posthog.constants import (
     TRENDS_STICKINESS,
     FunnelVizType,
 )
-from posthog.decorators import cached_function
+from posthog.decorators import cached_by_filters
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql.errors import HogQLException
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, User, SharingConfiguration
+from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -565,10 +564,8 @@ class InsightViewSet(
             return InsightBasicSerializer
         return super().get_serializer_class()
 
-    def get_authenticators(self) -> List[BaseAuthentication]:
-        authenticators = super().get_authenticators()
-        authenticators.append(SharingAccessTokenAuthentication())
-        return authenticators
+    def get_authenticators(self):
+        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
@@ -587,11 +584,9 @@ class InsightViewSet(
     def get_queryset(self) -> QuerySet:
         queryset: QuerySet
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            sharing_configuration = SharingConfiguration.objects.get(
-                access_token=self.request.query_params["sharing_access_token"], enabled=True
+            queryset = Insight.objects.filter(
+                id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
-            # sharing_configuration must be non-None here, per SharingAccessTokenAuthentication
-            queryset = Insight.objects.filter(id__in=sharing_configuration.get_connected_insight_ids())
         elif self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
             queryset = Insight.objects_including_soft_deleted.all()
@@ -827,7 +822,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             return response
         return Response({**result, "next": next})
 
-    @cached_function
+    @cached_by_filters
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=self.team)
@@ -881,7 +876,7 @@ Using the correct cache and enriching the response with dashboard specific confi
 
         return Response(funnel)
 
-    @cached_function
+    @cached_by_filters
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
@@ -917,7 +912,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             raise ValidationError(str(e))
         return Response(result)
 
-    @cached_function
+    @cached_by_filters
     def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
@@ -943,7 +938,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             raise ValidationError(str(e))
         return Response(result)
 
-    @cached_function
+    @cached_by_filters
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)

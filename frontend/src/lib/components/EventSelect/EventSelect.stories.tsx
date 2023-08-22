@@ -21,7 +21,7 @@ const eventDefinitions = [
     },
 ]
 
-export default {
+const meta: Meta = {
     title: 'Filters',
     decorators: [
         mswDecorator({
@@ -37,8 +37,8 @@ export default {
         }),
     ],
     parameters: {},
-} as Meta
-
+}
+export default meta
 export function EventSelect_(): JSX.Element {
     const [selectedEvents, setSelectedEvents] = useState<string[]>([])
 
