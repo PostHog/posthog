@@ -5,7 +5,6 @@ import { getKeyMapping, PropertyKey, PropertyType } from 'lib/taxonomy'
 import React, { useState } from 'react'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { midEllipsis } from 'lib/utils'
 
 interface PropertyKeyInfoProps {
     value: PropertyKey
@@ -32,7 +31,7 @@ export function PropertyKeyInfo({
 
     const data = getKeyMapping(value, type)
     const valueDisplayText = (data ? data.label : value)?.trim() ?? ''
-    const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : midEllipsis(valueDisplayText, 60)
+    const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
     const innerContent = (
         <span
