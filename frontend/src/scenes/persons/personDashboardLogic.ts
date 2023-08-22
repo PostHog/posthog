@@ -1,7 +1,7 @@
 import { connect, kea, selectors, path } from 'kea'
 
 import type { personDashboardLogicType } from './personDashboardLogicType'
-import { DashboardPlacement, PersonType } from '~/types'
+import { DashboardPlacement, HogQLPropertyFilter, PersonType, PropertyFilterType } from '~/types'
 import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -27,10 +27,22 @@ export const personDashboardLogic = kea<personDashboardLogicType>([
         ],
         dashboardLogicProps: [
             (s) => [s.personDashboardId],
-            (personDashboardId): DashboardLogicProps => ({
-                id: personDashboardId ?? undefined,
-                placement: DashboardPlacement.Person,
-            }),
+            (personDashboardId): ((p: PersonType) => DashboardLogicProps) => {
+                return (person: PersonType): DashboardLogicProps => {
+                    // TODO: needs https://github.com/PostHog/posthog/pull/16653 so we can filter by person ID
+                    const hogQLPersonFilter = `person.properties.email = '${person.properties.email}'`
+                    const desired: HogQLPropertyFilter = {
+                        type: PropertyFilterType.HogQL,
+                        key: hogQLPersonFilter,
+                    }
+
+                    return {
+                        id: personDashboardId ?? undefined,
+                        placement: DashboardPlacement.Person,
+                        temporaryFilters: { properties: [desired] },
+                    }
+                }
+            },
         ],
     })),
 ])

@@ -6,7 +6,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType, FilterType } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
@@ -25,6 +25,7 @@ interface DashboardProps {
     id?: string
     dashboard?: DashboardType
     placement?: DashboardPlacement
+    temporaryFilters?: Partial<FilterType>
 }
 
 export const scene: SceneExport = {
@@ -36,9 +37,12 @@ export const scene: SceneExport = {
     }),
 }
 
-export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, temporaryFilters }: DashboardProps = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
+        <BindLogic
+            logic={dashboardLogic}
+            props={{ id: id ? parseInt(id) : undefined, placement, dashboard, temporaryFilters }}
+        >
             <DashboardScene />
         </BindLogic>
     )
