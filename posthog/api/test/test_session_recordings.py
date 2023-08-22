@@ -235,11 +235,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         self.create_snapshot("d1", "1", base_time)
         self.create_snapshot("d2", "2", base_time + relativedelta(seconds=30))
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        self.assertEqual(response_data["results"][0]["person"]["id"], p.pk)
-        self.assertEqual(response_data["results"][1]["person"]["id"], p.pk)
+
+        assert [r["person"]["id"] for r in response_data["results"]] == [p.pk, p.pk]
 
     def test_viewed_state_of_session_recording_version_1(self):
         Person.objects.create(
@@ -265,13 +265,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
         self.create_snapshot("u1", "1", base_time)
         self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30))
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        self.assertEqual(response_data["results"][0]["id"], "2")
-        self.assertEqual(response_data["results"][0]["viewed"], False)
-        self.assertEqual(response_data["results"][1]["id"], "1")
-        self.assertEqual(response_data["results"][1]["viewed"], True)
+
+        assert [(r["id"], r["viewed"]) for r in response_data["results"]] == [("2", False), ("1", True)]
 
     def test_setting_viewed_state_of_session_recording(self):
         Person.objects.create(
@@ -887,7 +885,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         flush_persons_and_events()
         # data needs time to settle :'(
-        time.sleep(0.5)
+        time.sleep(1)
 
         query_params = [
             f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
