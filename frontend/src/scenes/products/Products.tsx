@@ -62,9 +62,12 @@ function ProductCard({ product }: { product: Product }): JSX.Element {
             <p className="grow">{product.description}</p>
             <div className="flex gap-x-2">
                 {onboardingCompleted ? (
-                    <OnboardingCompletedButton productUrl={product.productUrl} onboardingUrl={product.onboardingUrl} />
+                    <OnboardingCompletedButton
+                        productUrl={product.productUrl}
+                        onboardingUrl={urls.onboarding(product.key)}
+                    />
                 ) : (
-                    <OnboardingNotCompletedButton url={product.onboardingUrl} />
+                    <OnboardingNotCompletedButton url={urls.onboarding(product.key)} />
                 )}
             </div>
         </div>

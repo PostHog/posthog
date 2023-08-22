@@ -119,7 +119,6 @@ export type Product = {
     key: ProductKey
     description: string
     productUrl: string
-    onboardingUrl: string
 }
 
 export enum LicensePlan {
