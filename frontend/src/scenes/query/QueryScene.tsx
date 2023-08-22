@@ -22,7 +22,9 @@ export function QueryScene(): JSX.Element {
         ) {
             showEditor = false
         }
-    } catch (e) {}
+    } catch (e) {
+        // do nothing
+    }
 
     return (
         <div className="QueryScene">

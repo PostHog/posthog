@@ -2,7 +2,7 @@ import './featureFlags.scss'
 
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { Radio, Switch, Row, Typography, List, Input } from 'antd'
+import { Radio, Switch, Row, List, Input } from 'antd'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { urls } from 'scenes/urls'
@@ -16,7 +16,7 @@ export function FeatureFlags(): JSX.Element {
     return (
         <div className="toolbar-block">
             <div className="local-feature-flag-override-note">
-                <Typography.Text>Note, overriding feature flags below will only affect this browser.</Typography.Text>
+                Note, overriding feature flags below will only affect this browser.
             </div>
             <>
                 <Input.Search
@@ -37,9 +37,7 @@ export function FeatureFlags(): JSX.Element {
                                         hasOverride ? 'feature-flag-row-header overridden' : 'feature-flag-row-header'
                                     }
                                 >
-                                    <Typography.Text ellipsis className="feature-flag-title">
-                                        {feature_flag.key}
-                                    </Typography.Text>
+                                    <div className="feature-flag-title">{feature_flag.key}</div>
                                     <a
                                         className="feature-flag-external-link"
                                         href={`${apiURL}${

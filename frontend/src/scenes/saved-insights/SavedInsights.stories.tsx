@@ -14,11 +14,10 @@ import { EMPTY_PAGINATED_RESPONSE, toPaginatedResponse } from '~/mocks/handlers'
 
 const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Saved Insights',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -39,8 +38,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export const ListView: Story = () => {
     useEffect(() => {
         router.actions.push('/insights')

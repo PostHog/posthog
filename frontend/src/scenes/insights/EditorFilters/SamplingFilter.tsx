@@ -39,7 +39,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     checked={!!samplingPercentage}
                 />
             </div>
-            {!!samplingPercentage ? (
+            {samplingPercentage ? (
                 <div className="SamplingFilter">
                     <div className="flex items-center gap-2">
                         {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (

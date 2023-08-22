@@ -1,22 +1,13 @@
 import { ActionFilter, EntityFilter } from '~/types'
-import { Typography } from 'antd'
-import { TextProps } from 'antd/lib/typography/Text'
 import { getKeyMapping } from 'lib/taxonomy'
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
+import clsx from 'clsx'
 
 interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter
     allowWrap?: boolean
     showSingleName?: boolean
     style?: React.CSSProperties
-}
-
-function TextWrapper(props: TextProps): JSX.Element {
-    return (
-        <Typography.Text style={{ maxWidth: 400 }} {...props}>
-            {props.children}
-        </Typography.Text>
-    )
 }
 
 export function EntityFilterInfo({
@@ -26,7 +17,11 @@ export function EntityFilterInfo({
     style,
 }: EntityFilterInfoProps): JSX.Element {
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
-        return <TextWrapper title="All events">All events</TextWrapper>
+        return (
+            <div className="EntityFilterInfo whitespace-nowrap max-w-100" title="All events">
+                All events
+            </div>
+        )
     }
 
     const title = getDisplayNameFromEntityFilter(filter, false)
@@ -37,9 +32,12 @@ export function EntityFilterInfo({
         return (
             // eslint-disable-next-line react/forbid-dom-props
             <span className="flex items-center" style={style}>
-                <TextWrapper ellipsis={!allowWrap} title={titleToDisplay}>
+                <div
+                    className={clsx('EntityFilterInfo whitespace-nowrap max-w-100', !allowWrap && 'truncate')}
+                    title={titleToDisplay}
+                >
                     {titleToDisplay}
-                </TextWrapper>
+                </div>
             </span>
         )
     }
@@ -50,13 +48,19 @@ export function EntityFilterInfo({
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <span className="flex items-center" style={style}>
-            <TextWrapper ellipsis={!allowWrap} title={customTitle ?? undefined}>
+            <div
+                className={clsx('EntityFilterInfo whitespace-nowrap max-w-100', !allowWrap && 'truncate')}
+                title={customTitle ?? undefined}
+            >
                 {customTitle}
-            </TextWrapper>
+            </div>
             {!showSingleName && (
-                <TextWrapper ellipsis={!allowWrap} type="secondary" className="ml-1" title={titleToDisplay}>
+                <div
+                    className={clsx('EntityFilterInfo whitespace-nowrap max-w-100 ml-1', !allowWrap && 'truncate')}
+                    title={titleToDisplay}
+                >
                     ({titleToDisplay})
-                </TextWrapper>
+                </div>
             )}
         </span>
     )

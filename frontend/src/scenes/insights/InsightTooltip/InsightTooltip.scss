@@ -48,35 +48,12 @@
                     white-space: nowrap;
                 }
             }
-            .datum-counts-column {
-                .ant-typography {
-                    text-align: left;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    display: -webkit-box;
-                    -webkit-box-orient: vertical;
-                    -webkit-line-clamp: 2; /* number of lines to show */
-                    line-height: 1rem; /* fallback */
-                    max-height: calc(1rem * 2); /* fallback */
-                }
-            }
         }
         .LemonTable__content > table {
             .datum-label-column {
                 font-weight: 600;
                 display: flex;
                 align-items: center;
-
-                .ant-typography {
-                    text-align: left;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    display: -webkit-box;
-                    -webkit-box-orient: vertical;
-                    -webkit-line-clamp: 2; /* number of lines to show */
-                    line-height: 1rem; /* fallback */
-                    max-height: calc(1rem * 2); /* fallback */
-                }
             }
             .series-data-cell {
                 font-weight: 600;

@@ -104,13 +104,3 @@ def patch_batch_export(client, team_id, batch_export_id, new_batch_export_data):
         new_batch_export_data,
         content_type="application/json",
     )
-
-
-def reset_batch_export_run(client: TestClient, team_id: int, batch_export_id: str, batch_export_run_id: str):
-    return client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/runs/{batch_export_run_id}/reset")
-
-
-def reset_batch_export_run_ok(client: TestClient, team_id: int, batch_export_id: str, batch_export_run_id: str):
-    response = reset_batch_export_run(client, team_id, batch_export_id, batch_export_run_id)
-    assert response.status_code == status.HTTP_200_OK, response.json()
-    return response.json()

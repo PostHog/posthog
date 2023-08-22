@@ -99,7 +99,7 @@ export function DashboardItems(): JSX.Element {
             >
                 {tiles?.map((tile: DashboardTile) => {
                     const { insight, text } = tile
-                    if (!!insight) {
+                    if (insight) {
                         return (
                             <InsightCard
                                 key={tile.id}
@@ -144,7 +144,7 @@ export function DashboardItems(): JSX.Element {
                             />
                         )
                     }
-                    if (!!text) {
+                    if (text) {
                         return (
                             <TextCard
                                 dashboardId={dashboard?.id}

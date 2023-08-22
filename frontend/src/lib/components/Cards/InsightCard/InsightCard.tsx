@@ -331,7 +331,7 @@ function InsightCardInternal(
                     showDetailsControls={showDetailsControls}
                     moreButtons={moreButtons}
                 />
-                {!!insight.query ? (
+                {insight.query ? (
                     <div
                         className="InsightViz p-2"
                         // eslint-disable-next-line react/forbid-dom-props
@@ -343,7 +343,7 @@ function InsightCardInternal(
                                 : undefined
                         }
                     >
-                        {!!insight.result ? (
+                        {insight.result ? (
                             <Query query={insight.query} cachedResults={insight.result} readOnly />
                         ) : canMakeQueryAPICalls ? (
                             <Query query={insight.query} readOnly />

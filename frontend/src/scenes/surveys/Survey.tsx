@@ -4,7 +4,15 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
@@ -289,6 +297,40 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                             onChange={(selectorVal) => onChange({ ...value, selector: selectorVal })}
                                             placeholder="ex: .className or #id"
                                         />
+                                    </PureField>
+                                    <PureField label="Survey wait period">
+                                        <div className="flex flex-row gap-2 items-center">
+                                            <LemonCheckbox
+                                                checked={!!value?.seenSurveyWaitPeriodInDays}
+                                                onChange={(checked) => {
+                                                    if (checked) {
+                                                        onChange({
+                                                            ...value,
+                                                            seenSurveyWaitPeriodInDays:
+                                                                value?.seenSurveyWaitPeriodInDays || 30,
+                                                        })
+                                                    } else {
+                                                        const { seenSurveyWaitPeriodInDays, ...rest } = value || {}
+                                                        onChange(rest)
+                                                    }
+                                                }}
+                                            />
+                                            Do not display this survey to users who have already seen a survey in the
+                                            last
+                                            <LemonInput
+                                                type="number"
+                                                size="small"
+                                                min={0}
+                                                value={value?.seenSurveyWaitPeriodInDays}
+                                                onChange={(val) => {
+                                                    if (val !== undefined && val > 0) {
+                                                        onChange({ ...value, seenSurveyWaitPeriodInDays: val })
+                                                    }
+                                                }}
+                                                className="w-16"
+                                            />{' '}
+                                            days.
+                                        </div>
                                     </PureField>
                                 </>
                             )}
