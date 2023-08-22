@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from math import ceil
 from time import sleep
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, Dict
 import zoneinfo
 from rest_framework import request
 
@@ -25,14 +25,21 @@ INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=30)
 
 
 def should_refresh_insight(
-    insight: Insight, dashboard_tile: Optional[DashboardTile], *, request: request.Request, is_shared=False
+    insight: Insight,
+    dashboard_tile: Optional[DashboardTile],
+    *,
+    request: request.Request,
+    is_shared=False,
+    temporary_filters: Optional[Dict] = None,
 ) -> Tuple[bool, timedelta]:
     """Return whether the insight should be refreshed now, and what's the minimum wait time between refreshes.
 
     If a refresh already is being processed somewhere else, this function will wait for that to finish (or time out).
     """
     filter = get_filter(
-        data=insight.dashboard_filters(dashboard_tile.dashboard if dashboard_tile is not None else None),
+        data=insight.dashboard_filters(
+            dashboard_tile.dashboard if dashboard_tile is not None else None, temporary_filters=temporary_filters
+        ),
         team=insight.team,
     )
 
@@ -53,7 +60,7 @@ def should_refresh_insight(
     if refresh_requested_by_client(request):
         now = datetime.now(tz=zoneinfo.ZoneInfo("UTC"))
         target: Union[Insight, DashboardTile] = insight if dashboard_tile is None else dashboard_tile
-        cache_key = calculate_cache_key(target)
+        cache_key = calculate_cache_key(target, temporary_filters=temporary_filters)
         # Most recently queued caching state
         caching_state = (
             InsightCachingState.objects.filter(team_id=insight.team.pk, cache_key=cache_key, insight=insight)

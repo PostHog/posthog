@@ -44,14 +44,16 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 logger = structlog.get_logger(__name__)
 
 
-def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
+def calculate_cache_key(
+    target: Union[DashboardTile, Insight], temporary_filters: Optional[Dict] = None
+) -> Optional[str]:
     insight = target if isinstance(target, Insight) else target.insight
     dashboard = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is None or (not insight.filters and insight.query is None):
         return None
 
-    return generate_insight_cache_key(insight, dashboard)
+    return generate_insight_cache_key(insight, dashboard, temporary_filters)
 
 
 def get_cache_type_for_filter(cacheable: FilterType) -> CacheType:
@@ -101,7 +103,7 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
 
 
 def calculate_result_by_insight(
-    team: Team, insight: Insight, dashboard: Optional[Dashboard]
+    team: Team, insight: Insight, dashboard: Optional[Dashboard], temporary_filters: Optional[Dict] = None
 ) -> Tuple[str, str, List | Dict]:
     """
     Calculates the result for an insight. If the insight is query based,
@@ -113,7 +115,7 @@ def calculate_result_by_insight(
     if insight.query is not None:
         return calculate_for_query_based_insight(team, insight, dashboard)
     else:
-        return calculate_for_filter_based_insight(team, insight, dashboard)
+        return calculate_for_filter_based_insight(team, insight, dashboard, temporary_filters)
 
 
 def calculate_for_query_based_insight(
@@ -137,10 +139,10 @@ def calculate_for_query_based_insight(
 
 
 def calculate_for_filter_based_insight(
-    team: Team, insight: Insight, dashboard: Optional[Dashboard]
+    team: Team, insight: Insight, dashboard: Optional[Dashboard], temporary_filters: Optional[Dict] = None
 ) -> Tuple[str, str, List | Dict]:
-    filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
-    cache_key = generate_insight_cache_key(insight, dashboard)
+    filter = get_filter(data=insight.dashboard_filters(dashboard, temporary_filters=temporary_filters), team=team)
+    cache_key = generate_insight_cache_key(insight, dashboard, temporary_filters=temporary_filters)
     cache_type = get_cache_type(filter)
 
     tag_queries(

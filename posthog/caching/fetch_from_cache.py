@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Dict
 
 from django.utils.timezone import now
 from prometheus_client import Counter
@@ -36,14 +36,16 @@ class NothingInCacheResult(InsightResult):
     next_allowed_client_refresh: Optional[datetime] = None
 
 
-def fetch_cached_insight_result(target: Union[Insight, DashboardTile], refresh_frequency: timedelta) -> InsightResult:
+def fetch_cached_insight_result(
+    target: Union[Insight, DashboardTile], refresh_frequency: timedelta, temporary_filters: Optional[Dict] = None
+) -> InsightResult:
     """
     Returns cached value for this insight.
 
     InsightResult.result will be None if value was not found in cache.
     """
 
-    cache_key = calculate_cache_key(target)
+    cache_key = calculate_cache_key(target, temporary_filters)
 
     if cache_key is None:
         return NothingInCacheResult(cache_key=None)
@@ -72,9 +74,14 @@ def fetch_cached_insight_result(target: Union[Insight, DashboardTile], refresh_f
 
 
 def synchronously_update_cache(
-    insight: Insight, dashboard: Optional[Dashboard], refresh_frequency: Optional[timedelta] = None
+    insight: Insight,
+    dashboard: Optional[Dashboard],
+    refresh_frequency: Optional[timedelta] = None,
+    temporary_filters: Optional[Dict] = None,
 ) -> InsightResult:
-    cache_key, cache_type, result = calculate_result_by_insight(team=insight.team, insight=insight, dashboard=dashboard)
+    cache_key, cache_type, result = calculate_result_by_insight(
+        team=insight.team, insight=insight, dashboard=dashboard, temporary_filters=temporary_filters
+    )
     timestamp = now()
 
     next_allowed_client_refresh = timestamp + refresh_frequency if refresh_frequency else None

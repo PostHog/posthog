@@ -13,6 +13,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict
+from sentry_sdk import capture_message
 
 from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -347,6 +348,24 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
+        temporary_filters = self.context["request"].GET.get("temporary_filters", None)
+        if temporary_filters:
+            try:
+                temporary_filters = json.loads(temporary_filters)
+            except TypeError:
+                capture_message(
+                    "Temporary filters are not valid JSON",
+                    level="warning",
+                    extras={
+                        "dashboard_id": dashboard.id,
+                        "temporary_filters": temporary_filters,
+                    },
+                    tags={
+                        "team_id": dashboard.team_id,
+                    },
+                )
+                temporary_filters = None
+        self.context.update({"temporary_filters": temporary_filters})
 
         serialized_tiles = []
 

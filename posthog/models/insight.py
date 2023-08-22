@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import structlog
 from django.contrib.postgres.fields import ArrayField
@@ -14,6 +14,53 @@ from posthog.models.utils import sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
+
+
+def override_filters(filters: Dict[str, Any], extra_filters: Dict[str, Any]) -> Dict[str, Any]:
+    _extra_filters = {**extra_filters}
+    extra_properties = _extra_filters.pop("properties") if _extra_filters.get("properties") else None
+    insight_date_from = filters.get("date_from", None)
+    insight_date_to = filters.get("date_to", None)
+    dashboard_date_from = _extra_filters.get("date_from", None)
+    dashboard_date_to = _extra_filters.get("date_to", None)
+
+    filters = {
+        **filters,
+        **_extra_filters,
+    }
+
+    if dashboard_date_from is None:
+        filters["date_from"] = insight_date_from
+        filters["date_to"] = insight_date_to
+    else:
+        filters["date_from"] = dashboard_date_from
+        filters["date_to"] = dashboard_date_to
+
+    if dashboard_date_from == "all" and filters.get("compare", None) is True:
+        filters["compare"] = None
+
+    if extra_properties:
+        if isinstance(filters.get("properties"), list):
+            filters["properties"] = {
+                "type": "AND",
+                "values": [
+                    {"type": "AND", "values": filters["properties"]},
+                    {"type": "AND", "values": extra_properties},
+                ],
+            }
+        elif filters.get("properties", {}).get("type"):
+            filters["properties"] = {
+                "type": "AND",
+                "values": [filters["properties"], {"type": "AND", "values": extra_properties}],
+            }
+        elif not filters.get("properties"):
+            filters["properties"] = extra_properties
+        else:
+            raise ValidationError("Unrecognized property format: ", filters["properties"])
+    elif filters.get("properties"):
+        filters["properties"] = filters.get("properties")
+
+    return filters
 
 
 class InsightManager(models.Manager):
@@ -104,55 +151,14 @@ class Insight(models.Model):
         db_table = "posthog_dashboarditem"
         unique_together = ("team", "short_id")
 
-    def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
-        # TODO dashboard filtering needs to know how to override query date ranges😱
-        if dashboard and not self.query:
-            dashboard_filters = {**dashboard.filters}
-            dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
-            insight_date_from = self.filters.get("date_from", None)
-            insight_date_to = self.filters.get("date_to", None)
-            dashboard_date_from = dashboard_filters.get("date_from", None)
-            dashboard_date_to = dashboard_filters.get("date_to", None)
-
-            filters = {
-                **self.filters,
-                **dashboard_filters,
-            }
-
-            if dashboard_date_from is None:
-                filters["date_from"] = insight_date_from
-                filters["date_to"] = insight_date_to
-            else:
-                filters["date_from"] = dashboard_date_from
-                filters["date_to"] = dashboard_date_to
-
-            if dashboard_date_from == "all" and filters.get("compare", None) is True:
-                filters["compare"] = None
-
-            if dashboard_properties:
-                if isinstance(self.filters.get("properties"), list):
-                    filters["properties"] = {
-                        "type": "AND",
-                        "values": [
-                            {"type": "AND", "values": self.filters["properties"]},
-                            {"type": "AND", "values": dashboard_properties},
-                        ],
-                    }
-                elif self.filters.get("properties", {}).get("type"):
-                    filters["properties"] = {
-                        "type": "AND",
-                        "values": [self.filters["properties"], {"type": "AND", "values": dashboard_properties}],
-                    }
-                elif not self.filters.get("properties"):
-                    filters["properties"] = dashboard_properties
-                else:
-                    raise ValidationError("Unrecognized property format: ", self.filters["properties"])
-            elif self.filters.get("properties"):
-                filters["properties"] = self.filters.get("properties")
-
-            return filters
-        else:
+    def dashboard_filters(self, dashboard: Optional[Dashboard] = None, temporary_filters: Optional[dict] = None):
+        if (not dashboard and not temporary_filters) or self.query:
             return self.filters
+        # TODO dashboard filtering needs to know how to override query date ranges😱
+        else:
+            filters = override_filters(self.filters, dashboard.filters if dashboard else {})
+            filters = override_filters(filters, temporary_filters or {})
+            return filters
 
     @property
     def url(self):
@@ -171,7 +177,9 @@ class InsightViewed(models.Model):
 
 
 @timed("generate_insight_cache_key")
-def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
+def generate_insight_cache_key(
+    insight: Insight, dashboard: Optional[Dashboard], temporary_filters: Optional[Dict] = None
+) -> str:
     try:
         if insight.query is not None:
             # TODO: dashboard filtering needs to know how to override queries and date ranges 😱
@@ -181,7 +189,9 @@ def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard])
 
             return generate_cache_key("{}_{}".format(q, insight.team_id))
 
-        dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
+        dashboard_insight_filter = get_filter(
+            data=insight.dashboard_filters(dashboard=dashboard, temporary_filters=temporary_filters), team=insight.team
+        )
         candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
         return candidate_filters_hash
     except Exception as e:

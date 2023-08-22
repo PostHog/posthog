@@ -488,7 +488,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+        representation["filters"] = instance.dashboard_filters(
+            dashboard=dashboard, temporary_filters=self.context.get("temporary_filters", None)
+        )
 
         if "insight" not in representation["filters"] and not representation["query"]:
             representation["filters"]["insight"] = "TRENDS"
@@ -504,15 +506,22 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         target = insight if dashboard is None else dashboard_tile
 
         is_shared = self.context.get("is_shared", False)
+        temporary_filters = self.context.get("temporary_filters", None)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
-            insight, dashboard_tile, request=self.context["request"], is_shared=is_shared
+            insight,
+            dashboard_tile,
+            request=self.context["request"],
+            is_shared=is_shared,
+            temporary_filters=temporary_filters,
         )
         if refresh_insight_now:
             INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
-            return synchronously_update_cache(insight, dashboard, refresh_frequency)
+            return synchronously_update_cache(
+                insight, dashboard, refresh_frequency, temporary_filters=temporary_filters
+            )
 
         # :TODO: Clear up if tile can be null or not
-        return fetch_cached_insight_result(target or insight, refresh_frequency)
+        return fetch_cached_insight_result(target or insight, refresh_frequency, temporary_filters=temporary_filters)
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:

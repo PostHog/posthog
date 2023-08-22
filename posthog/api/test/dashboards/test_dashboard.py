@@ -463,7 +463,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.get(id=dashboard_id)
         mock_view = MagicMock()
         mock_view.action = "retrieve"
-        dashboard_data = DashboardSerializer(dashboard, context={"view": mock_view, "request": MagicMock()}).data
+        mock_request = MagicMock()
+        mock_request.GET.return_value({})
+        dashboard_data = DashboardSerializer(dashboard, context={"view": mock_view, "request": mock_request}).data
         assert len(dashboard_data["tiles"]) == 1
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
@@ -480,8 +482,25 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert tile["insight"]["id"] == insight_id
         assert tile["insight"]["filters"]["date_from"] == "-14d"
 
+    def test_dashboard_insight_tiles_can_be_loaded_with_temporary_filters_context(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
+        )
+
+        response = self.dashboard_api.get_dashboard(
+            dashboard_id, query_params={"temporary_filters": json.dumps({"date_from": "-30d"})}
+        )
+        self.assertEqual(len(response["tiles"]), 1)
+        self.assertEqual(len(response["tiles"]), 1)
+        tile = response["tiles"][0]
+
+        assert tile["insight"]["id"] == insight_id
+        assert tile["insight"]["filters"]["date_from"] == "-30d"
+
     def test_dashboard_filtering_on_properties(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-24h"}})
+
         _, response = self.dashboard_api.update_dashboard(
             dashboard_id, {"filters": {"date_from": "-24h", "properties": [{"key": "prop", "value": "val"}]}}
         )
@@ -493,6 +512,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         response = self.dashboard_api.get_dashboard(dashboard_id)
+
         self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(response["tiles"][0]["insight"]["name"], "some_item")
         self.assertEqual(response["tiles"][0]["insight"]["filters"]["properties"], [{"key": "prop", "value": "val"}])
