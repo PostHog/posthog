@@ -38,8 +38,8 @@
         border-radius: var(--radius);
         background-color: var(--bg-light);
         border: 1px solid var(--border-3000);
-        transition: transform 150ms cubic-bezier(0, 0.5, 0.5, 1), box-shadow 150ms linear,
-            width 150ms cubic-bezier(0, 0.5, 0.5, 1);
+        transition: transform var(--notebook-popover-transition-properties), box-shadow 150ms linear,
+            width var(--notebook-popover-transition-properties);
 
         // Transition properties that are overwritten
         transform: translateX(calc(100% + 1rem));
@@ -62,6 +62,13 @@
         .NotebookPopover__content {
             transform: translateX(calc(100% - 5rem));
             box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
+        }
+    }
+
+    &--with-sidebar {
+        // TODO: Sync this with the sidebar width itself
+        .NotebookPopover__content {
+            width: calc(50rem + var(--notebook-sidebar-width));
         }
     }
 

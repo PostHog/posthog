@@ -1284,7 +1284,7 @@ const api = {
             // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
             let q = {}
-            if (!!contains?.length) {
+            if (contains?.length) {
                 const containsString =
                     contains
                         .map(({ type, attrs }) => {
