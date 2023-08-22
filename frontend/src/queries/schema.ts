@@ -301,6 +301,10 @@ export interface DataTableNode extends Node {
     allowSorting?: boolean
     /** Show a button to open the current query as a new insight. (default: true) */
     showOpenEditorButton?: boolean
+    /** Show a results table */
+    showResults?: boolean
+    /** Uses the embedded version of LemonTable */
+    embedded?: boolean
 }
 
 // Saved insight node

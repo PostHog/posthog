@@ -23,20 +23,23 @@ export {
 } from '@tiptap/core'
 
 export type NotebookNodeAttributes = Record<string, any>
+
+type NotebookNodeBaseAttributes<T extends NotebookNodeAttributes> = T & {
+    nodeId: string
+    height?: string | number
+}
+
 type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
-    attrs: T & {
-        nodeId: string
-        height?: string | number
-    }
+    attrs: NotebookNodeBaseAttributes<T>
+}
+
+export type NotebookNodeWidgetSettings<T extends NotebookNodeAttributes> = {
+    attributes: NotebookNodeBaseAttributes<T>
+    updateAttributes: (attributes: Partial<T>) => void
 }
 
 export type NotebookNodeViewProps<T extends NotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
     node: NotebookNode<T>
-}
-
-export type NotebookNodeWidgetSettings<T extends NotebookNodeAttributes> = {
-    attributes: T
-    updateAttributes: (attributes: Partial<T>) => void
 }
 
 export type NotebookNodeWidget<T extends NotebookNodeAttributes> = {

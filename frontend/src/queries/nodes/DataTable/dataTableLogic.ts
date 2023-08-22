@@ -23,6 +23,7 @@ import equal from 'fast-deep-equal'
 
 export interface DataTableLogicProps {
     key: string
+    nodeKey: string
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
     context?: QueryContext
@@ -62,7 +63,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            dataNodeLogic({ key: props.key, query: props.query.source }),
+            dataNodeLogic({ key: props.nodeKey, query: props.query.source }),
             ['response', 'responseLoading', 'responseError'],
         ],
     })),
@@ -166,6 +167,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         ...rest,
                         full: query.full ?? false,
                         expandable: query.expandable ?? true,
+                        embedded: query.embedded ?? false,
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? showIfFull,
                         showEventFilter: query.showEventFilter ?? showIfFull,
@@ -186,6 +188,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                             context?.showOpenEditorButton !== undefined
                                 ? context.showOpenEditorButton
                                 : query.showOpenEditorButton ?? true,
+                        showResults: query.showResults ?? true,
                     }),
                 }
             },

@@ -56,14 +56,26 @@ const groupTypes = [
 let uniqueNode = 0
 
 export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
-    const [key] = useState(() => `DataTable.${uniqueKey || uniqueNode++}`)
+    const uniqueNodeKey = useState(() => uniqueNode++)
+    const [nodeLogicKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
+    const [tableLogicKey] = useState(() => `DataTable.${uniqueNodeKey}`)
 
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key, cachedResults: cachedResults }
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: query.source,
+        key: nodeLogicKey,
+        cachedResults: cachedResults,
+    }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
     const { canLoadNewData } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, setQuery, key, context }
+    const dataTableLogicProps: DataTableLogicProps = {
+        query,
+        setQuery,
+        key: tableLogicKey,
+        nodeKey: nodeLogicKey,
+        context,
+    }
     const { queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
     const { setQuerySource } = useActions(dataTableLogic(dataTableLogicProps))
 
@@ -80,6 +92,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showPersistentColumnConfigurator,
         showSavedQueries,
         showOpenEditorButton,
+        showResults,
     } = queryWithDefaults
 
     const isReadOnly = setQuery === undefined
@@ -156,7 +169,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             <OpenEditorButton query={query} />
                         </div>
                     ) : null}
-                    <ResultsTable isReadOnly={isReadOnly} />
+                    {showResults && <ResultsTable isReadOnly={isReadOnly} />}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
                     <PersonDeleteModal />
@@ -166,7 +179,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     )
 }
 
-const ResultsTable = ({ isReadOnly, ...props }: { isReadOnly: boolean; embedded?: boolean }): JSX.Element => {
+const ResultsTable = ({ isReadOnly }: { isReadOnly: boolean }): JSX.Element => {
     const {
         response,
         responseLoading,
@@ -394,10 +407,10 @@ const ResultsTable = ({ isReadOnly, ...props }: { isReadOnly: boolean; embedded?
 
     return (
         <LemonTable
-            {...props}
             className="DataTable"
             loading={responseLoading && !nextDataLoading && !newDataLoading}
             columns={lemonColumns}
+            embedded={queryWithDefaults.embedded}
             key={
                 [...(columnsInResponse ?? []), ...columnsInQuery].join(
                     '::'
