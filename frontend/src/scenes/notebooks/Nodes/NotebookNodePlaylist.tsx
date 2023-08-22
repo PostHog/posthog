@@ -18,7 +18,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
 
@@ -137,3 +137,10 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         },
     ],
 })
+
+export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent {
+    return {
+        type: NotebookNodeType.RecordingPlaylist,
+        attrs: { filters },
+    }
+}

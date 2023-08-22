@@ -691,7 +691,7 @@ interface FeatureFlagReadOnlyProps {
     excludeTitle?: boolean
 }
 
-function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
+export function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
     const {
         multivariateEnabled,
         variants,
