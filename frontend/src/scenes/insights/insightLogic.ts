@@ -49,6 +49,7 @@ import { queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
+import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
@@ -90,8 +91,10 @@ export const insightLogic = kea<insightLogicType>([
             ['mathDefinitions'],
             userLogic,
             ['user'],
+            globalInsightLogic,
+            ['globalInsightFilters'],
         ],
-        actions: [tagsModel, ['loadTags']],
+        actions: [tagsModel, ['loadTags'], globalInsightLogic, ['setGlobalInsightFilters']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
     }),
 
@@ -548,6 +551,9 @@ export const insightLogic = kea<insightLogicType>([
     listeners(({ actions, selectors, values }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
+        },
+        setGlobalInsightFilters: ({ globalInsightFilters }) => {
+            actions.setFilters({ ...values.filters, ...globalInsightFilters })
         },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
