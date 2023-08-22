@@ -15,11 +15,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '../../models/groupsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 interface DashboardProps {
     id?: string
@@ -152,6 +153,11 @@ function DashboardScene(): JSX.Element {
                                     ]}
                                 />
                             </div>
+                        )}
+                        {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
+                            <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
+                                Edit dashboard
+                            </LemonButton>
                         )}
                         {placement !== DashboardPlacement.Export && (
                             <div className="flex space-x-4 dashoard-items-actions">

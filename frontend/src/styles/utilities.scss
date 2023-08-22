@@ -357,6 +357,14 @@ $decorations: underline, overline, line-through, no-underline;
     .border-#{$name} {
         border-color: var(--#{$name});
     }
+    .border-x-#{$name} {
+        border-left-color: var(--#{$name});
+        border-right-color: var(--#{$name});
+    }
+    .border-y-#{$name} {
+        border-top-color: var(--#{$name});
+        border-bottom-color: var(--#{$name});
+    }
     .decoration-#{$name} {
         text-decoration-color: var(--#{$name});
     }
