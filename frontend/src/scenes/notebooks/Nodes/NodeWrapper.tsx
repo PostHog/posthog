@@ -20,13 +20,18 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
-import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
+import {
+    CustomNotebookNodeAttributes,
+    NotebookNodeAttributes,
+    NotebookNodeViewProps,
+    NotebookNodeWidget,
+} from '../Notebook/utils'
 
-export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
+export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     title: string
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
-    href?: string | ((attributes: T) => string)
+    href?: string | ((attributes: NotebookNodeAttributes<T>) => string)
 
     // Sizing
     expandable?: boolean
@@ -36,10 +41,10 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
     autoHideMetadata?: boolean
-    widgets?: NotebookNodeWidget<T>[]
+    widgets?: NotebookNodeWidget[]
 }
 
-export function NodeWrapper<T extends NotebookNodeAttributes>({
+export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     title: defaultTitle,
     nodeType,
     children,
@@ -188,7 +193,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     )
 }
 
-export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = NodeWrapperProps<T> & {
+export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
     Component: (props: NotebookNodeViewProps<T>) => JSX.Element | null
     pasteOptions?: {
@@ -196,10 +201,10 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
-    widgets?: NotebookNodeWidget<T>[]
+    widgets?: NotebookNodeWidget[]
 }
 
-export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
+export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>({
     Component,
     pasteOptions,
     attributes,

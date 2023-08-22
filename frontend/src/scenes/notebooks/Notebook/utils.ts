@@ -22,31 +22,32 @@ export {
     FocusPosition as EditorFocusPosition,
 } from '@tiptap/core'
 
-export type NotebookNodeAttributes = Record<string, any>
+export type CustomNotebookNodeAttributes = Record<string, any>
 
-type NotebookNodeBaseAttributes<T extends NotebookNodeAttributes> = T & {
+export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
     height?: string | number
 }
 
-type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
-    attrs: NotebookNodeBaseAttributes<T>
+type NotebookNode<T extends CustomNotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
+    attrs: NotebookNodeAttributes<T>
 }
 
-export type NotebookNodeWidgetSettings<T extends NotebookNodeAttributes> = {
-    attributes: NotebookNodeBaseAttributes<T>
+export type NotebookNodeWidgetSettings<T extends CustomNotebookNodeAttributes> = {
+    attributes: NotebookNodeAttributes<T>
     updateAttributes: (attributes: Partial<T>) => void
 }
 
-export type NotebookNodeViewProps<T extends NotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
+export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
     node: NotebookNode<T>
 }
 
-export type NotebookNodeWidget<T extends NotebookNodeAttributes> = {
+export type NotebookNodeWidget = {
     key: string
     label: string
     icon: JSX.Element
-    Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings<T>) => JSX.Element
+    // using 'any' here shouldn't be necessary but I couldn't figure out how to set a generic on the notebookNodeLogic props
+    Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings<any>) => JSX.Element
 }
 
 export interface NotebookEditor {
