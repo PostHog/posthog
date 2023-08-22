@@ -137,6 +137,13 @@ export async function eachBatchWebhooks(
             batchSpan.finish()
         }
 
+        // Always commit the offset of the last message of the batch, to make sure that
+        // the offset moves forward even if we skipped all messages when batching.
+        if (batch.messages) {
+            resolveOffset(batch.messages[batch.messages.length - 1].offset)
+            await commitOffsetsIfNecessary()
+        }
+
         status.debug(
             '🧩',
             `Kafka batch of ${batch.messages.length} events completed in ${

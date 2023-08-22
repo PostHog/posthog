@@ -3,6 +3,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
+import { stringToBoolean } from '../../../utils/env-utils'
 import { convertToIngestionEvent, convertToProcessedPluginEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { groupIntoBatches } from '../../../utils/utils'
@@ -12,6 +13,7 @@ import { silentFailuresAsyncHandlers } from '../../../worker/ingestion/event-pip
 import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
+import { eventDroppedCounter } from '../metrics'
 import { eachBatch, eachBatchWebhooks } from './each-batch'
 
 export async function eachMessageAppsOnEventHandlers(
@@ -66,27 +68,37 @@ export async function eachBatchAppsOnEventHandlers(
     await eachBatch(payload, queue, eachMessageAppsOnEventHandlers, groupIntoBatches, 'async_handlers_on_event')
 }
 
-function groupIntoBatchesWebhooks(actionMatcher: ActionMatcher) {
-    function groupIntoBatchesHelper(array: KafkaMessage[], batchSize: number): KafkaMessage[][] {
-        const batches = []
-        let currentCount = 0
-        let currentStart = 0
+function buildFilterAndGroupFunction(actionMatcher: ActionMatcher) {
+    // Most events will not trigger a webhook call, so we want to filter them out as soon as possible
+    // to achieve the highest effective concurrency when executing the actual HTTP calls.
+    // actionMatcher holds an in-memory set of all teams with enabled webhooks, that we use to
+    // drop events based on that signal.
+    return function (array: KafkaMessage[], batchSize: number): KafkaMessage[][] {
+        const batches: KafkaMessage[][] = []
+        let currentBatch: KafkaMessage[] = []
 
-        // group into batches of batchSize of actionMatcher.hasWebhooks and include all the other messages in the middle
-        for (let i = 0; i < array.length; i++) {
-            const message = array[i]
+        for (const message of array) {
             const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
-            currentCount += actionMatcher.hasWebhooks(clickHouseEvent.team_id) ? 1 : 0
-            if (currentCount === batchSize || i === array.length - 1) {
-                batches.push(array.slice(currentStart, i + 1))
-                currentStart = i + 1
-                currentCount = 0
+            if (!actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics-webhook',
+                        drop_cause: 'no_webhook_action',
+                    })
+                    .inc()
+                continue
+            }
+            currentBatch.push(message)
+            if (currentBatch.length == batchSize) {
+                batches.push(currentBatch)
+                currentBatch = []
             }
         }
-
+        if (currentBatch) {
+            batches.push(currentBatch)
+        }
         return batches
     }
-    return groupIntoBatchesHelper
 }
 
 export async function eachBatchWebhooksHandlers(
@@ -96,11 +108,12 @@ export async function eachBatchWebhooksHandlers(
     statsd: StatsD | undefined,
     concurrency: number
 ): Promise<void> {
+    const filterOutEventsWithoutActions = stringToBoolean(process.env.FILTER_OUT_EVENTS_WITHOUT_ACTION)
     await eachBatchWebhooks(
         payload,
         statsd,
         (message) => eachMessageWebhooksHandlers(message, actionMatcher, hookCannon, statsd),
-        groupIntoBatchesWebhooks(actionMatcher),
+        filterOutEventsWithoutActions ? buildFilterAndGroupFunction(actionMatcher) : groupIntoBatches,
         concurrency,
         'async_handlers_webhooks'
     )
