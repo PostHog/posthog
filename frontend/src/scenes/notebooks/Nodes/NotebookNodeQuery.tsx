@@ -8,7 +8,6 @@ import { useJsonNodeState } from './utils'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
-import { notebookLogic } from '../Notebook/notebookLogic'
 import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
 
@@ -30,7 +29,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const { setTitle } = useActions(notebookNodeLogic)
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
-    const { isEditable } = useValues(notebookLogic)
 
     const title = useMemo(() => {
         if (NodeKind.DataTableNode === query.kind) {
@@ -59,7 +57,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         }
 
         return modifiedQuery
-    }, [query, isEditable])
+    }, [query])
 
     if (!expanded) {
         return null

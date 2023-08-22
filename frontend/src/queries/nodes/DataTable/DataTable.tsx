@@ -1,7 +1,15 @@
 import './DataTable.scss'
-import { AnyResponseType, DataTableNode, EventsQuery, QueryContext } from '~/queries/schema'
-import { useState } from 'react'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import {
+    AnyResponseType,
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    HogQLQuery,
+    PersonsNode,
+    QueryContext,
+} from '~/queries/schema'
+import { useCallback, useState } from 'react'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -71,13 +79,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
-        setQuery,
         key: tableLogicKey,
         nodeKey: nodeLogicKey,
         context,
     }
     const { queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
-    const { setQuerySource } = useActions(dataTableLogic(dataTableLogicProps))
 
     const {
         showDateRange,
@@ -96,6 +102,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     } = queryWithDefaults
 
     const isReadOnly = setQuery === undefined
+
+    const setQuerySource = useCallback(
+        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery) => setQuery?.({ ...query, source }),
+        [setQuery]
+    )
 
     const firstRowLeft = [
         showDateRange && isEventsQuery(query.source) ? (
@@ -169,7 +180,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             <OpenEditorButton query={query} />
                         </div>
                     ) : null}
-                    {showResults && <ResultsTable isReadOnly={isReadOnly} />}
+                    {showResults && <ResultsTable query={query} setQuery={setQuery} isReadOnly={isReadOnly} />}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
                     <PersonDeleteModal />
@@ -179,7 +190,15 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     )
 }
 
-const ResultsTable = ({ isReadOnly }: { isReadOnly: boolean }): JSX.Element => {
+const ResultsTable = ({
+    query,
+    setQuery,
+    isReadOnly,
+}: {
+    query: DataTableNode
+    setQuery?: (query: DataTableNode) => void
+    isReadOnly: boolean
+}): JSX.Element => {
     const {
         response,
         responseLoading,
@@ -192,10 +211,9 @@ const ResultsTable = ({ isReadOnly }: { isReadOnly: boolean }): JSX.Element => {
     } = useValues(dataNodeLogic)
     const logic = useMountedLogic(dataTableLogic)
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(logic)
-    const { setQuery } = useActions(logic)
 
     const { showActions, expandable } = queryWithDefaults
-    const { query, context } = logic.props
+    const { context } = logic.props
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
     const columnsInLemonTable = isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery

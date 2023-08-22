@@ -7,13 +7,11 @@ import { userLogic } from 'scenes/userLogic'
 import { DataWarehouseSceneRow } from '../types'
 
 import type { dataWarehouseSavedQueriesLogicType } from './dataWarehouseSavedQueriesLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const dataWarehouseSavedQueriesLogic = kea<dataWarehouseSavedQueriesLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSavedQueriesLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['user']],
     })),
 
     loaders(({ values }) => ({
@@ -65,9 +63,7 @@ export const dataWarehouseSavedQueriesLogic = kea<dataWarehouseSavedQueriesLogic
             },
         ],
     }),
-    afterMount(({ actions, values }) => {
-        if (values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
-            actions.loadDataWarehouseSavedQueries()
-        }
+    afterMount(({ actions }) => {
+        actions.loadDataWarehouseSavedQueries()
     }),
 ])

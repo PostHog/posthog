@@ -1,14 +1,11 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
 import {
     AnyDataNode,
     DataTableNode,
-    EventsNode,
     EventsQuery,
     HogQLExpression,
-    HogQLQuery,
     NodeKind,
-    PersonsNode,
     QueryContext,
     TimeToSeeDataSessionsQuery,
 } from '~/queries/schema'
@@ -25,7 +22,6 @@ export interface DataTableLogicProps {
     key: string
     nodeKey: string
     query: DataTableNode
-    setQuery?: (query: DataTableNode) => void
     context?: QueryContext
 }
 
@@ -51,11 +47,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         return props.key
     }),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
-    actions({
-        setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }),
-        setQuerySource: (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery) => ({ source }),
-        setQuery: (query: DataTableNode) => ({ query }),
-    }),
+    actions({ setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }) }),
     reducers(({ props }) => ({
         columnsInQuery: [getColumnsForQuery(props.query), { setColumnsInQuery: (_, { columns }) => columns }],
     })),
@@ -67,16 +59,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
             ['response', 'responseLoading', 'responseError'],
         ],
     })),
-    listeners(({ actions, props }) => ({
-        setQuery: ({ query }) => {
-            props.setQuery?.(query)
-        },
-        setQuerySource: ({ source }) => {
-            actions.setQuery({ ...props.query, source })
-        },
-    })),
     selectors({
-        query: [(_, p) => [p.query], (query): DataTableNode => query],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         orderBy: [
             (_, p) => [p.query],
