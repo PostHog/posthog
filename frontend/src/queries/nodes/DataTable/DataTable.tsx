@@ -55,14 +55,7 @@ const groupTypes = [
 
 let uniqueNode = 0
 
-const DataTable = ({
-    uniqueKey,
-    query,
-    setQuery,
-    context,
-    cachedResults,
-    children,
-}: DataTableProps & { children?: React.ReactNode }): JSX.Element => {
+export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [key] = useState(() => `DataTable.${uniqueKey || uniqueNode++}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key, cachedResults: cachedResults }
@@ -134,42 +127,36 @@ const DataTable = ({
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                    {children ? (
-                        children
-                    ) : (
-                        <>
-                            {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
-                                <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
+                    {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
+                        <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
+                    ) : null}
+                    {showFirstRow && (
+                        <div className="flex gap-4 items-center">
+                            {firstRowLeft}
+                            <div className="flex-1" />
+                            {firstRowRight}
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
+                                <OpenEditorButton query={query} />
                             ) : null}
-                            {showFirstRow && (
-                                <div className="flex gap-4 items-center">
-                                    {firstRowLeft}
-                                    <div className="flex-1" />
-                                    {firstRowRight}
-                                    {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
-                                        <OpenEditorButton query={query} />
-                                    ) : null}
-                                </div>
-                            )}
-                            {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
-                            {showSecondRow && (
-                                <div className="flex gap-4 items-center">
-                                    {secondRowLeft}
-                                    <div className="flex-1" />
-                                    {secondRowRight}
-                                    {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
-                                        <OpenEditorButton query={query} />
-                                    ) : null}
-                                </div>
-                            )}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
-                                <div className="absolute right-0 z-10 p-1">
-                                    <OpenEditorButton query={query} />
-                                </div>
-                            ) : null}
-                            <ResultsTable isReadOnly={isReadOnly} />
-                        </>
+                        </div>
                     )}
+                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
+                    {showSecondRow && (
+                        <div className="flex gap-4 items-center">
+                            {secondRowLeft}
+                            <div className="flex-1" />
+                            {secondRowRight}
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
+                                <OpenEditorButton query={query} />
+                            ) : null}
+                        </div>
+                    )}
+                    {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
+                        <div className="absolute right-0 z-10 p-1">
+                            <OpenEditorButton query={query} />
+                        </div>
+                    ) : null}
+                    <ResultsTable isReadOnly={isReadOnly} />
                     {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
                     <PersonDeleteModal />
@@ -177,13 +164,6 @@ const DataTable = ({
             </BindLogic>
         </BindLogic>
     )
-}
-
-const HogQLEditor = (): JSX.Element | null => {
-    const { query } = useValues(dataTableLogic)
-    const { setQuerySource } = useActions(dataTableLogic)
-
-    return isHogQLQuery(query.source) ? <HogQLQueryEditor query={query.source} setQuery={setQuerySource} /> : null
 }
 
 const ResultsTable = ({ isReadOnly, ...props }: { isReadOnly: boolean; embedded?: boolean }): JSX.Element => {
@@ -507,7 +487,3 @@ const ResultsTable = ({ isReadOnly, ...props }: { isReadOnly: boolean; embedded?
         />
     )
 }
-
-DataTable.Results = ResultsTable
-DataTable.HogQLQueryEditor = HogQLEditor
-export default DataTable

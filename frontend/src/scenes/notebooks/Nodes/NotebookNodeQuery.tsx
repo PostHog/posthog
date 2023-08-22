@@ -10,10 +10,6 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import clsx from 'clsx'
-import DataTable from '~/queries/nodes/DataTable/DataTable'
-import { isDataTableNode } from '~/queries/utils'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -59,6 +55,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.full = isEditable
+            modifiedQuery.showHogQLEditor = false
         }
 
         return modifiedQuery
@@ -75,14 +72,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
                     query={modifiedQuery}
                     setQuery={(t) => setQuery(t as QuerySchema)}
                     uniqueKey={nodeLogic.props.nodeId}
-                >
-                    {isDataTableNode(modifiedQuery) && (
-                        <>
-                            {isEditable && <DataTable.HogQLQueryEditor />}
-                            <DataTable.Results isReadOnly={isEditable} embedded={!isEditable} />
-                        </>
-                    )}
-                </Query>
+                />
             </div>
         </BindLogic>
     )
@@ -105,15 +95,5 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
     },
-    widgets: [
-        {
-            icon: <IconRefresh />,
-            onClick: ({ query, nodeId }) => {
-                const dataNodeLogicProps = { query: query.source, key: `DataTable.${nodeId}` }
-                const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
-
-                builtDataNodeLogic.actions.loadData()
-            },
-        },
-    ],
+    widgets: [],
 })

@@ -5,7 +5,7 @@ import {
     isInsightVizNode,
     isTimeToSeeDataSessionsNode,
 } from '../utils'
-import DataTable from '~/queries/nodes/DataTable/DataTable'
+import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, Node, QueryContext, QuerySchema } from '~/queries/schema'
@@ -30,7 +30,6 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     cachedResults?: AnyResponseType
     /** Disable any changes to the query */
     readOnly?: boolean
-    children?: React.ReactNode
 }
 
 export function Query(props: QueryProps): JSX.Element | null {
@@ -69,9 +68,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                 context={queryContext}
                 cachedResults={props.cachedResults}
                 uniqueKey={props.uniqueKey}
-            >
-                {props.children}
-            </DataTable>
+            />
         )
     } else if (isDataNode(query)) {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
