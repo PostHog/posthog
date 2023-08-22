@@ -350,7 +350,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             PluginTab.Installed as PluginTab,
             {
                 setPluginTab: (_, { tab }) => tab,
-                installPluginSuccess: () => PluginTab.Installed,
+                installPluginSuccess: (state) => (state === PluginTab.Apps ? state : PluginTab.Installed),
             },
         ],
         updateStatus: [
