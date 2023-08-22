@@ -22,11 +22,6 @@ import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
 import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
 
-type NotebookNodeWidget<T extends NotebookNodeAttributes> = {
-    icon: JSX.Element
-    onClick: (attrs: T & { nodeId?: string; height?: string | number }) => void
-}
-
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     title: string
     nodeType: NotebookNodeType
@@ -162,15 +157,6 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                                         />
                                     )}
 
-                                    {widgets.map(({ icon, onClick }, index) => (
-                                        <LemonButton
-                                            key={index}
-                                            onClick={() => onClick({ ...node.attrs, nodeId })}
-                                            size="small"
-                                            icon={icon}
-                                        />
-                                    ))}
-
                                     {isEditable && (
                                         <LemonButton
                                             onClick={() => deleteNode()}
@@ -210,7 +196,7 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
-    widgets?: NotebookNodeWidget[]
+    widgets?: NotebookNodeWidget<T>[]
 }
 
 export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
