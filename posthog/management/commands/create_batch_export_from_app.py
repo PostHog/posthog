@@ -94,6 +94,7 @@ class Command(BaseCommand):
                 destination=destination,
             )
 
+            destination.save()
             batch_export.save()
 
             sync_batch_export(batch_export, created=True)
