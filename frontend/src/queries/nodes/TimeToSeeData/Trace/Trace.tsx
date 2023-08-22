@@ -173,7 +173,7 @@ function TraceOverview({
                                         <SpanBarWrapper
                                             ref={ref}
                                             // don't set duration container width back onto the element that is generating it
-                                            durationContainerWidth={!!ref ? undefined : parentSpanWidth}
+                                            durationContainerWidth={ref ? undefined : parentSpanWidth}
                                             maxSpan={maxTimePoint}
                                             spanData={spanData}
                                         />
