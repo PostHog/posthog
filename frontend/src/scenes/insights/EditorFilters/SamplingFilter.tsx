@@ -1,5 +1,5 @@
 import { InsightLogicProps } from '~/types'
-import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 import posthog from 'posthog-js'
@@ -23,7 +23,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
                     infoLink="https://posthog.com/manual/sampling"
                 >
-                    Sampling
+                    Sampling <LemonTag type="warning">BETA</LemonTag>
                 </LemonLabel>
                 <LemonSwitch
                     className="m-2"
