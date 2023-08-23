@@ -10,7 +10,7 @@ export const clean = (
 ): Partial<AnyFilterType> => {
     const dupFilters = JSON.parse(JSON.stringify(filters))
 
-    // remove undefined values, empty array and empty objects
+    // remove undefined values, empty arrays and empty objects
     const cleanedFilters = objectCleanWithEmpty(cleanFilters(dupFilters, test_account_filters_default_checked))
 
     // do we need an order property on events or actions?
@@ -41,7 +41,7 @@ export const clean = (
     return cleanedFilters
 }
 
-/** compares to filter objects for semantical equality */
+/** compares two filter objects for semantical equality */
 export function compareFilters(
     a: Partial<AnyFilterType>,
     b: Partial<AnyFilterType>,
