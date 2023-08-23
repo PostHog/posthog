@@ -78,6 +78,11 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
             modifiedQuery.embedded = true
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = false
+            modifiedQuery.showHeader = false
+            modifiedQuery.showTable = false
+            modifiedQuery.showCorrelationTable = false
         }
 
         return modifiedQuery
@@ -89,7 +94,13 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <div className={clsx('flex flex-1 flex-col overflow-hidden')}>
+            <div
+                className={clsx(
+                    'flex flex-1 flex-col',
+                    NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden',
+                    NodeKind.InsightVizNode === modifiedQuery.kind && 'overflow-scroll'
+                )}
+            >
                 <Query query={modifiedQuery} uniqueKey={nodeLogic.props.nodeId} />
             </div>
         </BindLogic>
@@ -117,7 +128,8 @@ export const Settings = ({
             modifiedQuery.showReload = true
         } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = true
-            modifiedQuery
+            modifiedQuery.showResults = false
+            modifiedQuery.embedded = true
         }
 
         return modifiedQuery

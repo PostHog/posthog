@@ -328,6 +328,9 @@ export interface InsightVizNode extends Node {
     showLastComputation?: boolean
     showLastComputationRefresh?: boolean
     showFilters?: boolean
+    showResults?: boolean
+    /** Query is embedded inside another bordered component */
+    embedded?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */

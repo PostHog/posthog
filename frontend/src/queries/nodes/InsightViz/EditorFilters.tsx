@@ -44,9 +44,10 @@ export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
     showing: boolean
+    embedded: boolean
 }
 
-export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps): JSX.Element {
+export function EditorFilters({ query, setQuery, showing, embedded }: EditorFiltersProps): JSX.Element {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
 
@@ -268,6 +269,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
             <div
                 className={clsx('EditorFiltersWrapper', {
                     'EditorFiltersWrapper--singlecolumn': isFunnels,
+                    'EditorFiltersWrapper--embedded': embedded,
                 })}
             >
                 <div className="EditorFilters">
