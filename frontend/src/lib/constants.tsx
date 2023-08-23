@@ -158,7 +158,6 @@ export const FEATURE_FLAGS = {
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     REFERRAL_SOURCE_SELECT: 'referral-source-select', // owner: @raquelmsmith
-    SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
     SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
     SURVEYS_MULTIPLE_CHOICE: 'surveys-multiple-choice', // owner: @liyiy
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
@@ -240,3 +239,5 @@ export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
 // If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
 export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20
+
+export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'

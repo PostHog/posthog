@@ -1571,7 +1571,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 

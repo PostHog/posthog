@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -109,7 +109,7 @@ export function DashboardsTable({
                     </div>
                 )
             },
-            sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
+            sorter: nameCompareFunction,
         },
         ...(hasAvailableFeature(AvailableFeature.TAGGING)
             ? [

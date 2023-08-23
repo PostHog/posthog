@@ -9,7 +9,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.db.models.signals import post_delete, post_save
-
+from zoneinfo import ZoneInfo
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -297,6 +297,10 @@ class Team(UUIDClassicModel):
         """,
             {"team_id": self.pk, "group_type_index": group_type_index},
         )[0][0]
+
+    @cached_property
+    def timezone_info(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
 
     def __str__(self):
         if self.name:

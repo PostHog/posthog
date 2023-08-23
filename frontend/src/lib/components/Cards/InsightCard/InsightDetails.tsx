@@ -32,6 +32,7 @@ import {
     isPropertyFilterWithOperator,
 } from 'lib/components/PropertyFilters/utils'
 import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
+import { BreakdownFilter } from '~/queries/schema'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -293,7 +294,10 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
         <>
             <h5>Breakdown by</h5>
             <section>
-                <TaxonomicBreakdownFilter filters={filters} />
+                <TaxonomicBreakdownFilter
+                    isTrends={filters.insight === InsightType.TRENDS}
+                    breakdownFilter={filters as BreakdownFilter}
+                />
             </section>
         </>
     )
