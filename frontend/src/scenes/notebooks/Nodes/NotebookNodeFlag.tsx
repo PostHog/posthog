@@ -2,7 +2,6 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
 import { IconFlag, IconRecording } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -12,6 +11,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = props.node.attrs
