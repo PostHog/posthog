@@ -4,13 +4,22 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { EntityTypes, FilterType, FilterableLogLevel, RecordingDurationFilter, RecordingFilters } from '~/types'
+import {
+    EntityTypes,
+    FilterType,
+    FilterableLogLevel,
+    RecordingDurationFilter,
+    RecordingFilters,
+    PropertyFilterType,
+} from '~/types'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
 import { LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
+import { useValues } from 'kea'
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
@@ -25,12 +34,18 @@ export const AdvancedSessionRecordingsFilters = ({
     setLocalFilters: (localFilters: FilterType) => void
     showPropertyFilters?: boolean
 }): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
+    const hasGroupFilters = (currentTeam?.test_account_filters || [])
+        .map((x) => x.type)
+        .includes(PropertyFilterType.Group)
+
     return (
         <div className="space-y-2">
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
                 <TestAccountFilter
                     filters={filters}
                     onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
+                    disabledReason={hasGroupFilters ? 'Session replay does not support group filters' : false}
                 />
             </FlaggedFeature>
 
