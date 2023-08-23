@@ -35,7 +35,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 isTrends: true,
                 updateBreakdown,
                 updateDisplay,
-                isDataExploration: true,
             })
             logic.mount()
             const changedBreakdown = 'c'
@@ -56,12 +55,12 @@ describe('taxonomicBreakdownFilterLogic', () => {
         it('sets breakdown for cohorts', async () => {
             logic = taxonomicBreakdownFilterLogic({
                 breakdownFilter: {
+                    breakdown_type: 'cohort',
                     breakdown: ['all', 1],
                 },
                 isTrends: true,
                 updateBreakdown,
                 updateDisplay,
-                isDataExploration: true,
             })
             logic.mount()
             const changedBreakdown = 2
@@ -89,7 +88,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 isTrends: true,
                 updateBreakdown,
                 updateDisplay,
-                isDataExploration: true,
             })
             logic.mount()
             const changedBreakdown = 'height'
@@ -112,7 +110,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 isTrends: true,
                 updateBreakdown,
                 updateDisplay,
-                isDataExploration: true,
             })
             logic.mount()
             const changedBreakdown = '$lib_version'

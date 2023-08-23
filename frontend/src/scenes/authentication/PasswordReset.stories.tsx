@@ -7,15 +7,14 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
 
 // some metadata and optional parameters
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/Password Reset',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
-} as Meta
-
+}
+export default meta
 // export more stories with different state
 export const NoSMTP = (): JSX.Element => {
     useStorybookMocks({

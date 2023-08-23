@@ -67,6 +67,7 @@ def _setup_test_data(klass):
         organization=klass.organization,
         api_token=klass.CONFIG_API_TOKEN,
         test_account_filters=[{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
+        has_completed_onboarding_for={"product_analytics": True},
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)

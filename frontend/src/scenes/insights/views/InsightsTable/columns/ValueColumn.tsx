@@ -21,7 +21,7 @@ export function ValueColumnTitle({ index, indexedResults, compare, interval }: V
         <DateDisplay
             interval={interval || 'day'}
             date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
-            secondaryDate={!!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined} // previous
+            secondaryDate={previousResult ? (previousResult.dates || previousResult.days)[index] : undefined} // previous
             hideWeekRange
         />
     )

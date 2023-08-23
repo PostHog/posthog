@@ -243,9 +243,13 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
             elif key == "created_by":
                 queryset = queryset.filter(created_by__uuid=request.GET["created_by"])
             elif key == "date_from":
-                queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
+                queryset = queryset.filter(
+                    last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
+                )
             elif key == "date_to":
-                queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
+                queryset = queryset.filter(
+                    last_modified_at__lt=relative_date_parse(request.GET["date_to"], self.team.timezone_info)
+                )
             elif key == "s":
                 queryset = queryset.filter(title__icontains=request.GET["s"])
             elif key == "contains":

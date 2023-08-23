@@ -27,7 +27,7 @@ export const batchExportsListLogic = kea<batchExportsListLogicType>([
         ],
     }),
 
-    loaders(({}) => ({
+    loaders(() => ({
         batchExportConfigs: [
             null as null | CountedPaginatedResponse<BatchExportConfiguration>,
             {

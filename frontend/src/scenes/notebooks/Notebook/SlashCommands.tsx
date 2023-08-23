@@ -141,7 +141,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }, [query])
 
     const onPressEnter = async (): Promise<void> => {
-        if (!!editor) {
+        if (editor) {
             const command =
                 selectedIndex === -1
                     ? TEXT_CONTROLS[selectedHorizontalIndex].command
