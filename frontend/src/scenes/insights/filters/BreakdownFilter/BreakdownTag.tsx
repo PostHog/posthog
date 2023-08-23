@@ -62,13 +62,13 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
 
 type BreakdownTagProps = {
     breakdown: string | number
-    breakdownType: BreakdownType
+    breakdownType: BreakdownType | null | undefined
     disablePropertyInfo?: boolean
 } & Omit<LemonTagProps, 'children'>
 
 export function BreakdownTag({
     breakdown,
-    breakdownType,
+    breakdownType = 'event',
     disablePropertyInfo,
     ...props
 }: BreakdownTagProps): JSX.Element {
