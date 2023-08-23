@@ -33,9 +33,6 @@ from posthog.utils import generate_cache_key, get_safe_cache
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, str, Dict, Callable]:
-        if filter.hogql_context.team_id is None:
-            filter.hogql_context.team_id = team.pk
-
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             query_type = "trends_breakdown"
             sql, params, parse_function = TrendsBreakdown(

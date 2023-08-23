@@ -95,7 +95,11 @@ def get_earliest_timestamp(team_id: int) -> datetime:
 
 
 def get_start_of_interval_sql(
-    interval: str, *, team: Team, source: str = "timestamp", ensure_datetime: bool = False
+    interval: str,
+    *,
+    team: Team,
+    source: str = "timestamp",
+    ensure_datetime: bool = False,
 ) -> str:
     trunc_func = get_trunc_func_ch(interval)
     if source.startswith("%(") and source.endswith(")s"):
@@ -107,7 +111,7 @@ def get_start_of_interval_sql(
         trunc_func_args.append((team.week_start_day or WeekStartDay.SUNDAY).clickhouse_mode)
     interval_sql = f"{trunc_func}({', '.join(trunc_func_args)})"
     # For larger intervals dates are returned instead of datetimes, and we always want datetimes for comparisons
-    return f"toDateTime({interval_sql})" if ensure_datetime else interval_sql
+    return f"toDateTime({interval_sql}, %(timezone)s)" if ensure_datetime else interval_sql
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:
