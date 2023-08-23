@@ -24,6 +24,7 @@ from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog import schema
+from posthog.api.dashboards.dashboard import temporary_filters_from_request
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
@@ -489,7 +490,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(
-            dashboard=dashboard, temporary_filters=self.context.get("temporary_filters", None)
+            dashboard=dashboard, temporary_filters=(self._temporary_filters_from_context())
         )
 
         if "insight" not in representation["filters"] and not representation["query"]:
@@ -506,7 +507,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         target = insight if dashboard is None else dashboard_tile
 
         is_shared = self.context.get("is_shared", False)
-        temporary_filters = self.context.get("temporary_filters", None)
+
+        temporary_filters = self._temporary_filters_from_context()
+
         refresh_insight_now, refresh_frequency = should_refresh_insight(
             insight,
             dashboard_tile,
@@ -522,6 +525,14 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         # :TODO: Clear up if tile can be null or not
         return fetch_cached_insight_result(target or insight, refresh_frequency, temporary_filters=temporary_filters)
+
+    def _temporary_filters_from_context(self) -> Optional[Dict[str, Any]]:
+        """
+        Temporary filters might be set by a parent dashboard serializer or received on the insight API call
+        """
+        return self.context.get("temporary_filters", None) or temporary_filters_from_request(
+            self.context["request"].GET
+        )
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:

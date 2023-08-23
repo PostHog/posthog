@@ -32,7 +32,7 @@ import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { PersonDashboard } from './PersonDashboard'
+import { PersonDashboard } from './person-dashboard/PersonDashboard'
 
 export const scene: SceneExport = {
     component: Person,

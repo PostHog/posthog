@@ -947,6 +947,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
+                    temporary_filters: props.temporaryFilters,
                 })}`
 
                 try {

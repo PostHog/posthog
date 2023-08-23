@@ -5,13 +5,24 @@ import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/S
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { useActions, useValues } from 'kea'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { personDashboardLogic } from 'scenes/persons/personDashboardLogic'
+import { personDashboardLogic } from 'scenes/persons/person-dashboard/personDashboardLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export function PersonDashboard({ person }: { person: PersonType }): JSX.Element {
     const { showSceneDashboardChoiceModal } = useActions(sceneDashboardChoiceModalLogic({ scene: Scene.Person }))
     const { dashboardLogicProps } = useValues(personDashboardLogic)
     const dashboardLogicPropsForPerson = dashboardLogicProps(person)
+
+    // TODO this component requires https://github.com/PostHog/posthog/pull/16653
+    //  to be able to properly filter for persons
+
+    if (!person.properties.email) {
+        return (
+            <div className="empty-state-container flex flex-col items-center">
+                <h1>You can only show a person dashboard for a person with an email address</h1>
+            </div>
+        )
+    }
 
     return (
         <>
