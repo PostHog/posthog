@@ -4,11 +4,30 @@ import { InsightLogicProps, InsightType } from '~/types'
 import type { insightNavLogicType } from './insightNavLogicType'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { NodeKind } from '~/queries/schema'
+import {
+    ActionsNode,
+    EventsNode,
+    FunnelsQuery,
+    InsightQueryNode,
+    InsightVizNode,
+    LifecycleQuery,
+    NodeKind,
+    PathsQuery,
+    RetentionQuery,
+    StickinessQuery,
+    TrendsQuery,
+} from '~/queries/schema'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import {
+    containsHogQLQuery,
+    filterKeyForQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isRetentionQuery,
+} from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
@@ -18,6 +37,14 @@ export interface Tab {
     type: InsightType
     dataAttr: string
 }
+
+interface QueryPropertyCache
+    extends Omit<TrendsQuery, 'kind'>,
+        Omit<FunnelsQuery, 'kind'>,
+        Omit<RetentionQuery, 'kind'>,
+        Omit<PathsQuery, 'kind'>,
+        Omit<StickinessQuery, 'kind'>,
+        Omit<LifecycleQuery, 'kind'> {}
 
 export const insightNavLogic = kea<insightNavLogicType>([
     props({} as InsightLogicProps),
@@ -38,8 +65,15 @@ export const insightNavLogic = kea<insightNavLogicType>([
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
+        updateQueryPropertyCache: (cache: InsightQueryNode) => ({ cache }),
     }),
     reducers({
+        queryPropertyCache: [
+            null as QueryPropertyCache | null,
+            {
+                updateQueryPropertyCache: (state, { cache }) => ({ ...state, ...cache }),
+            },
+        ],
         userSelectedView: {
             setActiveView: (_, { view }) => view,
         },
@@ -144,6 +178,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setActiveView: ({ view }) => {
+            // TODO: move to subscription on query
+            if (isInsightVizNode(values.query)) {
+                // TODO: update series from retention query
+                actions.updateQueryPropertyCache(values.query.source)
+            }
+
             if ([InsightType.SQL, InsightType.JSON].includes(view as InsightType)) {
                 // if the selected view is SQL or JSON then we must have the "allow queries" flag on,
                 // so no need to check it
@@ -153,20 +193,81 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     actions.setQuery(examples.HogQLTable)
                 }
             } else {
+                let query: InsightVizNode
+
                 if (view === InsightType.TRENDS) {
-                    actions.setQuery(queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.FUNNELS) {
-                    actions.setQuery(queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.RETENTION) {
-                    actions.setQuery(queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.PATHS) {
-                    actions.setQuery(queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.STICKINESS) {
-                    actions.setQuery(queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.LIFECYCLE) {
-                    actions.setQuery(queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault)
+                } else {
+                    throw new Error('encountered unexpected type for view')
                 }
+
+                actions.setQuery({
+                    ...query,
+                    source: mergeCachedProperties(query.source, values.queryPropertyCache),
+                } as InsightVizNode)
             }
         },
     })),
 ])
+
+const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCache): InsightQueryNode => {
+    // TODO: prevent merges when the query is of the same kind to allow resetting by clicking on the nav item
+
+    const mergedQuery = {
+        ...query,
+        ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
+        ...(cache.properties ? { properties: cache.properties } : {}),
+        ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
+    }
+
+    // series
+    if (isInsightQueryWithSeries(mergedQuery)) {
+        if (cache.series) {
+            mergedQuery.series = cache.series
+        } else if (cache.retentionFilter?.target_entity || cache.retentionFilter?.returning_entity) {
+            mergedQuery.series = [
+                ...(cache.retentionFilter.target_entity
+                    ? [cache.retentionFilter.target_entity as EventsNode | ActionsNode]
+                    : []),
+                ...(cache.retentionFilter.returning_entity
+                    ? [cache.retentionFilter.returning_entity as EventsNode | ActionsNode]
+                    : []),
+            ]
+        }
+    } else if (isRetentionQuery(mergedQuery)) {
+        mergedQuery.retentionFilter = {
+            ...mergedQuery.retentionFilter,
+            ...(cache.series?.length > 0 ? { target_entity: cache.series[0] } : {}),
+            ...(cache.series?.length > 1 ? { returning_entity: cache.series[1] } : {}),
+        }
+    }
+
+    // interval
+    if (isInsightQueryWithSeries(mergedQuery) && cache.interval) {
+        mergedQuery.interval = cache.interval
+    }
+
+    // breakdown
+    if (isInsightQueryWithBreakdown(mergedQuery) && cache.breakdown) {
+        mergedQuery.breakdown = cache.breakdown
+    }
+
+    // insight specific filter
+    const filterKey = filterKeyForQuery(mergedQuery)
+    if (cache[filterKey]) {
+        // TODO: implement handling of shared properties
+        mergedQuery[filterKey] = cache[filterKey]
+    }
+
+    return mergedQuery
+}
