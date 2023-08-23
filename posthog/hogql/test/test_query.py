@@ -1447,6 +1447,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.hogql, "SELECT event FROM events WHERE true LIMIT 100")
 
+    def test_hogql_query_filters_double_error(self):
+        query = "SELECT event from events where {filters}"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(
+                query, team=self.team, filters=HogQLFilters(), placeholders={"filters": ast.Constant(value=True)}
+            )
+        self.assertEqual(
+            str(e.exception),
+            "Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter.",
+        )
+
     def test_hogql_query_filters_alias(self):
         with freeze_time("2020-01-10"):
             random_uuid = self._create_random_events()

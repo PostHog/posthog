@@ -3,6 +3,7 @@ from typing import Dict, Optional, Union, cast
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLSettings
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
@@ -35,7 +36,7 @@ def execute_hogql_query(
     placeholders = placeholders or {}
 
     if "filters" in placeholders and filters is not None:
-        raise ValueError(
+        raise HogQLException(
             f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
         )
     if "filters" in placeholders_in_query:
@@ -44,7 +45,7 @@ def execute_hogql_query(
 
     if len(placeholders_in_query) > 0:
         if len(placeholders) == 0:
-            raise ValueError(
+            raise HogQLException(
                 f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(placeholders_in_query)}"
             )
         select_query = replace_placeholders(select_query, placeholders)
