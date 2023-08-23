@@ -1,9 +1,9 @@
 import { kea } from 'kea'
-import { Product, ProductKey } from '~/types'
-import { products } from 'scenes/products/productsLogic'
+import { BillingProductV2Type, ProductKey } from '~/types'
 import { urls } from 'scenes/urls'
 
 import type { onboardingLogicType } from './onboardingLogicType'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -12,25 +12,46 @@ export interface OnboardingLogicProps {
 export const onboardingLogic = kea<onboardingLogicType>({
     props: {} as OnboardingLogicProps,
     path: ['scenes', 'onboarding', 'onboardingLogic'],
-    actions: {
-        setProduct: (productKey: string | null) => ({ productKey }),
+    connect: {
+        values: [billingLogic, ['billing']],
+        actions: [billingLogic, ['loadBillingSuccess']],
     },
-    reducers: {
-        product: [
-            null as Product | null,
+    actions: {
+        setProduct: (product: BillingProductV2Type | null) => ({ product }),
+        setProductKey: (productKey: string | null) => ({ productKey }),
+    },
+    reducers: () => ({
+        productKey: [
+            null as string | null,
             {
-                setProduct: (_, { productKey }) => products.find((p) => p.key === productKey) || null,
+                setProductKey: (_, { productKey }) => productKey,
             },
         ],
-    },
-    selectors: {},
-    urlToAction: ({ actions }) => ({
-        '/onboarding/:productKey': ({ productKey }) => {
-            if (!productKey || !products.find((p) => p.key === productKey)) {
+        product: [
+            null as BillingProductV2Type | null,
+            {
+                setProduct: (_, { product }) => product,
+            },
+        ],
+    }),
+    listeners: ({ actions, values }) => ({
+        loadBillingSuccess: () => {
+            actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
+        },
+        setProduct: ({ product }) => {
+            if (!product) {
                 window.location.href = urls.default()
                 return
             }
-            actions.setProduct(productKey)
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '/onboarding/:productKey': ({ productKey }) => {
+            if (!productKey) {
+                window.location.href = urls.default()
+                return
+            }
+            actions.setProductKey(productKey)
         },
     }),
 })

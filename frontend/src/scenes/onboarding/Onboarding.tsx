@@ -29,9 +29,11 @@ export function Onboarding(): JSX.Element | null {
                 <h3 className="font-bold">{product.description}</h3>
                 <div className="flex gap-x-2">
                     <LemonButton type="primary">Get started</LemonButton>
-                    <LemonButton type="secondary" to="https://posthog.com/product-analytics">
-                        Learn more
-                    </LemonButton>
+                    {product.docs_url && (
+                        <LemonButton type="secondary" to={product.docs_url}>
+                            Learn more
+                        </LemonButton>
+                    )}
                 </div>
             </div>
 
