@@ -1,24 +1,31 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
 import { urls } from 'scenes/urls'
 import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id, expandedOnLoad } = props.node.attrs
     const { featureFlag } = useValues(featureFlagLogic({ id }))
+    const { expanded } = useValues(notebookNodeLogic)
+    const { setExpanded } = useActions(notebookNodeLogic)
 
-    return (
-        <div className="p-2">
-            <FeatureFlagCodeExample featureFlag={featureFlag} />
-        </div>
-    )
+    useEffect(() => {
+        if (expandedOnLoad) {
+            setExpanded(true, true)
+        }
+    }, [])
+
+    return <div className="p-2">{expanded && <FeatureFlagCodeExample featureFlag={featureFlag} />}</div>
 }
 
 type NotebookNodeFlagCodeExampleAttributes = {
     id: FeatureFlagLogicProps['id']
+    expandedOnLoad?: boolean
 }
 
 export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeFlagCodeExampleAttributes>({
@@ -30,6 +37,7 @@ export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeF
     resizeable: false,
     attributes: {
         id: {},
+        expandedOnLoad: {},
     },
     pasteOptions: {
         find: urls.featureFlag('') + '(.+)',
@@ -39,9 +47,9 @@ export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeF
     },
 })
 
-export function buildCodeExampleContent(id: FeatureFlagLogicProps['id']): JSONContent {
+export function buildCodeExampleContent(id: FeatureFlagLogicProps['id'], expanded?: boolean): JSONContent {
     return {
         type: NotebookNodeType.FeatureFlagCodeExample,
-        attrs: { id },
+        attrs: { id, expandedOnLoad: expanded },
     }
 }
