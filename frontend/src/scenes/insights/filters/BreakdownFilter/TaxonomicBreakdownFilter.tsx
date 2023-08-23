@@ -1,7 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { BreakdownFilter } from '~/queries/schema'
-import { ChartDisplayType, PropertyFilterType } from '~/types'
+import { ChartDisplayType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
@@ -38,9 +38,7 @@ export function TaxonomicBreakdownFilter({
               <BreakdownTag
                   key={breakdown}
                   breakdown={breakdown}
-                  breakdownType={
-                      (breakdownFilter?.breakdown_type as PropertyFilterType | undefined) ?? PropertyFilterType.Event
-                  }
+                  breakdownType={breakdownFilter?.breakdown_type ?? 'event'}
                   isTrends={isTrends}
               />
           ))

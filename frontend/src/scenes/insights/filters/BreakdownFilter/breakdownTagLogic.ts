@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, selectors } from 'k
 
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
-import { isAllCohort, isCohort, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
+import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
@@ -36,19 +36,6 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (s, p) => [s.getPropertyDefinition, p.breakdown, p.breakdownType],
             (getPropertyDefinition, breakdown, breakdownType) =>
                 getPropertyDefinition(breakdown, propertyFilterTypeToPropertyDefinitionType(breakdownType)),
-        ],
-        propertyName: [
-            (s, p) => [p.breakdown, s.cohortsById],
-            (breakdown, cohortsById) => {
-                if (isAllCohort(breakdown)) {
-                    return 'All Users'
-                } else if (isCohort(breakdown)) {
-                    return cohortsById[breakdown]?.name || `Cohort ${breakdown}`
-                } else {
-                    // regular property breakdown i.e. person, event or group
-                    return breakdown
-                }
-            },
         ],
         isHistogramable: [
             (s, p) => [p.isTrends, s.propertyDefinition],
