@@ -54,7 +54,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
                                 size="small"
                                 icon={<IconFlag />}
                                 onClick={() => {
-                                    insertAfter(buildCodeExampleContent(id, true))
+                                    insertAfter(buildCodeExampleContent(id))
                                 }}
                             >
                                 Show implementation
