@@ -55,7 +55,6 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     selectors({
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
-        hasBreakdown: [(s) => [s.breakdownFilter], ({ breakdown_type }) => !!breakdown_type],
         hasNonCohortBreakdown: [
             (s) => [s.breakdownFilter],
             ({ breakdown }) => breakdown && typeof breakdown === 'string',
