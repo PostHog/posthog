@@ -12,7 +12,7 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
-import { IconFilter, IconMagnifier, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -110,7 +110,7 @@ export function RecordingsLists({
         <>
             <div className="SessionRecordingsPlaylist__lists">
                 {/* Pinned recordings */}
-                {!!playlistShortId ? (
+                {playlistShortId ? (
                     <SessionRecordingsList
                         className={clsx({
                             'max-h-1/2 h-fit': !collapsed.other,
@@ -139,7 +139,7 @@ export function RecordingsLists({
                         empty={
                             pinnedRecordingsAPIErrored ? (
                                 <LemonBanner type="error">Error while trying to load pinned recordings.</LemonBanner>
-                            ) : !!unusableEventsInFilter.length ? (
+                            ) : unusableEventsInFilter.length ? (
                                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                             ) : undefined
                         }
@@ -205,15 +205,17 @@ export function RecordingsLists({
                     }
                     subheader={
                         showFilters ? (
-                            <SessionRecordingsFilters
-                                filters={filters}
-                                setFilters={setFilters}
-                                showPropertyFilters={!personUUID}
-                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                hasAdvancedFilters={hasAdvancedFilters}
-                                showAdvancedFilters={showAdvancedFilters}
-                                setShowAdvancedFilters={setShowAdvancedFilters}
-                            />
+                            <div className="bg-side border-b">
+                                <SessionRecordingsFilters
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    showPropertyFilters={!personUUID}
+                                    onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                                    hasAdvancedFilters={hasAdvancedFilters}
+                                    showAdvancedFilters={showAdvancedFilters}
+                                    setShowAdvancedFilters={setShowAdvancedFilters}
+                                />
+                            </div>
                         ) : showSettings ? (
                             <SessionRecordingsPlaylistSettings />
                         ) : null
@@ -222,7 +224,7 @@ export function RecordingsLists({
                     onPropertyClick={onPropertyClick}
                     collapsed={collapsed.other}
                     onCollapse={
-                        !!playlistShortId ? () => setCollapsed({ ...collapsed, other: !collapsed.other }) : undefined
+                        playlistShortId ? () => setCollapsed({ ...collapsed, other: !collapsed.other }) : undefined
                     }
                     recordings={visibleRecordings}
                     loading={sessionRecordingsResponseLoading}
@@ -230,7 +232,7 @@ export function RecordingsLists({
                     empty={
                         sessionRecordingsAPIErrored ? (
                             <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
-                        ) : !!unusableEventsInFilter.length ? (
+                        ) : unusableEventsInFilter.length ? (
                             <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                         ) : (
                             <div className={'flex flex-col items-center space-y-2'}>
@@ -335,14 +337,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
 
     return (
         <>
-            {/* This was added around Jun 23 so at some point can just be removed */}
-            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-4 leading-7">
-                <b>Filters have moved!</b> You can now find all filters including time and duration by clicking the{' '}
-                <span className="mx-1 text-lg">
-                    <IconMagnifier />
-                </span>
-                icon at the top of the list of recordings.
-            </LemonBanner>
             {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName="Session replay"
@@ -393,7 +387,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                             playerKey="playlist"
                             playlistShortId={playlistShortId}
                             sessionRecordingId={activeSessionRecording?.id}
-                            matching={activeSessionRecording?.matching_events}
                             matchingEventsMatchType={matchingEventsMatchType}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                             nextSessionRecording={nextSessionRecording}

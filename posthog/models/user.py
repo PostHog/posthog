@@ -17,6 +17,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
@@ -225,7 +226,8 @@ class User(AbstractUser, UUIDClassicModel):
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
-            return membership
+        self.update_billing_distinct_ids(organization)
+        return membership
 
     @property
     def notification_settings(self) -> Notifications:
@@ -247,6 +249,13 @@ class User(AbstractUser, UUIDClassicModel):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
+        self.update_billing_distinct_ids(organization)
+
+    def update_billing_distinct_ids(self, organization: Organization) -> None:
+        from ee.billing.billing_manager import BillingManager  # avoid circular import
+
+        if is_cloud() and get_cached_instance_license() is not None:
+            BillingManager(get_cached_instance_license()).update_billing_distinct_ids(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (

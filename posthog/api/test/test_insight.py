@@ -1497,8 +1497,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/{insight.id}/",
         )
 
-        self.assertEqual(response.status_code, 401, response.json())
-        self.assertEqual(response.json(), self.unauthenticated_response())
+        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(
+            response.json(),
+            self.unauthenticated_response(),
+        )
 
     def test_logged_out_user_can_retrieve_insight_with_correct_insight_sharing_access_token(self) -> None:
         self.client.logout()
@@ -1546,7 +1549,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        self.assertEqual(response_invalid_token_retrieve.status_code, 401, response_invalid_token_retrieve.json())
+        self.assertEqual(response_invalid_token_retrieve.status_code, 403, response_invalid_token_retrieve.json())
         self.assertEqual(
             response_invalid_token_retrieve.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
@@ -1618,7 +1621,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_retrieve.status_code, 403, response_retrieve.json())
         self.assertEqual(
             response_retrieve.json(),
-            self.permission_denied_response(),
+            self.unauthenticated_response(
+                "Sharing access token can only be used for GET requests.", "authentication_failed"
+            ),
         )
 
     def test_logged_out_user_cannot_retrieve_insight_with_disabled_insight_sharing_access_token(self) -> None:
@@ -1639,12 +1644,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/?short_id={insight.short_id}&sharing_access_token={sharing_configuration.access_token}",
         )
 
-        self.assertEqual(response_retrieve.status_code, 401, response_retrieve.json())
+        self.assertEqual(response_retrieve.status_code, 403, response_retrieve.json())
         self.assertEqual(
             response_retrieve.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
-        self.assertEqual(response_list.status_code, 401, response_retrieve.json())
+        self.assertEqual(response_list.status_code, 403, response_retrieve.json())
         self.assertEqual(
             response_list.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
@@ -1703,7 +1708,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        self.assertEqual(response_incorrect_token_retrieve.status_code, 401, response_incorrect_token_retrieve.json())
+        self.assertEqual(response_incorrect_token_retrieve.status_code, 403, response_incorrect_token_retrieve.json())
         self.assertEqual(
             response_incorrect_token_retrieve.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),

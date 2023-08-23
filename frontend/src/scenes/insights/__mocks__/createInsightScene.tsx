@@ -4,10 +4,13 @@ import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { App } from 'scenes/App'
 import { FEATURE_FLAGS } from 'lib/constants'
-import type { Story } from '@storybook/react'
+import { StoryFn } from '@storybook/react'
 
 let shortCounter = 0
-export function createInsightStory(insight: Partial<InsightModel>, mode: 'view' | 'edit' = 'view'): Story {
+export function createInsightStory(
+    insight: Partial<InsightModel>,
+    mode: 'view' | 'edit' = 'view'
+): StoryFn<typeof App> {
     const count = shortCounter++
     return function InsightStory() {
         useStorybookMocks({

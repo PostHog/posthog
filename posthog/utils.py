@@ -28,6 +28,7 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
 
 import lzstring
 import posthoganalytics
@@ -46,14 +47,15 @@ from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-    from posthog.models import User, Team
+
+    from posthog.models import Team, User
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -114,30 +116,6 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
-    """
-    Returns a pair of datetimes, representing the start and end of the week preceding to the passed date's week.
-    `at` is the datetime to use as a reference point.
-    """
-
-    if not at:
-        at = timezone.now()
-
-    period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(timezone.now().weekday() + 1),
-        datetime.time.max,
-        tzinfo=pytz.UTC,
-    )  # very end of the previous Sunday
-
-    period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6),
-        datetime.time.min,
-        tzinfo=pytz.UTC,
-    )  # very start of the previous Monday
-
-    return (period_start, period_end)
-
-
 def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the preceding day.
@@ -186,31 +164,49 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
     return (period_start, period_end)
 
 
-def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+def relative_date_parse_with_delta_mapping(
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False
+) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
-        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC), None
+        try:
+            # This supports a few formats, but we primarily care about:
+            # YYYY-MM-DD, YYYY-MM-DD[T]hh:mm, YYYY-MM-DD[T]hh:mm:ss, YYYY-MM-DD[T]hh:mm:ss.ssssss
+            # (if a timezone offset is specified, we use it, otherwise we assume project timezone)
+            parsed_dt = parser.isoparse(input)
+        except ValueError:
+            # Fallback to also parse dates without zero-padding, e.g. 2021-1-1 - parser.isoparse doesn't support this
+            parsed_dt = datetime.datetime.strptime(input, "%Y-%m-%d")
     except ValueError:
         pass
-
-    # when input also contains the time for intervals "hour" and "minute"
-    # the above try fails. Try one more time from isoformat.
-    try:
-        return parser.isoparse(input).replace(tzinfo=pytz.UTC), None
-    except ValueError:
-        pass
+    else:
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=timezone_info)
+        else:
+            parsed_dt = parsed_dt.astimezone(timezone_info)
+        return parsed_dt, None
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = timezone.now()
+    parsed_dt = dt.datetime.now().astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
-        return date, delta_mapping
+        return parsed_dt, delta_mapping
     if match.group("type") == "h":
         delta_mapping["hours"] = int(match.group("number"))
     elif match.group("type") == "d":
         if match.group("number"):
             delta_mapping["days"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["hour"] = 0
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif match.group("position") == "End":
+            delta_mapping["hour"] = 23
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
     elif match.group("type") == "w":
         if match.group("number"):
             delta_mapping["weeks"] = int(match.group("number"))
@@ -219,7 +215,7 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
             delta_mapping["months"] = int(match.group("number"))
         if match.group("position") == "Start":
             delta_mapping["day"] = 1
-        if match.group("position") == "End":
+        elif match.group("position") == "End":
             delta_mapping["day"] = 31
     elif match.group("type") == "q":
         if match.group("number"):
@@ -230,42 +226,22 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
         if match.group("position") == "Start":
             delta_mapping["month"] = 1
             delta_mapping["day"] = 1
-        if match.group("position") == "End":
+        elif match.group("position") == "End":
             delta_mapping["month"] = 12
             delta_mapping["day"] = 31
-    date -= relativedelta(**delta_mapping)  # type: ignore
-    # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
-    if "hours" in delta_mapping:
-        date = date.replace(minute=0, second=0, microsecond=0)
-    else:
-        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
-    return date, delta_mapping
+    parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    if always_truncate:
+        # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
+        # TODO: Remove this from this function, this should not be the responsibility of it
+        if "hours" in delta_mapping:
+            parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
+        else:
+            parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return parsed_dt, delta_mapping
 
 
-def relative_date_parse(input: str) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input)[0]
-
-
-def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
-    if filters.get("date_from"):
-        date_from: Optional[datetime.datetime] = relative_date_parse(filters["date_from"])
-        if filters["date_from"] == "all":
-            date_from = None
-    else:
-        date_from = datetime.datetime.today() - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
-        date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    date_to = None
-    if filters.get("date_to"):
-        date_to = relative_date_parse(filters["date_to"])
-
-    resp = {}
-    if date_from:
-        resp["timestamp__gte"] = date_from.replace(tzinfo=pytz.UTC)
-    if date_to:
-        days = 1 if not exact else 0
-        resp["timestamp__lte"] = (date_to + relativedelta(days=days)).replace(tzinfo=pytz.UTC)
-    return resp
+def relative_date_parse(input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate)[0]
 
 
 def get_git_branch() -> Optional[str]:
@@ -369,9 +345,9 @@ def render_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.api.shared import TeamPublicSerializer
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -872,16 +848,11 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
         return True
 
     if settings.MULTI_ORG_ENABLED:
-        try:
-            from ee.models.license import License
-        except ImportError:
-            pass
+        license = get_cached_instance_license()
+        if license is not None and AvailableFeature.ZAPIER in license.available_features:
+            return True
         else:
-            license = License.objects.first_valid()
-            if license is not None and AvailableFeature.ZAPIER in license.available_features:
-                return True
-            else:
-                logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
+            logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
 
     return False
 

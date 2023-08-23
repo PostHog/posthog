@@ -236,7 +236,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
         loadRecordingSnapshotsV1Success: ({ sessionPlayerSnapshotData }) => {
-            if (!!sessionPlayerSnapshotData?.sources?.length) {
+            if (sessionPlayerSnapshotData?.sources?.length) {
                 // v1 request was force-upgraded to v2
                 actions.loadRecordingSnapshotsV2Success(sessionPlayerSnapshotData, undefined)
                 return
@@ -244,7 +244,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             actions.loadRecordingSnapshotsSuccess()
 
-            if (!!values.sessionPlayerSnapshotData?.next) {
+            if (values.sessionPlayerSnapshotData?.next) {
                 actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
             } else {
                 actions.reportUsageIfFullyLoaded()
@@ -493,10 +493,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
                             // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
-                            let pathname = undefined
+                            let pathname: string | undefined
                             try {
                                 pathname = event[5] ? new URL(event[5]).pathname : undefined
-                            } catch {}
+                            } catch {
+                                pathname = undefined
+                            }
 
                             return {
                                 id: event[0],

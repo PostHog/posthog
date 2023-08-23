@@ -8,7 +8,7 @@ import { IconFullScreen, IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { useEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { NotebookListMini } from './NotebookListMini'
-import { notebooksListLogic } from './notebooksListLogic'
+import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
 import { notebookLogic } from './notebookLogic'
 import { urls } from 'scenes/urls'
@@ -17,8 +17,8 @@ export function NotebookPopover(): JSX.Element {
     const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, dropListeners } =
         useValues(notebookPopoverLogic)
     const { setVisibility, setFullScreen, selectNotebook, setElementRef } = useActions(notebookPopoverLogic)
-    const { createNotebook } = useActions(notebooksListLogic)
-    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
+    const { createNotebook } = useActions(notebooksModel)
+    const { notebook, isShowingSidebar } = useValues(notebookLogic({ shortId: selectedNotebook }))
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -53,7 +53,8 @@ export function NotebookPopover(): JSX.Element {
             className={clsx(
                 'NotebookPopover',
                 `NotebookPopover--${visibility}`,
-                fullScreen && 'NotebookPopover--full-screen'
+                fullScreen && 'NotebookPopover--full-screen',
+                isShowingSidebar && 'NotebookPopover--with-sidebar'
             )}
         >
             <div

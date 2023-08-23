@@ -6,7 +6,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team, Organization
-from posthog.models.notebook.notebook import Notebook
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
@@ -170,24 +169,6 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         # out of the box this is accepted _and_ ignored 🤷‍♀️
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["short_id"] == notebook["short_id"]
-
-    def test_filters_based_on_params(self) -> None:
-        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
-        notebook_one = Notebook.objects.create(team=self.team, created_by=self.user)
-        notebook_two = Notebook.objects.create(team=self.team, created_by=self.user)
-        other_users_notebook = Notebook.objects.create(team=self.team, created_by=other_user)
-
-        results = self.client.get(
-            f"/api/projects/{self.team.id}/notebooks?user=true",
-        ).json()["results"]
-
-        assert [r["short_id"] for r in results] == [notebook_two.short_id, notebook_one.short_id]
-
-        results = self.client.get(
-            f"/api/projects/{self.team.id}/notebooks?created_by={other_user.id}",
-        ).json()["results"]
-
-        assert [r["short_id"] for r in results] == [other_users_notebook.short_id]
 
     def test_listing_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)

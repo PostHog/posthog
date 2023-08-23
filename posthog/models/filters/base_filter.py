@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from rest_framework import request
 
 from posthog.hogql.context import HogQLContext
-from posthog.models.filters.mixins.common import BaseParamMixin
+from .mixins.common import BaseParamMixin
 from posthog.models.utils import sane_repr
 from posthog.utils import encode_get_request_params
 from rest_framework.exceptions import ValidationError
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 class BaseFilter(BaseParamMixin):
     _data: Dict
+    team: Optional["Team"]
     kwargs: Dict
     hogql_context: HogQLContext
 

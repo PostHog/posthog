@@ -51,7 +51,7 @@ class TestQueryDateRange(APIBaseTest):
         )
         self.assertEqual(
             parsed_date_to % date_to_params,
-            "AND toTimeZone(timestamp, UTC) <= toDateTime(2021-08-25 00:01:00, UTC)",
+            "AND toTimeZone(timestamp, UTC) <= toDateTime(2021-08-25 00:59:59, UTC)",
         )  # ensure last hour is included
 
     def test_parsed_date_middle_of_hour(self):

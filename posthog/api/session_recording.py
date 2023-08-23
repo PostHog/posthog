@@ -9,6 +9,7 @@ import requests
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse, HttpResponse
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.decorators import action
@@ -34,6 +35,7 @@ from posthog.permissions import (
 
 from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
+    SessionIdEventsQuery,
 )
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -140,7 +142,6 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    authentication_classes = StructuredViewSetMixin.authentication_classes + [SharingAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
@@ -148,12 +149,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
 
     def get_permissions(self):
-        if hasattr(self.request, "sharing_configuration"):
-            return [permission() for permission in [SharingTokenPermission]]
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            return [SharingTokenPermission()]
         return super().get_permissions()
 
+    def get_authenticators(self):
+        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
+
     def get_serializer_class(self) -> Type[serializers.Serializer]:
-        if hasattr(self.request, "sharing_configuration"):
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             return SessionRecordingSharedSerializer
         else:
             return SessionRecordingSerializer
@@ -172,6 +176,30 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         filter = SessionRecordingsFilter(request=request, team=self.team)
 
         return Response(list_recordings(filter, request, context=self.get_serializer_context()))
+
+    @extend_schema(
+        description="""
+        Gets a list of event ids that match the given session recording filter.
+        The filter must include a single session ID.
+        And must include at least one event or action filter.
+        This API is intended for internal use and might have unannounced breaking changes."""
+    )
+    @action(methods=["GET"], detail=False)
+    def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
+        filter = SessionRecordingsFilter(request=request, team=self.team)
+
+        if not filter.session_ids or len(filter.session_ids) != 1:
+            raise exceptions.ValidationError(
+                "Must specify exactly one session_id",
+            )
+
+        if not filter.events and not filter.actions:
+            raise exceptions.ValidationError(
+                "Must specify at least one event or action filter",
+            )
+
+        matching_events: List[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
+        return JsonResponse(data={"results": matching_events})
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

@@ -6,7 +6,7 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -20,7 +20,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
-import { NotebookNodeAttributes, NotebookNodeViewProps } from '../Notebook/utils'
+import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     title: string
@@ -36,6 +36,7 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
     autoHideMetadata?: boolean
+    widgets?: NotebookNodeWidget[]
 }
 
 export function NodeWrapper<T extends NotebookNodeAttributes>({
@@ -53,19 +54,24 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     node,
     getPos,
     updateAttributes,
+    widgets = [],
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
+    const { isEditable } = useValues(mountedNotebookLogic)
+    const nodeId = node.attrs.nodeId
+
     const nodeLogicProps = {
         node,
         nodeType,
+        nodeAttributes: node.attrs,
+        updateAttributes,
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
         title: defaultTitle,
+        widgets,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { isEditable } = useValues(mountedNotebookLogic)
     const { title, expanded } = useValues(nodeLogic)
     const { setExpanded, deleteNode } = useActions(nodeLogic)
 
@@ -190,6 +196,7 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
+    widgets?: NotebookNodeWidget[]
 }
 
 export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
@@ -215,6 +222,9 @@ export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
         addAttributes() {
             return {
                 height: {},
+                nodeId: {
+                    default: uuid,
+                },
                 ...attributes,
             }
         },

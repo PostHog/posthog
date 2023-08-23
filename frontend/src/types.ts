@@ -111,6 +111,15 @@ export enum ProductKey {
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
+    PRODUCT_ANALYTICS = 'product_analytics',
+}
+
+export type Product = {
+    name: string
+    key: ProductKey
+    description: string
+    productUrl: string
+    onboardingUrl: string
 }
 
 export enum LicensePlan {
@@ -318,6 +327,7 @@ export interface TeamBasicType {
     api_token: string
     name: string
     completed_snippet_onboarding: boolean
+    has_completed_onboarding_for?: Record<string, boolean>
     ingested_event: boolean
     is_demo: boolean
     timezone: string
@@ -3030,10 +3040,14 @@ export enum NotebookNodeType {
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
     Person = 'ph-person',
-    Link = 'ph-link',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+}
+
+export type NotebookNodeWidgetSettings = {
+    attributes: Record<string, any>
+    updateAttributes: (attributes: Record<string, any>) => void
 }
 
 export enum NotebookTarget {
