@@ -32,9 +32,14 @@ interface NoEventsToMatch {
     matchType: 'none'
 }
 
-interface SimpleEventsMatching {
-    matchType: 'simple'
+interface EventNamesMatching {
+    matchType: 'name'
     eventNames: string[]
+}
+
+interface EventUUIDsMatching {
+    matchType: 'uuid'
+    eventUUIDs: string[]
 }
 
 interface BackendEventsMatching {
@@ -42,7 +47,7 @@ interface BackendEventsMatching {
     filters: RecordingFilters
 }
 
-export type MatchingEventsMatchType = NoEventsToMatch | SimpleEventsMatching | BackendEventsMatching
+export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
@@ -332,6 +337,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         showAdvancedFilters: [
             addedAdvancedFilters(props.filters, getDefaultFilters(props.personUUID)),
             {
+                setFilters: (showingAdvancedFilters, { filters }) =>
+                    addedAdvancedFilters(filters, getDefaultFilters(props.personUUID)) ? true : showingAdvancedFilters,
                 setShowAdvancedFilters: (_, { showAdvancedFilters }) => showAdvancedFilters,
             },
         ],
@@ -492,10 +499,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
                 const hasActions = !!filters.actions?.length
                 const hasEvents = !!filters.events?.length
-                const simpleEvents = (filters.events || [])
+                const simpleEventsFilters = (filters.events || [])
                     .filter((e) => !e.properties || !e.properties.length)
                     .map((e) => e.name.toString())
-                const hasSimpleEvents = !!simpleEvents.length
+                const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
                 if (hasActions) {
                     return { matchType: 'backend', filters }
@@ -504,10 +511,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         return { matchType: 'none' }
                     }
 
-                    if (hasEvents && hasSimpleEvents && simpleEvents.length === filters.events?.length) {
+                    if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
                         return {
-                            matchType: 'simple',
-                            eventNames: simpleEvents,
+                            matchType: 'name',
+                            eventNames: simpleEventsFilters,
                         }
                     } else {
                         return {
