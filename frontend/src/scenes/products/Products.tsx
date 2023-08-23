@@ -2,7 +2,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconBarChart } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BillingProductV2Type } from '~/types'
-import '../products/products.scss'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { useEffect } from 'react'
@@ -11,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 
 export const scene: SceneExport = {
     component: Products,
@@ -48,10 +48,7 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
     const { currentTeam } = useValues(teamLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
     return (
-        <div
-            className={`ProductCard border border-border rounded-lg p-6 max-w-80 flex flex-col bg-white`}
-            key={product.type}
-        >
+        <LemonCard className={`max-w-80 flex flex-col`} key={product.type}>
             <div className="flex mb-2">
                 <div className="bg-mid rounded p-2 flex">
                     {product.image_url ? (
@@ -72,7 +69,7 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
                     <OnboardingNotCompletedButton url={urls.onboarding(product.type)} />
                 )}
             </div>
-        </div>
+        </LemonCard>
     )
 }
 
