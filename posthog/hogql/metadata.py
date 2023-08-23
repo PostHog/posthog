@@ -31,7 +31,11 @@ def get_hogql_metadata(
             select_ast = parse_select(query.select)
             _is_valid_view = is_valid_view(select_ast)
             response.isValidView = _is_valid_view
-            print_ast(parse_select(query.select), context=context, dialect="clickhouse")
+            print_ast(
+                parse_select(query.select, placeholders={"filters": ast.Constant(value=True)}),
+                context=context,
+                dialect="clickhouse",
+            )
         else:
             raise ValueError("Either expr or select must be provided")
         response.warnings = context.warnings

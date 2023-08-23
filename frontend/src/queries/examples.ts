@@ -305,13 +305,16 @@ const HogQLRaw: HogQLQuery = {
           properties.$browser,
           count()
      from events
-    where timestamp > now () - interval 1 day
+    where {filters} -- global date and property filters
       and person.properties.email is not null
  group by event,
           properties.$browser,
           person.properties.email
  order by count() desc
     limit 100`,
+    filters: {
+        dateFrom: '-30d',
+    },
 }
 
 const HogQLTable: DataTableNode = {

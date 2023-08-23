@@ -566,15 +566,6 @@ class HogQLPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class HogQLQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    kind: str = Field("HogQLQuery", const=True)
-    query: str
-    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
-
-
 class LifecycleFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -732,6 +723,30 @@ class EventsQuery(BaseModel):
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
 
 
+class HogQLFilters(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    dateFrom: Optional[str] = None
+    dateTo: Optional[str] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
+
+
 class HogQLMetadata(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -740,6 +755,16 @@ class HogQLMetadata(BaseModel):
     kind: str = Field("HogQLMetadata", const=True)
     response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
     select: Optional[str] = None
+
+
+class HogQLQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    filters: Optional[HogQLFilters] = None
+    kind: str = Field("HogQLQuery", const=True)
+    query: str
+    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
 
 
 class PersonsNode(BaseModel):

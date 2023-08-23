@@ -1087,6 +1087,25 @@
         "HogQLExpression": {
             "type": "string"
         },
+        "HogQLFilters": {
+            "additionalProperties": false,
+            "description": "Filters object that will be converted to a HogQL {filters} placeholder",
+            "properties": {
+                "dateFrom": {
+                    "type": ["string", "null"]
+                },
+                "dateTo": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "HogQLMathType": {
             "const": "hogql",
             "type": "string"
@@ -1191,6 +1210,9 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "filters": {
+                    "$ref": "#/definitions/HogQLFilters"
+                },
                 "kind": {
                     "const": "HogQLQuery",
                     "type": "string"

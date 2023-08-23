@@ -318,7 +318,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     )
 
     const firstRowLeft = [
-        showDateRange && isEventsQuery(query.source) ? (
+        showDateRange && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
             <DateRange query={query.source} setQuery={setQuerySource} />
         ) : null,
         showEventFilter && isEventsQuery(query.source) ? (
@@ -327,7 +327,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         showSearch && isPersonsNode(query.source) ? (
             <PersonsSearch query={query.source} setQuery={setQuerySource} />
         ) : null,
-        showPropertyFilter && isEventsQuery(query.source) ? (
+        showPropertyFilter && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
             <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && isPersonsNode(query.source) ? (

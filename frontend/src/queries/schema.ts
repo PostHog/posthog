@@ -125,9 +125,17 @@ export interface HogQLQueryResponse {
     columns?: any[]
 }
 
+/** Filters object that will be converted to a HogQL {filters} placeholder */
+export interface HogQLFilters {
+    properties?: AnyPropertyFilter[]
+    dateFrom?: string | null
+    dateTo?: string | null
+}
+
 export interface HogQLQuery extends DataNode {
     kind: NodeKind.HogQLQuery
     query: string
+    filters?: HogQLFilters
     response?: HogQLQueryResponse
 }
 
