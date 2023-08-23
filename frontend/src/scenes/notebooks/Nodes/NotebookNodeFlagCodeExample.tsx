@@ -1,24 +1,16 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
 import { urls } from 'scenes/urls'
 import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
-    const { id, expandedOnLoad } = props.node.attrs
+    const { id } = props.node.attrs
     const { featureFlag } = useValues(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
-    const { setExpanded } = useActions(notebookNodeLogic)
-
-    useEffect(() => {
-        if (expandedOnLoad) {
-            setExpanded(true, true)
-        }
-    }, [])
 
     return <div className="p-2">{expanded && <FeatureFlagCodeExample featureFlag={featureFlag} />}</div>
 }

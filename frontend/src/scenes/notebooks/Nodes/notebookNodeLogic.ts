@@ -36,7 +36,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodeLogic', key]),
     key(({ nodeId }) => nodeId),
     actions({
-        setExpanded: (expanded: boolean, disableMetrics?: boolean) => ({ expanded, disableMetrics }),
+        setExpanded: (expanded: boolean) => ({ expanded }),
         setTitle: (title: string) => ({ title }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
@@ -54,9 +54,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         title: props.title,
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         expanded: [
-            false,
+            props.nodeAttributes?.expandedOnLoad ?? false,
             {
                 setExpanded: (_, { expanded }) => expanded,
             },
@@ -67,7 +67,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setTitle: (_, { title }) => title,
             },
         ],
-    }),
+    })),
 
     selectors({
         notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
@@ -103,8 +103,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             )
         },
 
-        setExpanded: ({ expanded, disableMetrics }) => {
-            if (expanded && !disableMetrics) {
+        setExpanded: ({ expanded }) => {
+            if (expanded) {
                 posthog.capture('notebook node expanded', {
                     node_type: props.nodeType,
                     short_id: props.notebookLogic.props.shortId,
