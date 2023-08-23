@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IconErrorOutline, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { PlusCircleOutlined, ThunderboltFilled, WarningOutlined } from '@ant-design/icons'
+import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -19,6 +19,8 @@ import { FunnelsQuery } from '~/queries/schema'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { SupportModal } from 'lib/components/Support/SupportModal'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -40,6 +42,28 @@ export function InsightEmptyState({
     )
 }
 
+function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
+    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
+    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    return (
+        <Tooltip
+            title={`Calculate results from ${suggestedSamplingPercentage}% of the total dataset for this insight, speeding up the calculation of results.`}
+            placement="bottom"
+        >
+            <Link
+                onClick={() => {
+                    setSamplingPercentage(suggestedSamplingPercentage)
+                    posthog.capture('sampling_enabled_on_slow_query', {
+                        samplingPercentage: suggestedSamplingPercentage,
+                    })
+                }}
+            >
+                <ThunderboltFilled className="mt-1" /> {suggestedSamplingPercentage}% sampling
+            </Link>
+        </Tooltip>
+    )
+}
+
 export function InsightTimeoutState({
     isLoading,
     queryId,
@@ -49,43 +73,60 @@ export function InsightTimeoutState({
     queryId?: string | null
     insightProps: InsightLogicProps
 }): JSX.Element {
-    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
-    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                {!isLoading && (
+                {!isLoading ? (
                     <>
                         <div className="illustration-main">
                             <IconErrorOutline />
                         </div>
-                        <h2>Your query took too long to complete</h2>
+                        <h2 className="mb-6">Your query took too long to complete</h2>
                     </>
+                ) : (
+                    <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
                 )}
-                {isLoading && suggestedSamplingPercentage ? (
-                    <div>
-                        <LemonButton
-                            className="mx-auto mt-4"
-                            type="primary"
-                            onClick={() => {
-                                setSamplingPercentage(suggestedSamplingPercentage)
-                                posthog.capture('sampling_enabled_on_slow_query', {
-                                    samplingPercentage: suggestedSamplingPercentage,
-                                })
-                            }}
-                        >
-                            Click here to speed up calculation with {suggestedSamplingPercentage}% sampling
-                        </LemonButton>
-                        <br />
+                <div className="p-4 rounded-lg bg-mid flex gap-x-2 max-w-120">
+                    <div className="flex">
+                        <IconInfo className="w-4 h-4" />
                     </div>
+                    <p className="text-xs m-0 leading-5">
+                        {isLoading && suggestedSamplingPercentage && !samplingPercentage ? (
+                            <>
+                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
+                                <SamplingLink insightProps={insightProps} />.
+                            </>
+                        ) : isLoading && suggestedSamplingPercentage && samplingPercentage ? (
+                            <>
+                                Still waiting around? You must have lots of data! Kick it up a notch with{' '}
+                                <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
+                                removing breakdowns.
+                            </>
+                        ) : isLoading ? (
+                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
+                        ) : (
+                            <>
+                                Sometimes this happens. Try refreshing the page, reducing the date range, or removing
+                                breakdowns. If you're still having issues,{' '}
+                                <Link
+                                    onClick={() => {
+                                        openSupportForm('bug', 'analytics')
+                                    }}
+                                >
+                                    let us know
+                                </Link>
+                                .
+                                <SupportModal />
+                            </>
+                        )}
+                    </p>
+                </div>
+                {queryId ? (
+                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
                 ) : null}
-                <p className="m-auto text-center">
-                    In order to improve the performance of the query, you can{' '}
-                    {suggestedSamplingPercentage ? 'also' : ''} try to reduce the date range of your query, or remove
-                    breakdowns.
-                </p>
-                {queryId ? <div className="text-muted text-xs m-auto text-center">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )

@@ -46,6 +46,7 @@ class BreakdownType(str, Enum):
     event = "event"
     group = "group"
     session = "session"
+    hogql = "hogql"
 
 
 class ChartDisplayType(str, Enum):

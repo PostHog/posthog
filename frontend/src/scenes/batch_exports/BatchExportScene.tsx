@@ -148,14 +148,16 @@ export function BatchExportScene(): JSX.Element {
                                                 </span>
                                             </li>
 
-                                            {Object.keys(batchExportConfig.destination.config).map((x) => (
-                                                <li key={x} className="flex items-center justify-between gap-2">
-                                                    <span>{identifierToHuman(x)}:</span>
-                                                    <span className="font-semibold">
-                                                        {batchExportConfig.destination.config[x]}
-                                                    </span>
-                                                </li>
-                                            ))}
+                                            {Object.keys(batchExportConfig.destination.config)
+                                                .filter((x) => !['password', 'aws_secret_access_key'].includes(x))
+                                                .map((x) => (
+                                                    <li key={x} className="flex items-center justify-between gap-2">
+                                                        <span>{identifierToHuman(x)}:</span>
+                                                        <span className="font-semibold">
+                                                            {batchExportConfig.destination.config[x]}
+                                                        </span>
+                                                    </li>
+                                                ))}
                                         </ul>
                                     </>
                                 }
