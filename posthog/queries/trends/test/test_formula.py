@@ -110,12 +110,47 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             )
         return action_response
 
-    def test_hour_interval(self):
+    @snapshot_clickhouse_queries
+    def test_hour_interval_hour_level_relative(self):
+        data = self._run({"date_from": "-24h", "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
+        self.assertEqual(
+            data,
+            [
+                1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1350.0,
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_hour_interval_day_level_relative(self):
         data = self._run({"date_from": "-1d", "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
         self.assertEqual(
             data,
             [
-                1200.0,
+                1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
                 0.0,
                 0.0,
                 0.0,

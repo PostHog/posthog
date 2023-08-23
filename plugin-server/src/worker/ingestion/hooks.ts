@@ -139,15 +139,16 @@ export function getEventDetails(
     return toWebhookLink(event.event, getEventLink(event, siteUrl), webhookType)
 }
 
+const TOKENS_REGEX_BRACKETS_EXCLUDED = /(?<=(?<!\\)\[)(.*?)(?=(?<!\\)\])/g
+const TOKENS_REGEX_BRACKETS_INCLUDED = /(?<!\\)\[(.*?)(?<!\\)\]/g
+
 export function getTokens(messageFormat: string): [string[], string] {
     // This finds property value tokens, basically any string contained in square brackets
     // Examples: "[foo]" is matched in "bar [foo]", "[action.name]" is matched in "action [action.name]"
-    const TOKENS_REGEX = /(?<=\[)(.*?)(?=\])/g
-    const matchedTokens = messageFormat.match(TOKENS_REGEX) || []
-    let tokenizedMessage = messageFormat
-    if (matchedTokens.length) {
-        tokenizedMessage = tokenizedMessage.replace(/\[(.*?)\]/g, '%s')
-    }
+    // The backslash is used as an escape character - "\[foo\]" is not matched, allowing square brackets in messages
+    const matchedTokens = messageFormat.match(TOKENS_REGEX_BRACKETS_EXCLUDED) || []
+    // Replace the tokens with placeholders, and unescape leftover brackets
+    const tokenizedMessage = messageFormat.replace(TOKENS_REGEX_BRACKETS_INCLUDED, '%s').replace(/\\(\[|\])/g, '$1')
     return [matchedTokens, tokenizedMessage]
 }
 

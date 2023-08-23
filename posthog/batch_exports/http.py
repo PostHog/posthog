@@ -87,13 +87,13 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSe
 
     def list(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Get all BatchExportRuns for a BatchExport."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
+        if not isinstance(request.user, User) or request.user.team is None:
             raise NotAuthenticated()
 
         after = self.request.query_params.get("after", "-7d")
         before = self.request.query_params.get("before", None)
-        after_datetime = relative_date_parse(after)
-        before_datetime = relative_date_parse(before) if before else now()
+        after_datetime = relative_date_parse(after, request.user.team.timezone_info)
+        before_datetime = relative_date_parse(before, request.user.team.timezone_info) if before else now()
         date_range = (after_datetime, before_datetime)
 
         page = self.paginate_queryset(self.get_queryset(date_range=date_range))
