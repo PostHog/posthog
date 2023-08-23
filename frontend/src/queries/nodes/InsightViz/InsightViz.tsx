@@ -57,6 +57,7 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
     const disableLastComputationRefresh = query.showLastComputationRefresh
         ? !query.showLastComputationRefresh
         : !showIfFull
+    const showingFilters = query.showFilters ?? insightMode === ItemMode.Edit
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -67,11 +68,7 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
                     })}
                 >
                     {!readOnly && (
-                        <EditorFilters
-                            query={query.source}
-                            setQuery={setQuerySource}
-                            showing={insightMode === ItemMode.Edit}
-                        />
+                        <EditorFilters query={query.source} setQuery={setQuerySource} showing={showingFilters} />
                     )}
 
                     <div className="insights-container" data-attr="insight-view">

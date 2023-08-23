@@ -1,7 +1,7 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { ChartDisplayType, InsightShortId, NotebookNodeType, PropertyMathType } from '~/types'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
@@ -10,6 +10,30 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
+
+const SAMPLE_QUERY: QuerySchema = {
+    kind: NodeKind.InsightVizNode,
+    source: {
+        kind: NodeKind.TrendsQuery,
+        filterTestAccounts: true,
+        dateRange: {
+            date_from: '-90d',
+        },
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                math: PropertyMathType.Average,
+            },
+        ],
+        interval: 'week',
+        trendsFilter: {
+            display: ChartDisplayType.ActionsAreaGraph,
+        },
+    },
+    full: true,
+}
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -46,7 +70,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     }, [title])
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...SAMPLE_QUERY }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -83,7 +107,7 @@ export const Settings = ({
     const [query, setQuery] = useJsonNodeState<QuerySchema>(attributes, updateAttributes, 'query')
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...SAMPLE_QUERY }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -91,6 +115,9 @@ export const Settings = ({
             modifiedQuery.showHogQLEditor = true
             modifiedQuery.showResults = false
             modifiedQuery.showReload = true
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = true
+            modifiedQuery
         }
 
         return modifiedQuery
@@ -105,6 +132,7 @@ export const Settings = ({
                         setQuery({ ...query, source: (t as DataTableNode).source } as QuerySchema)
                     }
                 }}
+                readOnly={false}
                 uniqueKey={attributes.nodeId}
             />
         </div>
@@ -132,4 +160,15 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             Component: Settings,
         },
     ],
+    pasteOptions: {
+        find: urls.insightView('(.+)' as InsightShortId),
+        getAttributes: async (match) => {
+            return {
+                query: {
+                    kind: NodeKind.SavedInsightNode,
+                    shortId: match[1] as InsightShortId,
+                },
+            }
+        },
+    },
 })

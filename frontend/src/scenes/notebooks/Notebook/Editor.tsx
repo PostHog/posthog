@@ -11,7 +11,6 @@ import ExtensionDocument from '@tiptap/extension-document'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
@@ -81,7 +80,6 @@ export function Editor({
             }),
             NotebookMarkLink,
             NotebookNodeBacklink,
-            NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,
             NotebookNodeReplayTimestamp,

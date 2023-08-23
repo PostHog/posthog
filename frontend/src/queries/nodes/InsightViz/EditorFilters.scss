@@ -3,14 +3,15 @@
 
 .EditorFiltersWrapper {
     flex-shrink: 0;
-
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 1rem;
     margin-bottom: 1rem;
     background: var(--bg-light);
+    container-type: inline-size;
 
     .EditorFilters {
+        container-type: inline-size;
         > * + * {
             margin-top: 1rem;
         }
@@ -90,3 +91,18 @@
         }
     }
 }
+
+// @container (min-width: 768px) {
+//     .EditorFilters {
+//         display: flex;
+//         gap: 2rem;
+//         .EditorFilterGroup {
+//             flex: 1;
+//             width: 50%;
+//         }
+
+//         > * + * {
+//             margin-top: 0;
+//         }
+//     }
+// }
