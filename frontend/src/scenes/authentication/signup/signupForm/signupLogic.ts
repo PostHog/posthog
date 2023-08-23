@@ -5,7 +5,9 @@ import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { signupLogicType } from './signupLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
 export interface AccountResponse {
     success: boolean
@@ -101,12 +103,20 @@ export const signupLogic = kea<signupLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/signup': (_, { email }) => {
+        '/signup': (_, { email, maintenanceRedirect }) => {
             if (values.preflight?.cloud) {
                 // Redirect to a different region if we are doing maintenance on one of them
                 const regionOverrideFlag = values.featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
-                if (regionOverrideFlag && regionOverrideFlag !== values.preflight?.region) {
-                    window.location.href = `https://${regionOverrideFlag}.posthog.com/signup`
+                const isRegionOverrideValid = regionOverrideFlag === 'eu' || regionOverrideFlag === 'us'
+                if (isRegionOverrideValid && regionOverrideFlag !== values.preflight?.region.toLowerCase()) {
+                    window.location.href = `https://${
+                        CLOUD_HOSTNAMES[regionOverrideFlag.toUpperCase()]
+                    }${urls.signup()}?maintenanceRedirect=true`
+                }
+                if (maintenanceRedirect && isRegionOverrideValid) {
+                    lemonToast.info(
+                        `You've been redirected to signup on our ${regionOverrideFlag.toUpperCase()} instance while we perform maintenance on our other instance.`
+                    )
                 }
             }
             if (email) {
