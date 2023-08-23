@@ -44,6 +44,15 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 return
             }
         },
+        setProductKey: ({ productKey }) => {
+            if (!productKey) {
+                window.location.href = urls.default()
+                return
+            }
+            if (values.billing?.products?.length) {
+                actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
+            }
+        },
     }),
     urlToAction: ({ actions }) => ({
         '/onboarding/:productKey': ({ productKey }) => {
