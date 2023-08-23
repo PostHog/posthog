@@ -108,14 +108,12 @@ export function ProjectSettings(): JSX.Element {
                 <h2 className="subtitle" id="date-and-time">
                     Date and time
                 </h2>
+                <p>
+                    These settings affect how PostHog displays, buckets, and filters time-series data. You may need to
+                    refresh insights for new settings to apply.
+                </p>
                 <div className="space-y-2">
-                    <LemonLabel
-                        id="timezone"
-                        info="Set the timezone for your project. All charts will be based on this timezone, including how PostHog
-                    buckets data in day/week/month intervals."
-                    >
-                        Timezone
-                    </LemonLabel>
+                    <LemonLabel id="timezone">Time zone</LemonLabel>
                     <TimezoneConfig />
                     <LemonLabel id="timezone">Week starts on</LemonLabel>
                     <WeekStartConfig />

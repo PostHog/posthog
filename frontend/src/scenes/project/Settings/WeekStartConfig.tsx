@@ -1,18 +1,29 @@
 import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export function WeekStartConfig(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
+    const isTeamKnown = isAuthenticatedTeam(currentTeam)
+
     return (
         <LemonSelect
-            value={currentTeam?.week_start_day || 0}
+            value={isTeamKnown ? currentTeam?.week_start_day || 0 : 0}
             onChange={(value) => {
-                if (value !== null) {
-                    updateCurrentTeam({ week_start_day: value })
-                }
+                LemonDialog.open({
+                    title: `Change the first day of the week to ${value === 0 ? 'Sunday' : 'Monday'}?`,
+                    description: 'Queries grouped by week will need to be recalculated.',
+                    primaryButton: {
+                        children: 'Change week definition',
+                        onClick: () => updateCurrentTeam({ week_start_day: value }),
+                    },
+                    secondaryButton: {
+                        children: 'Cancel',
+                    },
+                })
             }}
             loading={currentTeamLoading}
             options={[
