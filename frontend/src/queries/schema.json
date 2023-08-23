@@ -221,7 +221,7 @@
             ]
         },
         "BreakdownType": {
-            "enum": ["cohort", "person", "event", "group", "session"],
+            "enum": ["cohort", "person", "event", "group", "session", "hogql"],
             "type": "string"
         },
         "ChartDisplayType": {
