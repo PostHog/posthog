@@ -159,6 +159,8 @@ class TestUtils(BaseTest):
         self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://localhost"))  # Internal
         self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://192.168.0.5"))  # Internal
         self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://0.0.0.0"))  # Internal
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://10.0.0.24"))  # Internal
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://172.20.0.21"))  # Internal
         self.assertRaises(
             ValueError, lambda: raise_if_user_provided_url_unsafe("http://fgtggggzzggggfd.com")
         )  # Non-existent
