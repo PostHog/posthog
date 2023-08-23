@@ -39,12 +39,12 @@ export interface Tab {
 }
 
 export interface QueryPropertyCache
-    extends Omit<TrendsQuery, 'kind'>,
-        Omit<FunnelsQuery, 'kind'>,
-        Omit<RetentionQuery, 'kind'>,
-        Omit<PathsQuery, 'kind'>,
-        Omit<StickinessQuery, 'kind'>,
-        Omit<LifecycleQuery, 'kind'> {}
+    extends Omit<Partial<TrendsQuery>, 'kind'>,
+        Omit<Partial<FunnelsQuery>, 'kind'>,
+        Omit<Partial<RetentionQuery>, 'kind'>,
+        Omit<Partial<PathsQuery>, 'kind'>,
+        Omit<Partial<StickinessQuery>, 'kind'>,
+        Omit<Partial<LifecycleQuery>, 'kind'> {}
 
 export const insightNavLogic = kea<insightNavLogicType>([
     props({} as InsightLogicProps),
@@ -65,7 +65,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
-        updateQueryPropertyCache: (cache: InsightQueryNode) => ({ cache }),
+        updateQueryPropertyCache: (cache: QueryPropertyCache) => ({ cache }),
     }),
     reducers({
         queryPropertyCache: [
@@ -180,8 +180,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
         setActiveView: ({ view }) => {
             // TODO: move to subscription on query
             if (isInsightVizNode(values.query)) {
-                // TODO: update series from retention query
-                actions.updateQueryPropertyCache(values.query.source)
+                actions.updateQueryPropertyCache(cachePropertiesFromQuery(values.query.source))
             }
 
             if ([InsightType.SQL, InsightType.JSON].includes(view as InsightType)) {
@@ -213,12 +212,20 @@ export const insightNavLogic = kea<insightNavLogicType>([
 
                 actions.setQuery({
                     ...query,
-                    source: mergeCachedProperties(query.source, values.queryPropertyCache),
+                    source: values.queryPropertyCache
+                        ? mergeCachedProperties(query.source, values.queryPropertyCache)
+                        : query.source,
                 } as InsightVizNode)
             }
         },
     })),
 ])
+
+const cachePropertiesFromQuery = (query: InsightQueryNode): QueryPropertyCache => {
+    // TODO: update series from retention query
+    // TODO: implement handling of shared properties
+    return query
+}
 
 const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCache): InsightQueryNode => {
     // TODO: prevent merges when the query is of the same kind to allow resetting by clicking on the nav item
@@ -244,11 +251,11 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                     : []),
             ]
         }
-    } else if (isRetentionQuery(mergedQuery)) {
+    } else if (isRetentionQuery(mergedQuery) && cache.series) {
         mergedQuery.retentionFilter = {
             ...mergedQuery.retentionFilter,
-            ...(cache.series?.length > 0 ? { target_entity: cache.series[0] } : {}),
-            ...(cache.series?.length > 1 ? { returning_entity: cache.series[1] } : {}),
+            ...(cache.series.length > 0 ? { target_entity: cache.series[0] } : {}),
+            ...(cache.series.length > 1 ? { returning_entity: cache.series[1] } : {}),
         }
     }
 
