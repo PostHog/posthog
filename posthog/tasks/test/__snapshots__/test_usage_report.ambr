@@ -14,6 +14,7 @@
          count(1) as count
   FROM events
   WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND event != '$feature_flag_called'
   GROUP BY team_id
   '
 ---
@@ -194,6 +195,7 @@
          count(1) as count
   FROM events
   WHERE timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
+    AND event != '$feature_flag_called'
   GROUP BY team_id
   '
 ---
@@ -251,12 +253,12 @@
   
   SELECT team_id,
          count(distinct session_id) as count
-  FROM session_recording_events
-  WHERE first_event_timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+  FROM session_replay_events
+  WHERE min_first_timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND session_id NOT IN
       (SELECT DISTINCT session_id
-       FROM session_recording_events
-       WHERE toDate(first_event_timestamp) = toDate('2022-01-10 00:00:00') - INTERVAL 1 DAY
+       FROM session_replay_events
+       WHERE min_first_timestamp BETWEEN '2022-01-09 00:00:00' AND '2022-01-10 00:00:00'
        GROUP BY session_id)
   GROUP BY team_id
   '
@@ -266,7 +268,7 @@
   
   SELECT team_id,
          count(distinct session_id) as count
-  FROM session_recording_events
+  FROM session_replay_events
   GROUP BY team_id
   '
 ---

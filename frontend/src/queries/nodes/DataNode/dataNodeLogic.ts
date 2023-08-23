@@ -47,21 +47,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     }),
     props({ query: {} } as DataNodeLogicProps),
     key((props) => props.key),
-    propsChanged(({ actions, props, values }, oldProps) => {
-        if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!props.query) {
+            return // Can't do anything without a query
+        }
+        if (oldProps.query && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (
-            props.query?.kind &&
-            !objectsEqual(props.query, oldProps.query) &&
-            (!props.cachedResults ||
-                (isInsightQueryNode(props.query) &&
-                    (props.cachedResults['result'] === null || props.cachedResults['result'] === undefined)))
-        ) {
-            actions.loadData()
-        }
-        if (props.cachedResults && !values.response) {
-            actions.setResponse(props.cachedResults)
+        if (!objectsEqual(props.query, oldProps.query)) {
+            if (!props.cachedResults || (isInsightQueryNode(props.query) && !props.cachedResults['result'])) {
+                actions.loadData()
+            } else {
+                actions.setResponse(props.cachedResults)
+            }
         }
     }),
     actions({

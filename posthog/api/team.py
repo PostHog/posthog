@@ -16,7 +16,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
-from posthog.models.team.util import delete_bulky_postgres_data
+from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
@@ -38,7 +38,6 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
     def has_permission(self, request: request.Request, view) -> bool:
         user = cast(User, request.user)
         if request.method in CREATE_METHODS:
-
             if user.organization is None:
                 return False
 
@@ -87,7 +86,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "session_recording_opt_in",
-            "session_recording_version",
             "recording_domains",
             "inject_web_apps",
         ]
@@ -127,7 +125,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
             "session_recording_opt_in",
-            "session_recording_version",
             "effective_membership_level",
             "access_control",
             "has_group_types",
@@ -138,6 +135,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "groups_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
+            "has_completed_onboarding_for",
         )
         read_only_fields = (
             "id",
@@ -180,10 +178,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if org_membership.level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied("Your organization access level is insufficient.")
 
-        if "session_recording_version" in attrs:
-            if attrs["session_recording_version"] not in ["v1", "v2"]:
-                raise exceptions.ValidationError("Invalid session recording version")
-
         if "autocapture_exceptions_errors_to_ignore" in attrs:
             if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):
                 raise exceptions.ValidationError(
@@ -213,6 +207,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         else:
             team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
+        request.user.team = request.user.current_team  # Update cached property
         request.user.save()
         return team
 
@@ -302,7 +297,10 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
+
         delete_bulky_postgres_data(team_ids=[team_id])
+        delete_batch_exports(team_ids=[team_id])
+
         with mute_selected_signals():
             super().perform_destroy(team)
         # Once the project is deleted, queue deletion of associated data

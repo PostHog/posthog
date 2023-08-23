@@ -4,12 +4,11 @@ from unittest.mock import patch
 import pytest
 from django.utils import timezone
 from rest_framework import status
-from posthog.cloud_utils import TEST_clear_cloud_cache
 
+from posthog.cloud_utils import TEST_clear_cloud_cache, TEST_clear_instance_license_cache
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationInvite
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from posthog.version import VERSION
 
 
 class TestPreflight(APIBaseTest, QueryMatchingTest):
@@ -43,7 +42,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def preflight_authenticated_dict(self, options={}):
         preflight = {
             "opt_out_capture": False,
-            "posthog_version": VERSION,
             "is_debug": False,
             "licensed_users_available": None,
             "site_url": "http://localhost:8000",
@@ -243,6 +241,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
     def test_can_create_org_with_multi_org(self):
+        TEST_clear_instance_license_cache()
         # First with no license
         with self.settings(MULTI_ORG_ENABLED=True):
             response = self.client.get("/_preflight/")
@@ -257,6 +256,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
             )
+            TEST_clear_instance_license_cache()
             with self.settings(MULTI_ORG_ENABLED=True):
                 response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)

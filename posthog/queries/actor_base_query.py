@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import (
     Any,
     Dict,
@@ -98,6 +98,7 @@ class ActorBaseQuery:
         self,
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         """Get actors in data model and dict formats. Builds query and executes"""
+        self._filter.team = self._team
         query, params = self.actor_query()
         raw_result = insight_sync_execute(
             query,
@@ -113,17 +114,36 @@ class ActorBaseQuery:
 
         return actors, serialized_actors, len(raw_result)
 
-    def query_for_session_ids_with_recordings(self, session_ids: Set[str]) -> Set[str]:
+    def query_for_session_ids_with_recordings(
+        self, session_ids: Set[str], date_from: datetime | None, date_to: datetime | None
+    ) -> Set[str]:
         """Filters a list of session_ids to those that actually have recordings"""
         query = """
         SELECT DISTINCT session_id
-        FROM session_recording_events
+        FROM session_replay_events
         WHERE
             team_id = %(team_id)s
-            and has_full_snapshot = 1
             and session_id in %(session_ids)s
         """
-        params = {"team_id": self._team.pk, "session_ids": sorted(list(session_ids))}  # Sort for stable queries
+
+        # constrain by date range to help limit the work ClickHouse has to do scanning these tables
+        # really we should constrain by TTL too
+        # but, we're already not doing that, and this adds the benefit without needing too much change
+        if date_from:
+            query += " AND min_first_timestamp >= %(date_from)s"
+
+        if date_to:
+            query += " AND max_last_timestamp <= %(date_to)s"
+
+        params = {
+            "team_id": self._team.pk,
+            "session_ids": sorted(list(session_ids)),  # Sort for stable queries
+            # widen the date range a little
+            # we don't want to exclude sessions that start or end within a
+            # reasonable time of the query date range
+            "date_from": date_from - timedelta(days=1) if date_from else None,
+            "date_to": date_to + timedelta(days=1) if date_to else None,
+        }
         raw_result = insight_sync_execute(
             query,
             params,
@@ -145,7 +165,9 @@ class ActorBaseQuery:
                     if event[2]:
                         all_session_ids.add(event[2])
 
-        session_ids_with_all_recordings = self.query_for_session_ids_with_recordings(all_session_ids)
+        session_ids_with_all_recordings = self.query_for_session_ids_with_recordings(
+            all_session_ids, self._filter.date_from, self._filter.date_to
+        )
 
         # Prune out deleted recordings
         session_ids_with_deleted_recordings = set(

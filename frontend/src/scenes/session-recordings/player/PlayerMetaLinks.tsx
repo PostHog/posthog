@@ -1,6 +1,6 @@
 import {
-    SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -8,17 +8,25 @@ import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { NotebookCommentButton } from 'scenes/notebooks/NotebookCommentButton/NotebookCommentButton'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const getCurrentPlayerTime = (): number => {
+        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
+        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+        return Math.floor(playerTime / 1000)
+    }
 
     const onShare = (): void => {
         setPause()
-        // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
-        const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         openPlayerShareDialog({
-            seconds: Math.floor(currentPlayerTime / 1000),
+            seconds: getCurrentPlayerTime(),
             id: sessionRecordingId,
         })
     }
@@ -46,8 +54,17 @@ export function PlayerMetaLinks(): JSX.Element {
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
-            {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
+            {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
+                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+                        <>
+                            <NotebookCommentButton
+                                sessionRecordingId={sessionRecordingId}
+                                getCurrentPlayerTime={getCurrentPlayerTime}
+                            />
+                        </>
+                    )}
+
                     <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
                         <span>Share</span>
                     </LemonButton>

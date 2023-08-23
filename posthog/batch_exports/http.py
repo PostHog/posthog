@@ -1,34 +1,31 @@
 import datetime as dt
 from typing import Any
 
+from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated, NotFound, ValidationError
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportServiceError,
     BatchExportServiceRPCError,
     backfill_export,
-    create_batch_export,
     delete_schedule,
     pause_batch_export,
-    reset_batch_export_run,
+    sync_batch_export,
     unpause_batch_export,
 )
-from posthog.models import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportRun,
-    User,
-)
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from django.db import transaction
+
+from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, User
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.temporal.client import sync_connect
+from posthog.utils import relative_date_parse
 
 
 def validate_date_input(date_input: Any) -> dt.datetime:
@@ -60,13 +57,20 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = BatchExportRun
         fields = "__all__"
+        # TODO: Why aren't all these read only?
         read_only_fields = ["batch_export"]
 
 
-class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class RunsCursorPagination(CursorPagination):
+    ordering = "-created_at"
+    page_size = 100
+
+
+class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = BatchExportRun.objects.all()
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     serializer_class = BatchExportRunSerializer
+    pagination_class = RunsCursorPagination
 
     def get_queryset(self, date_range: tuple[dt.datetime, dt.datetime] | None = None):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
@@ -83,48 +87,18 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def list(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Get all BatchExportRuns for a BatchExport."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
+        if not isinstance(request.user, User) or request.user.team is None:
             raise NotAuthenticated()
 
-        after = self.request.query_params.get("after", None)
+        after = self.request.query_params.get("after", "-7d")
         before = self.request.query_params.get("before", None)
-        date_range = None
-        if after is not None and before is not None:
-            after_datetime = validate_date_input(after)
-            before_datetime = validate_date_input(before)
-            date_range = (after_datetime, before_datetime)
+        after_datetime = relative_date_parse(after, request.user.team.timezone_info)
+        before_datetime = relative_date_parse(before, request.user.team.timezone_info) if before else now()
+        date_range = (after_datetime, before_datetime)
 
-        runs = self.get_queryset(date_range=date_range)
-        limit = self.request.query_params.get("limit", None)
-        if limit is not None:
-            try:
-                limit = int(limit)
-            except (TypeError, ValueError):
-                raise ValidationError(f"Invalid value for 'limit' parameter: '{limit}'")
-
-            runs = runs[:limit]
-
-        page = self.paginate_queryset(runs)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(runs, many=True)
-        return response.Response(serializer.data)
-
-    @action(methods=["POST"], detail=True)
-    def reset(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Reset a BatchExportRun by resetting its associated Temporal Workflow."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
-            raise NotAuthenticated()
-
-        batch_export_run = self.get_object()
-        temporal = sync_connect()
-
-        scheduled_id = f"{batch_export_run.batch_export.id}-{batch_export_run.data_interval_end:%Y-%m-%dT%H:%M:%SZ}"
-        new_run_id = reset_batch_export_run(temporal, batch_export_id=scheduled_id)
-
-        return response.Response({"new_run_id": new_run_id})
+        page = self.paginate_queryset(self.get_queryset(date_range=date_range))
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
@@ -151,7 +125,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
     destination = BatchExportDestinationSerializer()
-    trigger_immediately = serializers.BooleanField(default=False)
+    latest_runs = BatchExportRunSerializer(many=True, read_only=True)
+    interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
 
     class Meta:
         model = BatchExport
@@ -166,49 +141,44 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "last_paused_at",
             "start_at",
             "end_at",
-            "trigger_immediately",
+            "latest_runs",
         ]
-        read_only_fields = [
-            "id",
-            "paused",
-            "created_at",
-            "last_updated_at",
-        ]
+        read_only_fields = ["id", "created_at", "last_updated_at", "latest_runs"]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
-        interval = validated_data.pop("interval")
-        name = validated_data.pop("name")
-        start_at = validated_data.get("start_at", None)
-        end_at = validated_data.get("end_at", None)
-        trigger_immediately = validated_data.get("trigger_immediately", False)
 
-        return create_batch_export(
-            team_id=team_id,
-            interval=interval,
-            name=name,
-            destination_data=destination_data,
-            start_at=start_at,
-            end_at=end_at,
-            trigger_immediately=trigger_immediately,
-        )
+        destination = BatchExportDestination(**destination_data)
+        batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
 
-    def update(self, instance: BatchExport, validated_data: dict) -> BatchExport:
+        sync_batch_export(batch_export, created=True)
+
+        with transaction.atomic():
+            destination.save()
+            batch_export.save()
+
+        return batch_export
+
+    def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)
 
-        if destination_data:
-            instance.destination.type = destination_data.get("type", instance.destination.type)
-            instance.destination.config = {**instance.destination.config, **destination_data.get("config", {})}
-            instance.destination.save()
+        with transaction.atomic():
+            if destination_data:
+                batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
+                batch_export.destination.config = {
+                    **batch_export.destination.config,
+                    **destination_data.get("config", {}),
+                }
 
-        instance.name = validated_data.get("name", instance.name)
-        instance.interval = validated_data.get("interval", instance.interval)
-        instance.save()
+            batch_export.destination.save()
+            batch_export = super().update(batch_export, validated_data)
 
-        return instance
+            sync_batch_export(batch_export, created=False)
+
+        return batch_export
 
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -220,7 +190,12 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
             raise NotAuthenticated()
 
-        return self.queryset.filter(team_id=self.team_id).exclude(deleted=True).prefetch_related("destination")
+        return (
+            self.queryset.filter(team_id=self.team_id)
+            .exclude(deleted=True)
+            .order_by("-created_at")
+            .prefetch_related("destination")
+        )
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -230,6 +205,9 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         start_at_input = request.data.get("start_at", None)
         end_at_input = request.data.get("end_at", None)
+
+        if start_at_input is None or end_at_input is None:
+            raise ValidationError("Both 'start_at' and 'end_at' must be specified")
 
         start_at = validate_date_input(start_at_input)
         end_at = validate_date_input(end_at_input)

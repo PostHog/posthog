@@ -59,7 +59,6 @@ from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
     correct_result_for_sampling,
-    ensure_value_is_json_serializable,
     enumerate_time_range,
     get_active_user_params,
     parse_response,
@@ -513,8 +512,9 @@ class TrendsBreakdown:
     ) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
+            cache_invalidation_key = generate_short_id()
             for stats in result:
-                aggregated_value = ensure_value_is_json_serializable(stats[0])
+                aggregated_value = stats[0]
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
                 filter_params = filter.to_params()
                 extra_params = {
@@ -534,7 +534,7 @@ class TrendsBreakdown:
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
-                        "url": f"api/projects/{self.team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
+                        "url": f"api/projects/{self.team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                     },
                     **result_descriptors,
                     **additional_values,
@@ -678,7 +678,7 @@ class TrendsBreakdown:
             return (
                 f"""
                     INNER JOIN ({query}) {SessionQuery.SESSION_TABLE_ALIAS}
-                    ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}."$session_id" = e."$session_id"
                 """,
                 session_params,
             )

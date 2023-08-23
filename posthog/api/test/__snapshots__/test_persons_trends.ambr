@@ -3,10 +3,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value ,
-         groupUniqArray(100)((timestamp,
-                              uuid,
-                              $session_id,
-                              $window_id)) as matching_events
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -40,10 +39,11 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in []
+    AND min_first_timestamp >= '2020-01-07 00:00:00'
+    AND max_last_timestamp <= '2020-01-13 23:59:59'
   '
 ---
 # name: TestPersonTrends.test_trends_people_endpoint_filters_search.2
@@ -51,10 +51,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value ,
-         groupUniqArray(100)((timestamp,
-                              uuid,
-                              $session_id,
-                              $window_id)) as matching_events
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -98,10 +97,11 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in []
+    AND min_first_timestamp >= '2020-01-07 00:00:00'
+    AND max_last_timestamp <= '2020-01-13 23:59:59'
   '
 ---
 # name: TestPersonTrends.test_trends_people_endpoint_includes_recordings
@@ -109,10 +109,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value ,
-         groupUniqArray(100)((timestamp,
-                              uuid,
-                              $session_id,
-                              $window_id)) as matching_events
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -146,9 +145,10 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT session_id
-  FROM session_recording_events
+  FROM session_replay_events
   WHERE team_id = 2
-    and has_full_snapshot = 1
     and session_id in ['s1']
+    AND min_first_timestamp >= '2020-01-07 00:00:00'
+    AND max_last_timestamp <= '2020-01-13 23:59:59'
   '
 ---

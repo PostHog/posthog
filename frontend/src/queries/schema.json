@@ -221,7 +221,7 @@
             ]
         },
         "BreakdownType": {
-            "enum": ["cohort", "person", "event", "group", "session"],
+            "enum": ["cohort", "person", "event", "group", "session", "hogql"],
             "type": "string"
         },
         "ChartDisplayType": {
@@ -339,6 +339,10 @@
                 },
                 "showOpenEditorButton": {
                     "description": "Show a button to open the current query as a new insight. (default: true)",
+                    "type": "boolean"
+                },
+                "showPersistentColumnConfigurator": {
+                    "description": "Show a button to configure and persist the table's default columns if possible",
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
@@ -1126,6 +1130,9 @@
                 "isValid": {
                     "type": "boolean"
                 },
+                "isValidView": {
+                    "type": "boolean"
+                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -1272,9 +1279,6 @@
                     "type": "boolean"
                 },
                 "showLastComputationRefresh": {
-                    "type": "boolean"
-                },
-                "showLegendButton": {
                     "type": "boolean"
                 },
                 "showTable": {
@@ -2018,6 +2022,9 @@
                     "type": "array"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_percent_stack_view": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {

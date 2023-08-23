@@ -1301,6 +1301,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         breakdown_vals = [val["breakdown_value"] for val in daily_response]
         self.assertTrue("value_21" in breakdown_vals)
 
+    @snapshot_clickhouse_queries
     def test_trends_compare_day_interval_relative_range(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -4365,7 +4366,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         sign_up_action = Action.objects.create(team=self.team, name="sign up")
         ActionStep.objects.create(
-            action=sign_up_action, event="sign up", properties={"$current_url": "https://posthog.com/feedback/1234"}
+            action=sign_up_action,
+            event="sign up",
+            properties=[
+                {
+                    "key": "$current_url",
+                    "type": "event",
+                    "value": ["https://posthog.com/feedback/1234"],
+                    "operator": "exact",
+                }
+            ],
         )
 
         with freeze_time("2020-01-02T13:01:01Z"):
@@ -5356,7 +5366,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
-    def test_timezones_hourly(self):
+    def test_timezones_hourly_relative_from(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
         _create_event(
             team=self.team,
@@ -5462,6 +5472,91 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+
+    @also_test_with_different_timezones
+    def test_timezones_hourly_absolute_from(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-02T17:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T17:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-06T00:30:01",  # Shouldn't be included anywhere
+        )
+
+        # Custom date range, single day, hourly interval
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03 23:59:59",
+                    "interval": "hour",
+                    "events": [{"id": "sign up", "name": "sign up"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+
+        self.assertEqual(
+            response[0]["days"],
+            [
+                "2020-01-03 00:00:00",
+                "2020-01-03 01:00:00",
+                "2020-01-03 02:00:00",
+                "2020-01-03 03:00:00",
+                "2020-01-03 04:00:00",
+                "2020-01-03 05:00:00",
+                "2020-01-03 06:00:00",
+                "2020-01-03 07:00:00",
+                "2020-01-03 08:00:00",
+                "2020-01-03 09:00:00",
+                "2020-01-03 10:00:00",
+                "2020-01-03 11:00:00",
+                "2020-01-03 12:00:00",
+                "2020-01-03 13:00:00",
+                "2020-01-03 14:00:00",
+                "2020-01-03 15:00:00",
+                "2020-01-03 16:00:00",
+                "2020-01-03 17:00:00",
+                "2020-01-03 18:00:00",
+                "2020-01-03 19:00:00",
+                "2020-01-03 20:00:00",
+                "2020-01-03 21:00:00",
+                "2020-01-03 22:00:00",
+                "2020-01-03 23:00:00",
+            ],
+        )
+        self.assertEqual(response[0]["data"][17], 1)
+        self.assertEqual(len(response[0]["data"]), 24)
+
+        # Custom date range, single day, dayly interval
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [1.0])
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -5608,36 +5703,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
-
-        # Custom date range, single day, hourly interval
-        response = Trends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03 23:59:59",
-                    "interval": "hour",
-                    "events": [{"id": "sign up", "name": "sign up"}],
-                },
-                team=self.team,
-            ),
-            self.team,
-        )
-        self.assertEqual(response[0]["data"][17], 1)
-        self.assertEqual(len(response[0]["data"]), 24)
-
-        # Custom date range, single day, dayly interval
-        response = Trends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
-                    "events": [{"id": "sign up", "name": "sign up"}],
-                },
-                team=self.team,
-            ),
-            self.team,
-        )
-        self.assertEqual(response[0]["data"], [1.0])
 
     # Regression test to ensure we handle non-deterministic timezones correctly
     # US/Pacific for example changes from PST to PDT due to Daylight Savings Time

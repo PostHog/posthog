@@ -10,7 +10,7 @@ import './ProfilePicture.scss'
 export interface ProfilePictureProps {
     name?: string
     email?: string
-    size?: 'md' | 'xs' | 'sm' | 'xl' | 'xxl'
+    size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
     showName?: boolean
     style?: CSSProperties
     className?: string
@@ -22,7 +22,7 @@ export interface ProfilePictureProps {
 export function ProfilePicture({
     name,
     email,
-    size,
+    size = 'lg',
     showName,
     style,
     className,
@@ -32,7 +32,7 @@ export function ProfilePicture({
 }: ProfilePictureProps): JSX.Element {
     const { user } = useValues(userLogic)
     const [gravatarUrl, setGravatarUrl] = useState<string | null>(null)
-    const pictureClass = clsx('profile-picture', size, className)
+    const pictureClass = clsx('ProfilePicture', size, className)
 
     let pictureComponent: JSX.Element
 
@@ -40,8 +40,9 @@ export function ProfilePicture({
 
     useEffect(() => {
         // Check if Gravatar exists
-        if (email) {
-            const emailHash = md5(email.trim().toLowerCase())
+        const emailOrNameWithEmail = email || (name?.includes('@') ? name : undefined)
+        if (emailOrNameWithEmail) {
+            const emailHash = md5(emailOrNameWithEmail.trim().toLowerCase())
             const tentativeUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
             // The image will be cached, so it's better to do a full GET request in this check
             fetch(tentativeUrl).then((response) => {

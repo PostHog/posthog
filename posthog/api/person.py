@@ -31,7 +31,7 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
-from posthog.decorators import cached_function
+from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -364,7 +364,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
-        split_person.delay(person.id, request.data.get("main_distinct_id", None))
+        split_person.delay(person.id, request.data.get("main_distinct_id", None), None)
 
         log_activity(
             organization_id=self.organization.id,
@@ -556,7 +556,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self._respond_with_cached_results(self.calculate_funnel_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_funnel_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
@@ -578,7 +578,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self._respond_with_cached_results(self.calculate_path_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_path_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
@@ -606,7 +606,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self._respond_with_cached_results(self.calculate_trends_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_trends_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:

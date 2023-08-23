@@ -12,7 +12,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.trends.util import ensure_value_is_json_serializable, parse_response
+from posthog.queries.trends.util import parse_response
 
 # Regex for adding the formula variable index to all params, except HogQL params
 PARAM_DISAMBIGUATION_REGEX = re.compile(r"%\((?!hogql_)")
@@ -102,7 +102,7 @@ class TrendsFormula:
 
                 if is_aggregate:
                     additional_values["data"] = []
-                    additional_values["aggregated_value"] = ensure_value_is_json_serializable(item[1][0])
+                    additional_values["aggregated_value"] = item[1][0]
                 else:
                     additional_values["data"] = [
                         round(number, 2) if not math.isnan(number) and not math.isinf(number) else 0.0

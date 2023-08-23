@@ -32,6 +32,7 @@ import {
     isPropertyFilterWithOperator,
 } from 'lib/components/PropertyFilters/utils'
 import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
+import { BreakdownFilter } from '~/queries/schema'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -290,10 +291,15 @@ export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): J
 
 export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
     return (
-        <div>
+        <>
             <h5>Breakdown by</h5>
-            <TaxonomicBreakdownFilter filters={filters} />
-        </div>
+            <section>
+                <TaxonomicBreakdownFilter
+                    isTrends={filters.insight === InsightType.TRENDS}
+                    breakdownFilter={filters as BreakdownFilter}
+                />
+            </section>
+        </>
     )
 }
 
@@ -307,6 +313,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
         <div className="InsightDetails" ref={ref}>
             <QuerySummary filters={filters} />
             <FiltersSummary filters={filters} />
+            {filters.breakdown_type && <BreakdownSummary filters={filters} />}
             <div className="InsightDetails__footer">
                 <div>
                     <h5>Created by</h5>
@@ -315,7 +322,18 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                         <TZLabel time={created_at} />
                     </section>
                 </div>
-                {filters.breakdown_type && <BreakdownSummary filters={filters} />}
+                <div>
+                    <h5>Last modified by</h5>
+                    <section>
+                        <ProfilePicture
+                            name={insight.last_modified_by?.first_name}
+                            email={insight.last_modified_by?.email}
+                            showName
+                            size="md"
+                        />{' '}
+                        <TZLabel time={insight.last_modified_at} />
+                    </section>
+                </div>
             </div>
         </div>
     )

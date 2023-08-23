@@ -57,11 +57,12 @@
     }
 }
 
-.CardMeta--WithDetails {
-    padding: 1rem 1rem;
-}
-.CardMeta--WithoutDetails {
-    padding: 0.1rem; // needs the tiniest bump to make the "more" button centered
+.CardMeta--with-details {
+    padding: 1rem;
+    .CardMeta__top {
+        // Reduced height so that, considering the padding set above, CardMeta__top doesn't have too much margin
+        height: 1.5rem;
+    }
 }
 
 .CardMeta--expansion-enter-active,
@@ -127,7 +128,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 1.5rem;
+    height: 2rem;
 
     .LemonButton {
         height: 1.75rem;

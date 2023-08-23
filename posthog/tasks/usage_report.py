@@ -28,7 +28,7 @@ from sentry_sdk import capture_exception
 from posthog import version_requirement
 from posthog.celery import app
 from posthog.client import sync_execute
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import FlagRequestType
 from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
@@ -40,7 +40,6 @@ from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_machine_id, get_previous_day
-from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
 
@@ -75,6 +74,8 @@ class UsageReportCounters:
     decide_requests_count_in_month: int
     local_evaluation_requests_count_in_period: int
     local_evaluation_requests_count_in_month: int
+    billable_feature_flag_requests_count_in_period: int
+    billable_feature_flag_requests_count_in_month: int
     # HogQL
     hogql_app_bytes_read: int
     hogql_app_rows_read: int
@@ -94,7 +95,6 @@ class UsageReportCounters:
 # Instance metadata to be included in oveall report
 @dataclasses.dataclass
 class InstanceMetadata:
-    posthog_version: str
     deployment_infrastructure: str
     realm: str
     period: Period
@@ -151,16 +151,13 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
     has_license = False
 
     if settings.EE_AVAILABLE:
-        from ee.models.license import License
-
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         has_license = license is not None
 
     period_start, period_end = period
 
     realm = get_instance_realm()
     metadata = InstanceMetadata(
-        posthog_version=VERSION,
         deployment_infrastructure=os.getenv("DEPLOYMENT", "unknown"),
         realm=realm,
         period={"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
@@ -244,11 +241,10 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
 
     from ee.billing.billing_manager import BillingManager, build_billing_token
     from ee.billing.billing_types import BillingStatus
-    from ee.models.license import License
     from ee.settings import BILLING_SERVICE_URL
 
     try:
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         if not license or not license.is_v2_license:
             return
 
@@ -271,6 +267,8 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
 
         response_data: BillingStatus = response.json()
         BillingManager(license).update_org_details(organization, response_data)
+        # TODO: remove the following after 2023-09-01
+        BillingManager(license).update_billing_distinct_ids(organization)
 
     except Exception as err:
         logger.error(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
@@ -328,12 +326,12 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
 
 
 @timed_log()
-def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_billable_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(1) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
+        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called'
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -386,26 +384,29 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
 
 @timed_log()
 def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+    previous_begin = begin - (end - begin)
+
     result = sync_execute(
         """
         SELECT team_id, count(distinct session_id) as count
-        FROM session_recording_events
-        WHERE first_event_timestamp BETWEEN %(begin)s AND %(end)s
+        FROM session_replay_events
+        WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
         AND session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
             -- before the period we are interested in
             SELECT DISTINCT session_id
-            FROM session_recording_events
+            FROM session_replay_events
             -- begin is the very first instant of the period we are interested in
             -- we assume it is also the very first instant of a day
             -- so we can to subtract 1 second to get the day before
-            WHERE toDate(first_event_timestamp) = toDate(%(begin)s) - INTERVAL 1 DAY
+            WHERE min_first_timestamp BETWEEN %(previous_begin)s AND %(begin)s
             GROUP BY session_id
         )
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end},
+        {"previous_begin": previous_begin, "begin": begin, "end": end},
     )
+
     return result
 
 
@@ -414,7 +415,7 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(distinct session_id) as count
-        FROM session_recording_events
+        FROM session_replay_events
         GROUP BY team_id
     """
     )
@@ -540,8 +541,8 @@ def send_all_org_usage_reports(
     try:
         all_data = dict(
             teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
-            teams_with_event_count_in_period=get_teams_with_event_count_in_period(period_start, period_end),
-            teams_with_event_count_in_month=get_teams_with_event_count_in_period(
+            teams_with_event_count_in_period=get_teams_with_billable_event_count_in_period(period_start, period_end),
+            teams_with_event_count_in_month=get_teams_with_billable_event_count_in_period(
                 period_start.replace(day=1), period_end
             ),
             teams_with_event_count_with_groups_in_period=get_teams_with_event_count_with_groups_in_period(
@@ -698,6 +699,15 @@ def send_all_org_usage_reports(
         print("Generating reports for teams...")  # noqa T201
         time_now = datetime.now()
         for team in teams:
+            decide_requests_count_in_month = all_data["teams_with_decide_requests_count_in_month"].get(team.id, 0)
+            decide_requests_count_in_period = all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0)
+            local_evaluation_requests_count_in_period = all_data[
+                "teams_with_local_evaluation_requests_count_in_period"
+            ].get(team.id, 0)
+            local_evaluation_requests_count_in_month = all_data[
+                "teams_with_local_evaluation_requests_count_in_month"
+            ].get(team.id, 0)
+
             team_report = UsageReportCounters(
                 event_count_lifetime=all_data["teams_with_event_count_lifetime"].get(team.id, 0),
                 event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
@@ -710,14 +720,14 @@ def send_all_org_usage_reports(
                 recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
                 recording_count_total=all_data["teams_with_recording_count_total"].get(team.id, 0),
                 group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
-                decide_requests_count_in_period=all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0),
-                decide_requests_count_in_month=all_data["teams_with_decide_requests_count_in_month"].get(team.id, 0),
-                local_evaluation_requests_count_in_period=all_data[
-                    "teams_with_local_evaluation_requests_count_in_period"
-                ].get(team.id, 0),
-                local_evaluation_requests_count_in_month=all_data[
-                    "teams_with_local_evaluation_requests_count_in_month"
-                ].get(team.id, 0),
+                decide_requests_count_in_period=decide_requests_count_in_period,
+                decide_requests_count_in_month=decide_requests_count_in_month,
+                local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
+                local_evaluation_requests_count_in_month=local_evaluation_requests_count_in_month,
+                billable_feature_flag_requests_count_in_month=decide_requests_count_in_month
+                + (local_evaluation_requests_count_in_month * 10),
+                billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
+                + (local_evaluation_requests_count_in_period * 10),
                 dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
                 dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
                 dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),

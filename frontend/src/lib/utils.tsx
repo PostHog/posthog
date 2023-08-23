@@ -48,6 +48,7 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { urls } from 'scenes/urls'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
+import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -408,9 +409,17 @@ export function formatLabel(label: string, action: ActionFilter): string {
     return label.trim()
 }
 
-/** Check objects for deep equality, including "ordering" of properties */
+/** Compare objects deeply. */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
+}
+
+export function isObject(candidate: unknown): candidate is Record<string, unknown> {
+    return typeof candidate === 'object' && candidate !== null
+}
+
+export function isEmptyObject(candidate: unknown): boolean {
+    return isObject(candidate) && Object.keys(candidate).length === 0
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
@@ -659,8 +668,12 @@ export function stripHTTP(url: string): string {
 export function isDomain(url: string): boolean {
     try {
         const parsedUrl = new URL(url)
-        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+        if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
+        } else {
+            if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
+                return true
+            }
         }
     } catch {
         return false
@@ -672,7 +685,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*\.-]+[\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.]+$/
+    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
     return !!input.trim().match(regexp)
 }
 
@@ -690,7 +703,7 @@ export function isEmail(string: string): boolean {
     }
     // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
     const regexp =
-        /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+        /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
@@ -801,7 +814,7 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
 }
 
 export const dateMapping: DateMappingOption[] = [
-    { key: 'Custom', values: [] },
+    { key: CUSTOM_OPTION_KEY, values: [] },
     {
         key: 'Today',
         values: ['dStart'],
@@ -933,7 +946,7 @@ export function dateFilterToText(
     }
 
     for (const { key, values, getFormattedDate } of dateOptions) {
-        if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
+        if (values[0] === dateFrom && values[1] === dateTo && key !== CUSTOM_OPTION_KEY) {
             return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
         }
     }
@@ -973,7 +986,7 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
         return dayjs(date)
     }
-    const parseDate = /^([\-\+]?)([0-9]*)([dmwqy])(|Start|End)$/
+    const parseDate = /^([-+]?)([0-9]*)([dmwqy])(|Start|End)$/
     const matches = (date || '').match(parseDate)
     let response: null | dayjs.Dayjs = null
     if (matches) {
@@ -1022,8 +1035,22 @@ export async function copyToClipboard(value: string, description: string = 'text
         })
         return true
     } catch (e) {
-        lemonToast.error(`Could not copy ${description} to clipboard: ${e}`)
-        return false
+        // If the Clipboard API fails, fallback to textarea method
+        try {
+            const textArea = document.createElement('textarea')
+            textArea.value = value
+            document.body.appendChild(textArea)
+            textArea.select()
+            document.execCommand('copy')
+            document.body.removeChild(textArea)
+            lemonToast.info(`Copied ${description} to clipboard`, {
+                icon: <IconCopy />,
+            })
+            return true
+        } catch (err) {
+            lemonToast.error(`Could not copy ${description} to clipboard: ${err}`)
+            return false
+        }
     }
 }
 
@@ -1131,7 +1158,7 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
     const match = url.match(
-        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
+        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-/]+))?/
     )
 
     if (!match) {

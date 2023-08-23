@@ -76,6 +76,7 @@ export interface LemonMenuProps
             | 'closeOnClickInside'
             | 'closeParentPopoverOnClickInside'
             | 'className'
+            | 'onClickOutside'
         >,
         LemonMenuOverlayProps {
     /** Must support `ref` and `onKeyDown` for keyboard navigation. */

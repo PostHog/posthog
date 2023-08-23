@@ -55,17 +55,17 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Event Explorer',
     },
-    [Scene.Exports]: {
+    [Scene.BatchExports]: {
         projectBased: true,
-        name: 'Exports',
+        name: 'Batch Exports',
     },
-    [Scene.CreateExport]: {
+    [Scene.BatchExportEdit]: {
         projectBased: true,
-        name: 'Create Export',
+        name: 'Edit Batch Export',
     },
-    [Scene.ViewExport]: {
+    [Scene.BatchExport]: {
         projectBased: true,
-        name: 'View Export',
+        name: 'Batch Export',
     },
     [Scene.DataManagement]: {
         projectBased: true,
@@ -162,6 +162,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Warehouse',
     },
+    [Scene.DataWarehousePosthog]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseExternal]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseSavedQueries]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
     [Scene.DataWarehouseTable]: {
         projectBased: true,
         name: 'Data Warehouse Table',
@@ -205,6 +217,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         name: 'Integrations Redirect',
     },
     [Scene.Ingestion]: {
+        projectBased: true,
+        layout: 'plain',
+    },
+    [Scene.Products]: {
         projectBased: true,
         layout: 'plain',
     },
@@ -292,6 +308,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Notebook]: {
         projectBased: true,
         name: 'Notebook',
+        layout: 'app-raw',
     },
 }
 
@@ -322,7 +339,7 @@ export const redirects: Record<
         const query = getDefaultEventsSceneQuery([
             {
                 type: PropertyFilterType.HogQL,
-                key: `uuid = '${id.replaceAll(/[^a-f0-9\-]/g, '')}'`,
+                key: `uuid = '${id.replaceAll(/[^a-f0-9-]/g, '')}'`,
                 value: null,
             },
         ])
@@ -348,6 +365,7 @@ export const redirects: Record<
         return urls.replay()
     },
     '/replay': urls.replay(),
+    '/exports': urls.batchExports(),
 }
 
 export const routes: Record<string, Scene> = {
@@ -371,9 +389,10 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
-    [urls.exports()]: Scene.Exports,
-    [urls.createExport()]: Scene.CreateExport,
-    [urls.viewExport(':id')]: Scene.ViewExport,
+    [urls.batchExports()]: Scene.BatchExports,
+    [urls.batchExportNew()]: Scene.BatchExportEdit,
+    [urls.batchExport(':id')]: Scene.BatchExport,
+    [urls.batchExportEdit(':id')]: Scene.BatchExportEdit,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,
@@ -402,6 +421,9 @@ export const routes: Record<string, Scene> = {
     [urls.survey(':id')]: Scene.Survey,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
+    [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
+    [urls.dataWarehouseExternal()]: Scene.DataWarehouseExternal,
+    [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
@@ -443,6 +465,7 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
+    [urls.products()]: Scene.Products,
     [urls.verifyEmail()]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,

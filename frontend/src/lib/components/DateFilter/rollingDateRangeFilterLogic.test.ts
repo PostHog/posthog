@@ -39,4 +39,25 @@ describe('rollingDateRangeFilterLogic', () => {
             value: '-6d',
         })
     })
+
+    it('cannot set the date higher than the max', () => {
+        logic = rollingDateRangeFilterLogic({ max: 6 })
+        logic.mount()
+        expectLogic(logic, () => {
+            logic.actions.setCounter(6)
+            logic.actions.setDateOption('days')
+        }).toMatchValues({
+            value: '-6d',
+        })
+        expectLogic(logic, () => {
+            logic.actions.setCounter(13)
+        }).toMatchValues({
+            value: '-6d',
+        })
+        expectLogic(logic, () => {
+            logic.actions.increaseCounter()
+        }).toMatchValues({
+            value: '-6d',
+        })
+    })
 })

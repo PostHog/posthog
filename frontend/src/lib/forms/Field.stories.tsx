@@ -1,4 +1,4 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { Field, PureField } from './Field'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { kea, path, useAllValues } from 'kea'
@@ -6,7 +6,7 @@ import { Form, forms } from 'kea-forms'
 
 import type { formLogicType } from './Field.storiesType'
 
-export default {
+const meta: Meta<typeof PureField> = {
     title: 'Lemon UI/Forms and Fields',
     component: PureField,
     parameters: {
@@ -23,7 +23,9 @@ They can be used in a kea-forms controlled way via \`Field\` or a pure way via \
             },
         },
     },
-} as ComponentMeta<typeof PureField>
+    tags: ['autodocs'],
+}
+export default meta
 
 export const _PureFields = (): JSX.Element => {
     return (
@@ -78,7 +80,6 @@ const formLogic = kea<formLogicType>([
             }),
             submit: async (_, breakpoint) => {
                 await breakpoint(3000)
-                console.log('Form Submitted')
                 actions.resetMyForm()
             },
         },
@@ -91,7 +92,6 @@ const formLogic = kea<formLogicType>([
             }),
             submit: async (_, breakpoint) => {
                 await breakpoint(3000)
-                console.log('Form Submitted')
                 actions.resetSimpleForm()
             },
         },

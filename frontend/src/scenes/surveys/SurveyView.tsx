@@ -19,13 +19,22 @@ import { SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { NodeKind } from '~/queries/schema'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries, showSurveyAppWarning } =
-        useValues(surveyLogic)
+    const {
+        survey,
+        dataTableQuery,
+        surveyLoading,
+        surveyPlugin,
+        surveyMetricsQueries,
+        surveyDataVizQuery,
+        showSurveyAppWarning,
+    } = useValues(surveyLogic)
     // TODO: survey results logic
     // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
-    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey } = useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
+        useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { editPlugin } = useActions(pluginsLogic)
 
@@ -49,19 +58,20 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 <More
                                     overlay={
                                         <>
-                                            {!survey.end_date && (
-                                                <>
-                                                    <LemonButton
-                                                        data-attr="edit-survey"
-                                                        fullWidth
-                                                        onClick={() => editingSurvey(true)}
-                                                    >
-                                                        Edit
-                                                    </LemonButton>
-                                                    <LemonDivider />
-                                                </>
-                                            )}
-                                            <LemonButton status="danger" onClick={() => deleteSurvey(id)}>
+                                            <>
+                                                <LemonButton
+                                                    data-attr="edit-survey"
+                                                    fullWidth
+                                                    onClick={() => editingSurvey(true)}
+                                                >
+                                                    Edit
+                                                </LemonButton>
+                                                <LemonDivider />
+                                            </>
+                                            <LemonButton onClick={() => archiveSurvey()} fullWidth>
+                                                Archive
+                                            </LemonButton>
+                                            <LemonButton status="danger" fullWidth onClick={() => deleteSurvey(id)}>
                                                 Delete survey
                                             </LemonButton>
                                         </>
@@ -78,8 +88,8 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         Launch
                                     </LemonButton>
                                 ) : survey.end_date && !survey.archived ? (
-                                    <LemonButton type="secondary" onClick={() => archiveSurvey()}>
-                                        Archive
+                                    <LemonButton type="secondary" onClick={() => resumeSurvey()}>
+                                        Resume
                                     </LemonButton>
                                 ) : (
                                     !survey.archived && (
@@ -106,7 +116,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
-                    {showSurveyAppWarning && (
+                    {!surveyLoading && showSurveyAppWarning && (
                         <LemonBanner type="error">
                             Surveys requires the{' '}
                             <a onClick={() => surveyPlugin?.id && editPlugin(surveyPlugin.id)}>survey app</a> to be
@@ -130,6 +140,25 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                       <div className="flex-1">
                                                           <Query query={surveyMetricsQueries.surveysDismissed} />
                                                       </div>
+                                                  </div>
+                                              )}
+                                              {survey.questions[0].type === SurveyQuestionType.Rating && (
+                                                  <div className="mb-4">
+                                                      <Query query={surveyDataVizQuery} />
+                                                  </div>
+                                              )}
+                                              {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
+                                                  survey.questions[0].type === SurveyQuestionType.MultipleChoice) && (
+                                                  <div className="mb-4">
+                                                      <Query
+                                                          query={{
+                                                              kind: NodeKind.DataTableNode,
+                                                              source: {
+                                                                  kind: NodeKind.HogQLQuery,
+                                                                  query: `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`,
+                                                              },
+                                                          }}
+                                                      />
                                                   </div>
                                               )}
                                               {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}
@@ -230,10 +259,15 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 <div className="mt-6">
                                                     <SurveyAppearance
                                                         type={survey.questions[0].type}
+                                                        surveyQuestionItem={survey.questions[0]}
                                                         appearance={survey.appearance || defaultSurveyAppearance}
                                                         question={survey.questions[0].question}
                                                         description={survey.questions[0].description}
-                                                        link={survey.questions[0].link}
+                                                        link={
+                                                            survey.questions[0].type === SurveyQuestionType.Link
+                                                                ? survey.questions[0].link
+                                                                : undefined
+                                                        }
                                                         readOnly={true}
                                                         onAppearanceChange={() => {}}
                                                     />

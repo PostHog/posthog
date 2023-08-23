@@ -197,7 +197,6 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
 
-    SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING: boolean
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
@@ -259,6 +258,8 @@ export interface Hub extends PluginsServerConfig {
 }
 
 export interface PluginServerCapabilities {
+    // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts
+    // and the shouldSetupPluginInServer() test accordingly.
     ingestion?: boolean
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
@@ -268,6 +269,7 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
+    transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     http?: boolean
     mmdb?: boolean
 }
@@ -887,6 +889,8 @@ export interface RawAction {
     is_calculating: boolean
     updated_at: string
     last_calculated_at: string
+    bytecode?: any[]
+    bytecode_error?: string
 }
 
 /** Usable Action model. */
@@ -1130,3 +1134,9 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
 }
 
 export type RedisPool = GenericPool<Redis>
+
+export type RRWebEvent = Record<string, any> & {
+    timestamp: number
+    type: number
+    data: any
+}

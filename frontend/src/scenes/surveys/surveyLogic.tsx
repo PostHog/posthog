@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import {
     Breadcrumb,
+    ChartDisplayType,
     FeatureFlagFilters,
     PluginType,
     PropertyFilterType,
@@ -16,7 +17,7 @@ import {
     SurveyType,
 } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema'
 import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -48,14 +49,14 @@ export const defaultSurveyAppearance = {
     submitButtonColor: '#2C2C2C',
     textColor: 'black',
     submitButtonText: 'Submit',
-    descriptionTextColor: 'black',
+    descriptionTextColor: '#4b4b52',
 }
 
 const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
-    questions: [{ type: SurveyQuestionType.Open, question: '', link: null }],
+    questions: [{ type: SurveyQuestionType.Open, question: '' }],
     type: SurveyType.Popover,
     linked_flag_id: undefined,
     targeting_flag_filters: undefined,
@@ -114,6 +115,31 @@ export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries 
     }
 }
 
+export const getSurveyDataVizQuery = (survey: Survey): InsightVizNode => {
+    return {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            dateRange: {
+                date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
+                date_to: dayjs().format('YYYY-MM-DD'),
+            },
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$survey_id',
+                    operator: PropertyOperator.Exact,
+                    value: survey.id,
+                },
+            ],
+            series: [{ event: surveyEventName, kind: NodeKind.EventsNode }],
+            trendsFilter: { display: ChartDisplayType.ActionsBarValue },
+            breakdown: { breakdown: '$survey_response', breakdown_type: 'event' },
+        },
+        showTable: true,
+    }
+}
+
 export interface SurveyLogicProps {
     id: string | 'new'
 }
@@ -138,18 +164,21 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyEdited',
                 'reportSurveyArchived',
                 'reportSurveyStopped',
+                'reportSurveyResumed',
                 'reportSurveyViewed',
             ],
         ],
-        values: [pluginsLogic, ['installedPlugins', 'enabledPlugins']],
+        values: [pluginsLogic, ['installedPlugins', 'loading as pluginsLoading', 'enabledPlugins']],
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
         launchSurvey: true,
         stopSurvey: true,
         archiveSurvey: true,
+        resumeSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
         setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
+        setSurveyDataVizQuery: (surveyDataVizQuery: InsightVizNode) => ({ surveyDataVizQuery }),
         setHasTargetingFlag: (hasTargetingFlag: boolean) => ({ hasTargetingFlag }),
     }),
     loaders(({ props, actions }) => ({
@@ -175,6 +204,9 @@ export const surveyLogic = kea<surveyLogicType>([
             stopSurvey: async () => {
                 return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
             },
+            resumeSurvey: async () => {
+                return await api.surveys.update(props.id, { end_date: null })
+            },
         },
     })),
     listeners(({ actions }) => ({
@@ -182,6 +214,7 @@ export const surveyLogic = kea<surveyLogicType>([
             if (survey.start_date && survey.id !== 'new') {
                 actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
                 actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
+                actions.setSurveyDataVizQuery(getSurveyDataVizQuery(survey as Survey))
             }
             if (survey.targeting_flag) {
                 actions.setHasTargetingFlag(true)
@@ -210,6 +243,10 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.loadSurveys()
             actions.reportSurveyStopped(survey)
         },
+        resumeSurveySuccess: ({ survey }) => {
+            actions.loadSurveys()
+            actions.reportSurveyResumed(survey)
+        },
         archiveSurvey: async () => {
             actions.updateSurvey({ archived: true })
         },
@@ -231,6 +268,12 @@ export const surveyLogic = kea<surveyLogicType>([
             null as SurveyMetricsQueries | null,
             {
                 setSurveyMetricsQueries: (_, { surveyMetricsQueries }) => surveyMetricsQueries,
+            },
+        ],
+        surveyDataVizQuery: [
+            null as InsightVizNode | null,
+            {
+                setSurveyDataVizQuery: (_, { surveyDataVizQuery }) => surveyDataVizQuery,
             },
         ],
         hasTargetingFlag: [
@@ -265,10 +308,12 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         showSurveyAppWarning: [
-            (s) => [s.survey, s.enabledPlugins],
-            (survey: Survey, enabledPlugins: PluginType[]): boolean => {
+            (s) => [s.survey, s.enabledPlugins, s.pluginsLoading],
+            (survey: Survey, enabledPlugins: PluginType[], pluginsLoading: boolean): boolean => {
                 return !!(
-                    survey.type !== SurveyType.API && !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
+                    survey.type !== SurveyType.API &&
+                    !pluginsLoading &&
+                    !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
                 )
             },
         ],
@@ -283,13 +328,19 @@ export const surveyLogic = kea<surveyLogicType>([
                     ...(question.type === SurveyQuestionType.Link
                         ? { link: !question.link && 'Please enter a url for the link.' }
                         : {}),
+                    ...(question.type === SurveyQuestionType.Rating
+                        ? {
+                              display: !question.display && 'Please choose a display type.',
+                              scale: !question.scale && 'Please choose a scale.',
+                          }
+                        : {}),
                 })),
             }),
             submit: async (surveyPayload) => {
                 let surveyPayloadWithTargetingFlagFilters = surveyPayload
                 const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
-                const targetingFlag = flagLogic.values.featureFlag
                 if (values.hasTargetingFlag) {
+                    const targetingFlag = flagLogic.values.featureFlag
                     surveyPayloadWithTargetingFlagFilters = {
                         ...surveyPayload,
                         ...{ targeting_flag_filters: targetingFlag.filters },

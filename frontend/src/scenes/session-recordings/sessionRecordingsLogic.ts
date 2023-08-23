@@ -26,7 +26,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Recent) => ({ tab }),
     }),
-    reducers(({}) => ({
+    reducers(() => ({
         tab: [
             ReplayTabs.Recent as ReplayTabs,
             {
@@ -41,7 +41,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
         }
     }),
 
-    selectors(({}) => ({
+    selectors(() => ({
         breadcrumbs: [
             (s) => [s.tab],
             (tab): Breadcrumb[] => {

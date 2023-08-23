@@ -329,7 +329,7 @@ export const insightLogic = kea<insightLogicType>([
         filters: [
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
-                setFilters: (state, { filters }) => cleanFilters(filters, state),
+                setFilters: (_, { filters }) => cleanFilters(filters),
                 setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
                     overrideFilter ? cleanFilters(filters || {}) : state,
                 loadInsightSuccess: (state, { insight }) =>
@@ -487,7 +487,7 @@ export const insightLogic = kea<insightLogicType>([
 
                 const filename = ['export', insight.name || insight.derived_name].join('-')
 
-                if (!!insight.query) {
+                if (insight.query) {
                     return { ...queryExportContext(insight.query), filename }
                 } else {
                     if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
@@ -639,7 +639,7 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
-                    query: !!query ? query : null,
+                    query: query ? query : null,
                     deleted,
                     saved: true,
                     dashboards,
@@ -652,6 +652,7 @@ export const insightLogic = kea<insightLogicType>([
                           insightRequest
                       )
                     : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+                savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
@@ -660,9 +661,13 @@ export const insightLogic = kea<insightLogicType>([
 
             // the backend can't return the result for a query based insight,
             // and so we shouldn't copy the result from `values.insight` as it might be stale
-            const result = savedInsight.result || (!!query ? values.insight.result : null)
+            const result = savedInsight.result || (query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
-            eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
+            eventUsageLogic.actions.reportInsightSaved(
+                filters || {},
+                values.globalInsightFilters,
+                insightNumericId === undefined
+            )
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
@@ -705,7 +710,7 @@ export const insightLogic = kea<insightLogicType>([
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
             actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
-            savedInsightsLogic.findMounted()?.actions.loadInsights()
+            savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
             router.actions.push(urls.insightEdit(insight.short_id))
         },
         loadInsightSuccess: async ({ insight }) => {

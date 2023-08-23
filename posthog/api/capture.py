@@ -164,6 +164,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
             producer = sessionRecordingKafkaProducer()
         else:
             producer = KafkaProducer()
+
         future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
@@ -365,6 +366,8 @@ def get_event(request):
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
 
+        consumer_destination = "v2" if random() <= settings.REPLAY_EVENTS_NEW_CONSUMER_RATIO else "v1"
+
         try:
             replay_events, other_events = split_replay_events(events)
             processed_replay_events = replay_events
@@ -372,6 +375,10 @@ def get_event(request):
             if len(replay_events) > 0:
                 # Legacy solution stays in place
                 processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
+
+                # Mark all events so that they are only consumed by one consumer
+                for event in processed_replay_events:
+                    event["properties"]["$snapshot_consumer"] = consumer_destination
 
             events = processed_replay_events + other_events
 
@@ -445,11 +452,15 @@ def get_event(request):
                 )
 
     try:
-        if replay_events and random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
+        if replay_events:
             # The new flow we only enable if the dedicated kafka is enabled
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
+
+            # Mark all events so that they are only consumed by one consumer
+            for event in alternative_replay_events:
+                event["properties"]["$snapshot_consumer"] = consumer_destination
 
             futures = []
 
@@ -527,11 +538,8 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
     # Setting the partition key to None means using random partitioning.
     kafka_partition_key = None
 
-    if event["event"] in ("$snapshot", "$performance_event"):
-        # We only need locality for snapshot events, not performance events, so
-        # we only set the partition key for snapshot events.
-        if event["event"] == "$snapshot":
-            kafka_partition_key = event["properties"]["$session_id"]
+    if event["event"] in SESSION_RECORDING_EVENT_NAMES:
+        kafka_partition_key = event["properties"]["$session_id"]
         return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
 
     candidate_partition_key = f"{token}:{distinct_id}"

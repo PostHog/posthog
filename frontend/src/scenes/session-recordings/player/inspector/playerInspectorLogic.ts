@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -14,9 +14,12 @@ import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getKeyMapping } from 'lib/taxonomy'
-import { eventToDescription } from 'lib/utils'
+import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
 import { eventWithTime } from '@rrweb/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 const NETWORK_PLUGIN_NAME = 'posthog/network@1'
@@ -118,11 +121,15 @@ export type InspectorListItemPerformance = InspectorListItemBase & {
 
 export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsole | InspectorListItemPerformance
 
+export interface PlayerInspectorLogicProps extends SessionRecordingLogicProps {
+    matchingEventsMatchType?: MatchingEventsMatchType
+}
+
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
-    props({} as SessionRecordingLogicProps),
-    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect((props: SessionRecordingLogicProps) => ({
+    props({} as PlayerInspectorLogicProps),
+    key((props: PlayerInspectorLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: PlayerInspectorLogicProps) => ({
         actions: [
             playerSettingsLogic,
             ['setTab', 'setMiniFilter', 'setSyncScroll'],
@@ -133,7 +140,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             playerSettingsLogic,
-            ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
+            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             [
                 'sessionPlayerData',
@@ -152,17 +159,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     })),
     actions(() => ({
         setWindowIdFilter: (windowId: string | null) => ({ windowId }),
-        setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
-    reducers(({}) => ({
-        searchQuery: [
-            '',
-            {
-                setSearchQuery: (_, { search }) => search || '',
-            },
-        ],
+    reducers(() => ({
         windowIdFilter: [
             null as string | null,
             {
@@ -191,20 +191,40 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    selectors(({}) => ({
-        matchingEvents: [
-            () => [(_, props) => props.matching],
-            (matchingEvents): MatchedRecordingEvent[] => {
-                // matching events were a dictionary in v1 and v2, but we only used the UUID
-                // so in v3 we just return the UUIDs
-                return matchingEvents?.map((x: any) => (typeof x === 'string' ? { uuid: x } : x.events)).flat() ?? []
+    loaders(({ props }) => ({
+        matchingEventUUIDs: [
+            [] as MatchedRecordingEvent[] | null,
+            {
+                loadMatchingEvents: async () => {
+                    const matchingEventsMatchType = props.matchingEventsMatchType
+                    const matchType = matchingEventsMatchType?.matchType
+                    if (!matchingEventsMatchType || matchType === 'none' || matchType === 'name') {
+                        return null
+                    }
+
+                    if (matchType === 'uuid') {
+                        if (!matchingEventsMatchType?.eventUUIDs) {
+                            console.error('UUID matching events type must include its event ids')
+                        }
+                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                    }
+
+                    const filters = matchingEventsMatchType?.filters
+                    if (!filters) {
+                        throw new Error('Backend matching events type must include its filters')
+                    }
+                    const params = toParams({ ...filters, session_ids: [props.sessionRecordingId] })
+                    const response = await api.recordings.getMatchingEvents(params)
+                    return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                },
             },
         ],
-
+    })),
+    selectors(({ props }) => ({
         showMatchingEventsFilter: [
-            (s) => [s.matchingEvents, s.tab],
-            (matchingEvents, tab): boolean => {
-                return tab === SessionRecordingPlayerTab.EVENTS && matchingEvents.length > 0
+            (s) => [s.tab],
+            (tab): boolean => {
+                return tab === SessionRecordingPlayerTab.EVENTS && props.matchingEventsMatchType?.matchType !== 'none'
             },
         ],
 
@@ -289,8 +309,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allItems: [
-            (s) => [s.start, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEvents],
-            (start, performanceEvents, consoleLogs, eventsData, matchingEvents): InspectorListItem[] => {
+            (s) => [s.start, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEventUUIDs],
+            (start, performanceEvents, consoleLogs, eventsData, matchingEventUUIDs): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
@@ -348,7 +368,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
 
                 for (const event of eventsData || []) {
-                    const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
+                    let isMatchingEvent = false
+
+                    if (matchingEventUUIDs?.length) {
+                        isMatchingEvent = !!matchingEventUUIDs.find((x) => x.uuid === String(event.id))
+                    } else if (props.matchingEventsMatchType?.matchType === 'name') {
+                        isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
+                    }
 
                     const timestamp = dayjs(event.timestamp)
                     const search = `${
@@ -490,6 +516,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         const responseStatus = item.data.response_status || 200
+                        const responseTime = item.data.duration || 0
 
                         if (
                             miniFiltersByKey['performance-all']?.enabled ||
@@ -505,8 +532,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
                         if (
-                            (miniFiltersByKey['performance-fetch']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            miniFiltersByKey['performance-fetch']?.enabled &&
                             item.data.entry_type === 'resource' &&
                             ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
                         ) {
@@ -556,6 +582,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
                             responseStatus >= 400
                         ) {
+                            include = true
+                        }
+
+                        if (miniFiltersByKey['all-automatic']?.enabled && responseTime >= 1000) {
                             include = true
                         }
 
@@ -710,4 +740,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             }
         },
     })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadMatchingEvents()
+        },
+    })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!objectsEqual(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
+            actions.loadMatchingEvents()
+        }
+    }),
 ])

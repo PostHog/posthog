@@ -1,4 +1,5 @@
 import { StatsD, Tags } from 'hot-shots'
+import { Histogram } from 'prom-client'
 
 import { runInSpan } from '../sentry'
 import { UUID } from './utils'
@@ -11,7 +12,13 @@ export function instrumentQuery<T>(
     tag: string | undefined,
     runQuery: () => Promise<T>
 ): Promise<T> {
-    return instrument(
+    const end = dataStoreQueryDuration
+        .labels({
+            query: metricName,
+            tag: tag ?? 'null',
+        })
+        .startTimer()
+    const result = instrument(
         statsd,
         {
             metricName,
@@ -20,6 +27,8 @@ export function instrumentQuery<T>(
         },
         runQuery
     )
+    end()
+    return result
 }
 
 export function instrument<T>(
@@ -66,3 +75,9 @@ export function captureEventLoopMetrics(statsd: StatsD, instanceId: UUID): StopC
         clearInterval(timer)
     }
 }
+
+export const dataStoreQueryDuration = new Histogram({
+    name: 'data_store_query_duration',
+    help: 'Query latency to data stores, per query and tag',
+    labelNames: ['query', 'tag'],
+})

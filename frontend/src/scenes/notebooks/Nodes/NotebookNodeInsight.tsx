@@ -1,60 +1,41 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
 import { InsightShortId } from '~/types'
-import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { posthogNodePasteRule } from './utils'
 import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
+import { useValues } from 'kea'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeViewProps } from '../Notebook/utils'
 
-const Component = (props: NodeViewProps): JSX.Element => {
-    const href = `/insights/${props.node.attrs.id}`
+const Component = (props: NotebookNodeViewProps<NotebookNodeInsightAttributes>): JSX.Element | null => {
+    const { expanded } = useValues(notebookNodeLogic)
 
-    return (
-        <NodeWrapper nodeType={NotebookNodeType.Insight} title="Insight" href={href} heightEstimate="16rem" {...props}>
-            <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id }} />
-        </NodeWrapper>
-    )
+    if (!expanded) {
+        return null
+    }
+    return <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id }} />
 }
 
-export const NotebookNodeInsight = Node.create({
-    name: NotebookNodeType.Insight,
-    group: 'block',
-    atom: true,
-    draggable: true,
+type NotebookNodeInsightAttributes = {
+    id: InsightShortId
+}
 
-    addAttributes() {
-        return {
-            id: '',
-        }
+export const NotebookNodeInsight = createPostHogWidgetNode<NotebookNodeInsightAttributes>({
+    nodeType: NotebookNodeType.Insight,
+    title: 'Insight',
+    Component,
+    heightEstimate: '16rem',
+    href: (attrs) => urls.insightView(attrs.id),
+    resizeable: false,
+    startExpanded: true,
+    attributes: {
+        id: {},
     },
-
-    parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Insight,
-            },
-        ]
-    },
-
-    renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.Insight, mergeAttributes(HTMLAttributes)]
-    },
-
-    addNodeView() {
-        return ReactNodeViewRenderer(Component)
-    },
-
-    addPasteRules() {
-        return [
-            posthogNodePasteRule({
-                find: urls.insightView('(.+)' as InsightShortId),
-                type: this.type,
-                getAttributes: (match) => {
-                    return { id: match[1] }
-                },
-            }),
-        ]
+    pasteOptions: {
+        find: urls.insightView('(.+)' as InsightShortId),
+        getAttributes: async (match) => {
+            return { id: match[1] as InsightShortId }
+        },
     },
 })

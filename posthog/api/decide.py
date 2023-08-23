@@ -2,6 +2,7 @@ from random import random
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
+from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
@@ -24,13 +25,13 @@ from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
-from posthog.utils import cors_response, get_ip_address, load_data_from_request
+from posthog.utils import cors_response, get_ip_address, label_for_team_id_to_track, load_data_from_request
 
 
 FLAG_EVALUATION_COUNTER = Counter(
     "flag_evaluation_total",
     "Successful decide requests per team.",
-    labelnames=[LABEL_TEAM_ID, "errors_computing"],
+    labelnames=[LABEL_TEAM_ID, "errors_computing", "has_hash_key_override"],
 )
 
 
@@ -66,29 +67,6 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname
 
 def parse_domain(url: Any) -> Optional[str]:
     return urlparse(url).hostname
-
-
-def label_for_team_id_to_track(team_id: int) -> str:
-    team_id_filter = settings.DECIDE_TRACK_TEAM_IDS
-
-    team_id_as_string = str(team_id)
-
-    if "all" in team_id_filter:
-        return team_id_as_string
-
-    if team_id_as_string in team_id_filter:
-        return team_id_as_string
-
-    team_id_ranges = [team_id_range for team_id_range in team_id_filter if ":" in team_id_range]
-    for range in team_id_ranges:
-        try:
-            start, end = range.split(":")
-            if int(start) <= team_id <= int(end):
-                return team_id_as_string
-        except Exception:
-            pass
-
-    return "unknown"
 
 
 @csrf_exempt
@@ -169,8 +147,8 @@ def get_decide(request: HttpRequest):
 
             disable_flags = process_bool(data.get("disable_flags")) is True
             feature_flags = None
+            errors = False
             if not disable_flags:
-
                 distinct_id = data.get("distinct_id")
                 if distinct_id is None:
                     return cors_response(
@@ -221,7 +199,11 @@ def get_decide(request: HttpRequest):
 
                 # metrics for feature flags
                 team_id_label = label_for_team_id_to_track(team.pk)
-                FLAG_EVALUATION_COUNTER.labels(team_id=team_id_label, errors_computing=errors).inc()
+                FLAG_EVALUATION_COUNTER.labels(
+                    team_id=team_id_label,
+                    errors_computing=errors,
+                    has_hash_key_override=bool(data.get("$anon_distinct_id")),
+                ).inc()
             else:
                 response["featureFlags"] = {}
 
@@ -240,16 +222,15 @@ def get_decide(request: HttpRequest):
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
-                    "recorderVersion": team.session_recording_version
-                    if team.session_recording_version is not None
-                    else "v2",
+                    "recorderVersion": "v2",
                 }
 
             site_apps = []
-            if team.inject_web_apps:
+            # errors mean the database is unavailable, bail in this case
+            if team.inject_web_apps and not errors:
                 try:
-                    with execute_with_timeout(200):
-                        site_apps = get_decide_site_apps(team)
+                    with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
+                        site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
                 except Exception:
                     pass
 

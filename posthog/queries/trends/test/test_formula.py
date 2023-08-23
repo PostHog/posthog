@@ -110,12 +110,47 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             )
         return action_response
 
-    def test_hour_interval(self):
+    @snapshot_clickhouse_queries
+    def test_hour_interval_hour_level_relative(self):
+        data = self._run({"date_from": "-24h", "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
+        self.assertEqual(
+            data,
+            [
+                1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1350.0,
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_hour_interval_day_level_relative(self):
         data = self._run({"date_from": "-1d", "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
         self.assertEqual(
             data,
             [
-                1200.0,
+                1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
                 0.0,
                 0.0,
                 0.0,
@@ -205,6 +240,61 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0])
+
+    @snapshot_clickhouse_queries
+    def test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x(self):
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {
+                                "id": "$autocapture",
+                                "math": "unique_session",
+                                "properties": [
+                                    {"key": "$session_duration", "type": "session", "value": 30, "operator": "lt"}
+                                ],
+                            },
+                            {
+                                "id": "session start",
+                                "math": "unique_session",
+                                "properties": [
+                                    {"key": "$session_duration", "type": "session", "value": 500, "operator": "gt"}
+                                ],
+                            },
+                        ],
+                        "formula": "B",
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0])
+
+    @snapshot_clickhouse_queries
+    def test_regression_formula_with_session_duration_aggregation(self):
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {
+                                "type": "events",
+                                "id": "session start",
+                                "order": 0,
+                                "name": "$pageview",
+                                "math": "avg",
+                                "math_property": "$session_duration",
+                            },
+                            {"type": "events", "id": "session end", "order": 1, "name": "$pageview", "math": "total"},
+                        ],
+                        "formula": "A / B",
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 28860.0, 0.0])
 
     @snapshot_clickhouse_queries
     def test_aggregated_one_without_events(self):

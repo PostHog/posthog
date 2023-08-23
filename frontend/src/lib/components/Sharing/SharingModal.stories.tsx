@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { SharingModal, SharingModalProps } from './SharingModal'
 import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
@@ -12,15 +12,15 @@ const fakeInsight: Partial<InsightModel> = {
     filters: { insight: InsightType.TRENDS },
 }
 
-export default {
+const meta: Meta<typeof SharingModal> = {
     title: 'Components/Sharing',
     component: SharingModal,
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
-} as ComponentMeta<typeof SharingModal>
+}
+export default meta
 
 const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JSX.Element => {
     const { licensed = false, ...props } = args
@@ -77,7 +77,10 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
             <div className="bg-default p-2">
                 <SharingModal
                     {...(props as SharingModalProps)}
-                    closeModal={() => console.log('close')}
+                    closeModal={() => {
+                        // eslint-disable-next-line no-console
+                        console.log('close')
+                    }}
                     isOpen={true}
                     inline
                 />

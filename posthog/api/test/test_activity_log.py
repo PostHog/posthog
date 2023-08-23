@@ -1,5 +1,8 @@
-from typing import Any, Dict, Optional, Tuple
+from datetime import timedelta
+from typing import Any, Dict, Optional, Tuple, List
 
+from freezegun import freeze_time
+from freezegun.api import StepTickTimeFactory, FrozenDateTimeFactory
 from rest_framework import status
 
 from posthog.models import User
@@ -29,50 +32,124 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             email="other_user@posthog.com",
             password="",
         )
+        self.third_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="third_user@posthog.com",
+            password="",
+        )
+
+        # user one has created 10 insights and 2 flags
+        # user two has edited them all
+        # user three has edited most of them after that
+        self._create_and_edit_things()
 
     def _create_and_edit_things(self):
-        created_insights = []
-        for _ in range(0, 11):
-            insight_id, _ = self._create_insight({})
-            created_insights.append(insight_id)
 
-        flag_one = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/", _feature_flag_json_payload("one")
-        ).json()["id"]
+        with freeze_time("2023-08-17") as frozen_time:
+            # almost every change below will be more than 5 minutes apart
+            created_insights = []
+            for _ in range(0, 11):
+                frozen_time.tick(delta=timedelta(minutes=6))
+                insight_id, _ = self._create_insight({})
+                created_insights.append(insight_id)
 
-        flag_two = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/", _feature_flag_json_payload("two")
-        ).json()["id"]
+            frozen_time.tick(delta=timedelta(minutes=6))
+            flag_one = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", _feature_flag_json_payload("one")
+            ).json()["id"]
 
-        notebook_json = self.client.post(
-            f"/api/projects/{self.team.id}/notebooks/",
-            {"content": "print('hello world')", "name": "notebook"},
-        ).json()
+            frozen_time.tick(delta=timedelta(minutes=6))
+            flag_two = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", _feature_flag_json_payload("two")
+            ).json()["id"]
 
-        # other user now edits them
-        self.client.force_login(self.other_user)
-        for created_insight_id in created_insights:
+            frozen_time.tick(delta=timedelta(minutes=6))
+
+            notebook_json = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/",
+                {"content": "print('hello world')", "name": "notebook"},
+            ).json()
+
+            # other user now edits them
+            notebook_version = self._edit_them_all(
+                created_insights,
+                flag_one,
+                flag_two,
+                notebook_json["short_id"],
+                notebook_json["version"],
+                self.other_user,
+                frozen_time,
+            )
+            # third user edits them
+            self._edit_them_all(
+                created_insights,
+                flag_one,
+                flag_two,
+                notebook_json["short_id"],
+                notebook_version,
+                self.third_user,
+                frozen_time,
+            )
+
+            self.client.force_login(self.user)
+
+    def _edit_them_all(
+        self,
+        created_insights: List[int],
+        flag_one: str,
+        flag_two: str,
+        notebook_short_id: str,
+        notebook_version: int,
+        the_user: User,
+        frozen_time: FrozenDateTimeFactory | StepTickTimeFactory,
+    ) -> int:
+        self.client.force_login(the_user)
+        for created_insight_id in created_insights[:7]:
+            frozen_time.tick(delta=timedelta(minutes=6))
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{created_insight_id}",
-                {"name": f"{created_insight_id}-insight"},
+                {"name": f"{created_insight_id}-insight-changed-by-{the_user.id}"},
             )
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_one}", {"name": "one"})
-        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_two}", {"name": "two"})
-
-        self.client.patch(
-            f"/api/projects/{self.team.id}/notebooks/{notebook_json['short_id']}",
-            {"content": "print('hello world again')", "version": notebook_json["version"]},
+            frozen_time.tick(delta=timedelta(minutes=6))
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_one}", {"name": f"one-edited-by-{the_user.id}"}
+            ).status_code
+            == status.HTTP_200_OK
         )
 
-        self.client.force_login(self.user)
+        frozen_time.tick(delta=timedelta(minutes=6))
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_two}", {"name": f"two-edited-by-{the_user.id}"}
+            ).status_code
+            == status.HTTP_200_OK
+        )
+
+        frozen_time.tick(delta=timedelta(minutes=6))
+        # notebooks save while you're typing so, we get multiple activities per edit
+        for typed_text in [
+            "print",
+            "print(",
+            "print('hello world again')",
+            "print('hello world again from ",
+            f"print('hello world again from {the_user.id}')",
+        ]:
+            frozen_time.tick(delta=timedelta(seconds=5))
+            assert (
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/notebooks/{notebook_short_id}",
+                    {"content": typed_text, "version": notebook_version},
+                ).status_code
+                == status.HTTP_200_OK
+            )
+            notebook_version = notebook_version + 1
+
+        return notebook_version
 
     def test_can_get_top_ten_important_changes(self) -> None:
-        # user one has created 10 insights and 2 flags
-        # user two has edited them all
-        self._create_and_edit_things()
-
         # user one is shown the most recent 10 of those changes
         self.client.force_login(self.user)
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
@@ -93,13 +170,77 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         ]
         assert [c["unread"] for c in results] == [True] * 10
 
-    def test_reading_notifications_marks_them_unread(self):
-        # user one has created 10 insights and 2 flags
-        # user two has edited them all
-        self._create_and_edit_things()
+    def test_can_get_top_ten_important_changes_including_my_edits(self) -> None:
+        # user two is _also_ shown the most recent 10 of those changes
+        # because they edited those things
+        # and they were then changed
+        self.client.force_login(self.other_user)
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
+        results = changes.json()["results"]
+        assert [(c["user"]["id"], c["scope"]) for c in results] == [
+            (
+                self.third_user.pk,
+                "Notebook",
+            ),
+            (
+                self.third_user.pk,
+                "FeatureFlag",
+            ),
+            (
+                self.third_user.pk,
+                "FeatureFlag",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+            (
+                self.third_user.pk,
+                "Insight",
+            ),
+        ]
+        assert [c["unread"] for c in results] == [True] * 10
 
+    def test_reading_notifications_marks_them_unread(self):
+        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
+        assert changes.status_code == status.HTTP_200_OK
+        assert len(changes.json()["results"]) == 10
+        assert changes.json()["last_read"] is None
+        assert [c["unread"] for c in changes.json()["results"]] == [True] * 10
+        assert [c["created_at"] for c in changes.json()["results"]] == [
+            # time is frozen in test setup so
+            "2023-08-17T04:36:50Z",
+            "2023-08-17T04:30:25Z",
+            "2023-08-17T04:24:25Z",
+            "2023-08-17T04:18:25Z",
+            "2023-08-17T04:06:25Z",
+            "2023-08-17T03:54:25Z",
+            "2023-08-17T03:42:25Z",
+            "2023-08-17T03:30:25Z",
+            "2023-08-17T03:18:25Z",
+            "2023-08-17T03:06:25Z",
+        ]
         most_recent_date = changes.json()["results"][2]["created_at"]
 
         # the user can mark where they have read up to
@@ -109,9 +250,9 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert bookmark_response.status_code == status.HTTP_204_NO_CONTENT
 
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
-
-        assert [c["unread"] for c in changes.json()["results"]] == [True, True] + ([False] * 8)
-        assert changes.json()["last_read"] == most_recent_date
+        assert changes.status_code == status.HTTP_200_OK
+        assert changes.json()["last_read"] == "2023-08-17T04:24:25Z"
+        assert [c["unread"] for c in changes.json()["results"]] == [True, True]
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED

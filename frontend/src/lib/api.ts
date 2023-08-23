@@ -8,11 +8,13 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataWarehouseTable,
+    DataWarehouseSavedQuery,
     EarlyAccessFeatureType,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
     EventType,
+    Experiment,
     ExportedAssetType,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
@@ -42,6 +44,10 @@ import {
     Survey,
     TeamType,
     UserType,
+    BatchExportConfiguration,
+    BatchExportRun,
+    NotebookNodeType,
+    UserBasicType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -99,7 +105,7 @@ export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
-        return { statusText: response.statusText }
+        return { statusText: response.statusText, status: response.status }
     }
 }
 
@@ -296,6 +302,9 @@ class ApiRequest {
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recordings')
     }
+    public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent('matching_events')
+    }
     public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
     }
@@ -351,6 +360,15 @@ class ApiRequest {
 
     public dashboardTemplateSchema(): ApiRequest {
         return this.dashboardTemplates().addPathComponent('json_schema')
+    }
+
+    // # Experiments
+    public experiments(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('experiments')
+    }
+
+    public experimentsDetail(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.experiments(teamId).addPathComponent(experimentId)
     }
 
     // # Roles
@@ -440,6 +458,14 @@ class ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
     }
 
+    // # Warehouse view
+    public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_query')
+    }
+    public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('subscriptions')
@@ -493,8 +519,28 @@ class ApiRequest {
         return this.notebooks(teamId).addPathComponent(id)
     }
 
-    // Request finalization
+    // Batch Exports
+    public batchExports(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('batch_exports')
+    }
 
+    public batchExport(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id)
+    }
+
+    public batchExportRuns(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
+    }
+
+    public batchExportRun(
+        id: BatchExportConfiguration['id'],
+        runId: BatchExportRun['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.batchExportRuns(id, teamId).addPathComponent(runId)
+    }
+
+    // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
     }
@@ -861,6 +907,10 @@ const api = {
     },
 
     dashboards: {
+        async get(id: number): Promise<DashboardType> {
+            return new ApiRequest().dashboardsDetail(id).get()
+        },
+
         collaborators: {
             async list(dashboardId: DashboardType['id']): Promise<DashboardCollaboratorType[]> {
                 return await new ApiRequest().dashboardCollaborators(dashboardId).get()
@@ -918,6 +968,12 @@ const api = {
         },
         determineSchemaUrl(): string {
             return new ApiRequest().dashboardTemplateSchema().assembleFullUrl()
+        },
+    },
+
+    experiments: {
+        async get(id: number): Promise<Experiment> {
+            return new ApiRequest().experimentsDetail(id).get()
         },
     },
 
@@ -1120,6 +1176,9 @@ const api = {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
         },
+        async getMatchingEvents(params: string): Promise<{ results: string[] }> {
+            return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
+        },
         async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(params).get()
         },
@@ -1141,6 +1200,17 @@ const api = {
                 .withAction('snapshots')
                 .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
                 .getResponse()
+
+            try {
+                const textLines = await response.text()
+
+                if (textLines) {
+                    return textLines.split('\n')
+                }
+            } catch (e) {
+                // Must be gzipped
+            }
+
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
@@ -1212,14 +1282,81 @@ const api = {
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<NotebookType>> {
-            return await new ApiRequest().notebooks().get()
+        async list(
+            contains?: { type: NotebookNodeType; attrs: Record<string, string> }[],
+            createdBy?: UserBasicType['uuid'],
+            search?: string
+        ): Promise<PaginatedResponse<NotebookType>> {
+            // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
+            const apiRequest = new ApiRequest().notebooks()
+            let q = {}
+            if (contains?.length) {
+                const containsString =
+                    contains
+                        .map(({ type, attrs }) => {
+                            const target = type.replace(/^ph-/, '')
+                            const match = attrs['id'] ? `:${attrs['id']}` : ''
+                            return `${target}${match}`
+                        })
+                        .join(',') || undefined
+                q = { ...q, contains: containsString, created_by: createdBy }
+            }
+            if (createdBy) {
+                q = { ...q, created_by: createdBy }
+            }
+            if (search) {
+                q = { ...q, s: search }
+            }
+            return await apiRequest.withQueryString(q).get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()
+        },
+    },
+
+    batchExports: {
+        async list(params: Record<string, any> = {}): Promise<CountedPaginatedResponse<BatchExportConfiguration>> {
+            return await new ApiRequest().batchExports().withQueryString(toParams(params)).get()
+        },
+        async get(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).get()
+        },
+        async update(
+            id: BatchExportConfiguration['id'],
+            data: Partial<BatchExportConfiguration>
+        ): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).update({ data })
+        },
+
+        async create(data?: Partial<BatchExportConfiguration>): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExports().create({ data })
+        },
+        async delete(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).delete()
+        },
+
+        async pause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).withAction('pause').create()
+        },
+
+        async unpause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).withAction('unpause').create()
+        },
+
+        async listRuns(
+            id: BatchExportConfiguration['id'],
+            params: Record<string, any> = {}
+        ): Promise<PaginatedResponse<BatchExportRun>> {
+            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
+        },
+        async createBackfill(
+            id: BatchExportConfiguration['id'],
+            data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
+        ): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
         },
     },
 
@@ -1280,6 +1417,27 @@ const api = {
             data: Pick<DataWarehouseTable, 'name'>
         ): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
+        },
+    },
+
+    dataWarehouseSavedQueries: {
+        async list(): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
+            return await new ApiRequest().dataWarehouseSavedQueries().get()
+        },
+        async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()
+        },
+        async create(data: Partial<DataWarehouseSavedQuery>): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQueries().create({ data })
+        },
+        async delete(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQuery(viewId).delete()
+        },
+        async update(
+            viewId: DataWarehouseSavedQuery['id'],
+            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+        ): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
     },
 
@@ -1372,7 +1530,7 @@ const api = {
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
-    async get(url: string, options?: ApiMethodOptions): Promise<any> {
+    async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)
     },

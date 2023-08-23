@@ -181,9 +181,13 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
             elif key == "date_from":
-                queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
+                queryset = queryset.filter(
+                    last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
+                )
             elif key == "date_to":
-                queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
+                queryset = queryset.filter(
+                    last_modified_at__lt=relative_date_parse(request.GET["date_to"], self.team.timezone_info)
+                )
             elif key == "search":
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
@@ -196,17 +200,15 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
     @action(methods=["GET"], detail=True, url_path="recordings")
     def recordings(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         playlist = self.get_object()
-        playlist_items = (
+        playlist_items = list(
             SessionRecordingPlaylistItem.objects.filter(playlist=playlist)
             .exclude(deleted=True)
             .order_by("-created_at")
-            .all()
+            .values_list("recording_id", flat=True)
         )
 
         filter = SessionRecordingsFilter(request=request, team=self.team)
-        filter = filter.shallow_clone(
-            {SESSION_RECORDINGS_FILTER_IDS: json.dumps([x.recording_id for x in playlist_items])}
-        )
+        filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(playlist_items)})
 
         return response.Response(list_recordings(filter, request, context=self.get_serializer_context()))
 

@@ -35,7 +35,7 @@ describe('DB', () => {
     const CLICKHOUSE_TIMESTAMP = '2000-10-14 11:42:06.502' as ClickHouseTimestamp
 
     function fetchGroupCache(teamId: number, groupTypeIndex: number, groupKey: string) {
-        return db.redisGet(db.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey), null)
+        return db.redisGet(db.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey), null, 'fetchGroupCache')
     }
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
@@ -183,6 +183,8 @@ describe('DB', () => {
                                 target: 'https://rest-hooks.example.com/',
                             },
                         ],
+                        bytecode: null,
+                        bytecode_error: null,
                     },
                 },
             })

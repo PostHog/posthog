@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import json
+import posixpath
 import tempfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
@@ -19,6 +20,7 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
+    get_data_interval,
     get_results_iterator,
     get_rows_count,
 )
@@ -42,6 +44,19 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
         "data_interval_end": inputs.data_interval_end,
         "table": "events",
     }
+
+
+def get_s3_key(inputs) -> str:
+    """Return an S3 key given S3InsertInputs."""
+    template_variables = get_allowed_template_variables(inputs)
+    key_prefix = inputs.prefix.format(**template_variables)
+    key = posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl")
+
+    if posixpath.isabs(key):
+        # Keys are relative to root dir, so this would add an extra "/"
+        key = posixpath.relpath(key, "/")
+
+    return key
 
 
 @dataclass
@@ -91,22 +106,20 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 "Nothing to export in batch %s - %s. Exiting.",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
-                count,
             )
             return
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         # Create a multipart upload to S3
-        template_variables = get_allowed_template_variables(inputs)
-        key_prefix = inputs.prefix.format(**template_variables)
-        key = f"{key_prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
+        key = get_s3_key(inputs)
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
         )
+
         details = activity.info().heartbeat_details
 
         parts: List[CompletedPartTypeDef] = []
@@ -150,8 +163,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         with tempfile.NamedTemporaryFile() as local_results_file:
             while True:
                 try:
-                    result = await results_iterator.__anext__()
-                except StopAsyncIteration:
+                    result = results_iterator.__next__()
+                except StopIteration:
                     break
                 except json.JSONDecodeError:
                     # This is raised by aiochclient as we try to decode an error message from ClickHouse.
@@ -181,8 +194,23 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 if not result:
                     break
 
+                content = json.dumps(
+                    {
+                        "created_at": result["created_at"],
+                        "distinct_id": result["distinct_id"],
+                        "elements_chain": result["elements_chain"],
+                        "event": result["event"],
+                        "inserted_at": result["inserted_at"],
+                        "person_id": result["person_id"],
+                        "person_properties": result["person_properties"],
+                        "properties": result["properties"],
+                        "timestamp": result["timestamp"],
+                        "uuid": result["uuid"],
+                    }
+                )
+
                 # Write the results to a local file
-                local_results_file.write(json.dumps(result).encode("utf-8"))
+                local_results_file.write(content.encode("utf-8"))
                 local_results_file.write("\n".encode("utf-8"))
 
                 # Write results to S3 when the file reaches 50MB and reset the
@@ -255,7 +283,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         workflow.logger.info("Starting S3 export")
 
-        data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(inputs)
+        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -266,10 +294,11 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         run_id = await workflow.execute_activity(
             create_export_run,
             create_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
-            schedule_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
-                maximum_attempts=3,
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
@@ -292,10 +321,12 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(
-                    maximum_attempts=6,
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=120),
+                    maximum_attempts=10,
                     non_retryable_error_types=[
-                        # Validation failed, and will keep failing.
-                        "ValueError",
+                        # S3 parameter validation failed.
+                        "ParamValidationError",
                     ],
                 ),
             )
@@ -309,56 +340,11 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 update_export_run_status,
                 update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
             )
-
-
-def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple[dt.datetime, dt.datetime]:
-    """Return the start and end of an export's data interval.
-
-    Args:
-        inputs: The S3 BatchExport inputs.
-
-    Raises:
-        TypeError: If when trying to obtain the data interval end we run into non-str types.
-
-    Returns:
-        A tuple of two dt.datetime indicating start and end of the data_interval.
-    """
-    data_interval_end_str = inputs.data_interval_end
-
-    if not data_interval_end_str:
-        data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
-
-        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
-        # So, they exist to make mypy happy.
-        if data_interval_end_search_attr is None:
-            msg = (
-                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
-                "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
-            )
-            raise TypeError(msg)
-
-        # Failing here would perhaps be a bug in Temporal.
-        if isinstance(data_interval_end_search_attr[0], str):
-            data_interval_end_str = data_interval_end_search_attr[0]
-            data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-        elif isinstance(data_interval_end_search_attr[0], dt.datetime):
-            data_interval_end = data_interval_end_search_attr[0]
-
-        else:
-            msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
-                f"of type '{type(data_interval_end_search_attr[0])}'."
-            )
-            raise TypeError(msg)
-    else:
-        data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-    data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
-
-    return (data_interval_start, data_interval_end)

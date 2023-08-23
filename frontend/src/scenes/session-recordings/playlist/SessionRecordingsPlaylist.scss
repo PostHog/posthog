@@ -56,8 +56,8 @@
     gap: 0.5rem;
 }
 
-.SessionRecordingsPlaylist__list-item {
-    .SessionRecordingsPlaylist__list-item__property-icon:hover {
+.SessionRecordingPreview {
+    .SessionRecordingPreview__property-icon:hover {
         transition: opacity 200ms;
         opacity: 1;
     }

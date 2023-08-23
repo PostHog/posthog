@@ -1,11 +1,15 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonButton } from '../LemonButton'
+import { useEffect } from 'react'
 
-export default {
+type Story = StoryObj<typeof LemonTable>
+const meta: Meta<typeof LemonTable> = {
     title: 'Lemon UI/Lemon Table',
     component: LemonTable,
-} as ComponentMeta<typeof LemonTable>
+    tags: ['autodocs'],
+}
+export default meta
 
 interface MockPerson {
     name: string
@@ -18,7 +22,7 @@ interface MockFunnelSeries {
 }
 
 // @ts-expect-error
-const GroupedTemplate: ComponentStory<typeof LemonTable> = (props: LemonTableProps<MockFunnelSeries>) => {
+const GroupedTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<MockFunnelSeries>) => {
     return (
         <LemonTable
             {...props}
@@ -88,7 +92,7 @@ const GroupedTemplate: ComponentStory<typeof LemonTable> = (props: LemonTablePro
 }
 
 // @ts-expect-error
-const BasicTemplate: ComponentStory<typeof LemonTable> = (props: LemonTableProps<MockPerson>) => {
+const BasicTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<MockPerson>) => {
     return (
         <LemonTable
             {...props}
@@ -133,7 +137,7 @@ const BasicTemplate: ComponentStory<typeof LemonTable> = (props: LemonTableProps
     )
 }
 
-const EmptyTemplate: ComponentStory<typeof LemonTable> = (props: LemonTableProps<Record<string, any>>) => {
+const EmptyTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<Record<string, any>>) => {
     return (
         <LemonTable
             {...props}
@@ -146,19 +150,19 @@ const EmptyTemplate: ComponentStory<typeof LemonTable> = (props: LemonTableProps
     )
 }
 
-export const Basic = BasicTemplate.bind({})
+export const Basic: Story = BasicTemplate.bind({})
 Basic.args = {}
 
-export const Grouped = GroupedTemplate.bind({})
+export const Grouped: Story = GroupedTemplate.bind({})
 Grouped.args = {}
 
-export const Empty = EmptyTemplate.bind({})
+export const Empty: Story = EmptyTemplate.bind({})
 Empty.args = {}
 
-export const PaginatedAutomatically = BasicTemplate.bind({})
+export const PaginatedAutomatically: Story = BasicTemplate.bind({})
 PaginatedAutomatically.args = { nouns: ['person', 'people'], pagination: { pageSize: 3 } }
 
-export const WithExpandableRows = BasicTemplate.bind({})
+export const WithExpandableRows: Story = BasicTemplate.bind({})
 WithExpandableRows.args = {
     expandable: {
         rowExpandable: (record) => record.occupation !== 'Retired',
@@ -168,34 +172,34 @@ WithExpandableRows.args = {
     },
 }
 
-export const Small = BasicTemplate.bind({})
+export const Small: Story = BasicTemplate.bind({})
 Small.args = { size: 'small' }
 
-export const XSmall = BasicTemplate.bind({})
+export const XSmall: Story = BasicTemplate.bind({})
 XSmall.args = { size: 'xs' }
 
-export const Embedded = BasicTemplate.bind({})
+export const Embedded: Story = BasicTemplate.bind({})
 Embedded.args = { embedded: true }
 
-export const BorderlessRows = BasicTemplate.bind({})
+export const BorderlessRows: Story = BasicTemplate.bind({})
 BorderlessRows.args = { borderedRows: false }
 
-export const Loading = BasicTemplate.bind({})
+export const Loading: Story = BasicTemplate.bind({})
 Loading.args = { loading: true }
 
-export const EmptyLoading = EmptyTemplate.bind({})
+export const EmptyLoading: Story = EmptyTemplate.bind({})
 EmptyLoading.args = { loading: true }
 
-export const EmptyLoadingWithManySkeletonRows = EmptyTemplate.bind({})
+export const EmptyLoadingWithManySkeletonRows: Story = EmptyTemplate.bind({})
 EmptyLoadingWithManySkeletonRows.args = { loading: true, loadingSkeletonRows: 10 }
 
-export const WithoutHeader = BasicTemplate.bind({})
+export const WithoutHeader: Story = BasicTemplate.bind({})
 WithoutHeader.args = { showHeader: false }
 
-export const WithoutUppercasingInHeader = BasicTemplate.bind({})
+export const WithoutUppercasingInHeader: Story = BasicTemplate.bind({})
 WithoutUppercasingInHeader.args = { uppercaseHeader: false }
 
-export const WithFooter = BasicTemplate.bind({})
+export const WithFooter: Story = BasicTemplate.bind({})
 WithFooter.args = {
     footer: (
         <>
@@ -208,7 +212,7 @@ WithFooter.args = {
     ),
 }
 
-export const WithColorCodedRows = BasicTemplate.bind({})
+export const WithColorCodedRows: Story = BasicTemplate.bind({})
 WithColorCodedRows.args = {
     rowRibbonColor: ({ occupation }) =>
         occupation === 'Engineer'
@@ -220,10 +224,80 @@ WithColorCodedRows.args = {
             : null,
 }
 
-export const WithHighlightedRows = BasicTemplate.bind({})
+export const WithHighlightedRows: Story = BasicTemplate.bind({})
 WithHighlightedRows.args = {
     rowStatus: ({ occupation }) => (['Retired', 'Body-builder'].includes(occupation) ? 'highlighted' : null),
 }
 
-export const WithMandatorySorting = BasicTemplate.bind({})
+export const WithMandatorySorting: Story = BasicTemplate.bind({})
 WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true }
+
+export const WithStickyFirstColumn = (): JSX.Element => {
+    useEffect(() => {
+        const scrollableInner = document.querySelector(
+            '#story--lemon-ui-lemon-table--with-sticky-first-column .scrollable__inner'
+        )
+        if (scrollableInner) {
+            scrollableInner.scrollLeft = 20
+        }
+    }, [])
+
+    return (
+        <LemonTable
+            className="max-w-100"
+            firstColumnSticky
+            columns={[
+                {
+                    title: 'Name',
+                    dataIndex: 'name',
+                    sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
+                },
+                {
+                    title: 'Occupation',
+                    dataIndex: 'occupation',
+                    tooltip: 'What they are primarily working on.',
+                    sorter: (a, b) => a.occupation.localeCompare(b.occupation),
+                },
+                {
+                    title: 'Age',
+                    key: 'age',
+                    render: (_, person) => `${person.name.length * 12} years`,
+                },
+                {
+                    title: 'Zodiac sign',
+                    key: 'zodiac',
+                    render: () => 'Gemini',
+                },
+                {
+                    title: 'Favorite color',
+                    key: 'color',
+                    render: (_, person) => (person.occupation === 'Engineer' ? 'Blue' : 'Red'),
+                },
+            ]}
+            dataSource={
+                [
+                    {
+                        name: 'Werner C.',
+                        occupation: 'Engineer',
+                    },
+                    {
+                        name: 'Ursula Z.',
+                        occupation: 'Retired',
+                    },
+                    {
+                        name: 'Ludwig A.',
+                        occupation: 'Painter',
+                    },
+                    {
+                        name: 'Arnold S.',
+                        occupation: 'Body-builder',
+                    },
+                    {
+                        name: 'Franz B.',
+                        occupation: 'Teacher',
+                    },
+                ] as MockPerson[]
+            }
+        />
+    )
+}

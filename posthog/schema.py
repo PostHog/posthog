@@ -46,6 +46,7 @@ class BreakdownType(str, Enum):
     event = "event"
     group = "group"
     session = "session"
+    hogql = "hogql"
 
 
 class ChartDisplayType(str, Enum):
@@ -442,6 +443,7 @@ class TrendsFilter(BaseModel):
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
+    show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
@@ -549,6 +551,7 @@ class HogQLMetadataResponse(BaseModel):
     inputExpr: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None
+    isValidView: Optional[bool] = None
     notices: List[HogQLNotice]
     warnings: List[HogQLNotice]
 
@@ -892,6 +895,9 @@ class DataTableNode(BaseModel):
     showOpenEditorButton: Optional[bool] = Field(
         None, description="Show a button to open the current query as a new insight. (default: true)"
     )
+    showPersistentColumnConfigurator: Optional[bool] = Field(
+        None, description="Show a button to configure and persist the table's default columns if possible"
+    )
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
@@ -1137,7 +1143,6 @@ class InsightVizNode(BaseModel):
     showHeader: Optional[bool] = None
     showLastComputation: Optional[bool] = None
     showLastComputationRefresh: Optional[bool] = None
-    showLegendButton: Optional[bool] = None
     showTable: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 

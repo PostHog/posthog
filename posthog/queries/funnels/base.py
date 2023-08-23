@@ -33,7 +33,7 @@ from posthog.queries.breakdown_props import (
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.util import correct_result_for_sampling, get_person_properties_mode
-from posthog.utils import PersonOnEventsMode, relative_date_parse
+from posthog.utils import PersonOnEventsMode, relative_date_parse, generate_short_id
 
 
 class ClickhouseFunnelBase(ABC):
@@ -133,7 +133,7 @@ class ClickhouseFunnelBase(ABC):
         # format default dates
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
-            data.update({"date_from": relative_date_parse("-7d")})
+            data.update({"date_from": relative_date_parse("-7d", self._team.timezone_info)})
 
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})
@@ -195,8 +195,9 @@ class ClickhouseFunnelBase(ABC):
         num_entities = len(self._filter.entities)
         breakdown_value = results[-1]
 
-        for step in reversed(self._filter.entities):
+        cache_invalidation_key = generate_short_id()
 
+        for step in reversed(self._filter.entities):
             if results and len(results) > 0:
                 total_people += results[step.index]
 
@@ -240,9 +241,9 @@ class ClickhouseFunnelBase(ABC):
 
             serialized_result.update(
                 {
-                    "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}",
+                    "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}&cache_invalidation_key={cache_invalidation_key}",
                     "dropped_people_url": (
-                        f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
+                        f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}&cache_invalidation_key={cache_invalidation_key}"
                         # NOTE: If we are looking at the first step, there is no drop off,
                         # everyone converted, otherwise they would not have been
                         # included in the funnel.
@@ -266,6 +267,7 @@ class ClickhouseFunnelBase(ABC):
             return self._format_single_funnel(results[0])
 
     def _exec_query(self) -> List[Tuple]:
+        self._filter.team = self._team
         query = self.get_query()
         return insight_sync_execute(
             query,

@@ -75,7 +75,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
                                 results: [`List of playlists filtered by createdBy`],
                             },
                         ]
-                    } else if (!!searchParams.get('pinned')) {
+                    } else if (searchParams.get('pinned')) {
                         return [
                             200,
                             {

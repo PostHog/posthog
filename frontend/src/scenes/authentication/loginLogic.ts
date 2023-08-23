@@ -31,7 +31,9 @@ export function handleLoginRedirect(): void {
         if (url.protocol === 'http:' || url.protocol === 'https:') {
             nextURL = url.pathname + url.search + url.hash
         }
-    } catch (e) {}
+    } catch (e) {
+        // do nothing
+    }
     // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change.
     router.actions.replace(nextURL)
 }
@@ -126,7 +128,7 @@ export const loginLogic = kea<loginLogicType>([
         },
     }),
     urlToAction(({ actions }) => ({
-        '/login': ({}, { error_code, error_detail, email }) => {
+        '/login': (_, { error_code, error_detail, email }) => {
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})

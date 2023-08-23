@@ -16,6 +16,13 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonButton } from '@posthog/lemon-ui'
+import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { ChartDisplayType } from '~/types'
+import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -28,6 +35,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         disableDateRange,
         showCompare,
         showValueOnSeries,
+        showPercentStackView,
         showUnit,
         showChart,
         showInterval,
@@ -36,7 +44,49 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showPaths,
         showFunnelDisplayLayout,
         showFunnelBins,
+        display,
+        compare,
+        trendsFilter,
+        hasLegend,
     } = useValues(insightDisplayConfigLogic(insightProps))
+
+    const { showPercentStackView: isPercentStackViewOn, showValueOnSeries: isValueOnSeriesOn } = useValues(
+        trendsDataLogic(insightProps)
+    )
+
+    const advancedOptions: LemonMenuItems = [
+        ...(showValueOnSeries || showPercentStackView || hasLegend
+            ? [
+                  {
+                      title: 'Display',
+                      items: [
+                          ...(showValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                          ...(showPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                          ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                      ],
+                  },
+              ]
+            : []),
+        ...(!isPercentStackViewOn && showUnit
+            ? [
+                  {
+                      title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
+                      items: [{ label: () => <UnitPicker /> }],
+                  },
+              ]
+            : []),
+    ]
+    const advancedOptionsCount: number =
+        (showCompare && compare ? 1 : 0) +
+        (showValueOnSeries && isValueOnSeriesOn ? 1 : 0) +
+        (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
+        (!isPercentStackViewOn &&
+        showUnit &&
+        trendsFilter?.aggregation_axis_format &&
+        trendsFilter.aggregation_axis_format !== 'numeric'
+            ? 1
+            : 0) +
+        (hasLegend && trendsFilter?.show_legend ? 1 : 0)
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
@@ -77,32 +127,27 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                         <CompareFilter />
                     </ConfigFilter>
                 )}
-
-                {showValueOnSeries && (
-                    <ConfigFilter>
-                        <ValueOnSeriesFilter />
-                    </ConfigFilter>
-                )}
             </div>
-            <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
-                {showUnit && (
-                    <ConfigFilter>
-                        <UnitPicker />
-                    </ConfigFilter>
+            <div className="flex items-center space-x-2 flex-wrap my-2 grow justify-end">
+                {advancedOptions.length > 0 && (
+                    <LemonMenu items={advancedOptions} closeOnClickInside={false}>
+                        <LemonButton size="small" status="stealth">
+                            <span className="font-medium whitespace-nowrap">
+                                Options{advancedOptionsCount ? ` (${advancedOptionsCount})` : null}
+                            </span>
+                        </LemonButton>
+                    </LemonMenu>
                 )}
-
                 {showChart && (
                     <ConfigFilter>
                         <ChartFilter />
                     </ConfigFilter>
                 )}
-
                 {showFunnelDisplayLayout && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
-
                 {showFunnelBins && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
