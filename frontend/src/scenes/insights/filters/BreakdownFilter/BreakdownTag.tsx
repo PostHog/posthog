@@ -12,6 +12,8 @@ import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
 import { cohortsModel } from '~/models/cohortsModel'
 import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 
+import './BreakdownTag.scss'
+
 type BreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType
@@ -81,7 +83,7 @@ export function BreakdownTagComponent({
     }
 
     return (
-        <LemonTag className="taxonomic-breakdown-filter tag-pill" {...props}>
+        <LemonTag className="breakdown-tag" {...props}>
             {breakdownType === 'hogql' ? (
                 <HoqQLPropertyInfo value={propertyName as string} />
             ) : (

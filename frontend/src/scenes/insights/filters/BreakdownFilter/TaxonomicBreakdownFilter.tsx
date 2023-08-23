@@ -3,7 +3,6 @@ import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilte
 import { BreakdownFilter } from '~/queries/schema'
 import { ChartDisplayType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
-import './TaxonomicBreakdownFilter.scss'
 import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 
 export interface TaxonomicBreakdownFilterProps {
