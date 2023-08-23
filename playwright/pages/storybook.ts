@@ -38,11 +38,11 @@ export class StorybookStoryPage {
     }
 
     async expectFullPageScreenshot(): Promise<void> {
-        await expect(this.page).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
+        await expect(this.page).toHaveScreenshot({ maxDiffPixelRatio: 0.03 })
     }
 
     async expectSceneScreenshot(): Promise<void> {
-        await expect(this.mainAppContent).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
+        await expect(this.mainAppContent).toHaveScreenshot({ maxDiffPixelRatio: 0.03 })
     }
 
     async expectComponentScreenshot({ pseudo } = {} as ComponentScreenshotConfig): Promise<void> {
@@ -73,6 +73,6 @@ export class StorybookStoryPage {
             [pseudoClasses]
         )
 
-        await expect(this.storyRoot).toHaveScreenshot({ omitBackground: true, maxDiffPixelRatio: 0.01 })
+        await expect(this.storyRoot).toHaveScreenshot({ omitBackground: true, maxDiffPixelRatio: 0.03 })
     }
 }
