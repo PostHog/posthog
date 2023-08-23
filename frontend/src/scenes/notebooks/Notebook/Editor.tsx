@@ -10,6 +10,7 @@ import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
+import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
@@ -88,6 +89,7 @@ export function Editor({
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
+            NotebookNodeFlagCodeExample,
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,

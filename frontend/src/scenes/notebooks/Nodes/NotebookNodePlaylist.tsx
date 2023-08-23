@@ -18,7 +18,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
 
@@ -42,7 +42,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     const { expanded } = useValues(notebookNodeLogic)
 
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
     if (!expanded) {
@@ -62,9 +62,9 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
             <SessionRecordingPlayer
                 playerKey={playerKey}
                 sessionRecordingId={activeSessionRecording.id}
-                matching={activeSessionRecording?.matching_events}
                 recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                 nextSessionRecording={nextSessionRecording}
+                matchingEventsMatchType={matchingEventsMatchType}
             />
         </>
     )
@@ -137,3 +137,10 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         },
     ],
 })
+
+export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent {
+    return {
+        type: NotebookNodeType.RecordingPlaylist,
+        attrs: { filters },
+    }
+}

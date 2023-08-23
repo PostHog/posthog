@@ -1571,7 +1571,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
@@ -3037,6 +3037,7 @@ export enum NotebookNodeType {
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
+    FeatureFlagCodeExample = 'ph-feature-flag-code-example',
     Person = 'ph-person',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',

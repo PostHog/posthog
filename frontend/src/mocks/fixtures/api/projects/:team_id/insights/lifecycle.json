@@ -1,0 +1,216 @@
+{
+    "id": 51,
+    "short_id": "jEAIVJnF",
+    "name": "",
+    "derived_name": "User lifecycle based on Pageview",
+    "filters": {
+        "events": [
+            {
+                "id": "$pageview",
+                "math": "total",
+                "name": "$pageview",
+                "type": "events",
+                "order": 0
+            }
+        ],
+        "actions": [],
+        "compare": false,
+        "display": "ActionsLineGraph",
+        "insight": "LIFECYCLE",
+        "interval": "day",
+        "shown_as": "Lifecycle",
+        "properties": {
+            "type": "AND",
+            "values": []
+        },
+        "step_limit": 5,
+        "funnel_filter": {},
+        "exclude_events": [],
+        "path_groupings": [],
+        "include_event_types": ["$pageview"],
+        "filter_test_accounts": false,
+        "local_path_cleaning_filters": []
+    },
+    "filters_hash": "cache_aa11294b4c87ebf92d0d5c6672b319ff",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "total",
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - new",
+            "count": 20090,
+            "data": [10220, 6578, 2174, 1065, 0, 0, 53, 0],
+            "labels": [
+                "8-Mar-2022",
+                "9-Mar-2022",
+                "10-Mar-2022",
+                "11-Mar-2022",
+                "12-Mar-2022",
+                "13-Mar-2022",
+                "14-Mar-2022",
+                "15-Mar-2022"
+            ],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "status": "new"
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "total",
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - dormant",
+            "count": -26932,
+            "data": [-6752, -10221, -6634, -2200, -1071, 0, 0, -54],
+            "labels": [
+                "8-Mar-2022",
+                "9-Mar-2022",
+                "10-Mar-2022",
+                "11-Mar-2022",
+                "12-Mar-2022",
+                "13-Mar-2022",
+                "14-Mar-2022",
+                "15-Mar-2022"
+            ],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "status": "dormant"
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "total",
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - resurrecting",
+            "count": 59,
+            "data": [2, 32, 21, 3, 0, 0, 1, 0],
+            "labels": [
+                "8-Mar-2022",
+                "9-Mar-2022",
+                "10-Mar-2022",
+                "11-Mar-2022",
+                "12-Mar-2022",
+                "13-Mar-2022",
+                "14-Mar-2022",
+                "15-Mar-2022"
+            ],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "status": "resurrecting"
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": "total",
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - returning",
+            "count": 74,
+            "data": [31, 32, 8, 3, 0, 0, 0, 0],
+            "labels": [
+                "8-Mar-2022",
+                "9-Mar-2022",
+                "10-Mar-2022",
+                "11-Mar-2022",
+                "12-Mar-2022",
+                "13-Mar-2022",
+                "14-Mar-2022",
+                "15-Mar-2022"
+            ],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "status": "returning"
+        }
+    ],
+    "created_at": "2022-03-15T21:31:00.192917Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Marius",
+        "email": "marius@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-03-15T21:50:54.662029Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-03-15T21:50:54.655326Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Marius",
+        "email": "marius@posthog.com"
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37
+}

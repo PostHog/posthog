@@ -4,8 +4,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 from rest_framework.request import Request
 
 from posthog.constants import INSIGHT_RETENTION
-from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.mixins.common import (
+from .base_filter import BaseFilter
+from .mixins.common import (
     BreakdownMixin,
     ClientQueryIdMixin,
     DisplayDerivedMixin,
@@ -15,12 +15,12 @@ from posthog.models.filters.mixins.common import (
     OffsetMixin,
     SampleMixin,
 )
-from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin
-from posthog.models.filters.mixins.groups import GroupsAggregationMixin
-from posthog.models.filters.mixins.property import PropertyMixin
-from posthog.models.filters.mixins.retention import EntitiesDerivedMixin, RetentionDateDerivedMixin, RetentionTypeMixin
-from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict
+from .mixins.funnel import FunnelCorrelationMixin
+from .mixins.groups import GroupsAggregationMixin
+from .mixins.property import PropertyMixin
+from .mixins.retention import EntitiesDerivedMixin, RetentionDateDerivedMixin, RetentionTypeMixin
+from .mixins.simplify import SimplifyFilterMixin
+from .mixins.utils import cached_property, include_dict
 
 RETENTION_DEFAULT_INTERVALS = 11
 

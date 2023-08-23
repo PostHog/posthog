@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List
@@ -13,6 +14,7 @@ from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.api.test.test_team import create_team
+from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
@@ -26,6 +28,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_postgres_queries,
     FuzzyInt,
+    _create_event,
 )
 
 
@@ -169,7 +172,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthog.api.session_recording.SessionRecordingListFromReplaySummary")
     def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):
+        mock_summary_lister.return_value.run.return_value = ([], False)
+
         self.client.get(f'/api/projects/{self.team.id}/session_recordings?console_logs=["warn", "error"]')
+
         assert len(mock_summary_lister.call_args_list) == 1
         filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
         assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
@@ -229,11 +235,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         self.create_snapshot("d1", "1", base_time)
         self.create_snapshot("d2", "2", base_time + relativedelta(seconds=30))
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        self.assertEqual(response_data["results"][0]["person"]["id"], p.pk)
-        self.assertEqual(response_data["results"][1]["person"]["id"], p.pk)
+
+        assert [r["person"]["id"] for r in response_data["results"]] == [p.pk, p.pk]
 
     def test_viewed_state_of_session_recording_version_1(self):
         Person.objects.create(
@@ -259,13 +265,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
         self.create_snapshot("u1", "1", base_time)
         self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30))
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        self.assertEqual(response_data["results"][0]["id"], "2")
-        self.assertEqual(response_data["results"][0]["viewed"], False)
-        self.assertEqual(response_data["results"][1]["id"], "1")
-        self.assertEqual(response_data["results"][1]["viewed"], True)
+
+        assert [(r["id"], r["viewed"]) for r in response_data["results"]] == [("2", False), ("1", True)]
 
     def test_setting_viewed_state_of_session_recording(self):
         Person.objects.create(
@@ -805,3 +809,92 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&version={api_version-1}"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
+        query_params = [
+            f'{SESSION_RECORDINGS_FILTER_IDS}=["{str(uuid.uuid4())}", "{str(uuid.uuid4())}"]',
+        ]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Must specify exactly one session_id",
+            "type": "validation_error",
+        }
+
+    def test_get_matching_events_for_must_send_a_single_session_id_filter(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/matching_events?")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Must specify exactly one session_id",
+            "type": "validation_error",
+        }
+
+    def test_get_matching_events_for_must_send_at_least_an_event_filter(self) -> None:
+        query_params = [
+            f'{SESSION_RECORDINGS_FILTER_IDS}=["{str(uuid.uuid4())}"]',
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Must specify at least one event or action filter",
+            "type": "validation_error",
+        }
+
+    def test_get_matching_events_for_unknown_session(self) -> None:
+        session_id = str(uuid.uuid4())
+        query_params = [
+            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
+        ]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": []}
+
+    def test_get_matching_events(self) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        # the matching session
+        session_id = f"test_get_matching_events-1-{uuid.uuid4()}"
+        self.create_snapshot("user", session_id, base_time)
+        event_id = _create_event(
+            event="$pageview", properties={"$session_id": session_id}, team=self.team, distinct_id=uuid.uuid4()
+        )
+
+        # a non-matching session
+        non_matching_session_id = f"test_get_matching_events-2-{uuid.uuid4()}"
+        self.create_snapshot("user", non_matching_session_id, base_time)
+        _create_event(
+            event="$pageview",
+            properties={"$session_id": non_matching_session_id},
+            team=self.team,
+            distinct_id=uuid.uuid4(),
+        )
+
+        flush_persons_and_events()
+        # data needs time to settle :'(
+        time.sleep(1)
+
+        query_params = [
+            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": [event_id]}
