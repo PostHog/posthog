@@ -7,7 +7,7 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
-from posthog.hogql.property import replace_filters
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries

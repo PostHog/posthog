@@ -1,9 +1,6 @@
 import re
-from datetime import timedelta
 from typing import Any, List, Optional, Union, cast
 
-from dateutil.parser import isoparse
-from django.utils.timezone import now
 from pydantic import BaseModel
 
 from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
@@ -12,14 +9,13 @@ from posthog.hogql.base import AST
 from posthog.hogql.functions import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import TraversingVisitor, CloningVisitor
+from posthog.hogql.visitor import TraversingVisitor
 from posthog.models import Action, ActionStep, Cohort, Property, Team, PropertyDefinition
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
-from posthog.schema import PropertyOperator, HogQLFilters
-from posthog.utils import relative_date_parse
+from posthog.schema import PropertyOperator
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -320,52 +316,3 @@ def selector_to_expr(selector: str):
     regex = build_selector_regex(Selector(selector, escape_slashes=False))
     expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)})
     return expr
-
-
-def replace_filters(node: ast.Expr, filters: HogQLFilters, team: Team) -> ast.Expr:
-    return ReplaceFilters(filters, team).visit(node)
-
-
-class ReplaceFilters(CloningVisitor):
-    def __init__(self, filters: HogQLFilters, team: Team = None):
-        super().__init__()
-        self.filters = filters
-        self.team = team
-        self.scopes = []
-
-    def visit_select_query(self, node):
-        self.scopes.append(node)
-        node = super().visit_select_query(node)
-        self.scopes.pop()
-        return node
-
-    def visit_placeholder(self, node):
-        # TODO: throw if using this on any table that is not events
-        if node.field == "filters":
-            if self.filters is None:
-                return ast.Constant(value=True)
-            exprs: List[ast.Expr] = []
-            if self.filters.properties is not None:
-                exprs.append(property_to_expr(self.filters.properties, self.team))
-
-            dateTo = self.filters.dateTo or (now() + timedelta(seconds=5)).isoformat()
-            try:
-                parsed_date = isoparse(dateTo)
-            except ValueError:
-                parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
-            exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
-
-            # limit to the last 7d by default
-            dateFrom = self.filters.dateFrom or "-7d"
-            if dateFrom != "all":
-                try:
-                    parsed_date = isoparse(dateFrom)
-                except ValueError:
-                    parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
-                exprs.append(parse_expr("timestamp >= {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
-
-            if len(exprs) == 0:
-                return ast.Constant(value=True)
-            if len(exprs) == 1:
-                return exprs[0]
-            return ast.And(exprs=exprs)

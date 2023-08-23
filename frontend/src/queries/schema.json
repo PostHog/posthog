@@ -1116,6 +1116,9 @@
                 "expr": {
                     "type": "string"
                 },
+                "filters": {
+                    "$ref": "#/definitions/HogQLFilters"
+                },
                 "kind": {
                     "const": "HogQLMetadata",
                     "type": "string"

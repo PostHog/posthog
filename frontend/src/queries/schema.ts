@@ -160,6 +160,7 @@ export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
     expr?: string
     select?: string
+    filters?: HogQLFilters
     response?: HogQLMetadataResponse
 }
 

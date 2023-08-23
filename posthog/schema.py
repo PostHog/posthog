@@ -752,6 +752,7 @@ class HogQLMetadata(BaseModel):
         extra = Extra.forbid
 
     expr: Optional[str] = None
+    filters: Optional[HogQLFilters] = None
     kind: str = Field("HogQLMetadata", const=True)
     response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
     select: Optional[str] = None
