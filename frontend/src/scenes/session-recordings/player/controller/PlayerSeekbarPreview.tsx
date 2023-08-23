@@ -3,8 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import { PlayerFrame } from '../PlayerFrame'
 import { BindLogic, useActions, useValues } from 'kea'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDebouncedCallback } from 'use-debounce'
 
 export type PlayerSeekbarPreviewProps = {
@@ -86,9 +84,7 @@ export function PlayerSeekbarPreview({ minMs, maxMs }: PlayerSeekbarPreviewProps
                 }}
             >
                 <div className="PlayerSeekBarPreview__tooltip__content">
-                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_PLAYER_PREVIEW}>
-                        <PlayerSeekbarPreviewFrame minMs={minMs} maxMs={maxMs} percentage={percentage} />
-                    </FlaggedFeature>
+                    <PlayerSeekbarPreviewFrame minMs={minMs} maxMs={maxMs} percentage={percentage} />
                     <div className="text-center p-2">{content}</div>
                 </div>
             </div>
