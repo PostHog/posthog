@@ -133,7 +133,7 @@ class ClickhouseFunnelBase(ABC):
         # format default dates
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
-            data.update({"date_from": relative_date_parse("-7d")})
+            data.update({"date_from": relative_date_parse("-7d", self._team.timezone_info)})
 
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})
@@ -267,6 +267,7 @@ class ClickhouseFunnelBase(ABC):
             return self._format_single_funnel(results[0])
 
     def _exec_query(self) -> List[Tuple]:
+        self._filter.team = self._team
         query = self.get_query()
         return insight_sync_execute(
             query,

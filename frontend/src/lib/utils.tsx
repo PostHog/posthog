@@ -1035,8 +1035,22 @@ export async function copyToClipboard(value: string, description: string = 'text
         })
         return true
     } catch (e) {
-        lemonToast.error(`Could not copy ${description} to clipboard: ${e}`)
-        return false
+        // If the Clipboard API fails, fallback to textarea method
+        try {
+            const textArea = document.createElement('textarea')
+            textArea.value = value
+            document.body.appendChild(textArea)
+            textArea.select()
+            document.execCommand('copy')
+            document.body.removeChild(textArea)
+            lemonToast.info(`Copied ${description} to clipboard`, {
+                icon: <IconCopy />,
+            })
+            return true
+        } catch (err) {
+            lemonToast.error(`Could not copy ${description} to clipboard: ${err}`)
+            return false
+        }
     }
 }
 
