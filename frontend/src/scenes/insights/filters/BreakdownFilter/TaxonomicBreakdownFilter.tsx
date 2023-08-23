@@ -2,7 +2,7 @@ import { BindLogic, useValues } from 'kea'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { BreakdownFilter } from '~/queries/schema'
 import { ChartDisplayType } from '~/types'
-import { BreakdownTag } from './BreakdownTag'
+import { BreakdownTag, BreakdownTagComponent } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { taxonomicBreakdownFilterLogic, TaxonomicBreakdownFilterLogicProps } from './taxonomicBreakdownFilterLogic'
 
@@ -28,14 +28,15 @@ export function TaxonomicBreakdownFilter({
         updateBreakdown: updateBreakdown || null,
         updateDisplay: updateDisplay || null,
     }
-    const { hasBreakdown, hasNonCohortBreakdown, breakdownArray, isViewOnly } = useValues(
-        taxonomicBreakdownFilterLogic(logicProps)
-    )
+    const { hasBreakdown, hasNonCohortBreakdown, breakdownArray } = useValues(taxonomicBreakdownFilterLogic(logicProps))
+
+    const isViewOnly = !updateBreakdown
+    const BreakdownComponent = isViewOnly ? BreakdownTagComponent : BreakdownTag
 
     const tags = !hasBreakdown
         ? []
         : breakdownArray.map((breakdown) => (
-              <BreakdownTag
+              <BreakdownComponent
                   key={breakdown}
                   breakdown={breakdown}
                   breakdownType={breakdownFilter?.breakdown_type ?? 'event'}

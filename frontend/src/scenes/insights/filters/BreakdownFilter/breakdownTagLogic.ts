@@ -18,14 +18,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     key(({ breakdown }) => breakdown),
     path((key) => ['scenes', 'insights', 'BreakdownFilter', 'breakdownTagLogic', key]),
     connect(() => ({
-        values: [
-            taxonomicBreakdownFilterLogic,
-            ['isViewOnly'],
-            propertyDefinitionsModel,
-            ['getPropertyDefinition'],
-            cohortsModel,
-            ['cohortsById'],
-        ],
+        values: [propertyDefinitionsModel, ['getPropertyDefinition'], cohortsModel, ['cohortsById']],
         actions: [taxonomicBreakdownFilterLogic, ['removeBreakdown as removeBreakdownFromList']],
     })),
     actions(() => ({
@@ -46,8 +39,8 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (propertyDefinition) => isURLNormalizeable(propertyDefinition?.name || ''),
         ],
         shouldShowMenu: [
-            (s) => [s.isViewOnly, s.isHistogramable, s.isNormalizeable],
-            (isViewOnly, isHistogramable, isNormalizeable) => !isViewOnly && (isHistogramable || isNormalizeable),
+            (s) => [s.isHistogramable, s.isNormalizeable],
+            (isHistogramable, isNormalizeable) => isHistogramable || isNormalizeable,
         ],
     }),
     listeners(({ props, actions }) => ({
