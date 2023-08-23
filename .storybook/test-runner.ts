@@ -51,7 +51,13 @@ declare module '@storybook/react' {
 }
 
 const RETRY_TIMES = 5
-const LOADER_SELECTORS = ['.ant-skeleton', '.Spinner', '.LemonSkeleton', '.LemonTableLoader']
+const LOADER_SELECTORS = [
+    '.ant-skeleton',
+    '.Spinner',
+    '.LemonSkeleton',
+    '.LemonTableLoader',
+    '[data-picture-loading="true"]',
+]
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 
@@ -81,7 +87,6 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    // await page.setViewportSize(DEFAULT_PAGE_DIMENSIONS)
     const {
         waitForLoadersToDisappear = storyContext.parameters?.layout === 'fullscreen',
         excludeNavigationFromSnapshot = false,

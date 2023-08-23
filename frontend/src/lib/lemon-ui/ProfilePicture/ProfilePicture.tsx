@@ -31,7 +31,7 @@ export function ProfilePicture({
     type = 'person',
 }: ProfilePictureProps): JSX.Element {
     const { user } = useValues(userLogic)
-    const [gravatarUrl, setGravatarUrl] = useState<string | null>(null)
+    const [gravatarUrl, setGravatarUrl] = useState<string | null>()
     const pictureClass = clsx('ProfilePicture', size, className)
 
     let pictureComponent: JSX.Element
@@ -45,11 +45,17 @@ export function ProfilePicture({
             const emailHash = md5(emailOrNameWithEmail.trim().toLowerCase())
             const tentativeUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
             // The image will be cached, so it's better to do a full GET request in this check
-            fetch(tentativeUrl).then((response) => {
-                if (response.status === 200) {
-                    setGravatarUrl(tentativeUrl)
-                }
-            })
+            fetch(tentativeUrl)
+                .then((response) => {
+                    if (response.status === 200) {
+                        setGravatarUrl(tentativeUrl)
+                    } else {
+                        setGravatarUrl(null)
+                    }
+                })
+                .catch(() => {
+                    setGravatarUrl(null)
+                })
         }
     }, [email])
 
@@ -68,7 +74,7 @@ export function ProfilePicture({
             type === 'bot' ? (
                 <IconRobot className={clsx(pictureClass, 'p-0.5')} />
             ) : (
-                <span className={pictureClass} style={style}>
+                <span className={pictureClass} style={style} data-picture-loading={gravatarUrl === undefined}>
                     <Lettermark
                         name={combinedNameAndEmail}
                         index={index}
