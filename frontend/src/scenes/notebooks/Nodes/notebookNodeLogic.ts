@@ -54,9 +54,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         title: props.title,
     })),
 
-    reducers(({ props }) => ({
+    reducers({
         expanded: [
-            props.nodeAttributes?.expandedOnLoad ?? false,
+            false,
             {
                 setExpanded: (_, { expanded }) => expanded,
             },
@@ -67,7 +67,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setTitle: (_, { title }) => title,
             },
         ],
-    })),
+    }),
 
     selectors({
         notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],

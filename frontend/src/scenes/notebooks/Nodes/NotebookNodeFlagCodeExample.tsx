@@ -17,7 +17,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagCodeExampleAttri
 
 type NotebookNodeFlagCodeExampleAttributes = {
     id: FeatureFlagLogicProps['id']
-    expandedOnLoad?: boolean
 }
 
 export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeFlagCodeExampleAttributes>({
@@ -25,11 +24,11 @@ export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeF
     title: 'Feature Flag Code Example',
     Component,
     heightEstimate: '3rem',
+    startExpanded: true,
     href: (attrs) => urls.featureFlag(attrs.id),
     resizeable: false,
     attributes: {
         id: {},
-        expandedOnLoad: {},
     },
     pasteOptions: {
         find: urls.featureFlag('') + '(.+)',
@@ -39,9 +38,9 @@ export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeF
     },
 })
 
-export function buildCodeExampleContent(id: FeatureFlagLogicProps['id'], expanded?: boolean): JSONContent {
+export function buildCodeExampleContent(id: FeatureFlagLogicProps['id']): JSONContent {
     return {
         type: NotebookNodeType.FeatureFlagCodeExample,
-        attrs: { id, expandedOnLoad: expanded },
+        attrs: { id },
     }
 }
