@@ -62,7 +62,18 @@ describe('insightNavLogic', () => {
             }).toMatchValues({
                 query: {
                     kind: NodeKind.InsightVizNode,
-                    source: { ...nodeKindToDefaultQuery[NodeKind.FunnelsQuery], filterTestAccounts: true },
+                    source: {
+                        ...nodeKindToDefaultQuery[NodeKind.FunnelsQuery],
+                        filterTestAccounts: true,
+                        series: [
+                            {
+                                event: '$pageview',
+                                kind: 'EventsNode',
+                                math: 'total',
+                                name: '$pageview',
+                            },
+                        ],
+                    },
                 },
             })
         })
