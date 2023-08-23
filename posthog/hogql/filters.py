@@ -75,3 +75,4 @@ class ReplaceFilters(CloningVisitor):
             if len(exprs) == 1:
                 return exprs[0]
             return ast.And(exprs=exprs)
+        return super().visit_placeholder(node)
