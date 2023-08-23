@@ -212,7 +212,7 @@ const ResultsTable = ({
     const logic = useMountedLogic(dataTableLogic)
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(logic)
 
-    const { showActions, expandable } = queryWithDefaults
+    const { showActions, expandable, embedded } = queryWithDefaults
     const { context } = logic.props
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
@@ -428,12 +428,12 @@ const ResultsTable = ({
             className="DataTable"
             loading={responseLoading && !nextDataLoading && !newDataLoading}
             columns={lemonColumns}
-            embedded={queryWithDefaults.embedded}
             key={
                 [...(columnsInResponse ?? []), ...columnsInQuery].join(
                     '::'
                 ) /* Bust the LemonTable cache when columns change */
             }
+            embedded={embedded}
             dataSource={(dataTableRows ?? []) as DataTableRow[]}
             rowKey={({ result }: DataTableRow, rowIndex) => {
                 if (result) {
@@ -497,7 +497,7 @@ const ResultsTable = ({
                           expandedRowClassName: ({ result }) => {
                               const record = Array.isArray(result) ? result[0] : result
                               return record && record['event'] === '$exception'
-                                  ? 'border border-danger-dark bg-danger-highlight'
+                                  ? 'border border-x-danger-dark bg-danger-highlight'
                                   : null
                           },
                       }
@@ -507,7 +507,7 @@ const ResultsTable = ({
                 clsx('DataTable__row', {
                     'DataTable__row--highlight_once': result && highlightedRows.has(result),
                     'DataTable__row--category_row': !!label,
-                    'border border-danger-dark bg-danger-highlight':
+                    'border border-x-danger-dark bg-danger-highlight':
                         result && result[0] && result[0]['event'] === '$exception',
                 })
             }
