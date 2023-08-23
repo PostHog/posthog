@@ -14,13 +14,13 @@ import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 
 import './BreakdownTag.scss'
 
-type BreakdownTagProps = {
+type EditableBreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType
     isTrends: boolean
 }
 
-export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTagProps): JSX.Element {
+export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: EditableBreakdownTagProps): JSX.Element {
     const [filterOpen, setFilterOpen] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
 
@@ -35,7 +35,7 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
                     {/* :TRICKY: we don't want the close button to be active when the edit popover is open.
                      * Therefore we're wrapping the lemon tag a context provider to override the parent context. */}
                     <PopoverReferenceContext.Provider value={null}>
-                        <BreakdownTagComponent
+                        <BreakdownTag
                             breakdown={breakdown}
                             breakdownType={breakdownType}
                             // display remove button only if we can edit and don't have a separate menu
@@ -60,18 +60,18 @@ export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTa
     )
 }
 
-type BreakdownTagComponentProps = {
+type BreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType
     disablePropertyInfo?: boolean
 } & Omit<LemonTagProps, 'children'>
 
-export function BreakdownTagComponent({
+export function BreakdownTag({
     breakdown,
     breakdownType,
     disablePropertyInfo,
     ...props
-}: BreakdownTagComponentProps): JSX.Element {
+}: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
 
     let propertyName = breakdown

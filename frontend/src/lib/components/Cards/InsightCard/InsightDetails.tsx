@@ -31,7 +31,7 @@ import {
     isPropertyFilterWithOperator,
 } from 'lib/components/PropertyFilters/utils'
 import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
-import { BreakdownTagComponent } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -300,11 +300,7 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
             <h5>Breakdown by</h5>
             <section>
                 {breakdownArray.map((breakdown) => (
-                    <BreakdownTagComponent
-                        key={breakdown}
-                        breakdown={breakdown}
-                        breakdownType={filters.breakdown_type}
-                    />
+                    <BreakdownTag key={breakdown} breakdown={breakdown} breakdownType={filters.breakdown_type} />
                 ))}
             </section>
         </>
