@@ -38,7 +38,7 @@ export interface Tab {
     dataAttr: string
 }
 
-interface QueryPropertyCache
+export interface QueryPropertyCache
     extends Omit<TrendsQuery, 'kind'>,
         Omit<FunnelsQuery, 'kind'>,
         Omit<RetentionQuery, 'kind'>,
