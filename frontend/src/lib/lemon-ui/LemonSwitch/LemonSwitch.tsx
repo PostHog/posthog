@@ -77,8 +77,8 @@ export function LemonSwitch({
     if (tooltipContent) {
         buttonComponent = (
             <Tooltip title={tooltipContent}>
-                {/* If the button is disabled, wrap it in a div so that the tooltip works */}
-                {disabled ? <div>{buttonComponent}</div> : buttonComponent}
+                {/* wrap it in a div so that the tooltip works even when disabled */}
+                <div>{buttonComponent}</div>
             </Tooltip>
         )
     }
