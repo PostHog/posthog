@@ -52,6 +52,7 @@ export function InsightContainer({
     disableLastComputationRefresh,
     insightMode,
     context,
+    embedded,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -60,6 +61,7 @@ export function InsightContainer({
     disableLastComputationRefresh?: boolean
     insightMode?: ItemMode
     context?: QueryContext
+    embedded: boolean
 }): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
@@ -206,6 +208,7 @@ export function InsightContainer({
                 title={disableHeader ? null : <InsightDisplayConfig disableTable={!!disableTable} />}
                 data-attr="insights-graph"
                 className="insights-graph-container"
+                bordered={!embedded}
             >
                 <div>
                     {isFunnels && (

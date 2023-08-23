@@ -83,6 +83,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
             modifiedQuery.showCorrelationTable = false
+            modifiedQuery.embedded = true
         }
 
         return modifiedQuery
@@ -157,7 +158,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     Component,
     heightEstimate: 500,
     minHeight: 200,
-    resizeable: true,
+    resizeable: false,
     startExpanded: true,
     attributes: {
         query: {

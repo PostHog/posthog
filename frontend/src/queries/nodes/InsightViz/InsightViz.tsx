@@ -57,6 +57,7 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
     const disableLastComputationRefresh = !(query.showLastComputationRefresh ?? showIfFull)
     const showingFilters = query.showFilters ?? insightMode === ItemMode.Edit
     const showingResults = query.showResults ?? true
+    const embedded = query.embedded ?? false
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -71,7 +72,7 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
                             query={query.source}
                             setQuery={setQuerySource}
                             showing={showingFilters}
-                            embedded={query.embedded}
+                            embedded={embedded}
                         />
                     )}
 
@@ -85,6 +86,7 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
                                 disableCorrelationTable={disableCorrelationTable}
                                 disableLastComputation={disableLastComputation}
                                 disableLastComputationRefresh={disableLastComputationRefresh}
+                                embedded={embedded}
                             />
                         </div>
                     )}
