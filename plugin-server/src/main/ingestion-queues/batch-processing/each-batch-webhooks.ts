@@ -11,12 +11,13 @@ import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/ru
 import { silentFailuresAsyncHandlers } from '../../../worker/ingestion/event-pipeline/runner'
 import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
-import { latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-function groupIntoBatches(
+// exporting only for testing
+export function groupIntoBatchesWebhooks(
     array: KafkaMessage[],
     batchSize: number,
     actionMatcher: ActionMatcher
@@ -34,6 +35,13 @@ function groupIntoBatches(
         if (actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
             currentBatch.push(clickHouseEvent)
             currentCount++
+        } else {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics-webhook',
+                    drop_cause: 'no_matching_action',
+                })
+                .inc()
         }
         if (currentCount === batchSize || index === array.length - 1) {
             result.push({ eventBatch: currentBatch, lastOffset: message.offset, lastTimestamp: message.timestamp })
@@ -61,7 +69,7 @@ export async function eachBatchWebhooksHandlers(
     const transaction = Sentry.startTransaction({ name: `eachBatchWebhooks` })
 
     try {
-        const batchesWithOffsets = groupIntoBatches(batch.messages, concurrency, actionMatcher)
+        const batchesWithOffsets = groupIntoBatchesWebhooks(batch.messages, concurrency, actionMatcher)
 
         statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, { key: key })
         statsd?.histogram('ingest_event_batching.batch_count', batchesWithOffsets.length, { key: key })
