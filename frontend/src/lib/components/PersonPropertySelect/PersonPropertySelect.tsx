@@ -88,14 +88,16 @@ export const PersonPropertySelect = ({
                     items={selectedProperties}
                     strategy={horizontalListSortingStrategy}
                 >
-                    {selectedProperties.map((value) => (
-                        <SortableProperty
-                            key={`item-${value}`}
-                            name={value}
-                            onRemove={handleRemove}
-                            sortable={sortable}
-                        />
-                    ))}
+                    <div className="flex items-center gap-2">
+                        {selectedProperties.map((value) => (
+                            <SortableProperty
+                                key={`item-${value}`}
+                                name={value}
+                                onRemove={handleRemove}
+                                sortable={sortable}
+                            />
+                        ))}
+                    </div>
                 </SortableContext>
             </DndContext>
 
