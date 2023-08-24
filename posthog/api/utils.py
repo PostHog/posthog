@@ -302,8 +302,14 @@ def parse_bool(value: Union[str, List[str]]) -> bool:
 
 
 def raise_if_user_provided_url_unsafe(url: str):
-    """Raise if the provided URL seems unsafe, otherwise do nothing."""
-    parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)
+    """Raise if the provided URL seems unsafe, otherwise do nothing.
+
+    Equivalent of plugin server raiseIfUserProvidedUrlUnsafe.
+    """
+    try:
+        parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)
+    except ValueError:
+        raise ValueError("Invalid URL")
     if not parsed_url.hostname:
         raise ValueError("No hostname")
     if parsed_url.scheme == "http":

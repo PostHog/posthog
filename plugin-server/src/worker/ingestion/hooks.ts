@@ -5,7 +5,7 @@ import { format } from 'util'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import fetch from '../../utils/fetch'
+import { filteredFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
@@ -360,7 +360,7 @@ export class HookCommander {
         }, 5000)
         try {
             await instrumentWebhookStep('fetch', async () => {
-                const request = await fetch(webhookUrl, {
+                const request = await filteredFetch(webhookUrl, {
                     method: 'POST',
                     body: JSON.stringify(message, undefined, 4),
                     headers: { 'Content-Type': 'application/json' },
@@ -400,7 +400,7 @@ export class HookCommander {
             )
         }, 5000)
         try {
-            const request = await fetch(hook.target, {
+            const request = await filteredFetch(hook.target, {
                 method: 'POST',
                 body: JSON.stringify(payload, undefined, 4),
                 headers: { 'Content-Type': 'application/json' },

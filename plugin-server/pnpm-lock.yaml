@@ -276,6 +276,9 @@ devDependencies:
   eslint-plugin-simple-import-sort:
     specifier: ^7.0.0
     version: 7.0.0(eslint@8.39.0)
+  ipaddr.js:
+    specifier: ^2.1.0
+    version: 2.1.0
   jest:
     specifier: ^28.1.1
     version: 28.1.3(@types/node@16.18.25)(ts-node@10.9.1)
@@ -7364,6 +7367,11 @@ packages:
   /ip@2.0.0:
     resolution: {integrity: sha512-WKa+XuLG1A1R0UWhl2+1XQSi+fZWMsYKffMZTTYsiZaUD8k2yDAj5atimTUD2TZkyCkNEeYE5NhFZmupOGtjYQ==}
     dev: false
+
+  /ipaddr.js@2.1.0:
+    resolution: {integrity: sha512-LlbxQ7xKzfBusov6UMi4MFpEg0m+mAm9xyNGEduwXMEDuf4WfzB/RZwMVYEd7IKGvh4IUkEXYxtAVu9T3OelJQ==}
+    engines: {node: '>= 10'}
+    dev: true
 
   /is-arguments@1.1.1:
     resolution: {integrity: sha512-8Q7EARjzEnKpt/PCD7e1cgUS0a6X8u5tdSiMqXhojOdoV9TsMsiO+9VLC5vAmO8N7/GmXn7yjR8qnA6bVAEzfA==}

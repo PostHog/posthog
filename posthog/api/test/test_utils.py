@@ -147,6 +147,7 @@ class TestUtils(BaseTest):
         self.assertEqual(safe_clickhouse_string("💜 \u1f49c\ 💜"), "💜 \u1f49c\ 💜")
 
     def test_raise_if_user_provided_url_unsafe(self):
+        # Sync test cases with plugin-server/src/utils/fetch.test.ts
         raise_if_user_provided_url_unsafe("https://google.com?q=20")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com/foo/bar")  # Safe, with path
@@ -155,6 +156,7 @@ class TestUtils(BaseTest):
         self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("https://posthog.com:80"))  # Bad port
         self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("ftp://posthog.com"))  # Bad scheme
         self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe(""))  # Empty
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("@@@"))  # Invalid format
         self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("posthog.com"))  # No scheme
         self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://localhost"))  # Internal
         self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://192.168.0.5"))  # Internal

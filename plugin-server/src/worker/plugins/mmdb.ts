@@ -1,5 +1,6 @@
 import { Reader, ReaderModel } from '@maxmind/geoip2-node'
 import { DateTime } from 'luxon'
+import fetch from 'node-fetch'
 import * as schedule from 'node-schedule'
 import prettyBytes from 'pretty-bytes'
 import { brotliDecompress } from 'zlib'
@@ -12,7 +13,6 @@ import {
 } from '../../config/mmdb-constants'
 import { Hub, PluginAttachmentDB } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
-import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
 

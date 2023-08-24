@@ -125,6 +125,7 @@
         "eslint-plugin-prettier": "^4.2.1",
         "eslint-plugin-promise": "^6.0.0",
         "eslint-plugin-simple-import-sort": "^7.0.0",
+        "ipaddr.js": "^2.1.0",
         "jest": "^28.1.1",
         "nodemon": "^2.0.22",
         "parse-prometheus-text-format": "^1.1.1",

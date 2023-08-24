@@ -15,7 +15,7 @@ import { PassThrough } from 'stream'
 import * as url from 'url'
 import * as zlib from 'zlib'
 
-import fetch from '../../utils/fetch'
+import { filteredFetch } from '../../utils/fetch'
 import { writeToFile } from './extensions/test-utils'
 
 export const imports = {
@@ -32,7 +32,7 @@ export const imports = {
     'aws-sdk': AWS,
     ethers: ethers,
     'generic-pool': genericPool,
-    'node-fetch': fetch,
+    'node-fetch': filteredFetch,
     'snowflake-sdk': snowflake,
     crypto: crypto,
     jsonwebtoken: jsonwebtoken,
