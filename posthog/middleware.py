@@ -485,7 +485,7 @@ class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
                     team_id = request.resolver_match.kwargs["parent_lookup_team_id"]
                     if team_id == "@current":
                         if hasattr(request.user, "current_team_id"):
-                            team_id = request.user.team
+                            team_id = request.user.current_team_id
                         else:
                             team_id = None
 
