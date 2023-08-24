@@ -104,7 +104,7 @@ runs:
                   $PYTEST_ARGS
 
         - name: Run FOSS tests (if person-on-events is false)
-          if: ${{ inputs.segment == 'FOSS' }} && inputs.person-on-events != 'true'
+          if: ${{ inputs.segment == 'FOSS' && inputs.person-on-events != 'true' }}
           run: |
               pytest hogvm posthog -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
@@ -112,7 +112,7 @@ runs:
                   $PYTEST_ARGS
 
         - name: Run FOSS tests (if person-on-events is true)
-          if: ${{ inputs.segment == 'FOSS' }} && inputs.person-on-events == 'true'
+          if: ${{ inputs.segment == 'FOSS' &&  inputs.person-on-events == 'true' }}
           run: |
               pytest posthog/clickhouse posthog/queries posthog/api/test/test_insight* \  
                   posthog/api/test/dashboards/test_dashboard.py -m "not async_migrations" \
