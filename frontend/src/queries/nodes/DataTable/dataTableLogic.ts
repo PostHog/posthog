@@ -20,6 +20,7 @@ import equal from 'fast-deep-equal'
 
 export interface DataTableLogicProps {
     key: string
+    nodeKey?: string
     query: DataTableNode
     context?: QueryContext
 }
@@ -54,7 +55,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            dataNodeLogic({ key: props.key, query: props.query.source }),
+            dataNodeLogic({ key: props.nodeKey || props.key, query: props.query.source }),
             ['response', 'responseLoading', 'responseError'],
         ],
     })),

@@ -44,6 +44,7 @@ import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 
 interface DataTableProps {
+    uniqueKey?: string | number
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
@@ -62,10 +63,16 @@ const groupTypes = [
 
 let uniqueNode = 0
 
-export function DataTable({ query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
-    const [key] = useState(() => `DataTable.${uniqueNode++}`)
+export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
+    const uniqueNodeKey = useState(() => uniqueNode++)
+    const [nodeLogicKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
+    const [tableLogicKey] = useState(() => `DataTable.${uniqueNodeKey}`)
 
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key, cachedResults: cachedResults }
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: query.source,
+        key: nodeLogicKey,
+        cachedResults: cachedResults,
+    }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
     const {
@@ -80,7 +87,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         highlightedRows,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, key, context }
+    const dataTableLogicProps: DataTableLogicProps = { query, key: tableLogicKey, nodeKey: nodeLogicKey, context }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
