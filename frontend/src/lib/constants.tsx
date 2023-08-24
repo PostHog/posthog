@@ -163,6 +163,7 @@ export const FEATURE_FLAGS = {
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
     NOTEBOOK_SETTINGS_WIDGETS: 'notebook-settings-widgets', // owner: #team-monitoring
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
+    REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
