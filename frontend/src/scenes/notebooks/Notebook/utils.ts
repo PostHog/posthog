@@ -9,12 +9,10 @@ import {
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, NotebookNodeWidgetSettings } from '~/types'
 
-/* eslint-disable @typescript-eslint/no-empty-interface */
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
-/* eslint-enable @typescript-eslint/no-empty-interface */
 
 export {
     ChainedCommands as EditorCommands,
@@ -25,7 +23,7 @@ export {
 export type NotebookNodeAttributes = Record<string, any>
 type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
     attrs: T & {
-        nodeId?: string
+        nodeId: string
         height?: string | number
     }
 }
@@ -34,10 +32,21 @@ export type NotebookNodeViewProps<T extends NotebookNodeAttributes> = Omit<NodeV
     node: NotebookNode<T>
 }
 
+export type NotebookNodeWidget = {
+    key: string
+    label: string
+    icon: JSX.Element
+    Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings) => JSX.Element
+}
+
 export interface NotebookEditor {
     getJSON: () => JSONContent
+    getSelectedNode: () => Node | null
+    getPreviousNode: () => Node | null
+    getNextNode: () => Node | null
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
+    setSelection: (position: number) => void
     focus: (position: EditorFocusPosition) => void
     destroy: () => void
     isEmpty: () => boolean
@@ -48,6 +57,7 @@ export interface NotebookEditor {
     findNodePositionByAttrs: (attrs: Record<string, any>) => any
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
+    scrollToSelection: () => void
 }
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4

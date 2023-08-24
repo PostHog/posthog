@@ -8,4 +8,9 @@
         overflow-y: auto;
         padding: 0 1rem;
     }
+
+    .ProseMirror > .react-renderer {
+        // TODO: this only works in the NotebookScene view. We need to find a better way to accommodate parent views.
+        scroll-margin-top: 65px;
+    }
 }

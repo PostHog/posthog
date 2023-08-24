@@ -23,7 +23,7 @@ const DEFAULT_QUERY: QuerySchema = {
 }
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
+    const [query, setQuery] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
     const { setTitle } = useActions(notebookNodeLogic)
