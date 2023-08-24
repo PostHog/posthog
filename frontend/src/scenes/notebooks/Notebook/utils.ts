@@ -11,10 +11,8 @@ import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
 import { NotebookNodeType, NotebookNodeWidgetSettings } from '~/types'
 
-/* eslint-disable @typescript-eslint/no-empty-interface */
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
-/* eslint-enable @typescript-eslint/no-empty-interface */
 
 export {
     ChainedCommands as EditorCommands,
