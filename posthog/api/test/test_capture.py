@@ -1133,6 +1133,7 @@ class TestCapture(BaseTest):
         )
 
     @parameterized.expand(
+        # zips request paths, and tracing headers. As well as constructing a meaningful name for the test
         (f"{headers[0]} tracing headers to {path[0]}", path[1], headers[1])
         for path in [
             ("events", "/e/?ip=1&_=1651741927805"),
