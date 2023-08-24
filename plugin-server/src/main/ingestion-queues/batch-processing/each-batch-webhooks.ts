@@ -16,23 +16,21 @@ import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-// exporting only for testing
-export function groupIntoBatchesWebhooks(
+export function groupIntoBatches(
     array: KafkaMessage[],
     batchSize: number,
-    actionMatcher: ActionMatcher
+    shouldProcess: (teamId: number) => boolean
 ): { eventBatch: RawClickHouseEvent[]; lastOffset: string; lastTimestamp: string }[] {
-    // Most events will not trigger a webhook call, so we want to filter them out as soon as possible
-    // to achieve the highest effective concurrency when executing the actual HTTP calls.
-    // actionMatcher holds an in-memory set of all teams with enabled webhooks, that we use to
-    // drop events based on that signal. To use it we must parse the message, as there aren't that many
-    // webhooks, we can keep batches of the parsed messages in memory with the offsets of the last message
+    // Most events will not need to be processed, so we want to filter them out as soon as possible
+    // to achieve the highest effective concurrency when executing the actual external calls.
+    // To use shouldProcess we must parse the message, as there aren't that many events to process
+    // we can keep batches of the parsed messages in memory with the offsets of the last message
     const result: { eventBatch: RawClickHouseEvent[]; lastOffset: string; lastTimestamp: string }[] = []
     let currentBatch: RawClickHouseEvent[] = []
     let currentCount = 0
     array.forEach((message, index) => {
         const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
-        if (actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
+        if (shouldProcess(clickHouseEvent.team_id)) {
             currentBatch.push(clickHouseEvent)
             currentCount++
         } else {
@@ -52,16 +50,17 @@ export function groupIntoBatchesWebhooks(
     return result
 }
 
-export async function eachBatchWebhooksHandlers(
+export async function eachBatchHandler(
     payload: EachBatchPayload,
-    actionMatcher: ActionMatcher,
-    hookCannon: HookCommander,
     statsd: StatsD | undefined,
-    concurrency: number
+    concurrency: number,
+    key: string,
+    groupIntoBatchesInternal: (
+        array: KafkaMessage[],
+        batchSize: number
+    ) => { eventBatch: RawClickHouseEvent[]; lastOffset: string; lastTimestamp: string }[],
+    eachMessageInternal: (event: RawClickHouseEvent) => Promise<void>
 ): Promise<void> {
-    // similar to eachBatch function in each-batch.ts, but without the dependency on the KafkaJSIngestionConsumer
-    // & handling the different batching return type
-    const key = 'async_handlers_webhooks'
     const batchStartTimer = new Date()
     const loggingKey = `each_batch_${key}`
     const { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload = payload
@@ -69,7 +68,7 @@ export async function eachBatchWebhooksHandlers(
     const transaction = Sentry.startTransaction({ name: `eachBatchWebhooks` })
 
     try {
-        const batchesWithOffsets = groupIntoBatchesWebhooks(batch.messages, concurrency, actionMatcher)
+        const batchesWithOffsets = groupIntoBatchesInternal(batch.messages, concurrency)
 
         statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, { key: key })
         statsd?.histogram('ingest_event_batching.batch_count', batchesWithOffsets.length, { key: key })
@@ -88,9 +87,7 @@ export async function eachBatchWebhooksHandlers(
             }
 
             await Promise.all(
-                eventBatch.map((event: RawClickHouseEvent) =>
-                    eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, statsd).finally(() => heartbeat())
-                )
+                eventBatch.map((event: RawClickHouseEvent) => eachMessageInternal(event).finally(() => heartbeat()))
             )
 
             resolveOffset(lastOffset)
@@ -117,6 +114,24 @@ export async function eachBatchWebhooksHandlers(
         statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
         transaction.finish()
     }
+}
+
+export async function eachBatchWebhooksHandlers(
+    payload: EachBatchPayload,
+    actionMatcher: ActionMatcher,
+    hookCannon: HookCommander,
+    statsd: StatsD | undefined,
+    concurrency: number
+): Promise<void> {
+    await eachBatchHandler(
+        payload,
+        statsd,
+        concurrency,
+        'async_handlers_webhooks',
+        // actionMatcher has a cache that tells us if the team has any webhooks or not
+        (array, batchSize) => groupIntoBatches(array, batchSize, actionMatcher.hasWebhooks),
+        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, statsd)
+    )
 }
 
 export async function eachMessageWebhooksHandlers(

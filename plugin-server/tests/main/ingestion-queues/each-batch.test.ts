@@ -15,7 +15,7 @@ import {
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-onevent'
 import {
     eachBatchWebhooksHandlers,
-    groupIntoBatchesWebhooks,
+    groupIntoBatches as groupIntoBatchesWebhooks,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
 import {
     ClickHouseTimestamp,
@@ -333,11 +333,9 @@ describe('eachBatchX', () => {
                     kafkaTimestamp: '2020-02-23 00:10:00.00' as ClickHouseTimestamp,
                 },
             ])
-            const actionManager = new ActionManager(queue.pluginsServer.postgres)
-            const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
-            // mock hasWebhooks 10 calls, 1,3,10 should return false, others true
-            actionMatcher.hasWebhooks = jest.fn((teamId) => teamId !== 1 && teamId !== 3 && teamId !== 10)
-            const result = groupIntoBatchesWebhooks(batch.batch.messages, 5, actionMatcher)
+            // teamIDs 1,3,10 should return false, others true
+            const toProcess = jest.fn((teamId) => teamId !== 1 && teamId !== 3 && teamId !== 10)
+            const result = groupIntoBatchesWebhooks(batch.batch.messages, 5, toProcess)
             expect(result).toEqual([
                 {
                     eventBatch: expect.arrayContaining([
@@ -375,8 +373,7 @@ describe('eachBatchX', () => {
             ])
             // make sure that if the last message would be a new batch and if it's going to be excluded we
             // still get the last batch as empty with the right offsite and timestamp
-            actionMatcher.hasWebhooks = jest.fn((teamId) => teamId !== 1 && teamId !== 3 && teamId !== 10)
-            const result2 = groupIntoBatchesWebhooks(batch.batch.messages, 7, actionMatcher)
+            const result2 = groupIntoBatchesWebhooks(batch.batch.messages, 7, toProcess)
             expect(result2).toEqual([
                 {
                     eventBatch: expect.arrayContaining([
