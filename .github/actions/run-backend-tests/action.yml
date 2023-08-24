@@ -36,8 +36,8 @@ runs:
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
               export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
-              docker compose -f docker-compose.dev.yml down
-              docker compose -f docker-compose.dev.yml up -d
+              time docker compose -f docker-compose.dev.yml down
+              time docker compose -f docker-compose.dev.yml up -d
 
         - name: Add Kafka to /etc/hosts
           shell: bash
