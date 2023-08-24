@@ -7,6 +7,8 @@ import { NodeKind } from '~/queries/schema'
 import { useValues } from 'kea'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import api from 'lib/api'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeInsightAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
@@ -19,6 +21,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeInsightAttributes>):
 
 type NotebookNodeInsightAttributes = {
     id: InsightShortId
+    title: string | null
 }
 
 export const NotebookNodeInsight = createPostHogWidgetNode<NotebookNodeInsightAttributes>({
@@ -31,11 +34,21 @@ export const NotebookNodeInsight = createPostHogWidgetNode<NotebookNodeInsightAt
     startExpanded: true,
     attributes: {
         id: {},
+        title: {},
     },
     pasteOptions: {
         find: urls.insightView('(.+)' as InsightShortId),
         getAttributes: async (match) => {
-            return { id: match[1] as InsightShortId }
+            const shortId = match[1] as InsightShortId
+            const mountedInsightLogic = insightLogic.findMounted({ dashboardItemId: shortId })
+            let title = mountedInsightLogic?.values.insightName || null
+            if (title === null) {
+                const response = await api.insights.loadInsight(shortId, true)
+                if (response.results?.[0]) {
+                    title = response.results[0].name
+                }
+            }
+            return { id: shortId, title: title }
         },
     },
 })

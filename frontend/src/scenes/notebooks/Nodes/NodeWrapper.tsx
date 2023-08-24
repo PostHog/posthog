@@ -58,8 +58,9 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable } = useValues(mountedNotebookLogic)
-    const nodeId = node.attrs.nodeId
 
+    // TODO nodeId is not generating correctly, when it is then we might not need to use node.attrs.title below
+    const nodeId = node.attrs.nodeId
     const nodeLogicProps = {
         node,
         nodeType,
@@ -144,7 +145,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                                             ) : undefined
                                         }
                                     >
-                                        <span className="flex-1 cursor-pointer">{title}</span>
+                                        <span className="flex-1 cursor-pointer">{node?.attrs?.title || title}</span>
                                     </LemonButton>
 
                                     {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
