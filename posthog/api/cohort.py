@@ -1,4 +1,6 @@
 import csv
+import statsd
+from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import Any, Dict, cast
 
@@ -297,6 +299,11 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 {k: v for k, v in sorted(actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999) if k not in DELETE_KEYS}  # type: ignore
                 for actor in serialized_actors
             ]
+
+        statsd.incr("api_cohort_person_total", tags={"team_id": team.pk})
+        renderer = SafeJSONRenderer()
+        size = len(renderer.render(serialized_actors))
+        statsd.incr("api_cohort_person_bytes_read_from_postgres", size, tags={"team_id": team.pk})
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
