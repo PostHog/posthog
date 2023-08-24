@@ -93,7 +93,7 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
         let title = mountedFlagLogic?.values.featureFlag.key || null
 
         if (title === null) {
-            const retrievedFlag: FeatureFlagType = await api.featureFlags.load(attributes.id)
+            const retrievedFlag: FeatureFlagType = await api.featureFlags.get(attributes.id)
             if (retrievedFlag) {
                 title = retrievedFlag.key
             }
