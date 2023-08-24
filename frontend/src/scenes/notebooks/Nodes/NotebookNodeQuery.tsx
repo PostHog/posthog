@@ -1,7 +1,7 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { ChartDisplayType, InsightShortId, NotebookNodeType, PropertyMathType } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightShortId, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
@@ -16,18 +16,19 @@ const SAMPLE_QUERY: QuerySchema = {
     kind: NodeKind.InsightVizNode,
     source: {
         kind: NodeKind.TrendsQuery,
-        filterTestAccounts: true,
+        filterTestAccounts: false,
         dateRange: {
-            date_from: '-90d',
+            date_from: '-7d',
         },
         series: [
             {
                 kind: NodeKind.EventsNode,
                 event: '$pageview',
-                math: PropertyMathType.Average,
+                name: '$pageview',
+                math: BaseMathType.TotalCount,
             },
         ],
-        interval: 'week',
+        interval: 'day',
         trendsFilter: {
             display: ChartDisplayType.ActionsAreaGraph,
         },
@@ -53,6 +54,14 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const { setTitle } = useActions(notebookNodeLogic)
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
+
+    // // insightLogic
+    // const logic = insightLogic({ query: props.node.attrs.query, dashboardItemId: props.node.attrs.nodeId })
+    // const { insightProps } = useValues(logic)
+
+    // // insightDataLogic
+    // const { query } = useValues(insightDataLogic(insightProps))
+    // const { setQuery } = useActions(insightDataLogic(insightProps))
 
     const title = useMemo(() => {
         if (NodeKind.DataTableNode === query.kind) {
@@ -143,6 +152,8 @@ export const Settings = ({
                 setQuery={(t) => {
                     if (t.kind === NodeKind.DataTableNode) {
                         setQuery({ ...query, source: (t as DataTableNode).source } as QuerySchema)
+                    } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+                        // TODO
                     }
                 }}
                 readOnly={false}
