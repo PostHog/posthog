@@ -64,6 +64,8 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+from prometheus_client import Counter
+from posthog.metrics import LABEL_TEAM_ID
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
@@ -76,6 +78,12 @@ PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "Username",
     "UserName",
 ]
+
+API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
+    "api_person_list_bytes_read_from_postgres",
+    "An estimate of how many bytes we've read from postgres to return the person endpoint.",
+    labelnames=[LABEL_TEAM_ID],
+)
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -279,7 +287,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         # TEMPORARY: Work out usage patterns of this endpoint
         renderer = SafeJSONRenderer()
         size = len(renderer.render(serialized_actors))
-        statsd.incr("api_person_list_bytes_read_from_postgres", size, tags={"team_id": team.pk})
+        API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response(
             {
