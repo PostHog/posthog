@@ -80,6 +80,7 @@ class PostgresBatchExportInputs:
     password: str
     host: str
     database: str
+    has_self_signed_cert: bool = False
     interval: str = "hour"
     schema: str = "public"
     table_name: str = "events"

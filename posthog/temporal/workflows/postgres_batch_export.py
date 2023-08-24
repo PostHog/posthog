@@ -35,6 +35,11 @@ def postgres_connection(inputs):
         database=inputs.database,
         host=inputs.host,
         port=inputs.port,
+        # The 'hasSelfSignedCert' parameter in the postgres-plugin was provided mainly
+        # for users of Heroku and RDS. It was used to set 'rejectUnauthorized' to false if a self-signed cert was used.
+        # Mapping this to sslmode is not straight-forward, but going by Heroku's recommendation (see below) we should use 'no-verify'.
+        # Reference: https://devcenter.heroku.com/articles/connecting-heroku-postgres#connecting-in-node-js
+        sslmode="no-verify" if inputs.has_self_signed_cert is True else "prefer",
     )
 
     try:
@@ -73,6 +78,7 @@ class PostgresInsertInputs:
     table_name: str
     data_interval_start: str
     data_interval_end: str
+    has_self_signed_cert: bool = False
     schema: str = "public"
     port: int = 5432
 
@@ -225,6 +231,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             database=inputs.database,
             schema=inputs.schema,
             table_name=inputs.table_name,
+            has_self_signed_cert=inputs.has_self_signed_cert,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
