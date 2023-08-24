@@ -330,6 +330,9 @@ def get_teams_with_billable_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> List[Tuple[int, int]]:
     # count only unique events
+    # Duplicate events will be eventually removed by ClickHouse and likely came from our library or pipeline.
+    # We shouldn't bill for these. However counting unique events is more expensive, and likely to fail on longer time ranges.
+    # So, we count uniques in small time periods only, controlled by the count_distinct parameter.
     if count_distinct:
         # Uses the same expression as the one used to de-duplicate events on the merge tree:
         # https://github.com/PostHog/posthog/blob/master/posthog/models/event/sql.py#L92
