@@ -7,6 +7,7 @@ import fetch, { FetchError, Request, Response } from 'node-fetch'
 import { URL } from 'url'
 
 import { runInSpan } from '../sentry'
+import { isProdEnv } from './env-utils'
 
 export function filteredFetch(...args: Parameters<typeof fetch>): Promise<Response> {
     const request = new Request(...args)
@@ -16,7 +17,10 @@ export function filteredFetch(...args: Parameters<typeof fetch>): Promise<Respon
             description: `${request.method} ${request.url}`,
         },
         async () => {
-            await raiseIfUserProvidedUrlUnsafe(request.url)
+            if (isProdEnv()) {
+                // TODO: Only run this check on Cloud
+                await raiseIfUserProvidedUrlUnsafe(request.url)
+            }
             return await fetch(...args)
         }
     )
