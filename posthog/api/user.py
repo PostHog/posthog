@@ -5,7 +5,6 @@ import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
 from typing import Any, Optional, cast
-
 import requests
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
@@ -32,6 +31,7 @@ from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
+from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import authenticate_secondarily
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
@@ -450,6 +450,7 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
+        raise_if_user_provided_url_unsafe(webhook)
         response = requests.post(webhook, verify=False, json=message)
 
         if response.ok:

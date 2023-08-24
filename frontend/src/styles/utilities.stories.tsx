@@ -1,8 +1,11 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import { Meta } from '@storybook/react'
 
-export default {
+const meta: Meta = {
     title: 'Lemon UI/Utilities',
+    tags: ['autodocs'],
 }
+export default meta
 
 export const Overview = (): JSX.Element => {
     // TODO: I should be fleshed out using this example to describe when utilities should and should not be used...

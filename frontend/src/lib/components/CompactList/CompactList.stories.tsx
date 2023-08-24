@@ -1,11 +1,11 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 
 import { CompactList } from './CompactList'
 import { urls } from 'scenes/urls'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-export default {
+const meta: Meta<typeof CompactList> = {
     title: 'Components/Compact List',
     component: CompactList,
     argTypes: {
@@ -15,7 +15,8 @@ export default {
             },
         },
     },
-} as ComponentMeta<typeof CompactList>
+}
+export default meta
 
 export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
     return (

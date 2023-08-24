@@ -6,6 +6,7 @@ on:
             - 'frontend/**'
             - '.storybook/**'
             - 'package.json'
+            - '.github/workflows/storybook-chromatic.yml'
 
 jobs:
     storybook-chromatic:
@@ -44,7 +45,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests
-        runs-on: ubuntu-latest
+        runs-on: buildjet-4vcpu-ubuntu-2204
         timeout-minutes: 30
         container:
             image: mcr.microsoft.com/playwright:v1.29.2
@@ -112,7 +113,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm

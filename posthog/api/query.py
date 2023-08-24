@@ -1,9 +1,7 @@
 import json
 import re
-from datetime import datetime
 from typing import Dict, Optional, cast, Any, List
 
-from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -35,24 +33,11 @@ from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySeria
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
-from posthog.utils import relative_date_parse
 
 
 class QueryThrottle(TeamRateThrottle):
     scope = "query"
     rate = "120/hour"
-
-
-def parse_as_date_or(date_string: str | None, default: datetime) -> datetime:
-    if not date_string:
-        return default
-
-    try:
-        timestamp = isoparse(date_string)
-    except ValueError:
-        timestamp = relative_date_parse(date_string)
-
-    return timestamp or default
 
 
 class QuerySchemaParser(JSONParser):

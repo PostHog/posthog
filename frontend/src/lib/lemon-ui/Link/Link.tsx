@@ -106,7 +106,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         ) : (
             <Tooltip
                 isDefaultTooltip
-                title={!!disabledReason ? <span className="italic">{disabledReason}</span> : undefined}
+                title={disabledReason ? <span className="italic">{disabledReason}</span> : undefined}
             >
                 <span>
                     <button

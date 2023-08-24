@@ -23,6 +23,7 @@ class Retention:
         self._base_uri = base_uri
 
     def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        filter.team = team
         retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team)
         if filter.breakdowns:
             return self.process_breakdown_table_result(retention_by_breakdown, filter)

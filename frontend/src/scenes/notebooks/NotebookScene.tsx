@@ -11,7 +11,7 @@ import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconArrowRight, IconDelete, IconEllipsis, IconExport, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { notebooksListLogic } from './Notebook/notebooksListLogic'
+import { notebooksModel } from '~/models/notebooksModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
@@ -95,7 +95,7 @@ export function NotebookScene(): JSX.Element {
                                         status: 'danger',
 
                                         onClick: () => {
-                                            notebooksListLogic.actions.deleteNotebook(notebookId, notebook?.title)
+                                            notebooksModel.actions.deleteNotebook(notebookId, notebook?.title)
                                             router.actions.push(urls.notebooks())
                                         },
                                     },

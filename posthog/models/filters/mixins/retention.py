@@ -82,7 +82,7 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
     def date_to(self) -> datetime:
         if self._date_to:
             if isinstance(self._date_to, str):
-                date_to = relative_date_parse(self._date_to)
+                date_to = relative_date_parse(self._date_to, self.team.timezone_info)  # type: ignore
             else:
                 date_to = self._date_to
         else:

@@ -9,7 +9,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.db.models.signals import post_delete, post_save
-
+from zoneinfo import ZoneInfo
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -37,6 +37,7 @@ DEPRECATED_ATTRS = (
     "event_properties_with_usage",
     "event_properties_numerical",
 )
+
 
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
 class AvailableExtraSettings:
@@ -132,6 +133,7 @@ class Team(UUIDClassicModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
+    has_completed_onboarding_for: models.JSONField = models.JSONField(null=True, blank=True)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     autocapture_opt_out: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
@@ -218,7 +220,6 @@ class Team(UUIDClassicModel):
 
     @property
     def _person_on_events_querying_enabled(self) -> bool:
-
         if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_OVERRIDE
 
@@ -296,6 +297,10 @@ class Team(UUIDClassicModel):
         """,
             {"team_id": self.pk, "group_type_index": group_type_index},
         )[0][0]
+
+    @cached_property
+    def timezone_info(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
 
     def __str__(self):
         if self.name:
