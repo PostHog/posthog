@@ -37,7 +37,7 @@ export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeF
             }
         }
 
-        return title ? `Feature Flag Code Example: ${title}` : 'Feature Flag Code Example'
+        return title ? `Feature flag code example: ${title}` : 'Feature flag code example'
     },
     Component,
     heightEstimate: '3rem',

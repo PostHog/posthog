@@ -99,7 +99,7 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
             }
         }
 
-        return title ? `Feature Flag: ${title}` : 'Feature Flag'
+        return title ? `Feature flag: ${title}` : 'Feature flag'
     },
     Component,
     heightEstimate: '3rem',

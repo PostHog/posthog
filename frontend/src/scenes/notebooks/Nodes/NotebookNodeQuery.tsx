@@ -63,7 +63,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             if (query.source.kind) {
                 title = query.source.kind.replace('Node', '').replace('Query', '')
             } else {
-                title = 'Data Exploration'
+                title = 'Data exploration'
             }
         }
         return Promise.resolve(title)
