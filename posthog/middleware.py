@@ -479,16 +479,15 @@ class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
     def label_metric(self, metric, request, response=None, **labels):
         new_labels = labels
         if metric._name in PROMETHEUS_EXTENDED_METRICS:
-            if (
-                request
-                and getattr(request, "user", None)
-                and request.user.is_authenticated
-                and hasattr(request.user, "team")
-                and request.user.team
-            ):
-                team_id = request.user.team.pk
-            else:
-                team_id = None
+            team_id = None
+            if request and getattr(request, "user", None) and request.user.is_authenticated:
+                if request.resolver_match.kwargs.get("parent_lookup_team_id"):
+                    team_id = request.resolver_match.kwargs["parent_lookup_team_id"]
+                    if team_id == "@current":
+                        if hasattr(request.user, "current_team_id"):
+                            team_id = request.user.team
+                        else:
+                            team_id = None
 
             new_labels = {LABEL_TEAM_ID: team_id}
             new_labels.update(labels)
