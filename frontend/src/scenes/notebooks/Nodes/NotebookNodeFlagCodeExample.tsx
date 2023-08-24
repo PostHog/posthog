@@ -30,12 +30,6 @@ export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeF
     attributes: {
         id: {},
     },
-    pasteOptions: {
-        find: urls.featureFlag('') + '(.+)',
-        getAttributes: async (match) => {
-            return { id: match[1] as FeatureFlagLogicProps['id'] }
-        },
-    },
 })
 
 export function buildCodeExampleContent(id: FeatureFlagLogicProps['id']): JSONContent {

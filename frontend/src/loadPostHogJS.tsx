@@ -37,7 +37,6 @@ export function loadPostHogJS(): void {
                         posthog.opt_in_capturing()
                     }
                 },
-                advanced_disable_feature_flags_on_first_load: true,
             })
         )
 
