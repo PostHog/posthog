@@ -104,7 +104,7 @@ runs:
           if: ${{ inputs.segment == 'FOSS' &&  inputs.person-on-events == 'true' }}
           shell: bash
           run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest ./posthog/clickhouse ./posthog/queries ./posthog/api/test/test_insight* \  
+              pytest ./posthog/clickhouse ./posthog/queries ./posthog/api/test/test_insight* \
                   ./posthog/api/test/dashboards/test_dashboard.py -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
