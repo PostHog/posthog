@@ -6,7 +6,7 @@ import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { IconCohort, IconQueryEditor, IconRecording, IconTableChart, IconUploadFile } from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { EditorCommands, EditorRange } from './utils'
-import { NotebookNodeType } from '~/types'
+import { BaseMathType, ChartDisplayType, NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -14,6 +14,7 @@ import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { selectFile } from '../Nodes/utils'
+import { NodeKind } from '~/queries/schema'
 
 type SlashCommandsProps = {
     mode: 'slash' | 'add'
@@ -78,6 +79,40 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         command: (chain) =>
             chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['PersonsTableFull'] } }),
     },
+    // {
+    //     title: 'Test',
+    //     search: 'people users',
+    //     icon: <IconCohort />,
+    //     command: (chain) =>
+    //         chain.insertContent({
+    //             type: NotebookNodeType.Query,
+    //             attrs: {
+    //                 query: {
+    //                     kind: NodeKind.InsightVizNode,
+    //                     source: {
+    //                         kind: NodeKind.TrendsQuery,
+    //                         filterTestAccounts: false,
+    //                         dateRange: {
+    //                             date_from: '-7d',
+    //                         },
+    //                         series: [
+    //                             {
+    //                                 kind: NodeKind.EventsNode,
+    //                                 event: '$pageview',
+    //                                 name: '$pageview',
+    //                                 math: BaseMathType.TotalCount,
+    //                             },
+    //                         ],
+    //                         interval: 'day',
+    //                         trendsFilter: {
+    //                             display: ChartDisplayType.ActionsAreaGraph,
+    //                         },
+    //                     },
+    //                     full: true,
+    //                 },
+    //             },
+    //         }),
+    // },
     {
         title: 'Session Replays',
         search: 'recordings video',

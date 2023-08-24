@@ -75,7 +75,15 @@ export function Query(props: QueryProps): JSX.Element | null {
     } else if (isSavedInsightNode(query)) {
         component = <SavedInsight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
-        component = <InsightViz query={query} setQuery={setQuery} context={queryContext} readOnly={readOnly} />
+        component = (
+            <InsightViz
+                query={query}
+                setQuery={setQuery}
+                context={queryContext}
+                readOnly={readOnly}
+                uniqueKey={props.uniqueKey}
+            />
+        )
     } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     }

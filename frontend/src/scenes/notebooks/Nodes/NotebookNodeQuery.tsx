@@ -1,7 +1,7 @@
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { BaseMathType, ChartDisplayType, InsightShortId, NotebookNodeType } from '~/types'
+import { InsightShortId, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
@@ -11,30 +11,6 @@ import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/u
 import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
-
-const SAMPLE_QUERY: QuerySchema = {
-    kind: NodeKind.InsightVizNode,
-    source: {
-        kind: NodeKind.TrendsQuery,
-        filterTestAccounts: false,
-        dateRange: {
-            date_from: '-7d',
-        },
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: '$pageview',
-                name: '$pageview',
-                math: BaseMathType.TotalCount,
-            },
-        ],
-        interval: 'day',
-        trendsFilter: {
-            display: ChartDisplayType.ActionsAreaGraph,
-        },
-    },
-    full: true,
-}
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -49,19 +25,9 @@ const DEFAULT_QUERY: QuerySchema = {
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const [query] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
-    const logic = insightLogic({ dashboardItemId: 'new' })
-    const { insightProps } = useValues(logic)
     const { setTitle } = useActions(notebookNodeLogic)
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
-
-    // // insightLogic
-    // const logic = insightLogic({ query: props.node.attrs.query, dashboardItemId: props.node.attrs.nodeId })
-    // const { insightProps } = useValues(logic)
-
-    // // insightDataLogic
-    // const { query } = useValues(insightDataLogic(insightProps))
-    // const { setQuery } = useActions(insightDataLogic(insightProps))
 
     const title = useMemo(() => {
         if (NodeKind.DataTableNode === query.kind) {
@@ -79,7 +45,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     }, [title])
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...SAMPLE_QUERY }
+        const modifiedQuery = { ...query }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -103,17 +69,15 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     }
 
     return (
-        <BindLogic logic={insightLogic} props={insightProps}>
-            <div
-                className={clsx(
-                    'flex flex-1 flex-col',
-                    NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden',
-                    NodeKind.InsightVizNode === modifiedQuery.kind && 'overflow-scroll'
-                )}
-            >
-                <Query query={modifiedQuery} uniqueKey={nodeLogic.props.nodeId} />
-            </div>
-        </BindLogic>
+        <div
+            className={clsx(
+                'flex flex-1 flex-col',
+                NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden',
+                NodeKind.InsightVizNode === modifiedQuery.kind && 'overflow-scroll'
+            )}
+        >
+            <Query query={modifiedQuery} uniqueKey={nodeLogic.props.nodeId} />
+        </div>
     )
 }
 
@@ -128,7 +92,7 @@ export const Settings = ({
     const [query, setQuery] = useJsonNodeState<QuerySchema>(attributes, updateAttributes, 'query')
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...SAMPLE_QUERY }
+        const modifiedQuery = { ...query }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -150,11 +114,7 @@ export const Settings = ({
             <Query
                 query={modifiedQuery}
                 setQuery={(t) => {
-                    if (t.kind === NodeKind.DataTableNode) {
-                        setQuery({ ...query, source: (t as DataTableNode).source } as QuerySchema)
-                    } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
-                        // TODO
-                    }
+                    setQuery({ ...query, source: (t as DataTableNode | InsightVizNode).source } as QuerySchema)
                 }}
                 readOnly={false}
                 uniqueKey={attributes.nodeId}

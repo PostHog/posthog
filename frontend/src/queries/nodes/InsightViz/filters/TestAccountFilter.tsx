@@ -15,6 +15,7 @@ export function TestAccountFilter({ query, setQuery }: TestAccountFilterProps): 
     const { currentTeam } = useValues(teamLogic)
     const { setLocalDefault } = useActions(filterTestAccountsDefaultsLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+
     return (
         <LemonSwitch
             checked={hasFilters ? !!query.filterTestAccounts : false}
