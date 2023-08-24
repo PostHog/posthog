@@ -478,7 +478,7 @@ describe('hooks', () => {
                 user_id: 1,
                 resource_id: 1,
                 event: 'foo',
-                target: 'foo.bar',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             }
@@ -493,7 +493,7 @@ describe('hooks', () => {
                         hook: {
                             id: 'id',
                             event: 'foo',
-                            target: 'foo.bar',
+                            target: 'https://example.com/',
                         },
                         data: {
                             event: 'foo',
@@ -525,7 +525,7 @@ describe('hooks', () => {
                         hook: {
                             id: 'id',
                             event: 'foo',
-                            target: 'foo.bar',
+                            target: 'https://example.com/',
                         },
                         data: {
                             event: 'foo',

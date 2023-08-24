@@ -174,7 +174,7 @@ describe('Event Pipeline integration test', () => {
             user_id: commonUserId,
             resource_id: 69,
             event: 'action_performed',
-            target: 'https://rest-hooks.example.com/',
+            target: 'https://example.com/',
             created: timestamp,
             updated: timestamp,
         } as Hook)
@@ -198,7 +198,7 @@ describe('Event Pipeline integration test', () => {
             hook: {
                 id: 'abc',
                 event: 'action_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
             },
             data: {
                 event: 'xyz',

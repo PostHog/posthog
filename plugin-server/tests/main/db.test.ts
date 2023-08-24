@@ -165,7 +165,7 @@ describe('DB', () => {
                 user_id: 1001,
                 resource_id: 69,
                 event: 'action_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
@@ -188,7 +188,7 @@ describe('DB', () => {
                                 team_id: 2,
                                 resource_id: 69,
                                 event: 'action_performed',
-                                target: 'https://rest-hooks.example.com/',
+                                target: 'https://example.com/',
                             },
                         ],
                         bytecode: null,
@@ -226,7 +226,7 @@ describe('DB', () => {
                 user_id: 1001,
                 resource_id: 69,
                 event: 'event_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
@@ -236,7 +236,7 @@ describe('DB', () => {
                 user_id: 1001,
                 resource_id: 70,
                 event: 'event_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
