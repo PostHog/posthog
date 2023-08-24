@@ -8,8 +8,6 @@ import { IconComment, IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
 import { NotebookNodeType } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -17,7 +15,6 @@ import { dayjs } from 'lib/dayjs'
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const getCurrentPlayerTime = (): number => {
         // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook

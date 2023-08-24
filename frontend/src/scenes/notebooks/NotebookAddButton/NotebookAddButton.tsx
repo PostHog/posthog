@@ -137,8 +137,7 @@ function NotebookAddButtonPopover({ ...props }: NotebookAddButtonProps): JSX.Ele
 
     const openNewNotebook = (): void => {
         const title = newNotebookTitle ?? `Notes ${dayjs().format('DD/MM')}`
-        // const title = newNotebookTitle ?? `Session Replay Notes ${dayjs().format('DD/MM')}`
-        // const currentPlayerTime = getCurrentPlayerTime() * 1000
+
         createNotebook(title, NotebookTarget.Popover, [resource], (theNotebookLogic) => {
             props.onNotebookOpened?.(theNotebookLogic)
             loadContainingNotebooks()
