@@ -604,7 +604,10 @@ const ensureProjectIdNotInvalid = (url: string): void => {
 
 const api = {
     insights: {
-        loadInsight(shortId: InsightModel['short_id'], basic?: boolean): Promise<PaginatedResponse<InsightModel>> {
+        loadInsight(
+            shortId: InsightModel['short_id'],
+            basic?: boolean
+        ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
                 .withQueryString(
