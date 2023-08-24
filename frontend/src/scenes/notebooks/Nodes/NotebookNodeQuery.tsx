@@ -2,10 +2,10 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
 
@@ -26,23 +26,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const [query, setQuery] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
-    const { setTitle } = useActions(notebookNodeLogic)
     const { expanded } = useValues(notebookNodeLogic)
-
-    const title = useMemo(() => {
-        if (NodeKind.DataTableNode === query.kind) {
-            if (query.source.kind) {
-                return query.source.kind.replace('Node', '')
-            }
-            return 'Data Exploration'
-        }
-        return 'Query'
-    }, [query])
-
-    useEffect(() => {
-        setTitle(title)
-        // TODO: Set title on parent props
-    }, [title])
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query }
@@ -72,7 +56,18 @@ type NotebookNodeQueryAttributes = {
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: 'Query', // TODO: allow this to be updated from the component
+    title: (attributes: NotebookNodeQueryAttributes) => {
+        const query = attributes.query
+        let title = 'HogQL'
+        if (NodeKind.DataTableNode === query.kind) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Data Exploration'
+            }
+        }
+        return Promise.resolve(title)
+    },
     Component,
     heightEstimate: 500,
     resizeable: true,
