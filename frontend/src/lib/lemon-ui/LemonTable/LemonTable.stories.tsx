@@ -186,6 +186,11 @@ BorderlessRows.args = { borderedRows: false }
 
 export const Loading: Story = BasicTemplate.bind({})
 Loading.args = { loading: true }
+Loading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const EmptyLoading: Story = EmptyTemplate.bind({})
 EmptyLoading.args = { loading: true }

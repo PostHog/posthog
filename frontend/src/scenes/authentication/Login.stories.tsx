@@ -14,6 +14,9 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        testOptions: {
+            waitForLoadersToDisappear: '.BridgePage__left__message--enter-done',
+        },
     },
     decorators: [
         mswDecorator({

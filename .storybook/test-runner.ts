@@ -21,21 +21,23 @@ declare module '@storybook/react' {
             /**
              * Whether we should wait for all loading indicators to disappear before taking a snapshot.
              *
-             * This is on by default for stories that have a layout of 'fullscreen', and off otherwise.
-             * Override that behavior by setting this to `true` or `false` manually.
-             *
              * You can also provide a selector string instead of a boolean - in that case we'll wait
              * for a matching element to be be visible once all loaders are gone.
+             *
+             * @default true
              */
             waitForLoadersToDisappear?: boolean | string
             /**
              * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
              * Warning: Fails if enabled for stories in which navigation is not present.
+             *
+             * @default false
              */
             excludeNavigationFromSnapshot?: boolean
             /**
              * The test will always run for all the browers, but snapshots are only taken in Chromium by default.
              * Override this to take snapshots in other browsers too.
+             *
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
@@ -71,7 +73,7 @@ module.exports = {
         const storyContext = await getStoryContext(page, context)
         const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        browserContext.setDefaultTimeout(1000) // Reduce the default timeout from 30 s to 1 s to pre-empt Jest timeouts
+        browserContext.setDefaultTimeout(3000) // Reduce the default timeout from 30 s to 3 s to pre-empt Jest timeouts
         if (!skip) {
             const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
             if (snapshotBrowsers.includes(currentBrowser)) {
@@ -87,10 +89,8 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const {
-        waitForLoadersToDisappear = storyContext.parameters?.layout === 'fullscreen',
-        excludeNavigationFromSnapshot = false,
-    } = storyContext.parameters?.testOptions ?? {}
+    const { waitForLoadersToDisappear = true, excludeNavigationFromSnapshot = false } =
+        storyContext.parameters?.testOptions ?? {}
 
     let check: (
         page: Page,

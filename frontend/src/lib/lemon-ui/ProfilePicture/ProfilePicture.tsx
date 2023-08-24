@@ -44,18 +44,10 @@ export function ProfilePicture({
         if (emailOrNameWithEmail) {
             const emailHash = md5(emailOrNameWithEmail.trim().toLowerCase())
             const tentativeUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
-            // The image will be cached, so it's better to do a full GET request in this check
+            // The image will be cached, so it's best to do GET request check before trying to render it
             fetch(tentativeUrl)
-                .then((response) => {
-                    if (response.status === 200) {
-                        setGravatarUrl(tentativeUrl)
-                    } else {
-                        setGravatarUrl(null)
-                    }
-                })
-                .catch(() => {
-                    setGravatarUrl(null)
-                })
+                .then((response) => setGravatarUrl(response.status === 200 ? tentativeUrl : null))
+                .catch(() => setGravatarUrl(null))
         }
     }, [email])
 

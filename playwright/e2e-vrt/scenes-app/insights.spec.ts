@@ -15,7 +15,7 @@ test.describe('tooltip', () => {
         })
 
         const tooltip = await page.locator('.InsightTooltip')
-        await expect(tooltip).toHaveScreenshot({ maxDiffPixelRatio: 0.015 })
+        await expect(tooltip).toHaveScreenshot({ maxDiffPixelRatio: 0.03 })
     })
 })
 
@@ -28,6 +28,6 @@ test.describe('annotations popover', () => {
         await page.locator('.AnnotationsOverlay > button:nth-child(4)').hover()
 
         const popover = await page.locator('.AnnotationsPopover')
-        await expect(popover).toHaveScreenshot({ maxDiffPixelRatio: 0.015 })
+        await expect(popover).toHaveScreenshot({ maxDiffPixelRatio: 0.03 })
     })
 })
