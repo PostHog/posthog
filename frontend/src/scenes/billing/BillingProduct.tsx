@@ -236,12 +236,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                           )
 
                       const tierData = {
-                          volume: getTierDescription(
-                              product.tiers,
-                              i,
-                              product,
-                              billing?.billing_period?.interval || ''
-                          ),
+                          volume: product.tiers // this is silly because we know there are tiers since we check above, but typescript doesn't
+                              ? getTierDescription(product.tiers, i, product, billing?.billing_period?.interval || '')
+                              : '',
                           basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
                           usage: compactNumber(tier.current_usage),
                           total: `$${totalForTier.toFixed(2) || '0.00'}`,
