@@ -17,7 +17,8 @@ from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.utils import cors_response, load_data_from_request
+from posthog.utils import load_data_from_request
+from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
 
