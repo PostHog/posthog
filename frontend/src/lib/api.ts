@@ -622,7 +622,7 @@ const api = {
     },
 
     featureFlags: {
-        async load(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
+        async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
             return await new ApiRequest().featureFlag(id).get()
         },
     },
