@@ -10,7 +10,7 @@ import { InsightQueryNode, InsightVizNode, QueryContext } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
-import { InsightLogicProps, ItemMode } from '~/types'
+import { InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getCachedResults } from './utils'
 import { useState } from 'react'
@@ -50,13 +50,11 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
     }
 
     const showIfFull = !!query.full
-    const disableHeader = query.showHeader ? !query.showHeader : !showIfFull
-    const disableTable = query.showTable ? !query.showTable : !showIfFull
-    const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
-    const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
-    const disableLastComputationRefresh = query.showLastComputationRefresh
-        ? !query.showLastComputationRefresh
-        : !showIfFull
+    const disableHeader = !(query.showHeader ?? showIfFull)
+    const disableTable = !(query.showTable ?? showIfFull)
+    const disableCorrelationTable = !(query.showCorrelationTable ?? showIfFull)
+    const disableLastComputation = !(query.showLastComputation ?? showIfFull)
+    const disableLastComputationRefresh = !(query.showLastComputationRefresh ?? showIfFull)
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -66,13 +64,7 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
                         'insight-wrapper--singlecolumn': isFunnels,
                     })}
                 >
-                    {!readOnly && (
-                        <EditorFilters
-                            query={query.source}
-                            setQuery={setQuerySource}
-                            showing={insightMode === ItemMode.Edit}
-                        />
-                    )}
+                    {!readOnly && <EditorFilters query={query.source} setQuery={setQuerySource} showing={true} />}
 
                     <div className="insights-container" data-attr="insight-view">
                         <InsightContainer
