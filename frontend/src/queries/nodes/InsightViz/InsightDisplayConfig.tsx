@@ -45,7 +45,6 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showFunnelDisplayLayout,
         showFunnelBins,
         display,
-        compare,
         trendsFilter,
         hasLegend,
     } = useValues(insightDisplayConfigLogic(insightProps))
@@ -77,7 +76,6 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
             : []),
     ]
     const advancedOptionsCount: number =
-        (showCompare && compare ? 1 : 0) +
         (showValueOnSeries && isValueOnSeriesOn ? 1 : 0) +
         (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
         (!isPercentStackViewOn &&
