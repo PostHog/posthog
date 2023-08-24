@@ -23,7 +23,7 @@ import { posthogNodePasteRule } from './utils'
 import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
-    title: string
+    title: string | ((attributes: T) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     href?: string | ((attributes: T) => string)
@@ -59,7 +59,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable } = useValues(mountedNotebookLogic)
 
-    // TODO nodeId is not generating correctly, when it is then we might not need to use node.attrs.title below
+    // nodeId can start null, but should then immediately be generated
     const nodeId = node.attrs.nodeId
     const nodeLogicProps = {
         node,
@@ -145,7 +145,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                                             ) : undefined
                                         }
                                     >
-                                        <span className="flex-1 cursor-pointer">{node?.attrs?.title || title}</span>
+                                        <span className="flex-1 cursor-pointer">{title}</span>
                                     </LemonButton>
 
                                     {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
@@ -207,6 +207,15 @@ export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
     ...wrapperProps
 }: CreatePostHogWidgetNodeOptions<T>): Node {
     const WrappedComponent = (props: NotebookNodeViewProps<T>): JSX.Element => {
+        if (props.node.attrs.nodeId === null) {
+            // TODO only wrapped in setTimeout because of the flushSync bug
+            setTimeout(() => {
+                props.updateAttributes({
+                    nodeId: uuid(),
+                })
+            }, 0)
+        }
+
         return (
             <NodeWrapper {...props} {...wrapperProps}>
                 <Component {...props} />
@@ -223,8 +232,9 @@ export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
         addAttributes() {
             return {
                 height: {},
+                title: {},
                 nodeId: {
-                    default: uuid,
+                    default: null,
                 },
                 ...attributes,
             }
