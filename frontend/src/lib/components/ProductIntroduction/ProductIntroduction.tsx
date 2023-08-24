@@ -77,7 +77,8 @@ export const ProductIntroduction = ({
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (
                         <p className="ml-0">
-                            Your team is already using {productName}. You can take a look at what they're doing, or get started yourself.
+                            Your team is already using {productName}. You can take a look at what they're doing, or get
+                            started yourself.
                         </p>
                     )}
                     <div className="flex items-center gap-x-4 mt-6">
