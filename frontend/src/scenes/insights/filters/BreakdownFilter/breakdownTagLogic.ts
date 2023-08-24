@@ -59,8 +59,8 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (propertyDefinition) => isURLNormalizeable(propertyDefinition?.name || ''),
         ],
         shouldShowMenu: [
-            (s) => [s.isHistogramable, s.isNormalizeable],
-            (isHistogramable, isNormalizeable) => isHistogramable || isNormalizeable,
+            (s) => [s.isViewOnly, s.isHistogramable, s.isNormalizeable],
+            (isViewOnly, isHistogramable, isNormalizeable) => !isViewOnly && (isHistogramable || isNormalizeable),
         ],
     }),
     listeners(({ props, actions }) => ({

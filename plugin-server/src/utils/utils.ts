@@ -403,11 +403,11 @@ export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): st
     return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 
-export function createPostgresPool(connectionString: string, onError?: (error: Error) => any): Pool {
+export function createPostgresPool(connectionString: string, poolSize: number, onError?: (error: Error) => any): Pool {
     const pgPool = new Pool({
         connectionString,
         idleTimeoutMillis: 500,
-        max: 10,
+        max: poolSize,
         ssl: process.env.DYNO // Means we are on Heroku
             ? {
                   rejectUnauthorized: false,

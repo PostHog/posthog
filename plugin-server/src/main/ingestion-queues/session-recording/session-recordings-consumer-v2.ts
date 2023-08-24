@@ -2,7 +2,6 @@ import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka-acosom'
-import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
@@ -11,6 +10,7 @@ import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { PostgresRouter } from '../../../utils/db/postgres'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { asyncTimeoutGuard } from '../../../utils/timing'
@@ -104,7 +104,7 @@ export class SessionRecordingIngesterV2 {
 
     constructor(
         private serverConfig: PluginsServerConfig,
-        private postgres: Pool,
+        private postgres: PostgresRouter,
         private objectStorage: ObjectStorage,
         private redisPool: RedisPool
     ) {

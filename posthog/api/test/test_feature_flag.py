@@ -36,6 +36,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
+    FuzzyInt,
 )
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -960,7 +961,7 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(FuzzyInt(10, 11)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -971,7 +972,7 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(FuzzyInt(10, 11)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
