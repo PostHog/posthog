@@ -326,10 +326,18 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
 
 
 @timed_log()
-def get_teams_with_billable_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_billable_event_count_in_period(
+    begin: datetime, end: datetime, count_distinct: bool = False
+) -> List[Tuple[int, int]]:
+    # count only unique events
+    if count_distinct:
+        distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
+    else:
+        distinct_expression = "1"
+
     result = sync_execute(
-        """
-        SELECT team_id, count(1) as count
+        f"""
+        SELECT team_id, count({distinct_expression}) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called'
         GROUP BY team_id
@@ -541,7 +549,9 @@ def send_all_org_usage_reports(
     try:
         all_data = dict(
             teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
-            teams_with_event_count_in_period=get_teams_with_billable_event_count_in_period(period_start, period_end),
+            teams_with_event_count_in_period=get_teams_with_billable_event_count_in_period(
+                period_start, period_end, count_distinct=True
+            ),
             teams_with_event_count_in_month=get_teams_with_billable_event_count_in_period(
                 period_start.replace(day=1), period_end
             ),
