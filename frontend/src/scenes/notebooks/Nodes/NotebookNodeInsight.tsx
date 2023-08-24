@@ -41,13 +41,17 @@ export const NotebookNodeInsight = createPostHogWidgetNode<NotebookNodeInsightAt
         getAttributes: async (match) => {
             const shortId = match[1] as InsightShortId
             const mountedInsightLogic = insightLogic.findMounted({ dashboardItemId: shortId })
+
             let title = mountedInsightLogic?.values.insightName || null
             if (title === null) {
                 const response = await api.insights.loadInsight(shortId, true)
                 if (response.results?.[0]) {
-                    title = response.results[0].name
+                    title = response.results[0].name.length
+                        ? response.results[0].name
+                        : response.results[0].derived_name || null
                 }
             }
+
             return { id: shortId, title: title }
         },
     },
