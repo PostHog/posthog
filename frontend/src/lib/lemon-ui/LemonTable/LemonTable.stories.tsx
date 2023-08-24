@@ -197,6 +197,11 @@ EmptyLoading.args = { loading: true }
 
 export const EmptyLoadingWithManySkeletonRows: Story = EmptyTemplate.bind({})
 EmptyLoadingWithManySkeletonRows.args = { loading: true, loadingSkeletonRows: 10 }
+EmptyLoadingWithManySkeletonRows.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const WithoutHeader: Story = BasicTemplate.bind({})
 WithoutHeader.args = { showHeader: false }

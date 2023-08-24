@@ -77,6 +77,11 @@ WithSlowNetworkResponseClosedPopover.args = {
     resource: { type: NotebookNodeType.Recording, attrs: { id: 'very_slow' } },
     visible: false,
 }
+WithSlowNetworkResponse.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const WithNoExistingContainingNotebooks = Template.bind({})
 WithNoExistingContainingNotebooks.args = {
