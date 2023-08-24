@@ -114,15 +114,6 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
 }
 
-export type Product = {
-    name: string
-    key: ProductKey
-    description: string
-    productUrl: string
-    productInfoUrl?: string
-    docsUrl?: string
-}
-
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
