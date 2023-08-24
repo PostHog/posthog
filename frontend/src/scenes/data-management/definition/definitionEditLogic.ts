@@ -71,7 +71,9 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                         const _eventProperty = definition as PropertyDefinition
                         definition = await api.propertyDefinitions.update({
                             propertyDefinitionId: _eventProperty.id,
-                            propertyDefinitionData: _eventProperty,
+                            propertyDefinitionData: values.hasTaxonomyFeatures
+                                ? _eventProperty
+                                : { property_type: _eventProperty.property_type },
                         })
                         updatePropertyDefinitions({
                             [`event/${definition.name}`]: definition as PropertyDefinition,
