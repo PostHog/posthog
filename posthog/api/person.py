@@ -277,7 +277,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         # TEMPORARY: Work out usage patterns of this endpoint
-        statsd.incr("api_person_list_total", tags={"team_id": team.pk})
         renderer = SafeJSONRenderer()
         size = len(renderer.render(serialized_actors))
         statsd.incr("api_person_list_bytes_read_from_postgres", size, tags={"team_id": team.pk})

@@ -300,7 +300,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 for actor in serialized_actors
             ]
 
-        statsd.incr("api_cohort_person_total", tags={"team_id": team.pk})
+        # TEMPORARY: Work out usage patterns of this endpoint
         renderer = SafeJSONRenderer()
         size = len(renderer.render(serialized_actors))
         statsd.incr("api_cohort_person_bytes_read_from_postgres", size, tags={"team_id": team.pk})

@@ -483,9 +483,9 @@ class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
                 request
                 and getattr(request, "user", None)
                 and request.user.is_authenticated
-                and hasattr(request.user, "current_team_id")
+                and hasattr(request.user, "team")
             ):
-                team_id = request.user.current_team_id
+                team_id = request.user.team.pk
             else:
                 team_id = None
 
