@@ -47,6 +47,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         display,
         trendsFilter,
         hasLegend,
+        showLegend,
     } = useValues(insightDisplayConfigLogic(insightProps))
 
     const { showPercentStackView: isPercentStackViewOn, showValueOnSeries: isValueOnSeriesOn } = useValues(
@@ -84,7 +85,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         trendsFilter.aggregation_axis_format !== 'numeric'
             ? 1
             : 0) +
-        (hasLegend && trendsFilter?.show_legend ? 1 : 0)
+        (hasLegend && showLegend ? 1 : 0)
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
