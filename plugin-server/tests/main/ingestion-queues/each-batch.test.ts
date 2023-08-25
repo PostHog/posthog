@@ -27,6 +27,7 @@ import { groupIntoBatches } from '../../../src/utils/utils'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
+import { pluginConfig39 } from '../../helpers/plugins'
 
 jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
     const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
@@ -138,6 +139,7 @@ describe('eachBatchX', () => {
                 kafkaProducer: {
                     queueMessage: jest.fn(),
                 },
+                pluginConfigsPerTeam: new Map(),
             },
             workerMethods: {
                 runAppsOnEventPipeline: jest.fn(),
@@ -167,16 +169,25 @@ describe('eachBatchX', () => {
         })
     })
 
-    describe('eachBatchWebhooksHandlers', () => {
-        it('calls runWebhooksHandlersEventPipeline', async () => {
+    describe('eachBatchAppsOnEventHandlers', () => {
+        it('calls runAppsOnEventPipeline when useful', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [pluginConfig39])
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
-
             expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
                 ...event,
                 properties: {
                     $ip: '127.0.0.1',
                 },
             })
+            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
+                'kafka_queue.each_batch_async_handlers_on_event',
+                expect.any(Date)
+            )
+        })
+        it('skip runAppsOnEventPipeline when no pluginconfig for team', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.clear()
+            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+            expect(queue.workerMethods.runAppsOnEventPipeline).not.toHaveBeenCalled()
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_async_handlers_on_event',
                 expect.any(Date)

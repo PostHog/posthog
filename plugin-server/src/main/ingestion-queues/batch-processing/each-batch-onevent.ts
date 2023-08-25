@@ -7,7 +7,7 @@ import { status } from '../../../utils/status'
 import { groupIntoBatches } from '../../../utils/utils'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
-import { latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -17,15 +17,24 @@ export async function eachMessageAppsOnEventHandlers(
     queue: KafkaJSIngestionConsumer
 ): Promise<void> {
     const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
-    const event = convertToIngestionEvent(clickHouseEvent)
 
-    await runInstrumentedFunction({
-        event: event,
-        func: () => queue.workerMethods.runAppsOnEventPipeline(event),
-        statsKey: `kafka_queue.process_async_handlers_on_event`,
-        timeoutMessage: 'After 30 seconds still running runAppsOnEventPipeline',
-        teamId: event.teamId,
-    })
+    if (queue.pluginsServer.pluginConfigsPerTeam.has(clickHouseEvent.team_id)) {
+        const event = convertToIngestionEvent(clickHouseEvent)
+        await runInstrumentedFunction({
+            event: event,
+            func: () => queue.workerMethods.runAppsOnEventPipeline(event),
+            statsKey: `kafka_queue.process_async_handlers_on_event`,
+            timeoutMessage: 'After 30 seconds still running runAppsOnEventPipeline',
+            teamId: event.teamId,
+        })
+    } else {
+        eventDroppedCounter
+            .labels({
+                event_type: 'onevent',
+                drop_cause: 'no_matching_plugin',
+            })
+            .inc()
+    }
 }
 
 export async function eachBatchAppsOnEventHandlers(
