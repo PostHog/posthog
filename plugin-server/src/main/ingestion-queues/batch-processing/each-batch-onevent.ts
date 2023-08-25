@@ -22,7 +22,7 @@ export async function eachMessageAppsOnEventHandlers(
     if (pluginConfigs) {
         // Elements parsing can be extremely slow, so we skip it for some plugins
         const skipElementsChain = pluginConfigs.every((pluginConfig) =>
-            process.env.SKIP_ELEMENTS_PARSING_PLUGINS?.split(',').includes(pluginConfig.id.toString())
+            process.env.SKIP_ELEMENTS_PARSING_PLUGINS?.split(',').includes(pluginConfig.plugin_id.toString())
         )
 
         const event = convertToIngestionEvent(clickHouseEvent, skipElementsChain)
