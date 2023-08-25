@@ -584,7 +584,7 @@ def retention_test_factory(retention):
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result, _ = retention().actors_in_period(
-                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 0}), self.team
+                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 0}, team=self.team), self.team
             )
             self.assertEqual(len(result), 1)
             self.assertTrue(result[0]["person"]["id"] == person1.uuid, person1.uuid)
@@ -602,7 +602,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 0,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -618,7 +619,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 0,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -675,7 +677,7 @@ def retention_test_factory(retention):
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result, _ = retention().actors_in_period(
-                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 2}), self.team
+                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 2}, team=self.team), self.team
             )
 
             # should be descending order on number of appearances
@@ -697,7 +699,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 0,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
