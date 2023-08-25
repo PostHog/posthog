@@ -3038,6 +3038,7 @@ export enum NotebookNodeType {
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
     FeatureFlagCodeExample = 'ph-feature-flag-code-example',
+    Experiment = 'ph-experiment',
     Person = 'ph-person',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',

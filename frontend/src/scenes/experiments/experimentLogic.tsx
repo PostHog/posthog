@@ -40,6 +40,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightVizNode } from '~/queries/schema'
 import { groupsModel } from '~/models/groupsModel'
+import { Tag } from 'antd'
 
 export const DEFAULT_DURATION = 14 // days
 
@@ -615,6 +616,42 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment): boolean => {
                 return !!experiment?.start_date
+            },
+        ],
+        statusTag: [
+            (s) => [s.experiment, s.isExperimentRunning],
+            (experiment, isExperimentRunning): ReactElement => {
+                const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
+                const status = (): string => {
+                    if (!isExperimentRunning) {
+                        return 'draft'
+                    } else if (!experiment?.end_date) {
+                        return 'running'
+                    }
+                    return 'complete'
+                }
+
+                return (
+                    <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+                        <b className="uppercase">{status()}</b>
+                    </Tag>
+                )
+            },
+        ],
+        resultsTag: [
+            (s) => [s.experiment, s.experimentResults, s.areResultsSignificant],
+            (experiment, experimentResults, areResultsSignificant): ReactElement => {
+                if (experimentResults && experiment.end_date) {
+                    return (
+                        <Tag style={{ alignSelf: 'center' }} color={areResultsSignificant ? 'green' : 'geekblue'}>
+                            <b className="uppercase">
+                                {areResultsSignificant ? 'Significant Results' : 'Results not significant'}
+                            </b>
+                        </Tag>
+                    )
+                }
+
+                return <></>
             },
         ],
         breadcrumbs: [
