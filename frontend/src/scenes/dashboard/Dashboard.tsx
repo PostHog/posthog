@@ -119,7 +119,7 @@ function DashboardScene(): JSX.Element {
                             DashboardPlacement.FeatureFlag,
                         ].includes(placement) && (
                             <div className="flex space-x-4">
-                                <div className="flex items-center h-8">
+                                <div className="flex shrink-0 items-center h-8">
                                     <DateFilter
                                         showCustom
                                         dateFrom={dashboardFilters?.date_from ?? undefined}
@@ -156,7 +156,7 @@ function DashboardScene(): JSX.Element {
                             </LemonButton>
                         )}
                         {placement !== DashboardPlacement.Export && (
-                            <div className="flex space-x-4 dashoard-items-actions">
+                            <div className="flex shrink-0 space-x-4 dashoard-items-actions">
                                 <div
                                     className={`left-item ${
                                         placement === DashboardPlacement.Public ? 'text-right' : ''
