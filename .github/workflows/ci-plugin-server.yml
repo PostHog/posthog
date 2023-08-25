@@ -16,7 +16,7 @@ env:
     # set the max buffer size small enough that the functional tests behave the same in CI as when running locally
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
     # increase heap to 5GiB, runner has 7GiB of RAM
-    NODE_OPTIONS: "--max-old-space-size=5120"
+    NODE_OPTIONS: '--max-old-space-size=6144'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -179,7 +179,7 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-                  NODE_OPTIONS: '--max_old_space_size=4096'
+                  NODE_OPTIONS: '--max_old_space_size=6144'
               run: cd plugin-server && pnpm test -- --runInBand --forceExit tests/ --shard=${{matrix.shard}}
 
     functional-tests:
