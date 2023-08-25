@@ -18,8 +18,14 @@ export async function eachMessageAppsOnEventHandlers(
 ): Promise<void> {
     const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
 
-    if (queue.pluginsServer.pluginConfigsPerTeam.has(clickHouseEvent.team_id)) {
-        const event = convertToIngestionEvent(clickHouseEvent)
+    const pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
+    if (pluginConfigs) {
+        // Elements parsing can be extremely slow, so we skip it for some plugins
+        const skipElementsChain = pluginConfigs.every((pluginConfig) =>
+            process.env.SKIP_ELEMENTS_PARSING_PLUGINS?.split(',').includes(pluginConfig.id.toString())
+        )
+
+        const event = convertToIngestionEvent(clickHouseEvent, skipElementsChain)
         await runInstrumentedFunction({
             event: event,
             func: () => queue.workerMethods.runAppsOnEventPipeline(event),
