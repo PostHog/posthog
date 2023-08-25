@@ -21,10 +21,11 @@ export {
 } from '@tiptap/core'
 
 export type NotebookNodeAttributes = Record<string, any>
-type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
+export type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
     attrs: T & {
         nodeId: string
         height?: string | number
+        title?: string | ((attributes: T) => Promise<string>)
     }
 }
 
