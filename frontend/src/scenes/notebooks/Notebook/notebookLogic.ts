@@ -59,10 +59,10 @@ export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
-    connect({
+    connect(() => ({
         values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [notebooksModel, ['receiveNotebookUpdate']],
-    }),
+    })),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
         editorIsReady: true,
