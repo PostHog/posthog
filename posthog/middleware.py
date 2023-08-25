@@ -29,7 +29,7 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
-from posthog.utils import cors_response
+from .utils_cors import cors_response
 
 from .auth import PersonalAPIKeyAuthentication
 

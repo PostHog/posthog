@@ -11,10 +11,8 @@ import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
 import { NotebookNodeType, NotebookNodeWidgetSettings } from '~/types'
 
-/* eslint-disable @typescript-eslint/no-empty-interface */
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
-/* eslint-enable @typescript-eslint/no-empty-interface */
 
 export {
     ChainedCommands as EditorCommands,
@@ -44,6 +42,8 @@ export type NotebookNodeWidget = {
 export interface NotebookEditor {
     getJSON: () => JSONContent
     getSelectedNode: () => Node | null
+    getPreviousNode: () => Node | null
+    getNextNode: () => Node | null
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     setSelection: (position: number) => void

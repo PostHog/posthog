@@ -62,7 +62,7 @@ export const notebooksModel = kea<notebooksModelType>([
             title?: string,
             location: NotebookTarget = NotebookTarget.Auto,
             content?: JSONContent[],
-            onCreate?: (notebook: NotebookType) => void
+            onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void
         ) => ({
             title,
             location,
@@ -104,13 +104,14 @@ export const notebooksModel = kea<notebooksModelType>([
                         content: defaultNotebookContent(title, content),
                     })
 
-                    openNotebook(notebook.short_id, location, 'end')
+                    openNotebook(notebook.short_id, location, 'end', (logic) => {
+                        onCreate?.(logic)
+                    })
 
                     posthog.capture(`notebook created`, {
                         short_id: notebook.short_id,
                     })
 
-                    onCreate?.(notebook)
                     return [notebook, ...values.notebooks]
                 },
 

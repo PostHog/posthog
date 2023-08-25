@@ -4,24 +4,26 @@ import { NotebookListItemType, NotebookNodeType } from '~/types'
 
 import api from 'lib/api'
 
-import type { notebookCommentButtonLogicType } from './notebookCommentButtonLogicType'
+import type { notebookAddButtonLogicType } from './notebookAddButtonLogicType'
 
-export interface NotebookCommentButtonProps {
-    sessionRecordingId: string
-    startVisible: boolean
+export interface NotebookAddButtonLogicProps {
+    resource: {
+        attrs: Record<string, any>
+        type: NotebookNodeType
+    }
 }
 
-export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'NotebookCommentButton', 'multiNotebookCommentButtonLogic', key]),
-    props({} as NotebookCommentButtonProps),
-    key((props) => props.sessionRecordingId || 'no recording id yet'),
+export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'NotebookAddButton', 'multiNotebookAddButtonLogic', key]),
+    props({} as NotebookAddButtonLogicProps),
+    key((props) => JSON.stringify(props.resource)),
     actions({
         setShowPopover: (visible: boolean) => ({ visible }),
         setSearchQuery: (query: string) => ({ query }),
         loadContainingNotebooks: true,
         loadAllNotebooks: true,
     }),
-    reducers(({ props }) => ({
+    reducers(() => ({
         searchQuery: [
             '',
             {
@@ -29,7 +31,7 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
             },
         ],
         showPopover: [
-            props.startVisible,
+            false,
             {
                 setShowPopover: (_, { visible }) => visible,
             },
@@ -59,7 +61,7 @@ export const notebookCommentButtonLogic = kea<notebookCommentButtonLogicType>([
                 loadContainingNotebooks: async (_, breakpoint) => {
                     breakpoint(100)
                     const response = await api.notebooks.list(
-                        [{ type: NotebookNodeType.Recording, attrs: { id: props.sessionRecordingId } }],
+                        [{ type: props.resource.type, attrs: { id: props.resource.attrs?.id } }],
                         undefined,
                         values.searchQuery ?? undefined
                     )

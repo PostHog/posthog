@@ -10,7 +10,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
+import { NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,6 +33,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PersonDashboard } from './PersonDashboard'
+import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
 
 export const scene: SceneExport = {
     component: Person,
@@ -142,6 +143,15 @@ export function Person(): JSX.Element | null {
                 }
                 buttons={
                     <div className="flex gap-2">
+                        <NotebookAddButton
+                            resource={{
+                                attrs: {
+                                    id: person?.distinct_ids[0],
+                                },
+                                type: NotebookNodeType.Person,
+                            }}
+                            type="secondary"
+                        />
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}

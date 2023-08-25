@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
-import { Pool } from 'pg'
 
 import { defaultConfig } from '../../../../src/config/config'
 import { eachBatch } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v1'
 import { now } from '../../../../src/main/ingestion-queues/session-recording/utils'
+import { PostgresRouter } from '../../../../src/utils/db/postgres'
 import { TeamManager } from '../../../../src/worker/ingestion/team-manager'
 import { createOrganization, createTeam } from '../../../helpers/sql'
 
@@ -13,12 +13,12 @@ describe('session-recordings-consumer', () => {
         produce: jest.fn(),
         flush: jest.fn(),
     } as any
-    let postgres: Pool
+    let postgres: PostgresRouter
     let teamManager: TeamManager
     let eachBachWithDependencies: any
 
     beforeEach(() => {
-        postgres = new Pool({ connectionString: defaultConfig.DATABASE_URL })
+        postgres = new PostgresRouter(defaultConfig, undefined)
         teamManager = new TeamManager(postgres, {} as any)
         eachBachWithDependencies = eachBatch({ producer, teamManager })
     })
