@@ -8,7 +8,7 @@ import { URL } from 'url'
 
 import { runInSpan } from '../sentry'
 
-export async function trackedFetch(url: RequestInfo, init: RequestInit | undefined): Promise<Response> {
+export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promise<Response> {
     const request = new Request(url, init)
     return await runInSpan(
         {
@@ -22,7 +22,7 @@ export async function trackedFetch(url: RequestInfo, init: RequestInit | undefin
 trackedFetch.isRedirect = fetch.isRedirect
 trackedFetch.FetchError = FetchError
 
-export async function safeTrackedFetch(url: RequestInfo, init: RequestInit | undefined): Promise<Response> {
+export async function safeTrackedFetch(url: RequestInfo, init?: RequestInit): Promise<Response> {
     const request = new Request(url, init)
     return await runInSpan(
         {
