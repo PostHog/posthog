@@ -4,32 +4,61 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
-from posthog.schema import LifecycleQuery
+from posthog.schema import LifecycleQuery, DateRange
+from django.utils.timezone import now, datetime
+from dateutil.parser import isoparse
+from posthog.utils import relative_date_parse
 
 
-def run_lifecycle_query(
-    team: Team,
-    query: LifecycleQuery,
-) -> Dict[str, Any]:
-    interval = query.interval.name or "day"
-    if interval not in ["minute", "hour", "day", "week", "month", "quarter", "year"]:
-        raise ValueError(f"Invalid interval: {interval}")
+def create_time_filter(date_range: DateRange, now_iso: str) -> (ast.Expr, datetime, datetime):
+    if not date_range:
+        return None, None, None
+
+    if date_range.date_to:
+        try:
+            date_to = isoparse(date_range.date_to)
+        except ValueError:
+            date_to = relative_date_parse(date_range.date_to)
+    else:
+        # prevent querying data from the future
+        date_to = now_iso
+
+    if date_range.date_from:
+        try:
+            date_from = isoparse(date_range.date_from)
+        except ValueError:
+            date_from = relative_date_parse(date_range.date_from)
+    else:
+        # unlike with date_to, it's allowed to query from infinitely far back, e.g. with "All time" as the filter
+        date_from = None
+
+    date_to = parse_expr(f"assumeNotNull(toDateTime('{date_to}'))")
+    date_from = parse_expr(f"assumeNotNull(toDateTime('{date_from}'))") if date_from else None
+
+    if date_from:
+        time_filter = parse_expr(
+            "timestamp >= {date_from} AND timestamp < {date_to}",
+            {"date_from": date_from, "date_to": date_to},
+        )
+    else:
+        time_filter = parse_expr(
+            "timestamp < {date_to}",
+            {"date_to": date_to},
+        )
+
+    return time_filter, date_from, date_to
+
+
+def create_events_query(interval: str, event_filter: ast.Expr):
     one_interval_period = parse_expr(f"toInterval{interval.capitalize()}(1)")
-    number_interval_period = parse_expr(f"toInterval{interval.capitalize()}(number)")
-    date_from = parse_expr("assumeNotNull(toDateTime('2023-08-02 00:00:00'))")
-    date_to = parse_expr("assumeNotNull(toDateTime('2023-08-09 23:59:59'))")
-    time_filter = parse_expr(
-        "timestamp >= {date_from} and timestamp < {date_to}", {"date_from": date_from, "date_to": date_to}
-    )
-    event_filter = time_filter  # TODO: add all other filters
+
+    if not event_filter:
+        event_filter = ast.Constant(value=True)
 
     placeholders = {
+        "event_filter": event_filter,
         "interval": ast.Constant(value=interval),
         "one_interval_period": one_interval_period,
-        "number_interval_period": number_interval_period,
-        "event_filter": event_filter,
-        "date_from": date_from,
-        "date_to": date_to,
     }
 
     events_query = parse_select(
@@ -54,6 +83,35 @@ def run_lifecycle_query(
         """,
         placeholders=placeholders,
     )
+    return events_query
+
+
+def run_lifecycle_query(
+    team: Team,
+    query: LifecycleQuery,
+) -> Dict[str, Any]:
+    now_iso = now().isoformat()
+    try:
+        interval = query.interval.name
+    except AttributeError:
+        interval = "day"
+    if interval not in ["minute", "hour", "day", "week", "month", "quarter", "year"]:
+        raise ValueError(f"Invalid interval: {interval}")
+    one_interval_period = parse_expr(f"toInterval{interval.capitalize()}(1)")
+    number_interval_period = parse_expr(f"toInterval{interval.capitalize()}(number)")
+    time_filter, date_from, date_to = create_time_filter(query.dateRange, now_iso)
+    event_filter = time_filter  # TODO: add all other filters
+
+    placeholders = {
+        "interval": ast.Constant(value=interval),
+        "one_interval_period": one_interval_period,
+        "number_interval_period": number_interval_period,
+        "event_filter": event_filter,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+
+    events_query = create_events_query(interval=interval, event_filter=event_filter)
 
     periods = parse_select(
         """

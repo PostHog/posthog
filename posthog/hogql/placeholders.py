@@ -17,7 +17,7 @@ class ReplacePlaceholders(CloningVisitor):
     def visit_placeholder(self, node):
         if not self.placeholders:
             raise HogQLException(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
-        if node.field in self.placeholders:
+        if node.field in self.placeholders and self.placeholders[node.field]:
             new_node = self.placeholders[node.field]
             new_node.start = node.start
             new_node.end = node.end
