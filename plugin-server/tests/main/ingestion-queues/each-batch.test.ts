@@ -193,6 +193,41 @@ describe('eachBatchX', () => {
                 expect.any(Date)
             )
         })
+        it('parses elements when useful', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
+                { ...pluginConfig39, plugin_id: 60 },
+                { ...pluginConfig39, plugin_id: 33 },
+            ])
+            process.env.SKIP_ELEMENTS_PARSING_PLUGINS = '12,60,100'
+            await eachBatchAppsOnEventHandlers(
+                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
+                queue
+            )
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                elementsList: [{ attributes: {}, order: 0, tag_name: 'random' }],
+                properties: {
+                    $ip: '127.0.0.1',
+                },
+            })
+        })
+        it('skips elements parsing when not useful', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
+                { ...pluginConfig39, plugin_id: 60 },
+                { ...pluginConfig39, plugin_id: 100 },
+            ])
+            process.env.SKIP_ELEMENTS_PARSING_PLUGINS = '12,60,100'
+            await eachBatchAppsOnEventHandlers(
+                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
+                queue
+            )
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                properties: {
+                    $ip: '127.0.0.1',
+                },
+            })
+        })
     })
 
     describe('eachBatchWebhooksHandlers', () => {
