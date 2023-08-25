@@ -15,7 +15,7 @@ import { IconCheckCircleOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: Onboarding,
-    // logic: featureFlagsLogic,
+    logic: onboardingLogic,
 }
 
 const OnboardingProductIntro = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
