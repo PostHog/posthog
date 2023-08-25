@@ -298,7 +298,7 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
     return (
         <>
             <h5>Breakdown by</h5>
-            <section>
+            <section className="InsightDetails__breakdown">
                 {breakdownArray.map((breakdown) => (
                     <BreakdownTag key={breakdown} breakdown={breakdown} breakdownType={filters.breakdown_type} />
                 ))}
