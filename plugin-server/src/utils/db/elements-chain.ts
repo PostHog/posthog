@@ -55,10 +55,16 @@ export function chainToElements(chain: string, teamId: number, options: { throwO
             .map((r) => r[0])
             .forEach((elString, index) => {
                 const elStringSplit = Array.from(elString.matchAll(splitClassAttributes))[0]
-                const attributes =
-                    elStringSplit.length > 3 && elStringSplit[3]
-                        ? Array.from(elStringSplit[3].matchAll(parseAttributesRegex)).map((a) => [a[2], a[3]])
-                        : []
+                const attributes: [string, string][] = []
+                if (elStringSplit.length > 3 && elStringSplit[3]) {
+                    // parseAttributesRegex's cost grows non-linear to the input length
+                    // we only parse the first 1KiB to reduce the processing cost.
+                    const trimmedAttributes = elStringSplit[3].slice(0, 1024)
+                    const matchedAttributes = trimmedAttributes.matchAll(parseAttributesRegex)
+                    for (const a of matchedAttributes) {
+                        attributes.push([a[2], a[3]])
+                    }
+                }
 
                 const element: Element = {
                     attributes: {},
