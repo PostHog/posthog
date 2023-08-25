@@ -73,7 +73,8 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                             propertyDefinitionId: _eventProperty.id,
                             propertyDefinitionData: values.hasTaxonomyFeatures
                                 ? _eventProperty
-                                : // API does not accept other keys when on free tier
+                                : // :TRICKY: ONLY `property_type` is editable for free tier users.
+                                  // Including other keys in the payload is rejected by the API.
                                   { property_type: _eventProperty.property_type },
                         })
                         updatePropertyDefinitions({
