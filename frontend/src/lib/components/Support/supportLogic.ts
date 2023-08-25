@@ -247,15 +247,16 @@ export const supportLogic = kea<supportLogicType>([
                         zendesk_ticket_link,
                     }
                     posthog.capture('support_ticket', properties)
-                    Sentry.captureMessage('User submitted zendesk ticket', {
+                    Sentry.captureMessage('User submitted Zendesk ticket', {
                         tags: {
                             zendesk_ticket_uuid,
                             zendesk_ticket_link,
                             support_request_kind: kind,
                             support_request_area: target_area,
+                            team_id: teamLogic.values.currentTeamId,
                         },
                         extra: properties,
-                        level: 'error',
+                        level: 'log',
                     })
                     lemonToast.success(
                         "Got the message! If we have follow-up information for you, we'll reply via email."
