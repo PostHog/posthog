@@ -6,8 +6,9 @@ import TextareaAutosize from 'react-textarea-autosize'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import ReactMarkdown from 'react-markdown'
 
-interface EditableFieldProps {
+export interface EditableFieldProps {
     /** What this field stands for. */
     name: string
     value: string
@@ -19,6 +20,8 @@ interface EditableFieldProps {
     maxLength?: number
     autoFocus?: boolean
     multiline?: boolean
+    /** Whether to render the content as Markdown in view mode. */
+    markdown?: boolean
     compactButtons?: boolean
     /** Whether this field should be gated behind a "paywall". */
     paywall?: boolean
@@ -46,6 +49,7 @@ export function EditableField({
     maxLength,
     autoFocus = true,
     multiline = false,
+    markdown = false,
     compactButtons = false,
     paywall = false,
     mode,
@@ -183,7 +187,26 @@ export function EditableField({
                         </>
                     ) : (
                         <>
-                            {tentativeValue || <i>{placeholder}</i>}
+                            {tentativeValue && markdown ? (
+                                <ReactMarkdown
+                                    linkTarget="_blank"
+                                    allowedTypes={[
+                                        'strong',
+                                        'emphasis',
+                                        'link',
+                                        'inlineCode',
+                                        'list',
+                                        'listItem',
+                                        'paragraph',
+                                        'text',
+                                        'break',
+                                    ]}
+                                >
+                                    {tentativeValue}
+                                </ReactMarkdown>
+                            ) : (
+                                tentativeValue || <i>{placeholder}</i>
+                            )}
                             {!mode && (
                                 <LemonButton
                                     title="Edit"

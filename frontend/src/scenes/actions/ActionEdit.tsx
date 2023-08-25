@@ -101,6 +101,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     <EditableField
                                         multiline
                                         name="description"
+                                        markdown
                                         value={value || ''}
                                         placeholder="Description (optional)"
                                         onChange={

@@ -276,6 +276,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {!!(canEditInsight || insight.description) && (
                             <EditableField
                                 multiline
+                                markdown
                                 name="description"
                                 value={insight.description || ''}
                                 placeholder="Description (optional)"
