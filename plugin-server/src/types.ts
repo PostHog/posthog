@@ -198,7 +198,8 @@ export interface PluginsServerConfig {
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
-    CLOUD_DEPLOYMENT: string
+    /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
+    CLOUD_DEPLOYMENT: string | null
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
