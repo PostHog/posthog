@@ -487,7 +487,7 @@ describe('hooks', () => {
         test('person = undefined', async () => {
             await hookCommander.postRestHook(hook, { event: 'foo' } as any)
 
-            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+            expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
                     {
                         hook: {
@@ -519,7 +519,7 @@ describe('hooks', () => {
                 person_properties: { foo: 'bar' },
                 person_created_at: DateTime.fromISO(now).toUTC(),
             } as any)
-            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+            expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
                     {
                         hook: {
