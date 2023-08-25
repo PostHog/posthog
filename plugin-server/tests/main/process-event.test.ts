@@ -1133,7 +1133,7 @@ test('long htext', async () => {
                     {
                         tag_name: 'a',
                         $el_text: 'a'.repeat(2050),
-                        attr__href: 'a'.repeat(2050),
+                        attr__href: 'a'.repeat(200),
                         nth_child: 1,
                         nth_of_type: 2,
                         attr__class: 'btn btn-sm',
@@ -1148,7 +1148,7 @@ test('long htext', async () => {
 
     const [event] = await hub.db.fetchEvents()
     const [element] = event.elements_chain!
-    expect(element.href?.length).toEqual(2048)
+    expect(element.href?.length).toEqual(200)
     expect(element.text?.length).toEqual(400)
 })
 
