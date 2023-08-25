@@ -28,6 +28,7 @@ export type NotebookNodeLogicProps = {
     getPos: () => number
     title: string | ((attributes: any) => Promise<string>)
     widgets: NotebookNodeWidget[]
+    startExpanded?: boolean
 }
 
 async function renderTitle(
@@ -56,9 +57,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
     }),
 
-    reducers(() => ({
+    reducers(({ props }) => ({
         expanded: [
-            false,
+            props.startExpanded,
             {
                 setExpanded: (_, { expanded }) => expanded,
             },

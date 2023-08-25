@@ -6,7 +6,7 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
 import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -71,16 +71,11 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
         getPos,
         title: defaultTitle,
         widgets,
+        startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { title, expanded } = useValues(nodeLogic)
     const { setExpanded, deleteNode } = useActions(nodeLogic)
-
-    useEffect(() => {
-        if (startExpanded) {
-            setExpanded(true)
-        }
-    }, [startExpanded])
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
