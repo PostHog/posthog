@@ -475,10 +475,9 @@ describe('hooks', () => {
 
         beforeEach(() => {
             jest.mocked(isCloud).mockReturnValue(false) // Disable private IP guard
-            hookCommander = new HookCommander({} as any, {} as any, {} as any)
             hook = {
                 id: 'id',
-                team_id: 2,
+                team_id: 1,
                 user_id: 1,
                 resource_id: 1,
                 event: 'foo',
@@ -486,6 +485,12 @@ describe('hooks', () => {
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             }
+            hookCommander = new HookCommander(
+                {} as any,
+                {} as any,
+                {} as any,
+                new Set([hook.team_id]) // Hostname guard enabled
+            )
         })
 
         test('person = undefined', async () => {
@@ -520,7 +525,7 @@ describe('hooks', () => {
             const uuid = new UUIDT().toString()
             await hookCommander.postRestHook(hook, {
                 event: 'foo',
-                teamId: 1,
+                teamId: hook.team_id,
                 person_id: uuid,
                 person_properties: { foo: 'bar' },
                 person_created_at: DateTime.fromISO(now).toUTC(),
@@ -535,7 +540,7 @@ describe('hooks', () => {
                         },
                         data: {
                             event: 'foo',
-                            teamId: 1,
+                            teamId: hook.team_id,
                             person: {
                                 uuid: uuid,
                                 properties: { foo: 'bar' },

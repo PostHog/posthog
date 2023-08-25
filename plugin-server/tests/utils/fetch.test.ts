@@ -1,6 +1,6 @@
-import { filteredFetch, raiseIfUserProvidedUrlUnsafe } from '../../src/utils/fetch'
+import { FetchError } from 'node-fetch'
 
-const { FetchError } = filteredFetch
+import { raiseIfUserProvidedUrlUnsafe } from '../../src/utils/fetch'
 
 test('raiseIfUserProvidedUrlUnsafe', async () => {
     // Sync test cases with posthog/api/test/test_utils.py

@@ -3,31 +3,41 @@
 import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
-import fetch, { FetchError, Request, Response } from 'node-fetch'
+import fetch, { type RequestInfo, type RequestInit, type Response, FetchError, Request } from 'node-fetch'
 import { URL } from 'url'
 
 import { runInSpan } from '../sentry'
-import { isCloud } from './env-utils'
 
-export function filteredFetch(...args: Parameters<typeof fetch>): Promise<Response> {
-    const request = new Request(...args)
-    return runInSpan(
+export async function trackedFetch(url: RequestInfo, init: RequestInit | undefined): Promise<Response> {
+    const request = new Request(url, init)
+    return await runInSpan(
+        {
+            op: 'fetch',
+            description: `${request.method} ${request.url}`,
+        },
+        async () => await fetch(url, init)
+    )
+}
+
+trackedFetch.isRedirect = fetch.isRedirect
+trackedFetch.FetchError = FetchError
+
+export async function safeTrackedFetch(url: RequestInfo, init: RequestInit | undefined): Promise<Response> {
+    const request = new Request(url, init)
+    return await runInSpan(
         {
             op: 'fetch',
             description: `${request.method} ${request.url}`,
         },
         async () => {
-            if (isCloud()) {
-                console.log(args, request.url, request.method)
-                await raiseIfUserProvidedUrlUnsafe(request.url)
-            }
-            return await fetch(...args)
+            await raiseIfUserProvidedUrlUnsafe(request.url)
+            return await fetch(url, init)
         }
     )
 }
 
-filteredFetch.isRedirect = fetch.isRedirect
-filteredFetch.FetchError = FetchError
+safeTrackedFetch.isRedirect = fetch.isRedirect
+safeTrackedFetch.FetchError = FetchError
 
 /**
  * Raise if the provided URL seems unsafe, otherwise do nothing.

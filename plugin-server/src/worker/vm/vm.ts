@@ -11,7 +11,7 @@ import { createJobs } from './extensions/jobs'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
-import { imports } from './imports'
+import { determineImports } from './imports'
 import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
 import { addHistoricalEventsExportCapability } from './upgrades/historical-export/export-historical-events'
@@ -34,6 +34,8 @@ export function createPluginConfigVM(
     pluginConfig: PluginConfig, // NB! might have team_id = 0
     indexJs: string
 ): PluginConfigVMResponse {
+    const imports = determineImports(hub, pluginConfig.team_id)
+
     const timer = new Date()
 
     const statsdTiming = (metric: string) => {

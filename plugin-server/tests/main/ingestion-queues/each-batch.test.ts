@@ -202,7 +202,8 @@ describe('eachBatchX', () => {
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,
                 queue.pluginsServer.teamManager,
-                queue.pluginsServer.organizationManager
+                queue.pluginsServer.organizationManager,
+                new Set()
             )
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true

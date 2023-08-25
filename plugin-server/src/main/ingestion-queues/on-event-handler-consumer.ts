@@ -85,7 +85,13 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     const actionManager = new ActionManager(postgres)
     await actionManager.prepare()
     const actionMatcher = new ActionMatcher(postgres, actionManager, statsd)
-    const hookCannon = new HookCommander(postgres, teamManager, organizationManager, statsd)
+    const hookCannon = new HookCommander(
+        postgres,
+        teamManager,
+        organizationManager,
+        new Set(serverConfig.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
+        statsd
+    )
     const concurrency = serverConfig.TASKS_PER_WORKER || 20
 
     const pubSub = new PubSub(serverConfig, {
