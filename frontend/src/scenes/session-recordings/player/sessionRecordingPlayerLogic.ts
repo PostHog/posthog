@@ -62,6 +62,7 @@ export enum SessionRecordingPlayerMode {
     Standard = 'standard',
     Sharing = 'sharing',
     Notebook = 'notebook',
+    Preview = 'preview',
 }
 
 // This is the basic props used by most sub-logics
@@ -404,8 +405,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
 
         playerSpeed: [
-            (s) => [s.speed, s.isSkippingInactivity, s.currentSegment, s.currentTimestamp],
-            (speed, isSkippingInactivity, currentSegment, currentTimestamp) => {
+            (s) => [s.speed, s.isSkippingInactivity, s.currentSegment, s.currentTimestamp, (_, props) => props.mode],
+            (speed, isSkippingInactivity, currentSegment, currentTimestamp, mode) => {
+                if (mode === SessionRecordingPlayerMode.Preview) {
+                    // default max speed in rrweb https://github.com/rrweb-io/rrweb/blob/58c9104eddc8b7994a067a97daae5684e42f892f/packages/rrweb/src/replay/index.ts#L178
+                    return 360
+                }
+
                 if (isSkippingInactivity) {
                     const secondsToSkip = ((currentSegment?.endTimestamp ?? 0) - (currentTimestamp ?? 0)) / 1000
                     return Math.max(50, secondsToSkip)
@@ -471,6 +477,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 insertStyleRules: [
                     `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
                 ],
+                // these two settings are attempts to improve performance of running two Replayers at once
+                // the main player and a preview player
+                mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
+                useVirtualDom: false,
             })
             actions.setPlayer({ replayer, windowId })
         },
@@ -676,6 +686,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
+                // NOTE: when we show a preview pane, this branch runs
+                // in very large recordings this call to pause
+                // can consume 100% CPU and freeze the entire page
                 values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
                 actions.endBuffer()
                 actions.setErrorPlayerState(false)
@@ -909,7 +922,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
     }),
 
-    beforeUnmount(({ values, actions, cache }) => {
+    beforeUnmount(({ values, actions, cache, props }) => {
+        if (props.mode === SessionRecordingPlayerMode.Preview) {
+            values.player?.replayer?.destroy()
+            return
+        }
+
+        actions.stopAnimation()
         cache.resetConsoleWarn?.()
         cache.hasInitialized = false
         clearTimeout(cache.consoleWarnDebounceTimer)
@@ -939,6 +958,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
 
     afterMount(({ props, actions, cache }) => {
+        if (props.mode === SessionRecordingPlayerMode.Preview) {
+            return
+        }
+
         cache.pausedMediaElements = []
         cache.fullScreenListener = () => {
             actions.setIsFullScreen(document.fullscreenElement !== null)
