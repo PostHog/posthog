@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
-import * as fetch from 'node-fetch'
+import fetch, { FetchError } from 'node-fetch'
 
 import { Action, PostIngestionEvent, Team } from '../../../src/types'
+import { isCloud } from '../../../src/utils/env-utils'
 import { UUIDT } from '../../../src/utils/utils'
 import {
     determineWebhookType,
@@ -14,6 +15,8 @@ import {
     WebhookType,
 } from '../../../src/worker/ingestion/hooks'
 import { Hook } from './../../../src/types'
+
+jest.mock('../../../src/utils/env-utils')
 
 describe('hooks', () => {
     describe('determineWebhookType', () => {
@@ -471,6 +474,7 @@ describe('hooks', () => {
         let hook: Hook
 
         beforeEach(() => {
+            jest.mocked(isCloud).mockReturnValue(false) // Disable private IP guard
             hookCommander = new HookCommander({} as any, {} as any, {} as any)
             hook = {
                 id: 'id',
@@ -510,6 +514,8 @@ describe('hooks', () => {
         })
 
         test('person data from the event', async () => {
+            jest.mocked(isCloud).mockReturnValue(true) // Enable private IP guard, which example.com should pass
+
             const now = new Date().toISOString()
             const uuid = new UUIDT().toString()
             await hookCommander.postRestHook(hook, {
@@ -544,6 +550,20 @@ describe('hooks', () => {
                 method: 'POST',
                 timeout: 10000,
             })
+        })
+
+        test('private IP hook allowed on self-hosted', async () => {
+            await hookCommander.postRestHook({ ...hook, target: 'http://127.0.0.1' }, { event: 'foo' } as any)
+
+            expect(fetch).toHaveBeenCalledWith('http://127.0.0.1', expect.anything())
+        })
+
+        test('private IP hook forbidden on Cloud', async () => {
+            jest.mocked(isCloud).mockReturnValue(true)
+
+            await expect(
+                hookCommander.postRestHook({ ...hook, target: 'http://127.0.0.1' }, { event: 'foo' } as any)
+            ).rejects.toThrow(new FetchError('Internal hostname', 'posthog-host-guard'))
         })
     })
 })
