@@ -1,9 +1,8 @@
 import * as Sentry from '@sentry/node'
+import RE2 from 're2'
 
 import { Element } from '../../types'
 import { escapeQuotes } from './utils'
-
-import RE2 from 're2'
 
 export function elementsToString(elements: Element[]): string {
     const ret = elements.map((element) => {
