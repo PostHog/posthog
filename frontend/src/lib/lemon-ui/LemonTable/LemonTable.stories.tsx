@@ -194,6 +194,11 @@ Loading.parameters = {
 
 export const EmptyLoading: Story = EmptyTemplate.bind({})
 EmptyLoading.args = { loading: true }
+EmptyLoading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const EmptyLoadingWithManySkeletonRows: Story = EmptyTemplate.bind({})
 EmptyLoadingWithManySkeletonRows.args = { loading: true, loadingSkeletonRows: 10 }

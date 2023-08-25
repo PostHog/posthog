@@ -53,7 +53,7 @@ declare module '@storybook/react' {
 }
 
 const RETRY_TIMES = 5
-const LOADER_SELECTORS = ['.ant-skeleton', '.Spinner', '.LemonSkeleton', '.LemonTableLoader']
+const LOADER_SELECTORS = ['.ant-skeleton', '.Spinner', '.LemonSkeleton', '.LemonTableLoader', '[aria-busy="true"]']
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 
