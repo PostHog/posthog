@@ -56,7 +56,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
     }),
 
-    reducers(({ props }) => ({
+    reducers(() => ({
         expanded: [
             false,
             {
@@ -64,7 +64,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             },
         ],
         title: [
-            typeof props.title == 'string' ? props.title : '',
+            '',
             {
                 setTitle: (_, { title }) => title,
             },
@@ -123,6 +123,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
         const renderedTitle = await renderTitle(logic.props.title, logic.props.nodeAttributes)
         logic.actions.setTitle(renderedTitle)
+        logic.actions.updateAttributes({ title: renderedTitle })
     }),
 
     beforeUnmount((logic) => {

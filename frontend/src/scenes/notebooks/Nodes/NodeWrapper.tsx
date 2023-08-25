@@ -20,10 +20,10 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
-import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
+import { NotebookNode, NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
-    title: string | ((attributes: T) => Promise<string>)
+    title: string | ((attributes: NotebookNode<T>['attrs']) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     href?: string | ((attributes: T) => string)
@@ -127,6 +127,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                         {!inView ? (
                             <>
                                 <div className="h-4" /> {/* Placeholder for the drag handle */}
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
                                 <div style={{ height: heightEstimate }}>
                                     <LemonSkeleton className="h-full" />
                                 </div>

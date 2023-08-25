@@ -56,7 +56,7 @@ type NotebookNodeQueryAttributes = {
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: (attributes: NotebookNodeQueryAttributes) => {
+    title: (attributes) => {
         const query = attributes.query
         let title = 'HogQL'
         if (NodeKind.DataTableNode === query.kind) {

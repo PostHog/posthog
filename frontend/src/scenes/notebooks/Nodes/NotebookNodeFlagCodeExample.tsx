@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
 import { urls } from 'scenes/urls'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeAttributes, NotebookNodeViewProps } from '../Notebook/utils'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import api from 'lib/api'
 
@@ -22,7 +22,7 @@ type NotebookNodeFlagCodeExampleAttributes = {
 
 export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeFlagCodeExampleAttributes>({
     nodeType: NotebookNodeType.FeatureFlagCodeExample,
-    title: async (attributes: Record<string, any>) => {
+    title: async (attributes: NotebookNodeAttributes) => {
         if (typeof attributes.title === 'string' && attributes.title.length > 0) {
             return attributes.title
         }

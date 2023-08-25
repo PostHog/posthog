@@ -51,7 +51,7 @@ type NotebookNodePersonAttributes = {
 
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
     nodeType: NotebookNodeType.Person,
-    title: async (attributes: Record<string, any>) => {
+    title: async (attributes) => {
         if (typeof attributes.title === 'string' && attributes.title.length > 0) {
             return attributes.title
         }
