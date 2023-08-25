@@ -1,4 +1,5 @@
 import { ElementType } from '~/types'
+import RE2 from 're2'
 
 // NOTE: This function should not be edited directly but rather copied from plugin-server/src/utils/db/elements-chain.ts
 export function chainToElements(chain: string, options: { throwOnError?: boolean } = {}): ElementType[] {
@@ -9,10 +10,11 @@ export function chainToElements(chain: string, options: { throwOnError?: boolean
 
     // Below splits the tag/classes from attributes
     // Needs a regex because classes can have : too
-    const splitClassAttributes = /(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g
-    const parseAttributesRegex = /((.*?)="(.*?[^\\])")/gm
+    const splitClassAttributes = new RE2(/(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g)
+    const parseAttributesRegex = new RE2(/((.*?)="(.*?[^\\])")/gm)
 
-    chain = chain.replace(/\n/g, '')
+    const newLine = new RE2(/\\n/g)
+    chain = chain.replace(newLine, '')
 
     try {
         Array.from(chain.matchAll(splitChainRegex))
