@@ -4,7 +4,7 @@ import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
 import { cleanFilters } from './cleanFilters'
 
 /** clean filters so that we can check for semantic equality with a deep equality check */
-export const clean = (
+export const cleanFilter = (
     filters: Partial<AnyFilterType>,
     test_account_filters_default_checked: boolean | undefined
 ): Partial<AnyFilterType> => {
@@ -49,5 +49,8 @@ export function compareFilters(
 ): boolean {
     // this is not optimized for speed and does not work for many cases yet
     // e.g. falsy values are not treated the same as undefined values, unset filters are not handled, ordering of series isn't checked
-    return objectsEqual(clean(a, test_account_filters_default_checked), clean(b, test_account_filters_default_checked))
+    return objectsEqual(
+        cleanFilter(a, test_account_filters_default_checked),
+        cleanFilter(b, test_account_filters_default_checked)
+    )
 }

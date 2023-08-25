@@ -4,7 +4,7 @@ import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
 import { filterForQuery, filterPropertyForQuery, isEventsNode, isInsightQueryWithSeries } from '~/queries/utils'
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
-export const clean = (query: InsightQueryNode, ignoreVisualizationOnlyChanges: boolean): InsightQueryNode => {
+const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChanges: boolean): InsightQueryNode => {
     const dupQuery = JSON.parse(JSON.stringify(query))
 
     // remove undefined values, empty arrays and empty objects
@@ -47,5 +47,8 @@ export function compareInsightQuery(
      * requests to the backend. */
     ignoreVisualizationOnlyChanges: boolean
 ): boolean {
-    return objectsEqual(clean(a, ignoreVisualizationOnlyChanges), clean(b, ignoreVisualizationOnlyChanges))
+    return objectsEqual(
+        cleanInsightQuery(a, ignoreVisualizationOnlyChanges),
+        cleanInsightQuery(b, ignoreVisualizationOnlyChanges)
+    )
 }
