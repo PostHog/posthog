@@ -27,12 +27,14 @@ export async function eachBatch(
     const transaction = Sentry.startTransaction({ name: `eachBatch(${eachMessage.name})` }, { topic: queue.topic })
 
     try {
+        const prepareSpan = transaction.startChild({ op: 'prepareBatch' })
         const messageBatches = groupIntoBatches(
             batch.messages,
             queue.pluginsServer.WORKER_CONCURRENCY * queue.pluginsServer.TASKS_PER_WORKER
         )
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, { key: key })
         queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', messageBatches.length, { key: key })
+        prepareSpan.finish()
 
         for (const messageBatch of messageBatches) {
             const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: messageBatch.length } })
@@ -49,14 +51,20 @@ export async function eachBatch(
 
             const lastBatchMessage = messageBatch[messageBatch.length - 1]
             await Promise.all(
-                messageBatch.map((message: KafkaMessage) => eachMessage(message, queue).finally(() => heartbeat()))
+                messageBatch.map(async (message: KafkaMessage) => {
+                    const eachSpan = batchSpan.startChild({ op: 'messageBatch' })
+                    await eachMessage(message, queue).finally(() => heartbeat())
+                    eachSpan.finish()
+                })
             )
 
+            const commitSpan = batchSpan.startChild({ op: 'offsetCommit' })
             // this if should never be false, but who can trust computers these days
             if (lastBatchMessage) {
                 resolveOffset(lastBatchMessage.offset)
             }
             await commitOffsetsIfNecessary()
+            commitSpan.finish()
 
             // Record that latest messages timestamp, such that we can then, for
             // instance, alert on if this value is too old.
