@@ -24,7 +24,7 @@ LOG_FILE=$(mktemp)
 
 echo '::group::Starting plugin server'
 
-./node_modules/.bin/c8 --reporter html node dist/index.js >"$LOG_FILE" 2>&1 &
+NODE_OPTIONS='--max_old_space_size=6144' ./node_modules/.bin/c8 --reporter html node dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 SECONDS=0
 
