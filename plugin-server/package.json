@@ -78,7 +78,7 @@
         "posthog-node": "2.0.2",
         "pretty-bytes": "^5.6.0",
         "prom-client": "^14.2.0",
-        "re2": "^1.17.7",
+        "re2": "^1.20.3",
         "safe-stable-stringify": "^2.4.0",
         "snowflake-sdk": "^1.6.10",
         "tail": "^2.2.6",

@@ -1,4 +1,6 @@
 import csv
+from posthog.metrics import LABEL_TEAM_ID
+from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import Any, Dict, cast
 
@@ -56,6 +58,14 @@ from posthog.tasks.calculate_cohort import (
     update_cohort,
 )
 from posthog.utils import format_query_params_absolute_url
+from prometheus_client import Counter
+
+
+API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
+    "api_cohort_person_bytes_read_from_postgres",
+    "An estimate of how many bytes we've read from postgres to service person cohort endpoint.",
+    labelnames=[LABEL_TEAM_ID],
+)
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -297,6 +307,11 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 {k: v for k, v in sorted(actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999) if k not in DELETE_KEYS}  # type: ignore
                 for actor in serialized_actors
             ]
+
+        # TEMPORARY: Work out usage patterns of this endpoint
+        renderer = SafeJSONRenderer()
+        size = len(renderer.render(serialized_actors))
+        API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 

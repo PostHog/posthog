@@ -138,13 +138,21 @@ export const notebookLogic = kea<notebookLogicType>([
         nodeLogics: [
             {} as Record<string, BuiltLogic<notebookNodeLogicType>>,
             {
-                registerNodeLogic: (state, { nodeLogic }) => ({
-                    ...state,
-                    [nodeLogic.props.nodeId]: nodeLogic,
-                }),
+                registerNodeLogic: (state, { nodeLogic }) => {
+                    if (nodeLogic.props.nodeId === null) {
+                        return state
+                    } else {
+                        return {
+                            ...state,
+                            [nodeLogic.props.nodeId]: nodeLogic,
+                        }
+                    }
+                },
                 unregisterNodeLogic: (state, { nodeLogic }) => {
                     const newState = { ...state }
-                    delete newState[nodeLogic.props.nodeId]
+                    if (nodeLogic.props.nodeId !== null) {
+                        delete newState[nodeLogic.props.nodeId]
+                    }
                     return newState
                 },
             },

@@ -6,7 +6,7 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
 import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -20,10 +20,10 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
-import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
+import { NotebookNode, NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
-    title: string
+    title: string | ((attributes: NotebookNode<T>['attrs']) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     href?: string | ((attributes: T) => string)
@@ -58,8 +58,9 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable } = useValues(mountedNotebookLogic)
-    const nodeId = node.attrs.nodeId
 
+    // nodeId can start null, but should then immediately be generated
+    const nodeId = node.attrs.nodeId
     const nodeLogicProps = {
         node,
         nodeType,
@@ -70,16 +71,11 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
         getPos,
         title: defaultTitle,
         widgets,
+        startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { title, expanded } = useValues(nodeLogic)
     const { setExpanded, deleteNode } = useActions(nodeLogic)
-
-    useEffect(() => {
-        if (startExpanded) {
-            setExpanded(true)
-        }
-    }, [startExpanded])
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -126,6 +122,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                         {!inView ? (
                             <>
                                 <div className="h-4" /> {/* Placeholder for the drag handle */}
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
                                 <div style={{ height: heightEstimate }}>
                                     <LemonSkeleton className="h-full" />
                                 </div>
@@ -206,6 +203,15 @@ export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
     ...wrapperProps
 }: CreatePostHogWidgetNodeOptions<T>): Node {
     const WrappedComponent = (props: NotebookNodeViewProps<T>): JSX.Element => {
+        if (props.node.attrs.nodeId === null) {
+            // TODO only wrapped in setTimeout because of the flushSync bug
+            setTimeout(() => {
+                props.updateAttributes({
+                    nodeId: uuid(),
+                })
+            }, 0)
+        }
+
         return (
             <NodeWrapper {...props} {...wrapperProps}>
                 <Component {...props} />
@@ -222,8 +228,9 @@ export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
         addAttributes() {
             return {
                 height: {},
+                title: {},
                 nodeId: {
-                    default: uuid,
+                    default: null,
                 },
                 ...attributes,
             }
