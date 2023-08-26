@@ -13,8 +13,8 @@ export function ActionsTab(): JSX.Element {
     const { apiURL } = useValues(toolbarLogic)
 
     return (
-        <div className="toolbar-content">
-            <div className="toolbar-block action-block-body">
+        <div className="toolbar-content w-full">
+            <div className="toolbar-block action-block-body ActionsBlockBody w-full">
                 {selectedAction ? (
                     <EditAction />
                 ) : (

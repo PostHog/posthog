@@ -1,12 +1,11 @@
 import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Form, Input } from 'antd'
+import { Form, Input } from 'antd'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { StepField } from '~/toolbar/actions/StepField'
-import { MinusCircleOutlined, PlusCircleOutlined, CloseOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectorEditingModal } from '~/toolbar/elements/SelectorEditingModal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconEdit, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconClose, IconDelete, IconEdit, IconMagnifier, IconPlus } from 'lib/lemon-ui/icons'
 import { posthog } from '~/toolbar/posthog'
 import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 
@@ -67,13 +66,15 @@ export function EditAction(): JSX.Element {
                 }}
             />
 
-            <Button type="default" size="small" onClick={() => selectAction(null)} style={{ float: 'right' }}>
-                Cancel <CloseOutlined />
-            </Button>
-            <h1 className="section-title pt-1">
-                {selectedActionId === 'new' ? 'New ' : 'Edit '}
-                action
-            </h1>
+            <div className={'flex flex-row items-center justify-between'}>
+                <h1 className="uppercase font-bold text-sm mb-0">
+                    {selectedActionId === 'new' ? 'New ' : 'Edit '}
+                    action
+                </h1>
+                <LemonButton icon={<IconClose />} type="tertiary" size="small" onClick={() => selectAction(null)}>
+                    Cancel
+                </LemonButton>
+            </div>
 
             <Form
                 name="action_step"
@@ -103,22 +104,19 @@ export function EditAction(): JSX.Element {
                                 const step = getFieldValue && getFieldValue('steps')[index]
                                 return (
                                     <div key={field.key} className="action-section highlight">
-                                        <Button
-                                            type="link"
-                                            size="small"
-                                            onClick={() => remove(field.name)}
-                                            style={{
-                                                float: 'right',
-                                                padding: 0,
-                                                marginTop: -5,
-                                                color: 'hsl(219, 15%, 49%)',
-                                            }}
-                                        >
-                                            Remove <MinusCircleOutlined />
-                                        </Button>
-                                        <h1 className="section-title">
-                                            {index > 0 ? 'OR ' : null}Element #{index + 1}
-                                        </h1>
+                                        <div className={'flex flex-row items-center justify-between'}>
+                                            <h1 className="uppercase font-bold text-sm mb-0">
+                                                {index > 0 ? 'OR ' : null}Element #{index + 1}
+                                            </h1>
+                                            <LemonButton
+                                                status="stealth"
+                                                size="small"
+                                                onClick={() => remove(field.name)}
+                                                sideIcon={<IconDelete />}
+                                            >
+                                                Remove
+                                            </LemonButton>
+                                        </div>
 
                                         <div className="action-inspect">
                                             <LemonButton
@@ -194,32 +192,35 @@ export function EditAction(): JSX.Element {
 
                                         {index === fields.length - 1 ? (
                                             <div className={'text-right mt-4'}>
-                                                <Button size="small" onClick={() => add()}>
-                                                    Add Another Element <PlusCircleOutlined />
-                                                </Button>
+                                                <LemonButton size="small" onClick={() => add()} sideIcon={<IconPlus />}>
+                                                    Add Another Element
+                                                </LemonButton>
                                             </div>
                                         ) : null}
                                     </div>
                                 )
                             })}
                             {fields.length === 0 ? (
-                                <Button size="small" type="primary" onClick={() => add()}>
-                                    <PlusCircleOutlined /> Add An Element
-                                </Button>
+                                <LemonButton size="small" type="primary" onClick={() => add()} sideIcon={<IconPlus />}>
+                                    Add An Element
+                                </LemonButton>
                             ) : null}
                         </div>
                     )}
                 </Form.List>
-                <Form.Item style={{ marginTop: 20, marginBottom: 0 }}>
-                    {selectedActionId !== 'new' ? (
-                        <Button type="link" onClick={deleteAction} danger style={{ float: 'right' }}>
-                            <DeleteOutlined />
-                        </Button>
-                    ) : null}
-                    <Button type="primary" htmlType="submit">
-                        {selectedActionId === 'new' ? 'Create ' : 'Save '}
-                        action
-                    </Button>
+                <Form.Item style={{ marginTop: 10, marginBottom: 0 }}>
+                    <div className={'flex flex-row justify-between'}>
+                        <LemonButton size="small" type="primary" htmlType="submit">
+                            {selectedActionId === 'new' ? 'Create ' : 'Save '}
+                            action
+                        </LemonButton>
+
+                        {selectedActionId !== 'new' ? (
+                            <LemonButton size={'small'} status="danger" onClick={deleteAction} icon={<IconDelete />}>
+                                Delete
+                            </LemonButton>
+                        ) : null}
+                    </div>
                 </Form.Item>
             </Form>
         </div>

@@ -14,6 +14,15 @@
     --glass-bg-3000: var(--glass-bg-3000-dark);
     --glass-border-3000: var(--glass-border-3000-dark);
     --bg-light: var(--accent-3000);
+    --default: var(--text-3000);
+    --muted: var(--muted-3000);
+    --muted-alt: var(--muted-3000);
+    --primary-alt: var(--text-3000);
+    --border: var(--border-3000);
+    --border-bold: var(--border-bold-3000);
+    --mid: var(--bg-3000);
+    --side: var(--bg-3000);
+    background: var(--bg-3000);
 
     position: fixed;
     left: 0;
@@ -119,19 +128,71 @@
     transition: filter 0.2s ease;
     filter: drop-shadow(1px 2px 2px var(--trace-3000));
 
+    &:hover {
+        filter: drop-shadow(1px 2px 4px var(--trace-3000));
+    }
+
     &.Toolbar3000__menu {
         transition: height 0.2s ease;
         bottom: 100%;
         width: 94%;
     }
 
-    .ToolbarBlock {
-        max-height: 50vh;
-        overflow: auto;
+    .ActionsBlockBody {
+        background-color: var(--bg-3000);
+        color: var(--text-3000);
+        padding: 0.25rem 0.5rem;
+
+        .action-section {
+            background-color: inherit;
+            color: inherit;
+            border-bottom: 1px solid var(--border-bold-3000);
+
+            &.highlight {
+                // TODO remove the highlighting
+                background-color: inherit;
+            }
+        }
     }
 
-    &:hover {
-        filter: drop-shadow(1px 2px 4px var(--trace-3000));
+    .ToolbarBlock {
+        max-height: 50vh;
+        background-color: var(--bg-3000);
+        color: var(--text-3000);
+
+        .local-feature-flag-override-note {
+            color: inherit;
+            background-color: inherit;
+        }
+
+        .FeatureFlagRow {
+            background-color: inherit;
+            color: inherit;
+            padding: 0.25rem 0.5rem;
+            margin-bottom: 0;
+            border-bottom: 1px solid var(--border-bold-3000);
+
+            &:last-child {
+                border-bottom: none;
+            }
+
+            .FeatureFlagRow__header {
+                background-color: inherit;
+
+                .feature-flag-external-link,
+                .feature-flag-external-link:hover {
+                    color: inherit;
+                }
+
+                &.overridden {
+                    background-color: var(--muted-3000);
+                }
+            }
+        }
+    }
+
+    h5 {
+        color: var(--text-3000);
     }
 
     .bg-border-bold-3000 {
@@ -139,7 +200,8 @@
         border-color: var(--border-bold-3000);
     }
 
-    .LemonButton .LemonButton__icon {
-        color: var(--text-3000);
+    .LemonBadge--primary {
+        // TODO - this is a little hacky, we're always in dark mode
+        background-color: var(--text-3000);
     }
 }

@@ -15,8 +15,6 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
     IconArrowDown,
     IconArrowUp,
@@ -27,13 +25,15 @@ import {
     IconMenu,
     IconTarget,
 } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Logomark as Logomark3000 } from './icons/icons'
 import { Logomark } from '~/toolbar/assets/Logomark'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
+import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
+import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -82,6 +82,8 @@ export function ToolbarButton(): JSX.Element {
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
     })
+
+    const { countFlagsOverridden } = useValues(featureFlagsLogic)
 
     useEffect(() => {
         globalMouseMove.current = function (e: MouseEvent): void {
@@ -132,50 +134,88 @@ export function ToolbarButton(): JSX.Element {
     // - be able to launch help
     // - 3000 styling of the inspect UI
     // - animate height when opening menu
+    // - style scroll bars?
     return (
         <div className={'relative'}>
             <div
                 className={
-                    'absolute bottom Toolbar3000 Toolbar3000__menu px-2 w-auto mx-2 space-x-2 rounded-t flex flex-col items-center'
+                    'absolute bottom Toolbar3000 Toolbar3000__menu w-auto mx-2 rounded-t flex flex-col items-center'
                 }
             >
+                {heatmapInfoVisible ? <HeatmapStats /> : null}
                 {heatmapEnabled ? (
-                    <div className={'flex flex-row gap-2 w-full items-center justify-between'}>
+                    <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
                         <div className={'flex flex-grow'}>
-                            Heatmap:{' '}
-                            <div className="whitespace-nowrap text-center">
-                                {heatmapLoading ? <Spinner textColored={true} /> : elementCount}
-                            </div>
+                            <h5 className={'flex flex-row items-center'}>
+                                Heatmap:{' '}
+                                {heatmapLoading ? <Spinner textColored={true} /> : <>{elementCount} elements</>}
+                            </h5>
                         </div>
                         <LemonButton
                             size={'small'}
                             icon={heatmapInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
                             status={'stealth'}
-                            onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
+                            onClick={
+                                heatmapInfoVisible
+                                    ? () => {
+                                          hideHeatmapInfo()
+                                          disableHeatmap()
+                                      }
+                                    : showHeatmapInfo
+                            }
                             active={heatmapInfoVisible}
                         />
                     </div>
                 ) : null}
-                {heatmapInfoVisible ? <HeatmapStats /> : null}
+                {actionsInfoVisible ? <ActionsTab /> : null}
                 {buttonActionsVisible ? (
-                    <div className={'flex flex-row gap-2 w-full items-center justify-between'}>
+                    <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
                         <div className={'flex flex-grow'}>
-                            Actions:{' '}
-                            <div className="whitespace-nowrap text-center">
-                                {allActionsLoading ? <Spinner textColored={true} /> : actionCount}
-                            </div>
+                            <h5 className={'flex flex-row items-center'}>
+                                Actions:{' '}
+                                <div className="whitespace-nowrap text-center">
+                                    {allActionsLoading ? (
+                                        <Spinner textColored={true} />
+                                    ) : (
+                                        <LemonBadge.Number size={'small'} count={actionCount} showZero />
+                                    )}
+                                </div>
+                            </h5>
                         </div>
                         <LemonButton
                             size={'small'}
                             icon={actionsInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
                             status={'stealth'}
-                            onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
+                            onClick={
+                                actionsInfoVisible
+                                    ? () => {
+                                          hideActionsInfo()
+                                          hideButtonActions()
+                                      }
+                                    : showActionsInfo
+                            }
                             active={actionsInfoVisible}
                         />
                     </div>
                 ) : null}
-                {actionsInfoVisible ? <ActionsTab /> : null}
+
                 {flagsVisible ? <FeatureFlags /> : null}
+                {flagsVisible ? (
+                    <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
+                        <div className={'flex flex-grow'}>
+                            <h5 className={'flex flex-row items-center'}>
+                                Feature flags: {countFlagsOverridden} overridden
+                            </h5>
+                        </div>
+                        <LemonButton
+                            size={'small'}
+                            icon={<IconArrowDown />}
+                            status={'stealth'}
+                            onClick={hideFlags}
+                            active={flagsVisible}
+                        />
+                    </div>
+                ) : null}
             </div>
             <div className={'Toolbar3000 px-2 w-auto h-10 space-x-2 rounded-lg flex flex-row items-center'}>
                 <IconDragHandle className={'text-2xl floating-toolbar-button cursor-grab'} />
