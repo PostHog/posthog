@@ -51,7 +51,7 @@ const defaultFormValuesGenerator: (
 
 export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     props({} as SecondaryMetricsProps),
-    key((props) => `${props.experimentId}-${props.defaultAggregationType}` || `new-${props.defaultAggregationType}`),
+    key((props) => `${props.experimentId || 'new'}-${props.defaultAggregationType}`),
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
     connect({
         logic: [insightLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })],
