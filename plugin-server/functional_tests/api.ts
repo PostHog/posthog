@@ -2,7 +2,7 @@ import ClickHouse from '@posthog/clickhouse'
 import { makeWorkerUtils, WorkerUtils } from 'graphile-worker'
 import Redis from 'ioredis'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
-import { Pool, PoolClient } from 'pg'
+import { PoolClient } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import {
@@ -16,27 +16,23 @@ import {
     RawPerformanceEvent,
     RawSessionRecordingEvent,
 } from '../src/types'
+import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
-import { UUIDT } from '../src/utils/utils'
+import { createPostgresPool, UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
 let clickHouseClient: ClickHouse
-export let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
+export let postgres: PostgresRouter
 let redis: Redis.Redis
 let graphileWorker: WorkerUtils
 
 beforeAll(async () => {
     // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
+    postgres = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, null)
     graphileWorker = await makeWorkerUtils({
-        pgPool: postgres,
+        pgPool: createPostgresPool(defaultConfig.DATABASE_URL!, 1),
     })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
@@ -120,7 +116,6 @@ export const createPluginAttachment = async ({
     fileName,
     key,
     contents,
-    client,
 }: {
     teamId: number
     pluginConfigId: number
@@ -131,7 +126,7 @@ export const createPluginAttachment = async ({
     contents: string
     client?: PoolClient
 }) => {
-    return await insertRow(client ?? postgres, 'posthog_pluginattachment', {
+    return await insertRow(postgres, 'posthog_pluginattachment', {
         team_id: teamId,
         plugin_config_id: pluginConfigId,
         key: key,
@@ -156,10 +151,9 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
 }
 
 export const createPluginConfig = async (
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>,
-    client?: PoolClient
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>
 ) => {
-    return await insertRow(client ?? postgres, 'posthog_pluginconfig', {
+    return await insertRow(postgres, 'posthog_pluginconfig', {
         ...pluginConfig,
         config: pluginConfig.config ?? {},
         created_at: new Date().toISOString(),
@@ -170,10 +164,15 @@ export const createPluginConfig = async (
 }
 
 export const getPluginConfig = async (teamId: number, pluginId: number) => {
-    const queryResult = (await postgres.query(`SELECT * FROM posthog_pluginconfig WHERE team_id = $1 AND id = $2`, [
-        teamId,
-        pluginId,
-    ])) as { rows: any[] }
+    const queryResult = (await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `SELECT *
+         FROM posthog_pluginconfig
+         WHERE team_id = $1
+           AND id = $2`,
+        [teamId, pluginId],
+        'getPluginConfig'
+    )) as { rows: any[] }
     return queryResult.rows[0]
 }
 
@@ -183,8 +182,10 @@ export const updatePluginConfig = async (
     pluginConfig: Partial<PluginConfig>
 ) => {
     await postgres.query(
+        PostgresUse.COMMON_WRITE,
         `UPDATE posthog_pluginconfig SET config = $1, updated_at = $2 WHERE id = $3 AND team_id = $4`,
-        [pluginConfig.config ?? {}, pluginConfig.updated_at, pluginConfigId, teamId]
+        [pluginConfig.config ?? {}, pluginConfig.updated_at, pluginConfigId, teamId],
+        'updatePluginConfig'
     )
 }
 
@@ -208,17 +209,27 @@ export const createAndReloadPluginConfig = async (teamId: number, pluginId: numb
 }
 
 export const disablePluginConfig = async (teamId: number, pluginConfigId: number) => {
-    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = false WHERE id = $1 AND team_id = $2`, [
-        pluginConfigId,
-        teamId,
-    ])
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_pluginconfig
+         SET enabled = false
+         WHERE id = $1
+           AND team_id = $2`,
+        [pluginConfigId, teamId],
+        'disablePluginConfig'
+    )
 }
 
 export const enablePluginConfig = async (teamId: number, pluginConfigId: number) => {
-    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = true WHERE id = $1 AND team_id = $2`, [
-        pluginConfigId,
-        teamId,
-    ])
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_pluginconfig
+         SET enabled = true
+         WHERE id = $1
+           AND team_id = $2`,
+        [pluginConfigId, teamId],
+        'enablePluginConfig'
+    )
 }
 
 export const schedulePluginJob = async ({
@@ -238,7 +249,14 @@ export const schedulePluginJob = async ({
 }
 
 export const getScheduledPluginJob = async (jobId: string) => {
-    const result = await postgres.query(`SELECT * FROM graphile_worker.jobs WHERE id = $1`, [jobId])
+    const result = await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `SELECT *
+         FROM graphile_worker.jobs
+         WHERE id = $1`,
+        [jobId],
+        'getScheduledPluginJob'
+    )
     return result.rows[0]
 }
 
@@ -271,7 +289,14 @@ export const fetchPersons = async (teamId: number) => {
 }
 
 export const fetchPostgresPersons = async (teamId: number) => {
-    const { rows } = await postgres.query(`SELECT * FROM posthog_person WHERE team_id = $1`, [teamId])
+    const { rows } = await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `SELECT *
+         FROM posthog_person
+         WHERE team_id = $1`,
+        [teamId],
+        'fetchPostgresPersons'
+    )
     return rows
 }
 
@@ -409,7 +434,14 @@ export async function createHook(teamId: number, userId: number, resourceId: num
 }
 
 export const getPropertyDefinitions = async (teamId: number) => {
-    const { rows } = await postgres.query(`SELECT * FROM posthog_propertydefinition WHERE team_id = $1`, [teamId])
+    const { rows } = await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `SELECT *
+         FROM posthog_propertydefinition
+         WHERE team_id = $1`,
+        [teamId],
+        'getPropertyDefinitions'
+    )
     return rows
 }
 
