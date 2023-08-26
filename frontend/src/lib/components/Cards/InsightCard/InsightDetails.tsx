@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { allOperatorsMapping, alphabet, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
+import { allOperatorsMapping, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
@@ -16,7 +16,7 @@ import {
 import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
@@ -122,10 +122,12 @@ function SeriesDisplay({
     filter,
     insightType = InsightType.TRENDS,
     index,
+    hasBreakdown,
 }: {
     filter: LocalFilter
     insightType?: InsightType
     index: number
+    hasBreakdown: boolean
 }): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
 
@@ -141,7 +143,7 @@ function SeriesDisplay({
         <LemonRow
             fullWidth
             className="SeriesDisplay"
-            icon={<Lettermark name={insightType !== InsightType.FUNNELS ? alphabet[index] : index + 1} />}
+            icon={<SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />}
             extendedContent={
                 <>
                     {insightType !== InsightType.FUNNELS && (
@@ -241,11 +243,17 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
                             <PathsSummary filters={filters} />
                         ) : (
                             <>
-                                <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
+                                <SeriesDisplay
+                                    hasBreakdown={!!filters.breakdown}
+                                    filter={localFilters[0]}
+                                    insightType={filters.insight}
+                                    index={0}
+                                />
                                 {localFilters.slice(1).map((filter, index) => (
                                     <>
                                         <LemonDivider />
                                         <SeriesDisplay
+                                            hasBreakdown={!!filters.breakdown}
                                             key={index}
                                             filter={filter}
                                             insightType={filters.insight}
