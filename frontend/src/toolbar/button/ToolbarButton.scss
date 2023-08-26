@@ -1,4 +1,20 @@
 #button-toolbar {
+    // TODO the colors in vars.scss are being attached to host but aren't actually correct for 3000
+    --text-3000: var(--text-3000-dark);
+    --muted-3000: var(--muted-3000-dark);
+    --trace-3000: var(--trace-3000-dark);
+    --primary-3000: var(--primary-3000-dark);
+    --primary-3000-hover: var(--primary-3000-hover-dark);
+    --secondary-3000: var(--secondary-3000-dark);
+    --secondary-3000-hover: var(--secondary-3000-hover-dark);
+    --accent-3000: var(--accent-3000-dark);
+    --bg-3000: var(--bg-3000-dark);
+    --border-3000: var(--border-3000-dark);
+    --border-bold-3000: var(--border-bold-3000-dark);
+    --glass-bg-3000: var(--glass-bg-3000-dark);
+    --glass-border-3000: var(--glass-border-3000-dark);
+    --bg-light: var(--accent-3000);
+
     position: fixed;
     left: 0;
     top: 0;
@@ -98,6 +114,32 @@
 }
 
 .Toolbar3000 {
-    background-color: var(--bg-3000-dark);
-    color: var(--text-3000-dark);
+    background-color: var(--bg-3000);
+    color: var(--text-3000);
+    transition: filter 0.2s ease;
+    filter: drop-shadow(1px 2px 2px var(--trace-3000));
+
+    &.Toolbar3000__menu {
+        transition: height 0.2s ease;
+        bottom: 100%;
+        width: 94%;
+    }
+
+    .ToolbarBlock {
+        max-height: 50vh;
+        overflow: auto;
+    }
+
+    &:hover {
+        filter: drop-shadow(1px 2px 4px var(--trace-3000));
+    }
+
+    .bg-border-bold-3000 {
+        background-color: var(--border-bold-3000);
+        border-color: var(--border-bold-3000);
+    }
+
+    .LemonButton .LemonButton__icon {
+        color: var(--text-3000);
+    }
 }

@@ -1,8 +1,6 @@
 import './ToolbarButton.scss'
-
 import { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Logomark } from '~/toolbar/assets/Logomark'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -19,7 +17,23 @@ import { Close } from '~/toolbar/button/icons/Close'
 import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { IconDragHandle } from 'lib/lemon-ui/icons'
+import {
+    IconArrowDown,
+    IconArrowUp,
+    IconClick,
+    IconDragHandle,
+    IconFlag,
+    IconMagnifier,
+    IconMenu,
+    IconTarget,
+} from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Logomark as Logomark3000 } from './icons/icons'
+import { Logomark } from '~/toolbar/assets/Logomark'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
+import { ActionsTab } from '~/toolbar/actions/ActionsTab'
+import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -112,10 +126,96 @@ export function ToolbarButton(): JSX.Element {
     const buttonWidth = 42
     let n = 0
 
+    // TODO
+    // - be able to close it
+    // - be able to switch to hedgehog mode
+    // - be able to launch help
+    // - 3000 styling of the inspect UI
+    // - animate height when opening menu
     return (
-        <div className={'Toolbar3000 w-60 h-10 rounded-lg flex flex-row items-center'}>
-            <IconDragHandle className={'text-2xl'} />
-            <LemonDivider vertical={true} className={'h-full bg-border-3000'} />
+        <div className={'relative'}>
+            <div
+                className={
+                    'absolute bottom Toolbar3000 Toolbar3000__menu px-2 w-auto mx-2 space-x-2 rounded-t flex flex-col items-center'
+                }
+            >
+                {heatmapEnabled ? (
+                    <div className={'flex flex-row gap-2 w-full items-center justify-between'}>
+                        <div className={'flex flex-grow'}>
+                            Heatmap:{' '}
+                            <div className="whitespace-nowrap text-center">
+                                {heatmapLoading ? <Spinner textColored={true} /> : elementCount}
+                            </div>
+                        </div>
+                        <LemonButton
+                            size={'small'}
+                            icon={heatmapInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
+                            status={'stealth'}
+                            onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
+                            active={heatmapInfoVisible}
+                        />
+                    </div>
+                ) : null}
+                {heatmapInfoVisible ? <HeatmapStats /> : null}
+                {buttonActionsVisible ? (
+                    <div className={'flex flex-row gap-2 w-full items-center justify-between'}>
+                        <div className={'flex flex-grow'}>
+                            Actions:{' '}
+                            <div className="whitespace-nowrap text-center">
+                                {allActionsLoading ? <Spinner textColored={true} /> : actionCount}
+                            </div>
+                        </div>
+                        <LemonButton
+                            size={'small'}
+                            icon={actionsInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
+                            status={'stealth'}
+                            onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
+                            active={actionsInfoVisible}
+                        />
+                    </div>
+                ) : null}
+                {actionsInfoVisible ? <ActionsTab /> : null}
+                {flagsVisible ? <FeatureFlags /> : null}
+            </div>
+            <div className={'Toolbar3000 px-2 w-auto h-10 space-x-2 rounded-lg flex flex-row items-center'}>
+                <IconDragHandle className={'text-2xl floating-toolbar-button cursor-grab'} />
+                <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
+                {isAuthenticated ? (
+                    <>
+                        <LemonButton
+                            title={'Inspect'}
+                            icon={<IconMagnifier />}
+                            status={'stealth'}
+                            onClick={inspectEnabled ? disableInspect : enableInspect}
+                            active={inspectEnabled}
+                        />
+                        <LemonButton
+                            title={'Heatmap'}
+                            icon={<IconClick />}
+                            status={'stealth'}
+                            onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
+                            active={heatmapEnabled}
+                        />
+                        <LemonButton
+                            title={'Actions'}
+                            icon={<IconTarget />}
+                            status={'stealth'}
+                            onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
+                            active={buttonActionsVisible}
+                        />
+                        <LemonButton
+                            title={'Feature flags'}
+                            icon={<IconFlag />}
+                            status={'stealth'}
+                            onClick={flagsVisible ? hideFlags : showFlags}
+                            active={flagsVisible}
+                        />
+                        <LemonButton title={'More'} icon={<IconMenu />} status={'stealth'} onClick={() => {}} />
+                        <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
+                    </>
+                ) : null}
+                <Logomark3000 />
+            </div>
         </div>
     )
 
