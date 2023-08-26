@@ -18,6 +18,8 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { IconDragHandle } from 'lib/lemon-ui/icons'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -109,6 +111,13 @@ export function ToolbarButton(): JSX.Element {
     const borderRadius = 14
     const buttonWidth = 42
     let n = 0
+
+    return (
+        <div className={'Toolbar3000 w-60 h-10 rounded-lg flex flex-row items-center'}>
+            <IconDragHandle className={'text-2xl'} />
+            <LemonDivider vertical={true} className={'h-full bg-border-3000'} />
+        </div>
+    )
 
     return (
         <Circle
