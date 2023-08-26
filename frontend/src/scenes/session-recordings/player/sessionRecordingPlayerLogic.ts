@@ -482,6 +482,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
             })
+
             actions.setPlayer({ replayer, windowId })
         },
         setPlayer: ({ player }) => {
@@ -490,6 +491,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.seekToTimestamp(values.currentTimestamp)
                 }
                 actions.syncPlayerSpeed()
+                player.replayer
+                    .on('ui-update-current-time', (event) => {
+                        console.log('progress: current time', { event })
+                    })
+                    .on('ui-update-player-state', (event) => {
+                        console.log('progress: current state', { event })
+                    })
+                    .on('ui-update-progress', (event) => {
+                        console.log('progress: current progress', { event })
+                    })
             }
         },
         setCurrentSegment: ({ segment }) => {
