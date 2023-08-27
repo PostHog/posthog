@@ -14,6 +14,10 @@ test.describe('tooltip', () => {
         })
 
         const tooltip = await page.locator('.InsightTooltip')
+        // the tooltip animates towards the mouse cursor
+        // if it hasn't finished moving then the screenshot will be wrong
+        await page.waitForTimeout(250)
+
         // the hover is not exact and so the screenshot flaps
         // because it is one or two pixels off on the x-axis
         // so, we set the maxDiffPixelRatio to 0.01
@@ -29,6 +33,10 @@ test.describe('annotations popover', () => {
         await page.locator('.AnnotationsOverlay > button:nth-child(4)').hover()
 
         const popover = await page.locator('.AnnotationsPopover')
+        // the tooltip animates towards the mouse cursor
+        // if it hasn't finished moving then the screenshot will be wrong
+        await page.waitForTimeout(250)
+
         // the hover is not exact and so the screenshot flaps
         // because it is one or two pixels off on the x-axis
         // so, we set the maxDiffPixelRatio to 0.01
