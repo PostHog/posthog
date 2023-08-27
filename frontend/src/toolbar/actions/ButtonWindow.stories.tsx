@@ -19,7 +19,7 @@ type Story = StoryObj<(props: StoryProps) => JSX.Element>
 const meta: Meta<(props: StoryProps) => JSX.Element> = {
     title: 'Scenes-Other/Toolbar/Components',
     parameters: {
-        layout: 'fullscreen',
+        layout: 'padded',
         viewMode: 'story',
     },
 }
