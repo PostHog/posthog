@@ -1,4 +1,14 @@
 .action-block-body {
+    form {
+        .form-error {
+            color: var(--danger);
+        }
+
+        //// TODO why doesn't this match?
+        //.LemonInput__input[error] {
+        //    border-color: var(--danger);
+        //}
+    }
 }
 
 .action-section {
@@ -13,9 +23,7 @@
         }
     }
 }
-.action-title-field {
-    margin-bottom: 10px;
-}
+
 .action-inspect {
     margin: 20px 0;
 }
