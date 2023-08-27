@@ -95,6 +95,30 @@ const Template: StoryFn<StoryProps> = (props: StoryProps) => {
                     },
                     value: 'control',
                 },
+                {
+                    feature_flag: {
+                        id: 13859,
+                        name: 'Example overridden multivariate flag',
+                        key: 'my-other-multi-example',
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    {
+                                        key: 'control',
+                                        rollout_percentage: 50,
+                                    },
+                                    {
+                                        key: 'test',
+                                        rollout_percentage: 50,
+                                    },
+                                ],
+                            },
+                        },
+                        deleted: false,
+                        active: true,
+                    },
+                    value: 'control',
+                },
             ],
         },
     })
@@ -114,7 +138,11 @@ const Template: StoryFn<StoryProps> = (props: StoryProps) => {
     if (props.name === 'heatmap') {
         theMountedHeatmapLoggic.actions.getElementStats()
     }
-    useMountedLogic(featureFlagsLogic)
+
+    const theMountedFlagsLogic = useMountedLogic(featureFlagsLogic)
+    if (props.name === 'flags') {
+        theMountedFlagsLogic.actions.storeLocalOverrides({ 'example-two': false, 'my-other-multi-example': 'test' })
+    }
 
     useToolbarStyles()
 
