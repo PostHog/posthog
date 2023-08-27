@@ -20,7 +20,7 @@ export function ActionsTab(): JSX.Element {
                 ) : (
                     <>
                         <ActionsList />
-                        <div className="text-right">
+                        <div className="text-right mt-4">
                             <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
                                 View &amp; edit all actions <IconOpenInNew />
                             </a>

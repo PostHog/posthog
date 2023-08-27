@@ -24,7 +24,7 @@ export function ActionsList(): JSX.Element {
                 onChange={(s) => setSearchTerm(s)}
             />
             <div className="actions-list">
-                <div className="actions-list-header">
+                <div className="actions-list-header pt-2 pb-4">
                     <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>
                         New action
                     </LemonButton>

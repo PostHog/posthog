@@ -39,11 +39,15 @@
     }
 }
 
-.actions-list {
-    .actions-list-header {
-        padding: 6px 0;
+.ActionsListItem {
+    border-bottom: 1px solid #e8e8e8;
+    transition: background-color 0.5s;
+
+    &:hover {
+        background: #f0f0f0;
     }
-    .ant-list-item {
-        padding: 6px 0;
+
+    &:last-child {
+        border-bottom: none;
     }
 }
