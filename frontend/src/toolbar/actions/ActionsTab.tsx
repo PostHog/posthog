@@ -5,8 +5,8 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { ActionsList } from '~/toolbar/actions/ActionsList'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { EditAction } from '~/toolbar/actions/EditAction'
-import { ExportOutlined } from '@ant-design/icons'
 import { urls } from 'scenes/urls'
+import { IconExport } from 'lib/lemon-ui/icons'
 
 export function ActionsTab(): JSX.Element {
     const { selectedAction } = useValues(actionsTabLogic)
@@ -14,7 +14,7 @@ export function ActionsTab(): JSX.Element {
 
     return (
         <div className="toolbar-content">
-            <div className="toolbar-block action-block-body">
+            <div className="toolbar-block action-block-body p-2 pt-3">
                 {selectedAction ? (
                     <EditAction />
                 ) : (
@@ -22,7 +22,7 @@ export function ActionsTab(): JSX.Element {
                         <ActionsList />
                         <div className="text-right">
                             <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
-                                View &amp; edit all actions <ExportOutlined />
+                                View &amp; edit all actions <IconExport />
                             </a>
                         </div>
                     </>
