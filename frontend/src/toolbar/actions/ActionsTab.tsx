@@ -6,7 +6,7 @@ import { ActionsList } from '~/toolbar/actions/ActionsList'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { EditAction } from '~/toolbar/actions/EditAction'
 import { urls } from 'scenes/urls'
-import { IconExport } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 export function ActionsTab(): JSX.Element {
     const { selectedAction } = useValues(actionsTabLogic)
@@ -22,7 +22,7 @@ export function ActionsTab(): JSX.Element {
                         <ActionsList />
                         <div className="text-right">
                             <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
-                                View &amp; edit all actions <IconExport />
+                                View &amp; edit all actions <IconOpenInNew />
                             </a>
                         </div>
                     </>
