@@ -1,7 +1,6 @@
-from posthog.clickhouse.system_status import system_status
+def test_system_status():
+    from posthog.clickhouse.system_status import system_status
 
-
-def test_system_status(db):
     results = list(system_status())
     assert [row["key"] for row in results] == [
         "clickhouse_alive",
