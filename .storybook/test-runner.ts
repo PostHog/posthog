@@ -116,7 +116,9 @@ async function expectStoryToMatchSnapshot(
     }
 
     // Wait for all images to load
-    await page.locator('img').evaluateAll((images: HTMLImageElement[]) => images.map((i) => i.complete))
+    await page.waitForFunction(() =>
+        Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
+    )
 
     await check(page, context, browser, storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
