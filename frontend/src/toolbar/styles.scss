@@ -1,5 +1,12 @@
 @import '../styles/vars';
 
+// was inherited from antd.less before removing that
+*,
+*:before,
+*:after {
+    box-sizing: border-box;
+}
+
 :host {
     @include root-variables;
 
