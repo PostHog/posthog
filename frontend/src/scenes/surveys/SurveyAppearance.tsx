@@ -1,5 +1,5 @@
 import './SurveyAppearance.scss'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import {
     SurveyAppearance as SurveyAppearanceType,
     SurveyQuestion,
@@ -16,6 +16,10 @@ import {
     veryDissatisfiedEmoji,
     verySatisfiedEmoji,
 } from './SurveyAppearanceUtils'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { surveysLogic } from './surveysLogic'
+import { IconLock } from 'lib/lemon-ui/icons'
+import { useValues } from 'kea'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
@@ -37,6 +41,8 @@ export function SurveyAppearance({
     readOnly,
     onAppearanceChange,
 }: SurveyAppearanceProps): JSX.Element {
+    const { whitelabelAvailable } = useValues(surveysLogic)
+
     return (
         <>
             <h3 className="mb-4 text-center">Preview</h3>
@@ -122,6 +128,24 @@ export function SurveyAppearance({
                             />
                         </>
                     )}
+                    <div className="mt-2">
+                        <LemonCheckbox
+                            label={
+                                <div className="flex items-center">
+                                    <span>Hide PostHog branding</span>
+                                    {!whitelabelAvailable ? (
+                                        <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
+                                            <IconLock className="ml-2" />
+                                        </Tooltip>
+                                    ) : null}
+                                </div>
+                            }
+                            onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
+                            disabledReason={
+                                !whitelabelAvailable ? 'Upgrade to PostHog Scale to hide PostHog branding' : null
+                            }
+                        />
+                    </div>
                 </div>
             )}
         </>
@@ -180,7 +204,9 @@ function BaseAppearance({
                             {appearance.submitButtonText || 'Submit'}
                         </button>
                     </div>
-                    <div className="footer-branding">powered by {posthogLogoSVG} PostHog</div>
+                    <div className="footer-branding" style={{ display: appearance.whiteLabel ? 'none' : '' }}>
+                        powered by {posthogLogoSVG} PostHog
+                    </div>
                 </div>
             </div>
         </form>
@@ -275,7 +301,9 @@ function SurveyRatingAppearance({
                         <div>{ratingSurveyQuestion.lowerBoundLabel}</div>
                         <div>{ratingSurveyQuestion.upperBoundLabel}</div>
                     </div>
-                    <div className="footer-branding">powered by {posthogLogoSVG} PostHog</div>
+                    <div className="footer-branding" style={{ display: appearance.whiteLabel ? 'none' : '' }}>
+                        powered by {posthogLogoSVG} PostHog
+                    </div>
                 </div>
             </div>
         </form>
@@ -333,7 +361,9 @@ function SurveyMultipleChoiceAppearance({
                             {appearance.submitButtonText || 'Submit'}
                         </button>
                     </div>
-                    <div className="footer-branding">powered by {posthogLogoSVG} PostHog</div>
+                    <div className="footer-branding" style={{ display: appearance.whiteLabel ? 'none' : '' }}>
+                        powered by {posthogLogoSVG} PostHog
+                    </div>
                 </div>
             </div>
         </form>
