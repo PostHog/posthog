@@ -10,7 +10,7 @@ export enum LettermarkColor {
 
 export interface LettermarkProps {
     /** Name or value the lettermark should represent. */
-    name?: string | number | null
+    name?: string | number | null | React.ReactElement
     /** If given, will choose a color based on the index */
     index?: number
     /** Specify the color */
@@ -27,7 +27,9 @@ export function Lettermark({ name, index, color, rounded = false }: LettermarkPr
     const representation = name
         ? typeof name === 'number'
             ? String(Math.floor(name))
-            : name.toLocaleUpperCase().charAt(0)
+            : typeof name === 'string'
+            ? name.toLocaleUpperCase().charAt(0)
+            : name
         : '?'
 
     const colorIndex = color ? color : typeof index === 'number' ? (index % NUM_LETTERMARK_STYLES) + 1 : undefined

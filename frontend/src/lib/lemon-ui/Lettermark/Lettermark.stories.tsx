@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { Lettermark, LettermarkColor, LettermarkProps } from './Lettermark'
 import { range } from 'lib/utils'
+import { IconCoffee } from '../icons'
 
 type Story = StoryObj<typeof Lettermark>
 const meta: Meta<typeof Lettermark> = {
@@ -61,3 +62,6 @@ Unknown.args = { name: null }
 
 export const Gray: Story = Template.bind({})
 Gray.args = { name: 5, color: LettermarkColor.Gray }
+
+export const Component: Story = Template.bind({})
+Component.args = { name: <IconCoffee /> }
