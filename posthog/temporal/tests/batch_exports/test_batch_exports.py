@@ -28,6 +28,7 @@ EventValues = TypedDict(
         "created_at": str,
         "distinct_id": str,
         "person_id": str,
+        "person_created_at": str,
         "person_properties": dict | None,
         "team_id": int,
         "properties": dict | None,
@@ -57,7 +58,8 @@ async def insert_events(ch_client: ClickHouseClient, events: list[EventValues]):
             elements_chain,
             distinct_id,
             created_at,
-            person_properties
+            person_properties,
+            person_created_at
         )
         VALUES
         """,
@@ -77,6 +79,7 @@ async def insert_events(ch_client: ClickHouseClient, events: list[EventValues]):
                 json.dumps(event["person_properties"])
                 if isinstance(event["person_properties"], dict)
                 else event["person_properties"],
+                event["person_created_at"],
             )
             for event in events
         ],
@@ -118,6 +121,7 @@ async def test_get_rows_count(client):
             "created_at": "2023-04-20 14:30:00.000000",
             "distinct_id": str(uuid4()),
             "person_id": str(uuid4()),
+            "person_created_at": f"2023-04-20 14:30:00.000000",
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
             "properties": {
@@ -160,6 +164,7 @@ async def test_get_rows_count_handles_duplicates(client):
             "created_at": "2023-04-20 14:30:00.000000",
             "distinct_id": str(uuid4()),
             "person_id": str(uuid4()),
+            "person_created_at": f"2023-04-20 14:30:00.000000",
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
             "properties": {
@@ -206,6 +211,7 @@ async def test_get_results_iterator(client):
             "distinct_id": str(uuid4()),
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "person_created_at": f"2023-04-20 14:30:00.000000",
             "team_id": team_id,
             "properties": {
                 "$browser": "Chrome",
@@ -257,6 +263,7 @@ async def test_get_results_iterator_handles_duplicates(client):
             "created_at": "2023-04-20 14:30:00.000000",
             "distinct_id": str(uuid4()),
             "person_id": str(uuid4()),
+            "person_created_at": f"2023-04-20 14:30:00.000000",
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
             "properties": {
