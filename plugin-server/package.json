@@ -83,6 +83,7 @@
         "snowflake-sdk": "^1.6.10",
         "tail": "^2.2.6",
         "uuid": "^8.3.2",
+        "v8-profiler-next": "^1.9.0",
         "vm2": "3.9.18"
     },
     "devDependencies": {
