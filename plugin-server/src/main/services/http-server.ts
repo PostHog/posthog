@@ -129,13 +129,13 @@ function exportProfile(req: IncomingMessage, res: ServerResponse) {
     // Mirrors golang's pprof behaviour of exposing on-off profiles through HTTP endpoints
     // Port-forward a target pod and run: curl -vOJ "http://localhost:6738/_profile/cpu?seconds=30"
     const url = new URL(req.url!, `http://${req.headers.host}`)
-    const type = url.pathname.split('/').pop()
+    const type = url.pathname.split('/').pop() ?? 'unknown'
     const durationSeconds = url.searchParams.get('seconds') ? parseInt(url.searchParams.get('seconds')!) : 30
 
     const sendHeaders = function (extension: string) {
         const fileName = `${type}-${DateTime.now().toUTC().toFormat('yyyyMMdd-HHmmss')}.${extension}`
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
-        res.setHeader('Profile-Type', type ?? 'invalid')
+        res.setHeader('Profile-Type', type)
         res.setHeader('Profile-Duration-Seconds', durationSeconds)
         res.flushHeaders()
     }
