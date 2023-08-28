@@ -2253,6 +2253,18 @@ export function IconSkipBackward(props: LemonIconProps): JSX.Element {
     )
 }
 
+/* Material Design Start Icon */
+export function IconStart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 -960 960 960" {...props}>
+            <path
+                d="M80-240v-480h80v480H80Zm560 0-57-56 144-144H240v-80h487L584-664l56-56 240 240-240 240Z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
 export function GitlabIcon(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
