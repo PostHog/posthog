@@ -109,12 +109,14 @@ async function expectStoryToMatchSnapshot(
         document.body.classList.add('storybook-test-runner')
     })
     if (waitForLoadersToDisappear) {
+        await page.waitForTimeout(100)
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
         }
-        await page.waitForTimeout(300) // Just a bit of extra delay for things to settle
+        await page.waitForTimeout(100)
     }
+    await page.waitForTimeout(100)
     await check(page, context, browser, storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
