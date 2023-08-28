@@ -236,6 +236,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         </>
                                     }
                                 />
+                                <LemonDivider vertical />
                             </>
                         )}
 
