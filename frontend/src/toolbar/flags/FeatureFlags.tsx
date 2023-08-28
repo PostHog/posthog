@@ -32,7 +32,7 @@ export function FeatureFlags(): JSX.Element {
                     className={'feature-flag-row'}
                     onChange={(s) => setSearchTerm(s)}
                 />
-                <div className={'flex flex-col w-full space-y-1'}>
+                <div className={'flex flex-col w-full space-y-1 py-2'}>
                     {filteredFlags.length > 0 ? (
                         filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
                             <div className={'feature-flag-row'} key={feature_flag.key}>
