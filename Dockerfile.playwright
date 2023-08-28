@@ -3,9 +3,11 @@
 # We do this to ensure our reference images for visual regression tests are the same during development and in CI.
 #
 
-FROM mcr.microsoft.com/playwright:v1.29.2
+FROM mcr.microsoft.com/playwright:v1.37.1
 
 WORKDIR /work
+
+ENV CI=true
 
 RUN npm install -g pnpm
 
