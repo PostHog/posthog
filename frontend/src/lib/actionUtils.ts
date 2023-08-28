@@ -8,7 +8,7 @@ export const CLICK_TARGET_SELECTOR = CLICK_TARGETS.join(', ')
 // always ignore the following
 export const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style']
 
-export const escapeRegex = (str: string): string => str.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, '\\$1')
+export const escapeRegex = (str: string): string => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
 
 export function matchesDataAttribute(element: ElementType, dataAttributes: string[]): string | void {
     if (!element.attributes) {

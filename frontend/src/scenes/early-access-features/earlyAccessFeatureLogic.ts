@@ -117,9 +117,8 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         cancel: () => {
-            if (!('id' in values.earlyAccessFeature)) {
-                actions.resetEarlyAccessFeature()
-                router.actions.push(urls.earlyAccessFeatures())
+            if ('id' in values.earlyAccessFeature) {
+                actions.loadEarlyAccessFeature()
             }
             actions.editFeature(false)
         },
@@ -160,8 +159,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             if (method === 'PUSH') {
                 if (props.id) {
                     actions.loadEarlyAccessFeature()
-                } else {
-                    actions.resetEarlyAccessFeature()
                 }
             }
         },
@@ -169,9 +166,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     afterMount(async ({ props, actions }) => {
         if (props.id !== 'new') {
             await actions.loadEarlyAccessFeature()
-        }
-        if (props.id === 'new') {
-            actions.resetEarlyAccessFeature()
         }
     }),
 ])

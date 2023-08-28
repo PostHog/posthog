@@ -106,11 +106,10 @@ const EARLY_ACCESS_FEATURE_RESULT = [
     },
 ]
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Features',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -131,8 +130,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function FeaturesList(): JSX.Element {
     useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {

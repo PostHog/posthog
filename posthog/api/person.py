@@ -1,4 +1,5 @@
 import json
+from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import (
     Any,
@@ -31,7 +32,7 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
-from posthog.decorators import cached_function
+from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -63,6 +64,8 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+from prometheus_client import Counter
+from posthog.metrics import LABEL_TEAM_ID
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
@@ -75,6 +78,12 @@ PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "Username",
     "UserName",
 ]
+
+API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
+    "api_person_list_bytes_read_from_postgres",
+    "An estimate of how many bytes we've read from postgres to return the person endpoint.",
+    labelnames=[LABEL_TEAM_ID],
+)
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -274,6 +283,11 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             if filter.offset - filter.limit >= 0
             else None
         )
+
+        # TEMPORARY: Work out usage patterns of this endpoint
+        renderer = SafeJSONRenderer()
+        size = len(renderer.render(serialized_actors))
+        API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response(
             {
@@ -556,7 +570,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self._respond_with_cached_results(self.calculate_funnel_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_funnel_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
@@ -578,7 +592,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self._respond_with_cached_results(self.calculate_path_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_path_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
@@ -606,7 +620,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self._respond_with_cached_results(self.calculate_trends_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_trends_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:

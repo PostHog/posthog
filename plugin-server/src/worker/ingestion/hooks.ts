@@ -1,11 +1,10 @@
 import { captureException } from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { Client, Pool } from 'pg'
 import { Histogram } from 'prom-client'
 import { format } from 'util'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
-import { postgresQuery } from '../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
@@ -140,15 +139,16 @@ export function getEventDetails(
     return toWebhookLink(event.event, getEventLink(event, siteUrl), webhookType)
 }
 
+const TOKENS_REGEX_BRACKETS_EXCLUDED = /(?<=(?<!\\)\[)(.*?)(?=(?<!\\)\])/g
+const TOKENS_REGEX_BRACKETS_INCLUDED = /(?<!\\)\[(.*?)(?<!\\)\]/g
+
 export function getTokens(messageFormat: string): [string[], string] {
     // This finds property value tokens, basically any string contained in square brackets
     // Examples: "[foo]" is matched in "bar [foo]", "[action.name]" is matched in "action [action.name]"
-    const TOKENS_REGEX = /(?<=\[)(.*?)(?=\])/g
-    const matchedTokens = messageFormat.match(TOKENS_REGEX) || []
-    let tokenizedMessage = messageFormat
-    if (matchedTokens.length) {
-        tokenizedMessage = tokenizedMessage.replace(/\[(.*?)\]/g, '%s')
-    }
+    // The backslash is used as an escape character - "\[foo\]" is not matched, allowing square brackets in messages
+    const matchedTokens = messageFormat.match(TOKENS_REGEX_BRACKETS_EXCLUDED) || []
+    // Replace the tokens with placeholders, and unescape leftover brackets
+    const tokenizedMessage = messageFormat.replace(TOKENS_REGEX_BRACKETS_INCLUDED, '%s').replace(/\\(\[|\])/g, '$1')
     return [matchedTokens, tokenizedMessage]
 }
 
@@ -251,7 +251,7 @@ export function getFormattedMessage(
 }
 
 export class HookCommander {
-    postgres: Client | Pool
+    postgres: PostgresRouter
     teamManager: TeamManager
     organizationManager: OrganizationManager
     statsd: StatsD | undefined
@@ -261,7 +261,7 @@ export class HookCommander {
     EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
 
     constructor(
-        postgres: Client | Pool,
+        postgres: PostgresRouter,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
         statsd?: StatsD
@@ -420,6 +420,11 @@ export class HookCommander {
     }
 
     private async deleteRestHook(hookId: Hook['id']): Promise<void> {
-        await postgresQuery(this.postgres, `DELETE FROM ee_hook WHERE id = $1`, [hookId], 'deleteRestHook')
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM ee_hook WHERE id = $1`,
+            [hookId],
+            'deleteRestHook'
+        )
     }
 }

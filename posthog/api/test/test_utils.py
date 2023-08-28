@@ -11,6 +11,7 @@ from posthog.api.utils import (
     format_paginated_url,
     get_data,
     get_target_entity,
+    raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
 )
 from posthog.models.filters.filter import Filter
@@ -144,3 +145,22 @@ class TestUtils(BaseTest):
         self.assertEqual(safe_clickhouse_string("✨"), "✨")
         self.assertEqual(safe_clickhouse_string("foo \u2728\ bar"), "foo \u2728\ bar")
         self.assertEqual(safe_clickhouse_string("💜 \u1f49c\ 💜"), "💜 \u1f49c\ 💜")
+
+    def test_raise_if_user_provided_url_unsafe(self):
+        raise_if_user_provided_url_unsafe("https://google.com?q=20")  # Safe
+        raise_if_user_provided_url_unsafe("https://posthog.com")  # Safe
+        raise_if_user_provided_url_unsafe("https://posthog.com/foo/bar")  # Safe, with path
+        raise_if_user_provided_url_unsafe("https://posthog.com:443")  # Safe, good port
+        raise_if_user_provided_url_unsafe("https://1.1.1.1")  # Safe, public IP
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("https://posthog.com:80"))  # Bad port
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("ftp://posthog.com"))  # Bad scheme
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe(""))  # Empty
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("posthog.com"))  # No scheme
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://localhost"))  # Internal
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://192.168.0.5"))  # Internal
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://0.0.0.0"))  # Internal
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://10.0.0.24"))  # Internal
+        self.assertRaises(ValueError, lambda: raise_if_user_provided_url_unsafe("http://172.20.0.21"))  # Internal
+        self.assertRaises(
+            ValueError, lambda: raise_if_user_provided_url_unsafe("http://fgtggggzzggggfd.com")
+        )  # Non-existent

@@ -1,7 +1,7 @@
 import { InsightTooltip } from './InsightTooltip'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useMountedLogic } from 'kea'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { InsightTooltipProps } from './insightTooltipUtils'
 import { humanFriendlyNumber } from 'lib/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -117,32 +117,35 @@ const data = {
     ],
 }
 
-export default {
+type Story = StoryObj<typeof InsightTooltip>
+const meta: Meta<typeof InsightTooltip> = {
     title: 'Components/InsightTooltip',
     component: InsightTooltip,
-    argTypes: {
-        date: { defaultValue: data.date },
-        timezone: { defaultValue: data.timezone },
-        seriesData: { defaultValue: data.seriesData as any },
-        hideColorCol: { defaultValue: false },
-        renderCount: { defaultValue: (value: number): string => `${value}` },
-        groupTypeLabel: { defaultValue: 'people' },
+    args: {
+        date: data.date,
+        timezone: data.timezone,
+        seriesData: data.seriesData as any,
+        hideColorCol: false,
+        renderCount: (value: number): string => `${value}`,
+        renderSeries: (value) => value,
+        groupTypeLabel: 'people',
     },
     parameters: {
         testOptions: { skip: true }, // FIXME: The InWrapper story fails at locator.screenshot() for some reason
     },
-} as ComponentMeta<typeof InsightTooltip>
+}
+export default meta
 
-const BasicTemplate: ComponentStory<typeof InsightTooltip> = (props: InsightTooltipProps) => {
+const BasicTemplate: StoryFn<typeof InsightTooltip> = (props: InsightTooltipProps) => {
     useMountedLogic(cohortsModel)
 
     return <InsightTooltip {...props} />
 }
 
-export const Default = BasicTemplate.bind({})
+export const Default: Story = BasicTemplate.bind({})
 Default.args = {}
 
-export const Columns = BasicTemplate.bind({})
+export const Columns: Story = BasicTemplate.bind({})
 Columns.args = {
     entitiesAsColumnsOverride: true,
 }

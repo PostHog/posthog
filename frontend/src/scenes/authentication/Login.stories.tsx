@@ -9,11 +9,10 @@ import { urls } from 'scenes/urls'
 import { loginLogic } from './loginLogic'
 import { Login2FA } from './Login2FA'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/Login',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
     decorators: [
@@ -23,8 +22,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export const Cloud = (): JSX.Element => {
     useStorybookMocks({
         get: {

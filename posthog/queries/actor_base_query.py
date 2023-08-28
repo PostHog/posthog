@@ -98,6 +98,7 @@ class ActorBaseQuery:
         self,
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         """Get actors in data model and dict formats. Builds query and executes"""
+        self._filter.team = self._team
         query, params = self.actor_query()
         raw_result = insight_sync_execute(
             query,

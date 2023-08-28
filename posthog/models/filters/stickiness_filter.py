@@ -1,11 +1,11 @@
-from typing import Any, Callable, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
 
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
-from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.mixins.common import (
+from .base_filter import BaseFilter
+from .mixins.common import (
     ClientQueryIdMixin,
     CompareMixin,
     EntitiesMixin,
@@ -21,10 +21,12 @@ from posthog.models.filters.mixins.common import (
     SearchMixin,
     ShownAsMixin,
 )
-from posthog.models.filters.mixins.property import PropertyMixin
-from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
-from posthog.models.filters.mixins.stickiness import SelectedIntervalMixin, TotalIntervalsDerivedMixin
-from posthog.models.team import Team
+from .mixins.property import PropertyMixin
+from .mixins.simplify import SimplifyFilterMixin
+from .mixins.stickiness import SelectedIntervalMixin, TotalIntervalsDerivedMixin
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 
 class StickinessFilter(
@@ -49,11 +51,11 @@ class StickinessFilter(
     BaseFilter,
 ):
     get_earliest_timestamp: Optional[Callable]
-    team: Team
+    team: "Team"
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         super().__init__(data, request, **kwargs)
-        team: Optional[Team] = kwargs.get("team", None)
+        team: Optional["Team"] = kwargs.get("team", None)
         if not team:
             raise ValidationError("Team must be provided to stickiness filter")
         self.team = team

@@ -1,14 +1,17 @@
 import { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonBadge, LemonBadgeNumberProps } from './LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-export default {
+type Story = StoryObj<typeof LemonBadge.Number>
+const meta: Meta<typeof LemonBadge.Number> = {
     title: 'Lemon UI/Lemon Badge/Lemon Badge Number',
     component: LemonBadge.Number,
-} as ComponentMeta<typeof LemonBadge.Number>
+    tags: ['autodocs'],
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonBadge.Number> = ({ count, ...props }: LemonBadgeNumberProps) => {
+const Template: StoryFn<typeof LemonBadge.Number> = ({ count, ...props }: LemonBadgeNumberProps) => {
     const [countOverride, setCount] = useState(count)
 
     return (
@@ -30,11 +33,11 @@ const Template: ComponentStory<typeof LemonBadge.Number> = ({ count, ...props }:
     )
 }
 
-export const Standard = Template.bind({})
+export const Standard: Story = Template.bind({})
 Standard.args = { count: 1 }
 
-export const MultipleDigits = Template.bind({})
+export const MultipleDigits: Story = Template.bind({})
 MultipleDigits.args = { count: 975, maxDigits: 3 }
 
-export const ShowZero = Template.bind({})
+export const ShowZero: Story = Template.bind({})
 ShowZero.args = { count: 0, showZero: true }
