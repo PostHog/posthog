@@ -110,13 +110,20 @@ async function expectStoryToMatchSnapshot(
         document.body.classList.add('storybook-test-runner')
     })
     if (waitForLoadersToDisappear) {
-        await page.waitForTimeout(300) // Wait for initial UI to load
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
         }
     }
-    await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
+
+    // Wait for all images to load
+    const imgLocators = await page.locator('img').all()
+    await Promise.all(
+        imgLocators.map((locator) =>
+            locator.evaluate((image: HTMLImageElement) => image.complete || new Promise((f) => (image.onload = f)))
+        )
+    )
+
     await check(page, context, browser, storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
