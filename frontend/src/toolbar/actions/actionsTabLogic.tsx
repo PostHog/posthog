@@ -6,7 +6,7 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import type { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionType, ElementType } from '~/types'
-import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
+import { ActionDraftType, ActionForm } from '~/toolbar/types'
 import { posthog } from '~/toolbar/posthog'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
@@ -57,7 +57,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         inspectForElementWithIndex: (index: number | null) => ({ index }),
         editSelectorWithIndex: (index: number | null) => ({ index }),
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
-        setEditingFields: (editingFields: AntdFieldData[]) => ({ editingFields }),
         incrementCounter: true,
         saveAction: (formValues: ActionForm) => ({ formValues }),
         deleteAction: true,
@@ -121,14 +120,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             null as number | null,
             {
                 editSelectorWithIndex: (_, { index }) => index,
-            },
-        ],
-        editingFields: [
-            null as AntdFieldData[] | null,
-            {
-                setEditingFields: (_, { editingFields }) => editingFields,
-                selectAction: () => null,
-                newAction: () => null,
             },
         ],
         counter: [

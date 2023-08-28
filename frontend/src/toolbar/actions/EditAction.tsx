@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { StepField } from '~/toolbar/actions/StepField'
-import { MinusCircleOutlined } from '@ant-design/icons'
 import { SelectorEditingModal } from '~/toolbar/elements/SelectorEditingModal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconClose, IconDelete, IconEdit, IconMagnifier, IconPlus } from 'lib/lemon-ui/icons'
+import { IconClose, IconDelete, IconEdit, IconMagnifier, IconMinusOutlined, IconPlus } from 'lib/lemon-ui/icons'
 import { posthog } from '~/toolbar/posthog'
 import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { Field, Form, Group } from 'kea-forms'
@@ -88,7 +87,7 @@ export function EditAction(): JSX.Element {
                                                 actionForm.steps?.filter((_, i) => i !== index)
                                             )
                                         }
-                                        sideIcon={<MinusCircleOutlined />}
+                                        sideIcon={<IconMinusOutlined />}
                                     >
                                         Remove
                                     </LemonButton>
