@@ -8,7 +8,7 @@ type StoryContext = ReturnType<typeof getStoryContext> extends Promise<infer T> 
 type SupportedBrowserName = 'chromium' | 'webkit'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
-declare module '@storybook/react' {
+declare module '@storybook/csf' {
     interface Parameters {
         options?: any
         layout?: 'padded' | 'fullscreen' | 'centered'
@@ -20,17 +20,14 @@ declare module '@storybook/react' {
             skip?: boolean
             /**
              * Whether we should wait for all loading indicators to disappear before taking a snapshot.
-             *
-             * You can also provide a selector string instead of a boolean - in that case we'll wait
-             * for a matching element to be be visible once all loaders are gone.
-             *
              * @default true
              */
-            waitForLoadersToDisappear?: boolean | string
+            waitForLoadersToDisappear?: boolean
+            /** If set, we'll wait for the given selector to be satisfied. */
+            waitForSelector?: string
             /**
              * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
              * Warning: Fails if enabled for stories in which navigation is not present.
-             *
              * @default false
              */
             excludeNavigationFromSnapshot?: boolean
@@ -83,8 +80,11 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const { waitForLoadersToDisappear = true, excludeNavigationFromSnapshot = false } =
-        storyContext.parameters?.testOptions ?? {}
+    const {
+        waitForLoadersToDisappear = true,
+        waitForSelector,
+        excludeNavigationFromSnapshot = false,
+    } = storyContext.parameters?.testOptions ?? {}
 
     let check: (
         page: Page,
@@ -110,10 +110,12 @@ async function expectStoryToMatchSnapshot(
     })
     if (waitForLoadersToDisappear) {
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
-        if (typeof waitForLoadersToDisappear === 'string') {
-            await page.waitForSelector(waitForLoadersToDisappear)
-        }
     }
+    if (waitForSelector) {
+        await page.waitForSelector(waitForSelector)
+    }
+
+    await page.waitForTimeout(400) // Wait for animations to finish
 
     // Wait for all images to load
     await page.waitForFunction(() =>

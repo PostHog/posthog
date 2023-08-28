@@ -15,7 +15,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         testOptions: {
-            waitForLoadersToDisappear: '.BridgePage__left__message--enter-done',
+            waitForSelector: '.BridgePage__left__message--enter-done',
         },
     },
     decorators: [

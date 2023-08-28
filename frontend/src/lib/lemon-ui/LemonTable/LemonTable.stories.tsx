@@ -189,6 +189,7 @@ Loading.args = { loading: true }
 Loading.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
+        waitForSelector: '.LemonTableLoader',
     },
 }
 
@@ -197,6 +198,7 @@ EmptyLoading.args = { loading: true }
 EmptyLoading.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
+        waitForSelector: '.LemonTableLoader',
     },
 }
 
@@ -205,6 +207,7 @@ EmptyLoadingWithManySkeletonRows.args = { loading: true, loadingSkeletonRows: 10
 EmptyLoadingWithManySkeletonRows.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
+        waitForSelector: '.LemonTableLoader',
     },
 }
 

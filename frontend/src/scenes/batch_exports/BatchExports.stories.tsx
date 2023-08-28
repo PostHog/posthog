@@ -97,6 +97,6 @@ export const ViewExport: Story = () => {
 }
 ViewExport.parameters = {
     testOptions: {
-        waitForLoadersToDisappear: '.LemonTable',
+        waitForSelector: '.LemonTable',
     },
 }
