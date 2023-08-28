@@ -3,8 +3,12 @@ import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
 import { Editor as TTEditor } from '@tiptap/core'
 
-export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (value: T) => void] {
-    let value = props.node.attrs[key]
+export function useJsonNodeState<T>(
+    attributes: NodeViewProps['node']['attrs'],
+    updateAttributes: NodeViewProps['updateAttributes'],
+    key: string
+): [T, (value: T) => void] {
+    let value = attributes[key]
     try {
         value = typeof value === 'string' ? JSON.parse(value) : value
     } catch (e) {
@@ -13,7 +17,7 @@ export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (val
     }
 
     const setValue = (value: any): void => {
-        props.updateAttributes({
+        updateAttributes({
             [key]: JSON.stringify(value),
         })
     }
@@ -44,7 +48,7 @@ export function posthogNodePasteRule(options: {
             if (match.input) {
                 chain().deleteRange(range).run()
                 Promise.resolve(options.getAttributes(match)).then((attributes) => {
-                    if (!!attributes) {
+                    if (attributes) {
                         options.editor.commands.insertContent({
                             type: options.type.name,
                             attrs: attributes,
@@ -56,23 +60,16 @@ export function posthogNodePasteRule(options: {
     })
 }
 
-export function posthogLinkPasteRule(): PasteRule {
-    return markPasteRule(true)
-}
-
-export function externalLinkPasteRule(): PasteRule {
-    return markPasteRule(false)
-}
-
-function markPasteRule(internal: boolean): PasteRule {
-    const regex = createUrlRegex("([a-zA-Z0-9-._~:/?#\\[\\]!@$&'()*,;=]*)", internal ? undefined : '(https?|mailto)://')
-
+export function linkPasteRule(): PasteRule {
     return new PasteRule({
-        find: regex,
+        find: createUrlRegex(
+            `(?!${window.location.host})([a-zA-Z0-9-._~:/?#\\[\\]!@$&'()*,;=]*)`,
+            '^(https?|mailto)://'
+        ),
         handler: ({ match, chain, range }) => {
             if (match.input) {
                 const url = new URL(match[0])
-                const href = internal ? url.pathname : url.toString()
+                const href = url.origin === window.location.origin ? url.pathname : url.toString()
                 chain()
                     .deleteRange(range)
                     .insertContent([

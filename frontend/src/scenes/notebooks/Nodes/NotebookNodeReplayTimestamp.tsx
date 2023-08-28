@@ -11,11 +11,11 @@ import clsx from 'clsx'
 import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
 import { LemonButton } from '@posthog/lemon-ui'
-import { openNotebook } from '../Notebook/notebooksListLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import { useMemo } from 'react'
+import { openNotebook } from '~/models/notebooksModel'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { shortId, findNodeLogic } = useValues(notebookLogic)

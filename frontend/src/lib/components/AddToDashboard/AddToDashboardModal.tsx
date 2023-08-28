@@ -75,7 +75,7 @@ const DashboardRelationRow = ({
                 disabledReason={
                     !canEditInsight
                         ? "You don't have permission to edit this dashboard"
-                        : !!dashboardWithActiveAPICall
+                        : dashboardWithActiveAPICall
                         ? 'Loading...'
                         : ''
                 }

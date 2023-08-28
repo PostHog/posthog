@@ -78,11 +78,12 @@
         "posthog-node": "2.0.2",
         "pretty-bytes": "^5.6.0",
         "prom-client": "^14.2.0",
-        "re2": "^1.17.7",
+        "re2": "^1.20.3",
         "safe-stable-stringify": "^2.4.0",
         "snowflake-sdk": "^1.6.10",
         "tail": "^2.2.6",
         "uuid": "^8.3.2",
+        "v8-profiler-next": "^1.9.0",
         "vm2": "3.9.18"
     },
     "devDependencies": {

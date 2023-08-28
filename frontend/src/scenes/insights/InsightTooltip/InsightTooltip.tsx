@@ -97,7 +97,7 @@ export function InsightTooltip({
 
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||
-        (!!date
+        (date
             ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
                   timezone ? shortTimeZone(timezone) : 'UTC'
               })`

@@ -77,10 +77,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             (s) => [s.filter, s.taxonomicGroups],
             (filter, groups): TaxonomicFilterGroup | undefined => {
                 if (isGroupPropertyFilter(filter)) {
-                    const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(
-                        filter.type,
-                        filter.group_type_index
-                    )
+                    const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(filter)
                     return groups.find((group) => group.type === taxonomicGroupType)
                 }
             },

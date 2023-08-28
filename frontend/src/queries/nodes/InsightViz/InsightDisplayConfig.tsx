@@ -45,9 +45,9 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showFunnelDisplayLayout,
         showFunnelBins,
         display,
-        compare,
         trendsFilter,
         hasLegend,
+        showLegend,
     } = useValues(insightDisplayConfigLogic(insightProps))
 
     const { showPercentStackView: isPercentStackViewOn, showValueOnSeries: isValueOnSeriesOn } = useValues(
@@ -55,7 +55,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(showCompare || showValueOnSeries || showPercentStackView
+        ...(showValueOnSeries || showPercentStackView || hasLegend
             ? [
                   {
                       title: 'Display',
@@ -77,7 +77,6 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
             : []),
     ]
     const advancedOptionsCount: number =
-        (showCompare && compare ? 1 : 0) +
         (showValueOnSeries && isValueOnSeriesOn ? 1 : 0) +
         (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
         (!isPercentStackViewOn &&
@@ -86,7 +85,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         trendsFilter.aggregation_axis_format !== 'numeric'
             ? 1
             : 0) +
-        (hasLegend && trendsFilter?.show_legend ? 1 : 0)
+        (hasLegend && showLegend ? 1 : 0)
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
@@ -132,13 +131,8 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
                         <LemonButton size="small" status="stealth">
-                            <span className="font-medium">
-                                Options
-                                {advancedOptionsCount ? (
-                                    <>
-                                        &nbsp;<span className="text-muted">({advancedOptionsCount})</span>
-                                    </>
-                                ) : null}
+                            <span className="font-medium whitespace-nowrap">
+                                Options{advancedOptionsCount ? ` (${advancedOptionsCount})` : null}
                             </span>
                         </LemonButton>
                     </LemonMenu>

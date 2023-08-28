@@ -28,6 +28,7 @@ import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/in
 import { teamLogic } from 'scenes/teamLogic'
 import equal from 'fast-deep-equal'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
+import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
 
 export interface DataNodeLogicProps {
     key: string
@@ -39,6 +40,14 @@ export interface DataNodeLogicProps {
 }
 
 const AUTOLOAD_INTERVAL = 30000
+
+const queryEqual = (a: DataNode, b: DataNode): boolean => {
+    if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
+        return compareInsightQuery(a, b, true)
+    } else {
+        return objectsEqual(a, b)
+    }
+}
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
@@ -54,7 +63,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!objectsEqual(props.query, oldProps.query)) {
+        if (!queryEqual(props.query, oldProps.query)) {
             if (!props.cachedResults || (isInsightQueryNode(props.query) && !props.cachedResults['result'])) {
                 actions.loadData()
             } else {

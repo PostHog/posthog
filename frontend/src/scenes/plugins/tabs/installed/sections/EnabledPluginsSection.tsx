@@ -110,7 +110,7 @@ export function EnabledPluginSection(): JSX.Element {
                     'At least two apps need to be enabled for reordering.'
                 ) : (
                     <>
-                        {!!searchTerm ? (
+                        {searchTerm ? (
                             'Editing the order of apps is disabled when searching.'
                         ) : (
                             <>

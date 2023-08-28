@@ -10,6 +10,7 @@ import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
+import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
@@ -36,11 +37,13 @@ export function Editor({
     initialContent,
     onCreate,
     onUpdate,
+    onSelectionUpdate,
     placeholder,
 }: {
     initialContent: JSONContent
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
+    onSelectionUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
@@ -86,13 +89,13 @@ export function Editor({
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
+            NotebookNodeFlagCodeExample,
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
         ],
         content: initialContent,
         editorProps: {
-            attributes: { class: 'NotebookEditor' },
             handleDrop: (view, event, _slice, moved) => {
                 const editor = editorRef.current
                 if (!editor) {
@@ -172,10 +175,15 @@ export function Editor({
         },
         onCreate: ({ editor }) => {
             editorRef.current = editor
+
             onCreate({
                 getJSON: () => editor.getJSON(),
+                getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
+                getPreviousNode: () => getPreviousNode(editor),
+                getNextNode: () => getNextNode(editor),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
+                setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 destroy: () => editor.destroy(),
                 isEmpty: () => editor.isEmpty,
@@ -185,20 +193,27 @@ export function Editor({
                     const endPosition = findEndPositionOfNode(editor, position)
                     if (endPosition) {
                         editor.chain().focus().insertContentAt(endPosition, content).run()
+                        editor.commands.scrollIntoView()
                     }
                 },
                 findNode: (position: number) => findNode(editor, position),
                 findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
                 nextNode: (position: number) => nextNode(editor, position),
                 hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
+                scrollToSelection: () => {
+                    const position = editor.state.selection.$anchor.pos
+                    const domEl = editor.view.nodeDOM(position) as HTMLElement
+                    domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                },
             })
         },
         onUpdate: onUpdate,
+        onSelectionUpdate: onSelectionUpdate,
     })
 
     return (
         <>
-            <EditorContent editor={_editor} className="flex flex-col flex-1" />
+            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
             {_editor && <FloatingSuggestions editor={_editor} />}
         </>
     )
@@ -271,9 +286,15 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
 }
 
 function getPreviousNode(editor: TTEditor): Node | null {
-    const { $anchor } = editor.state.selection
-    const node = $anchor.node(1)
-    return !!node ? editor.state.doc.childBefore($anchor.pos - 1).node : null
+    const { doc, selection } = editor.state
+    const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
+    return doc.maybeChild(currentIndex - 1)
+}
+
+function getNextNode(editor: TTEditor): Node | null {
+    const { doc, selection } = editor.state
+    const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
+    return doc.maybeChild(currentIndex + 1)
 }
 
 export function hasMatchingNode(

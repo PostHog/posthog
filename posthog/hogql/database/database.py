@@ -110,7 +110,7 @@ def create_hogql_database(team_id: int) -> Database:
         table.fields[view.saved_query.name] = LazyJoin(
             from_field=view.from_join_key,
             join_table=view.saved_query.hogql_definition(),
-            join_function=determine_join_function(view),
+            join_function=view.join_function,
         )
 
     tables = {}

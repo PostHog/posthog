@@ -100,7 +100,7 @@ function QueryTable(props: {
         {
             title: 'query',
             dataIndex: 'query',
-            render: function RenderAnalyze({}, item: QuerySummary) {
+            render: function RenderAnalyze(_, item: QuerySummary) {
                 return item.query
             },
             key: 'query',
