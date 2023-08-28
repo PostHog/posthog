@@ -113,8 +113,8 @@ async function expectStoryToMatchSnapshot(
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
         }
+        await page.waitForTimeout(300) // Just a bit of extra delay for things to settle
     }
-    await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
     await check(page, context, browser, storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 

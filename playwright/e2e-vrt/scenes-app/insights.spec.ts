@@ -3,7 +3,7 @@ import { test, expect } from '../../fixtures/storybook'
 
 test.describe('tooltip', () => {
     // skipped because this flaps like a fish out of water
-    test.skip('displays correctly', async ({ page, storyPage }) => {
+    test('displays correctly', async ({ page, storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Line'))
 
         // hover over the graph to show the tooltip
@@ -21,7 +21,7 @@ test.describe('tooltip', () => {
 
 test.describe('annotations popover', () => {
     // skipped because this flaps like a fish out of water
-    test.skip('displays correctly', async ({ page, storyPage }) => {
+    test('displays correctly', async ({ page, storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Line'))
 
         // hover over the graph to show the annotations overlay
