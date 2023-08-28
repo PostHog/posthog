@@ -4,7 +4,6 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import pytz
 from django.forms import ValidationError
 
 from posthog.constants import (
@@ -61,6 +60,7 @@ from posthog.queries.trends.util import (
     correct_result_for_sampling,
     enumerate_time_range,
     get_active_user_params,
+    offset_time_series_date_by_interval,
     parse_response,
     process_math,
 )
@@ -556,7 +556,7 @@ class TrendsBreakdown:
                 parsed_result.update(
                     {
                         "persons_urls": self._get_persons_url(
-                            filter, entity, self.team_id, stats[0], result_descriptors["breakdown_value"]
+                            filter, entity, self.team, stats[0], result_descriptors["breakdown_value"]
                         )
                     }
                 )
@@ -571,27 +571,23 @@ class TrendsBreakdown:
         return _parse
 
     def _get_persons_url(
-        self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime], breakdown_value: Union[str, int]
+        self,
+        filter: Filter,
+        entity: Entity,
+        team: Team,
+        point_datetimes: List[datetime],
+        breakdown_value: Union[str, int],
     ) -> List[Dict[str, Any]]:
         persons_url = []
         cache_invalidation_key = generate_short_id()
-        for date in dates:
-            date_in_utc = datetime(
-                date.year,
-                date.month,
-                date.day,
-                getattr(date, "hour", 0),
-                getattr(date, "minute", 0),
-                getattr(date, "second", 0),
-                tzinfo=getattr(date, "tzinfo", pytz.UTC),
-            ).astimezone(pytz.UTC)
+        for point_datetime in point_datetimes:
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
-                "date_to": date_in_utc,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else point_datetime,
+                "date_to": offset_time_series_date_by_interval(point_datetime, filter=filter, team=team),
                 "breakdown_value": breakdown_value,
                 "breakdown_type": filter.breakdown_type or "event",
             }
@@ -599,7 +595,7 @@ class TrendsBreakdown:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
+                    "url": f"api/projects/{team.pk}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                 }
             )
         return persons_url
