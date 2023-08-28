@@ -57,11 +57,21 @@ export function StepField({ step, item, label, caption }: StepFieldProps): JSX.E
                     </Field>
                 ) : null}
                 <Field name={item}>
-                    {item === 'selector' ? (
-                        <LemonTextArea className={clsx(!selected && 'opacity-50')} />
-                    ) : (
-                        <LemonInput className={clsx(!selected && 'opacity-50')} />
-                    )}
+                    {({ value, onChange }) => {
+                        return item === 'selector' ? (
+                            <LemonTextArea
+                                className={clsx(!selected && 'opacity-50')}
+                                onChange={onChange}
+                                value={value ?? ''}
+                            />
+                        ) : (
+                            <LemonInput
+                                className={clsx(!selected && 'opacity-50')}
+                                onChange={onChange}
+                                value={value ?? ''}
+                            />
+                        )
+                    }}
                 </Field>
                 {item === 'url' && step?.url_matching && step.url_matching in URL_MATCHING_HINTS ? (
                     <div className="action-field-hint">{URL_MATCHING_HINTS[step.url_matching]}</div>
