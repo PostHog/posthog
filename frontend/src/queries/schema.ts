@@ -526,6 +526,7 @@ export interface BreakdownFilter {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+    breakdown_limit?: number
 }
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */

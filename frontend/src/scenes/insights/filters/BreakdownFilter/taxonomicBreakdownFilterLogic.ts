@@ -43,6 +43,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         setNormalizeBreakdownURL: (normalizeBreakdownURL: boolean) => ({
             normalizeBreakdownURL,
         }),
+        setBreakdownLimit: (value: number | undefined) => ({ value }),
     }),
     reducers({
         localHistogramBinCount: [
@@ -160,6 +161,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             await breakpoint(1000)
             props.updateBreakdown?.({
                 breakdown_histogram_bin_count: values.histogramBinsUsed ? count : undefined,
+            })
+        },
+        setBreakdownLimit: ({ value }) => {
+            props.updateBreakdown?.({
+                breakdown_limit: value,
             })
         },
     })),

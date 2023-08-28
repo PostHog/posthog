@@ -14,7 +14,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
     const { removeBreakdown } = useActions(breakdownTagLogic)
 
     const { histogramBinCount, histogramBinsUsed, breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
-    const { setHistogramBinCount, setHistogramBinsUsed, setNormalizeBreakdownURL } =
+    const { setHistogramBinCount, setHistogramBinsUsed, setNormalizeBreakdownURL, setBreakdownLimit } =
         useActions(taxonomicBreakdownFilterLogic)
 
     return (
@@ -24,10 +24,10 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     checked={!!breakdownFilter.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
                     fullWidth={true}
                     onChange={(checked) => setNormalizeBreakdownURL(checked)}
-                    className="min-h-10 px-2"
+                    className="min-h-10 px-2 py-1 mb-2"
                     id="normalize-breakdown-url-switch"
                     label={
-                        <div className="flex flex-row items-center">
+                        <div className="flex flex-row items-center font-normal">
                             Normalize paths
                             <Tooltip
                                 title={
@@ -51,6 +51,23 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     }
                 />
             )}
+            {!histogramBinsUsed && (
+                <div className="flex items-center px-2 py-1 mb-2">
+                    Show{' '}
+                    <LemonInput
+                        min={1}
+                        size="small"
+                        value={breakdownFilter?.breakdown_limit || 25}
+                        onChange={(newValue) => {
+                            setBreakdownLimit(newValue)
+                        }}
+                        fullWidth={false}
+                        type="number"
+                        className="histogram-bin-input"
+                    />{' '}
+                    values
+                </div>
+            )}
             {isHistogramable && (
                 <>
                     <LemonButton
@@ -64,6 +81,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         Use{' '}
                         <LemonInput
                             min={1}
+                            size="small"
                             value={histogramBinCount}
                             onChange={(newValue) => {
                                 setHistogramBinCount(newValue)
