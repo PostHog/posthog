@@ -2,7 +2,7 @@ import { useValues, useActions } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { FilterType, EditorFilterProps } from '~/types'
+import { FilterType, EditorFilterProps, StepOrderValue } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -18,7 +18,7 @@ import { isInsightQueryNode } from '~/queries/utils'
 export const FUNNEL_STEP_COUNT_LIMIT = 20
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { querySource, series } = useValues(funnelDataLogic(insightProps))
+    const { querySource, series, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
@@ -55,7 +55,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 hideDeleteBtn={filterSteps.length === 1}
                 buttonCopy="Add step"
                 showSeriesIndicator={showSeriesIndicator}
-                seriesIndicatorType="numeric"
+                seriesIndicatorType={
+                    funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED ? 'alpha' : 'numeric'
+                }
                 entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                 sortable
                 showNestedArrow={true}
