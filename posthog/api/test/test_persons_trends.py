@@ -133,7 +133,6 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def test_people_endpoint_paginated(self):
-
         for index in range(0, 150):
             _create_person(team_id=self.team.pk, distinct_ids=["person" + str(index)])
             _create_event(
@@ -590,6 +589,27 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(people["results"][0]["people"]), 2)
         ordered_people = sorted(p["id"] for p in people["results"][0]["people"])
         self.assertEqual(ordered_people, sorted([str(person1.uuid), str(person2.uuid)]))
+
+    def test_breakdown_by_hogql_property_people_endpoint(self):
+        person1, person2, person3, person4 = self._create_multiple_people()
+        _create_action(name="watched movie", team=self.team)
+
+        people = self.client.get(
+            f"/api/projects/{self.team.id}/persons/trends/",
+            data={
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-07",
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "watched movie",
+                "breakdown_type": "hogql",
+                "breakdown_value": "prop3",
+                "breakdown": "properties.event_prop",
+            },
+        ).json()
+
+        self.assertEqual(len(people["results"][0]["people"]), 1)
+        ordered_people = sorted(p["id"] for p in people["results"][0]["people"])
+        self.assertEqual(ordered_people, sorted([str(person4.uuid)]))
 
     def test_filtering_by_person_properties(self):
         person1, person2, person3, person4 = self._create_multiple_people()
