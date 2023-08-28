@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 import { getSeriesColor } from 'lib/colors'
 import { alphabet, hexToRGBA } from 'lib/utils'
 
@@ -10,7 +12,11 @@ interface SeriesGlyphProps {
 
 export function SeriesGlyph({ className, style, children, variant }: SeriesGlyphProps): JSX.Element {
     return (
-        <div className={`graph-series-glyph ${variant || ''} ${className}`} style={style}>
+        <div
+            className={clsx('graph-series-glyph', [variant, className])}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={style}
+        >
             {children}
         </div>
     )
