@@ -133,7 +133,7 @@ function exportProfile(req: IncomingMessage, res: ServerResponse) {
     const durationSeconds = url.searchParams.get('seconds') ? parseInt(url.searchParams.get('seconds')!) : 30
 
     const sendHeaders = function (extension: string) {
-        const fileName = `${type}-${DateTime.now().toFormat('yyyyMMdd-HHmmss')}.${extension}`
+        const fileName = `${type}-${DateTime.now().toUTC().toFormat('yyyyMMdd-HHmmss')}.${extension}`
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
         res.setHeader('Profile-Type', type ?? 'invalid')
         res.setHeader('Profile-Duration-Seconds', durationSeconds)
