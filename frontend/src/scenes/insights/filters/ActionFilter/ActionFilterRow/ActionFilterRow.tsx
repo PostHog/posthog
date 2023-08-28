@@ -81,6 +81,7 @@ export interface ActionFilterRowProps {
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
+    seriesIndicatorMonochrome: boolean // Colored or monochrome series badge
     filterCount: number
     sortable: boolean
     customRowSuffix?:
@@ -91,7 +92,6 @@ export interface ActionFilterRowProps {
               index: number
               onClose: () => void
           }) => JSX.Element) // Custom suffix element to show in each row
-    hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for property filters
@@ -123,10 +123,10 @@ export function ActionFilterRow({
     onRenameClick = () => {},
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
+    seriesIndicatorMonochrome,
     filterCount,
     sortable,
     customRowSuffix,
-    hasBreakdown,
     showNestedArrow = false,
     actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     propertiesTaxonomicGroupTypes,
@@ -210,7 +210,7 @@ export function ActionFilterRow({
         seriesIndicatorType === 'numeric' ? (
             <SeriesGlyph style={{ borderColor: 'var(--border)' }}>{index + 1}</SeriesGlyph>
         ) : (
-            <SeriesLetter seriesIndex={index} monochrome={hasBreakdown} />
+            <SeriesLetter seriesIndex={index} monochrome={seriesIndicatorMonochrome} />
         )
     const filterElement = (
         <TaxonomicPopover

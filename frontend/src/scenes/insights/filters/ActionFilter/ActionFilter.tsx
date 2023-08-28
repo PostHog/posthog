@@ -6,9 +6,11 @@ import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilte
 import {
     ActionFilter as ActionFilterType,
     FilterType,
+    FunnelsFilterType,
     FunnelStepRangeEntityFilter,
     InsightType,
     Optional,
+    StepOrderValue,
 } from '~/types'
 import { SortableActionFilterContainer, SortableActionFilterRow } from './ActionFilterRow/SortableActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -142,9 +144,10 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         logic,
         showSeriesIndicator,
         seriesIndicatorType,
+        seriesIndicatorMonochrome:
+            (filters as FunnelsFilterType)?.funnel_order_type === StepOrderValue.UNORDERED ? true : !!filters.breakdown,
         mathAvailability,
         customRowSuffix,
-        hasBreakdown: !!filters.breakdown,
         actionsTaxonomicGroupTypes,
         propertiesTaxonomicGroupTypes,
         propertyFiltersPopover,
