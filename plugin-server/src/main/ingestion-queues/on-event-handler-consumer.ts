@@ -13,7 +13,8 @@ import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import Piscina from '../../worker/piscina'
-import { eachBatchAppsOnEventHandlers, eachBatchWebhooksHandlers } from './batch-processing/each-batch-async-handlers'
+import { eachBatchAppsOnEventHandlers } from './batch-processing/each-batch-onevent'
+import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
 import { KafkaJSIngestionConsumer, setupEventHandlers } from './kafka-queue'
 
 export const startAsyncOnEventHandlerConsumer = async ({

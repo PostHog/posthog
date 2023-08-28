@@ -54,7 +54,7 @@ export const TARGET_AREA_TO_NAME = {
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
-    surveys: 'User Surveys',
+    surveys: 'Surveys',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
