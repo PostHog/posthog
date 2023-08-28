@@ -80,11 +80,7 @@ export function FunnelBarGraph({
                         <header>
                             <div className="flex items-center max-w-full grow">
                                 <div className="funnel-step-title">
-                                    {funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED ? (
-                                        <span>Completed {step.order + 1} steps</span>
-                                    ) : (
-                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
-                                    )}
+                                    <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                 </div>
                                 {funnelsFilter?.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
