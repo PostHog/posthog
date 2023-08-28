@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { IconTrendingFlatDown, IconTrendingFlat, IconArrowDown } from 'lib/lemon-ui/icons'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
@@ -70,7 +70,7 @@ export function FunnelBarGraph({
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
                             {funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED ? (
                                 <SeriesGlyph variant="funnel-step-glyph">
-                                    <IconInfinity style={{ fill: 'var(--primary_alt)', width: 14 }} />
+                                    <IconArrowDown color="primary-alt" fontSize="14" className="rotate-270" />
                                 </SeriesGlyph>
                             ) : (
                                 <SeriesGlyph variant="funnel-step-glyph">{step.order + 1}</SeriesGlyph>
