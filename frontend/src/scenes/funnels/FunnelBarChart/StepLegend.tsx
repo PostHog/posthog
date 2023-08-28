@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
+import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -22,7 +22,7 @@ type StepLegendProps = {
 
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
@@ -54,7 +54,11 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
     return (
         <div className="StepLegend">
             <LemonRow
-                icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
+                icon={
+                    funnelsFilter?.funnel_order_type !== StepOrderValue.UNORDERED ? (
+                        <Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />
+                    ) : null
+                }
                 sideIcon={
                     hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && <FunnelStepMore stepIndex={stepIndex} />
                 }
