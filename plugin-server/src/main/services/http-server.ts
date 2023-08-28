@@ -126,8 +126,12 @@ export function createHttpServer(
 }
 
 function exportProfile(req: IncomingMessage, res: ServerResponse) {
-    // Mirrors golang's pprof behaviour of exposing on-off profiles through HTTP endpoints
-    // Port-forward a target pod and run: curl -vOJ "http://localhost:6738/_profile/cpu?seconds=30"
+    // Mirrors golang's pprof behaviour of exposing ad-hoc profiles through HTTP endpoints
+    // Port-forward pod 6738 on a target pod and run:
+    //       curl -vOJ "http://localhost:6738/_profile/cpu"
+    //   or  curl -vOJ "http://localhost:6738/_profile/heap?seconds=30"
+    // The output can be loaded in the chrome devtools, in the Memory or Javascript profiler tabs.
+
     const url = new URL(req.url!, `http://${req.headers.host}`)
     const type = url.pathname.split('/').pop() ?? 'unknown'
     const durationSeconds = url.searchParams.get('seconds') ? parseInt(url.searchParams.get('seconds')!) : 30
