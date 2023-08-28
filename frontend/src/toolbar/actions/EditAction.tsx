@@ -72,7 +72,7 @@ export function EditAction(): JSX.Element {
                 <div>
                     {actionForm.steps?.map((step, index) => (
                         <Group key={index} name={['steps', index]}>
-                            <div key={index} className="action-section highlight">
+                            <div key={index} className="action-section px-2 py-1 highlight flex flex-col gap-2">
                                 <div className="flex flex-row justify-between">
                                     <h1 className="section-title">
                                         {index > 0 ? 'OR ' : null}Element #{index + 1}

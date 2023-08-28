@@ -193,14 +193,13 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
 
     selectors({
         editingSelectorValue: [
-            (s) => [s.editingSelector],
-            (editingSelector): string | null => {
+            (s) => [s.editingSelector, s.actionForm],
+            (editingSelector, actionForm): string | null => {
                 if (editingSelector === null) {
                     return null
                 } else {
-                    // const selector = form.getFieldValue(`steps`)[editingSelector].selector
-                    // return selector || null
-                    return null
+                    const selector = actionForm.steps?.[editingSelector].selector
+                    return selector || null
                 }
             },
         ],
@@ -226,16 +225,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     return newAction(newActionForElement, dataAttributes)
                 }
                 return allActions.find((a) => a.id === selectedActionId) || null
-            },
-        ],
-        selectedEditedAction: [
-            // `editingFields` don't update on values.form.setFields(fields), so reloading by tagging a few other selectors
-            (s) => [s.selectedAction, s.actionForm, s.editingFields, s.inspectingElement, s.counter],
-            (): ActionForm | null => {
-                //return selectedAction ? { ...initialValuesForForm, ...(form?.getFieldValue('') || {}) } : null
-                // wat
-                // definitely don't need this anymore but wat
-                return null
             },
         ],
     }),
