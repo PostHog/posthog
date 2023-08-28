@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { useMonaco } from '@monaco-editor/react'
+import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { useEffect, useState } from 'react'
 import schema from '~/queries/schema.json'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import clsx from 'clsx'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { QueryContext } from '~/queries/schema'
-import { CodeEditor } from 'lib/components/CodeEditors'
 export interface QueryEditorProps {
     query: string
     setQuery?: (query: string) => void
@@ -53,12 +53,14 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 <div className="flex-1">
                     <AutoSizer disableWidth>
                         {({ height }) => (
-                            <CodeEditor
+                            <MonacoEditor
+                                theme="vs-light"
                                 className="border"
                                 language="json"
                                 value={queryInput}
                                 onChange={(v) => setQueryInput(v ?? '')}
                                 height={height}
+                                loading={<Spinner />}
                             />
                         )}
                     </AutoSizer>

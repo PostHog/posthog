@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { EditOutlined } from '@ant-design/icons'
 import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
+import MonacoEditor from '@monaco-editor/react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { CodeEditor } from 'lib/components/CodeEditors'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 function JsonConfigField(props: {
     onChange: (value: any) => void
@@ -16,7 +17,8 @@ function JsonConfigField(props: {
     return (
         <AutoSizer disableWidth className="min-h-60">
             {({ height }) => (
-                <CodeEditor
+                <MonacoEditor
+                    theme="vs-light"
                     className="border"
                     language="json"
                     value={props.value}
@@ -27,6 +29,7 @@ function JsonConfigField(props: {
                             enabled: false,
                         },
                     }}
+                    loading={<Spinner />}
                 />
             )}
         </AutoSizer>

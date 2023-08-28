@@ -2,17 +2,18 @@ import { useActions, useValues } from 'kea'
 import { HogQLQuery } from '~/queries/schema'
 import { useEffect, useRef, useState } from 'react'
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
-import { Monaco } from '@monaco-editor/react'
+import MonacoEditor, { Monaco } from '@monaco-editor/react'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import type { IDisposable, editor as importedEditor, languages } from 'monaco-editor'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CodeEditor } from 'lib/components/CodeEditors'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -31,6 +32,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading, isValidView } =
         useValues(logic)
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
+    const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
@@ -115,7 +117,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             }}
                         />
                     </span>
-                    <CodeEditor
+                    <MonacoEditor
+                        theme={isDarkModeOn ? 'vs-dark' : 'light'}
                         className="py-2 border rounded overflow-hidden h-full"
                         language="mysql"
                         value={queryInput}
@@ -195,6 +198,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             automaticLayout: true,
                             fixedOverflowWidgets: true,
                         }}
+                        loading={<Spinner />}
                     />
                 </div>
                 <div className="flex flex-row">

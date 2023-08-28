@@ -174,10 +174,6 @@ module.exports = {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
                     },
-                    {
-                        element:'MonacoEditor',
-                        message: 'use <CodeEditor> instead',
-                    }
                 ],
             },
         ],

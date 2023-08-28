@@ -1,9 +1,9 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { useMonaco } from '@monaco-editor/react'
+import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
-import { CodeEditor } from 'lib/components/CodeEditors'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }): JSX.Element {
     const monaco = useMonaco()
@@ -86,7 +86,8 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                 )
             }
         >
-            <CodeEditor
+            <MonacoEditor
+                theme="vs-light"
                 className="border"
                 language="json"
                 value={editorValue}
@@ -97,6 +98,7 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                     updateValidationErrors(markers)
                 }}
                 height={600}
+                loading={<Spinner />}
             />
         </LemonModal>
     )

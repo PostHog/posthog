@@ -2,7 +2,7 @@ import './PluginSource.scss'
 import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Skeleton } from 'antd'
-import { useMonaco } from '@monaco-editor/react'
+import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
 import { userLogic } from 'scenes/userLogic'
@@ -13,7 +13,7 @@ import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { Form } from 'kea-forms'
-import { CodeEditor } from 'lib/components/CodeEditors'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 interface PluginSourceProps {
     pluginId: number
@@ -114,7 +114,8 @@ export function PluginSource({
                                 <Field name={[currentFile]}>
                                     {({ value, onChange }) => (
                                         <>
-                                            <CodeEditor
+                                            <MonacoEditor
+                                                theme="vs-dark"
                                                 path={currentFile}
                                                 language={currentFile.endsWith('.json') ? 'json' : 'typescript'}
                                                 value={value}
@@ -123,6 +124,7 @@ export function PluginSource({
                                                 options={{
                                                     minimap: { enabled: false },
                                                 }}
+                                                loading={<Spinner />}
                                             />
                                             {!value && createDefaultPluginSource(name)[currentFile] ? (
                                                 <div style={{ marginTop: '0.5rem' }}>
