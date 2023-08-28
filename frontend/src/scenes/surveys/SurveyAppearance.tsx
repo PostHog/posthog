@@ -16,9 +16,7 @@ import {
     veryDissatisfiedEmoji,
     verySatisfiedEmoji,
 } from './SurveyAppearanceUtils'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { surveysLogic } from './surveysLogic'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { useValues } from 'kea'
 
 interface SurveyAppearanceProps {
@@ -133,16 +131,11 @@ export function SurveyAppearance({
                             label={
                                 <div className="flex items-center">
                                     <span>Hide PostHog branding</span>
-                                    {!whitelabelAvailable ? (
-                                        <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
-                                            <IconLock className="ml-2" />
-                                        </Tooltip>
-                                    ) : null}
                                 </div>
                             }
                             onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
                             disabledReason={
-                                !whitelabelAvailable ? 'Upgrade to PostHog Scale to hide PostHog branding' : null
+                                !whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null
                             }
                         />
                     </div>
