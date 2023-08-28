@@ -198,12 +198,21 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     {
                         "created_at": result["created_at"],
                         "distinct_id": result["distinct_id"],
+                        "elements": result["elements"],
                         "elements_chain": result["elements_chain"],
                         "event": result["event"],
                         "inserted_at": result["inserted_at"],
-                        "person_id": result["person_id"],
-                        "person_properties": result["person_properties"],
+                        "ip": result["ip"],
+                        "person": {
+                            "created_at": result["person_created_at"],
+                            "properties": result["person_properties"],
+                            "team_id": result["team_id"],
+                            "uuid": result["person_id"],
+                        },
                         "properties": result["properties"],
+                        "set": result["set"],
+                        "set_once": result["set_once"],
+                        "team_id": result["team_id"],
                         "timestamp": result["timestamp"],
                         "uuid": result["uuid"],
                     }

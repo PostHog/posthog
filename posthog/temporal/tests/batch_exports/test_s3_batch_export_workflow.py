@@ -161,8 +161,34 @@ def assert_events_in_s3(s3_client, bucket_name, key_prefix, events):
 
     json_data.sort(key=lambda x: x["timestamp"])
 
-    # Remove team_id, _timestamp from events
-    expected_events = [{k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]} for event in events]
+    expected_events = []
+    for event in events:
+        expected_event = {
+            "created_at": event["created_at"],
+            "distinct_id": event["distinct_id"],
+            "elements": json.dumps(event.get("elements_chain", "")),
+            "elements_chain": event["elements_chain"],
+            "event": event["event"],
+            "inserted_at": event["inserted_at"],
+            "ip": event.get("ip", None),
+            "person": {
+                # This field is not nullable, so CH will insert the 0-value for DateTime64, which we reproduce here.
+                "created_at": event.get(
+                    "person_created_at", dt.datetime(1970, 1, 1, 0, 0, 0).strftime("%Y-%m-%d %H:%M:%S.%f")
+                ),
+                "properties": event["person_properties"],
+                "team_id": event["team_id"],
+                "uuid": event["person_id"],
+            },
+            "properties": event["properties"],
+            "set": event.get("set", None),
+            "set_once": event.get("set_once", None),
+            "team_id": event["team_id"],
+            "timestamp": event["timestamp"],
+            "uuid": event["uuid"],
+        }
+        expected_events.append(expected_event)
+
     expected_events.sort(key=lambda x: x["timestamp"])
 
     # First check one event, the first one, so that we can get a nice diff if
