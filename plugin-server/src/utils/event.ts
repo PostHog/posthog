@@ -63,6 +63,9 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
 }
 
 export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsChain = false): PostIngestionEvent {
+    if (!skipElementsChain && process.env.SKIP_ELEMENTS_PARSING_TEAMS?.split(',').includes(event.team_id.toString())) {
+        skipElementsChain = true
+    }
     const properties = event.properties ? JSON.parse(event.properties) : {}
     return {
         eventUuid: event.uuid,

@@ -147,6 +147,8 @@ describe('eachBatchX', () => {
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
+        process.env.SKIP_ELEMENTS_PARSING_PLUGINS = ''
+        process.env.SKIP_ELEMENTS_PARSING_TEAMS = ''
     })
 
     describe('eachBatch', () => {
@@ -217,6 +219,34 @@ describe('eachBatchX', () => {
                 { ...pluginConfig39, plugin_id: 100 },
             ])
             process.env.SKIP_ELEMENTS_PARSING_PLUGINS = '12,60,100'
+            await eachBatchAppsOnEventHandlers(
+                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
+                queue
+            )
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                properties: {
+                    $ip: '127.0.0.1',
+                },
+            })
+        })
+        it('parses elements by default', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [pluginConfig39])
+            await eachBatchAppsOnEventHandlers(
+                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
+                queue
+            )
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                elementsList: [{ attributes: {}, order: 0, tag_name: 'random' }],
+                properties: {
+                    $ip: '127.0.0.1',
+                },
+            })
+        })
+        it('skips parsing elements when team blacklisted', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [{ ...pluginConfig39, plugin_id: 60 }])
+            process.env.SKIP_ELEMENTS_PARSING_TEAMS = '1,2,3'
             await eachBatchAppsOnEventHandlers(
                 createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
                 queue
