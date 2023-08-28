@@ -172,11 +172,7 @@ function outputProfileResult(res: ServerResponse, type: string, output: any) {
             res.end()
         } else {
             res.end(result)
-            try {
-                output.delete()
-            } catch {
-                // heapprofile do not need delete
-            }
+            output.delete?.() // heap profiles do not implement delete
         }
     })
     status.info('🩺', `${type} profile successfully exported`)
