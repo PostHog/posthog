@@ -149,11 +149,7 @@ export const insightLogic = kea<insightLogicType>([
                 ),
             {
                 loadInsight: async ({ shortId }) => {
-                    const response = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
-                            shortId
-                        )}&include_query_insights=true`
-                    )
+                    const response = await api.insights.loadInsight(shortId)
                     if (response?.results?.[0]) {
                         return response.results[0]
                     }

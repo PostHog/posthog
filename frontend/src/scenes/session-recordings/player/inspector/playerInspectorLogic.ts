@@ -93,7 +93,6 @@ export const PerformanceEventReverseMapping: { [key: number]: keyof PerformanceE
 }
 
 // Helping kea-typegen navigate the exported default class for Fuse
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<InspectorListItem> {}
 
 type InspectorListItemBase = {

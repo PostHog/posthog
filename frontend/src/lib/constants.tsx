@@ -158,12 +158,12 @@ export const FEATURE_FLAGS = {
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     REFERRAL_SOURCE_SELECT: 'referral-source-select', // owner: @raquelmsmith
-    SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
     SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
     SURVEYS_MULTIPLE_CHOICE: 'surveys-multiple-choice', // owner: @liyiy
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
     NOTEBOOK_SETTINGS_WIDGETS: 'notebook-settings-widgets', // owner: #team-monitoring
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
+    REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

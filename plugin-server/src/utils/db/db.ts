@@ -6,7 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { QueryResult } from 'pg'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
@@ -67,9 +67,8 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
-import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
-import { postgresQuery } from './postgres'
+import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
     safeClickhouseString,
@@ -144,8 +143,8 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
 
 /** The recommended way of accessing the database. */
 export class DB {
-    /** Postgres connection pool for primary database access. */
-    postgres: Pool
+    /** Postgres connection router for database access. */
+    postgres: PostgresRouter
     /** Redis used for various caches. */
     redisPool: GenericPool<Redis.Redis>
 
@@ -170,7 +169,7 @@ export class DB {
     promiseManager: PromiseManager
 
     constructor(
-        postgres: Pool,
+        postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
@@ -185,72 +184,6 @@ export class DB {
         this.statsd = statsd
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
         this.promiseManager = promiseManager
-    }
-
-    // Postgres
-
-    public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
-        queryString: string | QueryConfig<I>,
-        values: I | undefined,
-        tag: string,
-        client?: PoolClient
-    ): Promise<QueryResult<R>> {
-        return postgresQuery(client ?? this.postgres, queryString, values, tag, this.statsd)
-    }
-
-    public postgresTransaction<ReturnType>(
-        tag: string,
-        transaction: (client: PoolClient) => Promise<ReturnType>
-    ): Promise<ReturnType> {
-        return instrumentQuery(this.statsd, 'query.postgres_transation', undefined, async () => {
-            const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
-            const client = await this.postgres.connect()
-            try {
-                await client.query('BEGIN')
-                const response = await transaction(client)
-                await client.query('COMMIT')
-                return response
-            } catch (e) {
-                await client.query('ROLLBACK')
-
-                // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
-                if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
-                    throw new DependencyUnavailableError(e.message, 'Postgres', e)
-                }
-
-                throw e
-            } finally {
-                client.release()
-                clearTimeout(timeout)
-            }
-        })
-    }
-
-    public async postgresBulkInsert<T extends Array<any>>(
-        // Should have {VALUES} as a placeholder
-        queryWithPlaceholder: string,
-        values: Array<T>,
-        tag: string,
-        client?: PoolClient
-    ): Promise<void> {
-        if (values.length === 0) {
-            return
-        }
-
-        const valuesWithPlaceholders = values
-            .map((array, index) => {
-                const len = array.length
-                const valuesWithIndexes = array.map((_, subIndex) => `$${index * len + subIndex + 1}`)
-                return `(${valuesWithIndexes.join(', ')})`
-            })
-            .join(', ')
-
-        await this.postgresQuery(
-            queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders),
-            values.flat(),
-            tag,
-            client
-        )
     }
 
     // ClickHouse
@@ -648,8 +581,14 @@ export class DB {
             }) as ClickHousePerson[]
         } else if (database === Database.Postgres) {
             return (
-                (await this.postgresQuery('SELECT * FROM posthog_person', undefined, 'fetchPersons'))
-                    .rows as RawPerson[]
+                (
+                    await this.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'SELECT * FROM posthog_person',
+                        undefined,
+                        'fetchPersons'
+                    )
+                ).rows as RawPerson[]
             ).map(
                 (rawPerson: RawPerson) =>
                     ({
@@ -666,7 +605,6 @@ export class DB {
     public async fetchPerson(
         teamId: number,
         distinctId: string,
-        client?: PoolClient,
         options: { forUpdate?: boolean } = {}
     ): Promise<Person | undefined> {
         let queryString = `SELECT
@@ -692,11 +630,11 @@ export class DB {
         }
         const values = [teamId, distinctId]
 
-        const selectResult: QueryResult = await this.postgresQuery<RawPerson>(
+        const selectResult: QueryResult = await this.postgres.query<RawPerson>(
+            PostgresUse.COMMON_WRITE,
             queryString,
             values,
-            'fetchPerson',
-            client
+            'fetchPerson'
         )
 
         if (selectResult.rows.length > 0) {
@@ -722,8 +660,9 @@ export class DB {
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
 
-        const person = await this.postgresTransaction('createPerson', async (client) => {
-            const insertResult = await this.postgresQuery(
+        const person = await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'createPerson', async (tx) => {
+            const insertResult = await this.postgres.query(
+                tx,
                 'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
                 [
                     createdAt.toISO(),
@@ -736,8 +675,7 @@ export class DB {
                     uuid,
                     0,
                 ],
-                'insertPerson',
-                client
+                'insertPerson'
             )
             const personCreated = insertResult.rows[0] as RawPerson
             const person = {
@@ -751,7 +689,7 @@ export class DB {
             )
 
             for (const distinctId of distinctIds || []) {
-                const messages = await this.addDistinctIdPooled(person, distinctId, client)
+                const messages = await this.addDistinctIdPooled(person, distinctId, tx)
                 kafkaMessages.push(...messages)
             }
 
@@ -766,7 +704,7 @@ export class DB {
     public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
-        client?: PoolClient
+        tx?: TransactionClient
     ): Promise<[Person, ProducerRecord[]]> {
         const updateValues = Object.values(unparsePersonPartial(update))
 
@@ -785,7 +723,12 @@ export class DB {
         }
         RETURNING *`
 
-        const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
+        const updateResult: QueryResult = await this.postgres.query(
+            tx ?? PostgresUse.COMMON_WRITE,
+            queryString,
+            values,
+            'updatePerson'
+        )
         if (updateResult.rows.length == 0) {
             throw new NoRowsUpdatedError(
                 `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
@@ -814,7 +757,7 @@ export class DB {
             updatedPerson.uuid,
             updatedPerson.version
         )
-        if (client) {
+        if (tx) {
             kafkaMessages.push(message)
         } else {
             await this.kafkaProducer.queueMessage(message)
@@ -823,12 +766,12 @@ export class DB {
         return [updatedPerson, kafkaMessages]
     }
 
-    public async deletePerson(person: Person, client?: PoolClient): Promise<ProducerRecord[]> {
-        const result = await this.postgresQuery<{ version: string }>(
+    public async deletePerson(person: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
+        const result = await this.postgres.query<{ version: string }>(
+            tx ?? PostgresUse.COMMON_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
             [person.team_id, person.id],
-            'deletePerson',
-            client
+            'deletePerson'
         )
 
         let kafkaMessages: ProducerRecord[] = []
@@ -850,7 +793,7 @@ export class DB {
     }
 
     // PersonDistinctId
-
+    // testutil
     public async fetchDistinctIds(person: Person, database?: Database.Postgres): Promise<PersonDistinctId[]>
     public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId2[]>
     public async fetchDistinctIds(
@@ -871,7 +814,8 @@ export class DB {
                 )
             ).data as ClickHousePersonDistinctId2[]
         } else if (database === Database.Postgres) {
-            const result = await this.postgresQuery(
+            const result = await this.postgres.query(
+                PostgresUse.COMMON_WRITE, // used in tests only
                 'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
                 [person.id, person.team_id],
                 'fetchDistinctIds'
@@ -897,13 +841,13 @@ export class DB {
     public async addDistinctIdPooled(
         person: Person,
         distinctId: string,
-        client?: PoolClient
+        tx?: TransactionClient
     ): Promise<ProducerRecord[]> {
-        const insertResult = await this.postgresQuery(
+        const insertResult = await this.postgres.query(
+            tx ?? PostgresUse.COMMON_WRITE,
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, 0) RETURNING *',
             [distinctId, person.id, person.team_id],
-            'addDistinctIdPooled',
-            client
+            'addDistinctIdPooled'
         )
 
         const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
@@ -927,10 +871,11 @@ export class DB {
         return messages
     }
 
-    public async moveDistinctIds(source: Person, target: Person, client?: PoolClient): Promise<ProducerRecord[]> {
+    public async moveDistinctIds(source: Person, target: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
-            movedDistinctIdResult = await this.postgresQuery(
+            movedDistinctIdResult = await this.postgres.query(
+                tx ?? PostgresUse.COMMON_WRITE,
                 `
                     UPDATE posthog_persondistinctid
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
@@ -939,8 +884,7 @@ export class DB {
                     RETURNING *
                 `,
                 [target.id, source.id, target.team_id],
-                'updateDistinctIdPerson',
-                client
+                'updateDistinctIdPerson'
             )
         } catch (error) {
             if (
@@ -985,8 +929,14 @@ export class DB {
     // Cohort & CohortPeople
     // testutil
     public async createCohort(cohort: Partial<Cohort>): Promise<Cohort> {
-        const insertResult = await this.postgresQuery(
-            `INSERT INTO posthog_cohort (name, description, deleted, groups, team_id, created_at, created_by_id, is_calculating, last_calculation,errors_calculating, is_static, version, pending_version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *;`,
+        const insertResult = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_cohort (name, description, deleted, groups, team_id,
+                                         created_at, created_by_id, is_calculating,
+                                         last_calculation, errors_calculating, is_static,
+                                         version, pending_version)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             RETURNING *;`,
             [
                 cohort.name,
                 cohort.description,
@@ -1012,7 +962,8 @@ export class DB {
         personId: Person['id'],
         version: number | null
     ): Promise<CohortPeople> {
-        const insertResult = await this.postgresQuery(
+        const insertResult = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
             [cohortId, personId, version],
             'addPersonToCohort'
@@ -1025,7 +976,7 @@ export class DB {
         teamID: Team['id'],
         sourcePersonID: Person['id'],
         targetPersonID: Person['id'],
-        client: PoolClient
+        tx?: TransactionClient
     ): Promise<void> {
         // Delete and insert in a single query to ensure
         // this function is safe wherever it is run.
@@ -1036,7 +987,8 @@ export class DB {
         // personId used, so the user experience is consistent, however that's tricky to figure out
         // this also happens rarely, so we're just going to do the performance optimal thing
         // i.e. do nothing on conflicts, so we keep using the value that the person merged into had
-        await this.postgresQuery(
+        await this.postgres.query(
+            tx ?? PostgresUse.COMMON_WRITE,
             `
             WITH deletions AS (
                 DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2
@@ -1048,8 +1000,7 @@ export class DB {
                 ON CONFLICT DO NOTHING
             `,
             [teamID, sourcePersonID, targetPersonID],
-            'addFeatureFlagHashKeysForMergedPerson',
-            client
+            'addFeatureFlagHashKeysForMergedPerson'
         )
     }
 
@@ -1152,7 +1103,8 @@ export class DB {
 
     public async fetchEventDefinitions(teamId?: number): Promise<EventDefinitionType[]> {
         return (
-            await this.postgresQuery(
+            await this.postgres.query(
+                PostgresUse.COMMON_READ,
                 `
                 SELECT * FROM posthog_eventdefinition
                 ${teamId ? 'WHERE team_id = $1' : ''}
@@ -1170,7 +1122,8 @@ export class DB {
 
     public async fetchPropertyDefinitions(teamId?: number): Promise<PropertyDefinitionType[]> {
         return (
-            await this.postgresQuery(
+            await this.postgres.query(
+                PostgresUse.COMMON_READ,
                 `
                 SELECT * FROM posthog_propertydefinition
                 ${teamId ? 'WHERE team_id = $1' : ''}
@@ -1188,7 +1141,8 @@ export class DB {
 
     public async fetchEventProperties(teamId?: number): Promise<EventPropertyType[]> {
         return (
-            await this.postgresQuery(
+            await this.postgres.query(
+                PostgresUse.COMMON_READ,
                 `
                     SELECT * FROM posthog_eventproperty
                     ${teamId ? 'WHERE team_id = $1' : ''}
@@ -1244,7 +1198,8 @@ export class DB {
         organization_id,
         organizationMembershipLevel = OrganizationMembershipLevel.Member,
     }: CreateUserPayload): Promise<QueryResult> {
-        const createUserResult = await this.postgresQuery(
+        const createUserResult = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_user (uuid, password, first_name, last_name, email, distinct_id, is_staff, is_active, date_joined, events_column_config, current_organization_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id`,
@@ -1266,7 +1221,8 @@ export class DB {
 
         if (organization_id) {
             const now = new Date().toISOString()
-            await this.postgresQuery(
+            await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_organizationmembership (id, organization_id, user_id, level, joined_at, updated_at)
                 VALUES ($1, $2, $3, $4, $5, $6)`,
                 [
@@ -1291,7 +1247,8 @@ export class DB {
         secure_value,
         created_at,
     }: CreatePersonalApiKeyPayload): Promise<QueryResult> {
-        return await this.postgresQuery(
+        return await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_personalapikey (id, user_id, label, secure_value, created_at)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING secure_value`,
@@ -1301,7 +1258,8 @@ export class DB {
     }
 
     public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
-        const { rows } = await this.postgresQuery(
+        const { rows } = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `SELECT * FROM posthog_grouptypemapping WHERE team_id = $1`,
             [teamId],
             'fetchGroupTypes'
@@ -1325,7 +1283,8 @@ export class DB {
             return [null, false]
         }
 
-        const insertGroupTypeResult = await this.postgresQuery(
+        const insertGroupTypeResult = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `
             WITH insert_result AS (
                 INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
@@ -1354,7 +1313,7 @@ export class DB {
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
-        client?: PoolClient,
+        tx?: TransactionClient,
         options: { forUpdate?: boolean } = {}
     ): Promise<Group | undefined> {
         let queryString = `SELECT * FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
@@ -1363,11 +1322,11 @@ export class DB {
             queryString = queryString.concat(` FOR UPDATE`)
         }
 
-        const selectResult: QueryResult = await this.postgresQuery(
+        const selectResult: QueryResult = await this.postgres.query(
+            tx ?? PostgresUse.COMMON_WRITE,
             queryString,
             [teamId, groupTypeIndex, groupKey],
-            'fetchGroup',
-            client
+            'fetchGroup'
         )
 
         if (selectResult.rows.length > 0) {
@@ -1389,10 +1348,11 @@ export class DB {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
         version: number,
-        client?: PoolClient,
+        tx?: TransactionClient,
         options: { cache?: boolean } = { cache: true }
     ): Promise<void> {
-        const result = await this.postgresQuery(
+        const result = await this.postgres.query(
+            tx ?? PostgresUse.COMMON_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1409,8 +1369,7 @@ export class DB {
                 JSON.stringify(propertiesLastOperation),
                 version,
             ],
-            'upsertGroup',
-            client
+            'upsertGroup'
         )
 
         if (result.rows.length === 0) {
@@ -1434,9 +1393,10 @@ export class DB {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
         version: number,
-        client?: PoolClient
+        tx?: TransactionClient
     ): Promise<void> {
-        await this.postgresQuery(
+        await this.postgres.query(
+            tx ?? PostgresUse.COMMON_WRITE,
             `
             UPDATE posthog_group SET
             created_at = $4,
@@ -1456,8 +1416,7 @@ export class DB {
                 JSON.stringify(propertiesLastOperation),
                 version,
             ],
-            'upsertGroup',
-            client
+            'upsertGroup'
         )
 
         await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
@@ -1501,7 +1460,8 @@ export class DB {
 
     public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<Team[]> {
         return (
-            await this.postgresQuery(
+            await this.postgres.query(
+                PostgresUse.COMMON_READ,
                 'SELECT * from posthog_team WHERE organization_id = (SELECT id from posthog_organization WHERE plugins_access_level = $1)',
                 [OrganizationPluginsAccessLevel.ROOT],
                 'getTeamsInOrganizationsWithRootPluginAccess'
@@ -1514,13 +1474,13 @@ export class DB {
         jobName: string,
         jobPayloadJson: Record<string, any>
     ): Promise<void> {
-        await this.postgresTransaction('addOrUpdatePublicJob', async (client) => {
+        await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'addOrUpdatePublicJob', async (tx) => {
             let publicJobs: Record<string, any> = (
-                await this.postgresQuery(
+                await this.postgres.query(
+                    tx,
                     'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
                     [pluginId],
-                    'selectPluginPublicJobsForUpdate',
-                    client
+                    'selectPluginPublicJobsForUpdate'
                 )
             ).rows[0]?.public_jobs
 
@@ -1531,18 +1491,19 @@ export class DB {
             ) {
                 publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
 
-                await this.postgresQuery(
+                await this.postgres.query(
+                    tx,
                     'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
                     [JSON.stringify(publicJobs), pluginId],
-                    'updatePublicJob',
-                    client
+                    'updatePublicJob'
                 )
             }
         })
     }
 
     public async getPluginSource(pluginId: Plugin['id'], filename: string): Promise<string | null> {
-        const { rows }: { rows: { source: string }[] } = await this.postgresQuery(
+        const { rows }: { rows: { source: string }[] } = await this.postgres.query(
+            PostgresUse.COMMON_READ,
             `SELECT source FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
             [pluginId, filename],
             'getPluginSource'
@@ -1551,7 +1512,8 @@ export class DB {
     }
 
     public async setPluginTranspiled(pluginId: Plugin['id'], filename: string, transpiled: string): Promise<void> {
-        await this.postgresQuery(
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
                 ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
                 DO UPDATE SET status = $4, transpiled = $5, error = NULL, updated_at = NOW()`,
@@ -1561,7 +1523,8 @@ export class DB {
     }
 
     public async setPluginTranspiledError(pluginId: Plugin['id'], filename: string, error: string): Promise<void> {
-        await this.postgresQuery(
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, error, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
                 ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
                 DO UPDATE SET status = $4, error = $5, transpiled = NULL, updated_at = NOW()`,
@@ -1571,7 +1534,8 @@ export class DB {
     }
 
     public async getPluginTranspilationLock(pluginId: Plugin['id'], filename: string): Promise<boolean> {
-        const response = await this.postgresQuery(
+        const response = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, NULL, NOW())
                 ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
                 DO UPDATE SET status = $4, updated_at = NOW() WHERE (posthog_pluginsourcefile.status IS NULL OR posthog_pluginsourcefile.status = $5) RETURNING status`,

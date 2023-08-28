@@ -264,13 +264,13 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # with relative values
         with freeze_time("2020-01-11T12:03:03.829294Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?after=5d&before=1d").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?after=4d&before=1d").json()
             self.assertEqual(len(response["results"]), 2)
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/?after=6d&before=2h").json()
             self.assertEqual(len(response["results"]), 3)
 
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?before=3d").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?before=4d").json()
             self.assertEqual(len(response["results"]), 1)
 
         action = Action.objects.create(team=self.team)
