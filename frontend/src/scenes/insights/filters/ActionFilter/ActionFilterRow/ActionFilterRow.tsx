@@ -210,7 +210,7 @@ export function ActionFilterRow({
         seriesIndicatorType === 'numeric' ? (
             <SeriesGlyph style={{ borderColor: 'var(--border)' }}>{index + 1}</SeriesGlyph>
         ) : (
-            <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
+            <SeriesLetter seriesIndex={index} monochrome={hasBreakdown} />
         )
     const filterElement = (
         <TaxonomicPopover

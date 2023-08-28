@@ -460,7 +460,7 @@ export function LineGraph_({
                                                 {!formula && (
                                                     <SeriesLetter
                                                         className="mr-2"
-                                                        hasBreakdown={hasBreakdown}
+                                                        monochrome={hasBreakdown}
                                                         seriesIndex={datum?.action?.order ?? datum.id}
                                                         seriesColor={datum.color}
                                                     />

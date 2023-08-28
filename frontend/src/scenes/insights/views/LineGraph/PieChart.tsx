@@ -205,7 +205,7 @@ export function PieChart({
                                                     {!formula && (
                                                         <SeriesLetter
                                                             className="mr-2"
-                                                            hasBreakdown={hasBreakdown}
+                                                            monochrome={hasBreakdown}
                                                             seriesIndex={datum?.action?.order ?? datum.id}
                                                         />
                                                     )}

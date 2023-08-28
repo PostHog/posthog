@@ -24,19 +24,19 @@ export function SeriesGlyph({ className, style, children, variant }: SeriesGlyph
 
 interface SeriesLetterProps {
     className?: string
-    hasBreakdown: boolean
+    monochrome: boolean
     seriesIndex: number
     seriesColor?: string
 }
 
-export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor }: SeriesLetterProps): JSX.Element {
+export function SeriesLetter({ className, monochrome, seriesIndex, seriesColor }: SeriesLetterProps): JSX.Element {
     const color = seriesColor || getSeriesColor(seriesIndex)
 
     return (
         <SeriesGlyph
             className={className}
             style={
-                !hasBreakdown
+                !monochrome
                     ? {
                           borderColor: color,
                           color: color,

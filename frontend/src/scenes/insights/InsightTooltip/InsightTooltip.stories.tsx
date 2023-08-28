@@ -167,7 +167,7 @@ export function InWrapper(): JSX.Element {
                             <div className="datum-label-column">
                                 <SeriesLetter
                                     className="mr-2"
-                                    hasBreakdown={hasBreakdown}
+                                    monochrome={hasBreakdown}
                                     seriesIndex={datum?.action?.order ?? datum.id}
                                     seriesColor={datum.color}
                                 />

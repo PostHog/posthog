@@ -133,11 +133,7 @@ export function InsightLabel({
                     />
                 )}
                 {hasMultipleSeries && !hideIcon && action?.order !== undefined && (
-                    <SeriesLetter
-                        seriesIndex={action.order}
-                        seriesColor={seriesColor}
-                        hasBreakdown={!!breakdownValue}
-                    />
+                    <SeriesLetter seriesIndex={action.order} seriesColor={seriesColor} monochrome={!!breakdownValue} />
                 )}
                 <div
                     className={clsx('flex items-center w-fit gap-x-2', allowWrap && 'flex-wrap')}
