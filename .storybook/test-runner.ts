@@ -109,14 +109,15 @@ async function expectStoryToMatchSnapshot(
         document.body.classList.add('storybook-test-runner')
     })
     if (waitForLoadersToDisappear) {
-        await page.waitForTimeout(100)
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
         }
-        await page.waitForTimeout(100)
     }
-    await page.waitForTimeout(100)
+
+    // Wait for all images to load
+    await page.locator('img').evaluateAll((images: HTMLImageElement[]) => images.map((i) => i.complete))
+
     await check(page, context, browser, storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
