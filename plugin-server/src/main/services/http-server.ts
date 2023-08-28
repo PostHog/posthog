@@ -151,7 +151,7 @@ function exportProfile(req: IncomingMessage, res: ServerResponse) {
             }, durationSeconds * 1000)
             break
         case 'heap':
-            sendHeaders('json')
+            sendHeaders('heapprofile')
             v8Profiler.startSamplingHeapProfiling()
             setTimeout(() => {
                 outputProfileResult(res, type, v8Profiler.stopSamplingHeapProfiling())
