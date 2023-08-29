@@ -66,7 +66,7 @@ let uniqueNode = 0
 export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const uniqueNodeKey = useState(() => uniqueNode++)
     const [nodeLogicKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    const [tableLogicKey] = useState(() => `DataTable.${uniqueNodeKey}`)
+    const [tableLogicKey] = useState(() => `DataTable.${uniqueKey || uniqueNodeKey}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
