@@ -8,10 +8,13 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import { DatabaseTable } from './DatabaseTable'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function DatabaseTablesContainer(): JSX.Element {
     const { filteredTables, databaseLoading } = useValues(databaseSceneLogic)
     const { toggleFieldModal, selectTable } = useActions(viewLinkLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -24,18 +27,20 @@ export function DatabaseTablesContainer(): JSX.Element {
                             <div className="mt-2">
                                 <span className="card-secondary">Columns</span>
                                 <DatabaseTable table={row.name} tables={filteredTables} />
-                                <div className="w-full flex justify-end">
-                                    <LemonButton
-                                        className="mt-2"
-                                        type="primary"
-                                        onClick={() => {
-                                            selectTable(row)
-                                            toggleFieldModal()
-                                        }}
-                                    >
-                                        Add link to view
-                                    </LemonButton>
-                                </div>
+                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                                    <div className="w-full flex justify-end">
+                                        <LemonButton
+                                            className="mt-2"
+                                            type="primary"
+                                            onClick={() => {
+                                                selectTable(row)
+                                                toggleFieldModal()
+                                            }}
+                                        >
+                                            Add link to view
+                                        </LemonButton>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )
