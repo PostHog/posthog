@@ -2,7 +2,6 @@ import asyncio
 import datetime as dt
 import json
 import posixpath
-import tempfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
 
@@ -20,6 +19,7 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
+    BatchExportTemporaryFile,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
@@ -160,66 +160,33 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         asyncio.create_task(worker_shutdown_handler())
 
-        with tempfile.NamedTemporaryFile() as local_results_file:
-            while True:
-                try:
-                    result = results_iterator.__next__()
-                except StopIteration:
-                    break
-                except json.JSONDecodeError:
-                    # This is raised by aiochclient as we try to decode an error message from ClickHouse.
-                    # So far, this error message only indicated that we were too slow consuming rows.
-                    # So, we can resume from the last result.
-                    if result is None:
-                        # We failed right at the beginning
-                        new_interval_start = None
-                    else:
-                        new_interval_start = result.get("inserted_at", None)
-
-                    if not isinstance(new_interval_start, str):
-                        new_interval_start = inputs.data_interval_start
-
-                    activity.logger.warn(
-                        f"Failed to decode a JSON value while iterating, potentially due to a ClickHouse error. Resuming from {new_interval_start}"
-                    )
-
-                    results_iterator = get_results_iterator(
-                        client=client,
-                        team_id=inputs.team_id,
-                        interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
-                        interval_end=inputs.data_interval_end,
-                    )
-                    continue
-
-                if not result:
-                    break
-
-                content = json.dumps(
-                    {
-                        "created_at": result["created_at"],
-                        "distinct_id": result["distinct_id"],
-                        "elements_chain": result["elements_chain"],
-                        "event": result["event"],
-                        "inserted_at": result["inserted_at"],
-                        "person_id": result["person_id"],
-                        "person_properties": result["person_properties"],
-                        "properties": result["properties"],
-                        "timestamp": result["timestamp"],
-                        "uuid": result["uuid"],
-                    }
-                )
+        with BatchExportTemporaryFile() as local_results_file:
+            for result in results_iterator:
+                record = {
+                    "created_at": result["created_at"],
+                    "distinct_id": result["distinct_id"],
+                    "elements_chain": result["elements_chain"],
+                    "event": result["event"],
+                    "inserted_at": result["inserted_at"],
+                    "person_id": result["person_id"],
+                    "person_properties": result["person_properties"],
+                    "properties": result["properties"],
+                    "timestamp": result["timestamp"],
+                    "uuid": result["uuid"],
+                }
 
                 # Write the results to a local file
-                local_results_file.write(content.encode("utf-8"))
-                local_results_file.write("\n".encode("utf-8"))
+                local_results_file.write_records_to_jsonl([record])
 
                 # Write results to S3 when the file reaches 50MB and reset the
                 # file, or if there is nothing else to write.
-                if (
-                    local_results_file.tell()
-                    and local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
-                ):
-                    activity.logger.info("Uploading part %s", part_number)
+                if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
+                    activity.logger.info(
+                        "Uploading part %s containing %s records with size %s bytes to S3",
+                        part_number,
+                        local_results_file.records_since_last_reset,
+                        local_results_file.bytes_since_last_reset,
+                    )
 
                     local_results_file.seek(0)
                     response = s3_client.upload_part(
@@ -236,25 +203,28 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                     activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
 
-                    # Reset the file
-                    local_results_file.seek(0)
-                    local_results_file.truncate()
+                    local_results_file.reset()
 
-            # Upload the last part
-            local_results_file.seek(0)
-            response = s3_client.upload_part(
-                Bucket=inputs.bucket_name,
-                Key=key,
-                PartNumber=part_number,
-                UploadId=upload_id,
-                Body=local_results_file,
-            )
-            activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
+            if local_results_file.tell() > 0:
+                activity.logger.info(
+                    "Uploading part %s containing %s records with size %s bytes to S3",
+                    part_number,
+                    local_results_file.records_since_last_reset,
+                    local_results_file.bytes_since_last_reset,
+                )
 
-            # Record the ETag for the last part
-            parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+                local_results_file.seek(0)
+                response = s3_client.upload_part(
+                    Bucket=inputs.bucket_name,
+                    Key=key,
+                    PartNumber=part_number,
+                    UploadId=upload_id,
+                    Body=local_results_file,
+                )
+                activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
 
-        # Complete the multipart upload
+                parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+
         s3_client.complete_multipart_upload(
             Bucket=inputs.bucket_name,
             Key=key,
