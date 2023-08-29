@@ -1,12 +1,12 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './EditableField.scss'
-import { IconEdit } from 'lib/lemon-ui/icons'
+import { IconEdit, IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import TextareaAutosize from 'react-textarea-autosize'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import ReactMarkdown from 'react-markdown'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 
 export interface EditableFieldProps {
     /** What this field stands for. */
@@ -120,7 +120,7 @@ export function EditableField({
                         : undefined
                 }
             >
-                <div className="EditableField--highlight">
+                <div className="EditableField__highlight">
                     {isEditing ? (
                         <>
                             {multiline ? (
@@ -155,7 +155,12 @@ export function EditableField({
                                 />
                             )}
                             {!mode && (
-                                <>
+                                <div className="EditableField__actions">
+                                    {markdown && (
+                                        <Tooltip title="Markdown formatting support">
+                                            <IconMarkdown className="text-muted text-2xl" />
+                                        </Tooltip>
+                                    )}
                                     <LemonButton
                                         title="Cancel editing"
                                         size="small"
@@ -182,41 +187,28 @@ export function EditableField({
                                     >
                                         {saveButtonText}
                                     </LemonButton>
-                                </>
+                                </div>
                             )}
                         </>
                     ) : (
                         <>
                             {tentativeValue && markdown ? (
-                                <ReactMarkdown
-                                    linkTarget="_blank"
-                                    allowedTypes={[
-                                        'strong',
-                                        'emphasis',
-                                        'link',
-                                        'inlineCode',
-                                        'list',
-                                        'listItem',
-                                        'paragraph',
-                                        'text',
-                                        'break',
-                                    ]}
-                                >
-                                    {tentativeValue}
-                                </ReactMarkdown>
+                                <LemonMarkdown lowKeyHeadings>{tentativeValue}</LemonMarkdown>
                             ) : (
                                 tentativeValue || <i>{placeholder}</i>
                             )}
                             {!mode && (
-                                <LemonButton
-                                    title="Edit"
-                                    icon={<IconEdit />}
-                                    size={compactButtons ? 'small' : undefined}
-                                    onClick={() => setLocalIsEditing(true)}
-                                    data-attr={`edit-prop-${name}`}
-                                    disabled={paywall}
-                                    noPadding
-                                />
+                                <div className="EditableField__actions">
+                                    <LemonButton
+                                        title="Edit"
+                                        icon={<IconEdit />}
+                                        size={compactButtons ? 'small' : undefined}
+                                        onClick={() => setLocalIsEditing(true)}
+                                        data-attr={`edit-prop-${name}`}
+                                        disabled={paywall}
+                                        noPadding
+                                    />
+                                </div>
                             )}
                         </>
                     )}

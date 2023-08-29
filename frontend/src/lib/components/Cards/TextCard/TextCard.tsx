@@ -6,10 +6,10 @@ import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lem
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import ReactMarkdown from 'react-markdown'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import React, { useState } from 'react'
 import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number
@@ -33,7 +33,7 @@ export function TextContent({ text, closeDetails, style }: TextCardBodyProps): J
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div className="p-2 w-full overflow-auto" onClick={() => closeDetails?.()} style={style}>
-            <ReactMarkdown>{text}</ReactMarkdown>
+            <LemonMarkdown>{text}</LemonMarkdown>
         </div>
     )
 }

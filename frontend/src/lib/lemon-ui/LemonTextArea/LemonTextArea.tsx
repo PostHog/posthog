@@ -62,14 +62,14 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     )
 })
 
-interface LemonTextMarkdownProps {
+interface LemonTextAreaMarkdownProps {
     value?: string
     onChange?: (s: string) => void
     placeholder?: string
     'data-attr'?: string
 }
 
-export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
+export function LemonTextAreaMarkdown({ value, onChange, ...editAreaProps }: LemonTextAreaMarkdownProps): JSX.Element {
     const { objectStorageAvailable } = useValues(preflightLogic)
 
     const [isPreviewShown, setIsPreviewShown] = useState(false)
