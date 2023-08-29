@@ -220,7 +220,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: buildjet-4vcpu-ubuntu-2204
+        runs-on: buildjet-2vcpu-ubuntu-2204
 
         strategy:
             fail-fast: false
@@ -230,8 +230,8 @@ jobs:
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [5]
-                group: [1, 2, 3, 4, 5]
+                concurrency: [7]
+                group: [1, 2, 3, 4, 5, 6, 7]
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
