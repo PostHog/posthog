@@ -1,7 +1,7 @@
 import json
 from typing import Dict, List, Optional, cast
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from django.utils import timezone
 from freezegun.api import freeze_time
@@ -137,6 +137,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
+        self.assertEqual(response.json()["results"][0]["properties"]["email"], "another@gmail.com")
+        self.assertEqual(response.json()["results"][0]["distinct_ids"], ["distinct_id_2"])
 
     @snapshot_clickhouse_queries
     def test_filter_person_prop(self):
@@ -479,11 +481,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["results"][0]["name"], "distinct_id2")
         self.assertEqual(response["results"][1]["name"], "distinct_id1")
 
-        self.assertEqual(
+        self.assertCountEqual(
             response["results"][0]["distinct_ids"],
             ["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
         )
-        self.assertEqual(
+        self.assertCountEqual(
             response["results"][1]["distinct_ids"],
             ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
         )
@@ -846,3 +848,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         activity: List[Dict] = activity_response["results"]
         self.maxDiff = None
         self.assertCountEqual(activity, expected)
+
+
+# TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
+@patch("posthog.api.person.posthoganalytics.feature_enabled", Mock())
+class TestPersonFromClickhouse(TestPerson):
+    pass

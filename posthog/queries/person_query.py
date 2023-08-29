@@ -34,7 +34,7 @@ class PersonQuery:
 
     PERSON_PROPERTIES_ALIAS = "person_props"
     COHORT_TABLE_ALIAS = "cohort_persons"
-    ALIASES = {"properties": "person_props"}
+    ALIASES = {"properties": "person_props", "created_at": "_created_at"}
 
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
@@ -42,6 +42,7 @@ class PersonQuery:
     _extra_fields: Set[ColumnName]
     _inner_person_properties: Optional[PropertyGroup]
     _cohort: Optional[Cohort]
+    _include_distinct_ids: Optional[bool] = False
 
     def __init__(
         self,
@@ -55,6 +56,7 @@ class PersonQuery:
         # A sub-optimal version of the `cohort` parameter above, the difference being that
         # this supports multiple cohort filters, but is not as performant as the above.
         cohort_filters: Optional[List[Property]] = None,
+        include_distinct_ids: Optional[bool] = False,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
@@ -63,6 +65,7 @@ class PersonQuery:
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
         self._extra_fields = set(extra_fields) if extra_fields else set()
         self._cohort_filters = cohort_filters
+        self._include_distinct_ids = include_distinct_ids
 
         if self.PERSON_PROPERTIES_ALIAS in self._extra_fields:
             self._extra_fields = self._extra_fields - {self.PERSON_PROPERTIES_ALIAS} | {"properties"}
@@ -92,7 +95,7 @@ class PersonQuery:
         multiple_cohorts_condition, multiple_cohorts_params = self._get_multiple_cohorts_clause(prepend=prepend)
         single_cohort_join, single_cohort_params = self._get_fast_single_cohort_clause()
         if paginate:
-            order = "ORDER BY argMax(created_at, version) DESC, id" if paginate else ""
+            order = "ORDER BY argMax(created_at, version) DESC, id DESC" if paginate else ""
             limit_offset, limit_params = self._get_limit_offset_clause()
         else:
             order = ""
@@ -125,7 +128,8 @@ class PersonQuery:
         )
         # If we're not prefiltering, the single cohort inner join needs to be at the top level.
         top_level_single_cohort_join = single_cohort_join if not prefiltering_lookup else ""
-        return (
+
+        return self._add_distinct_id_join(
             f"""
             SELECT {fields}
             FROM person
@@ -344,6 +348,22 @@ class PersonQuery:
             """
             return distinct_id_clause, {"distinct_id_filter": self._filter.distinct_id}
         return "", {}
+
+    def _add_distinct_id_join(self, query: str, params: Dict[Any, Any]) -> Tuple[str, Dict[Any, Any]]:
+        if not self._include_distinct_ids:
+            return query, params
+        return (
+            """
+        SELECT person.*, groupArray(pdi.distinct_id) as distinct_ids
+        FROM ({person_query}) person
+        left join ({distinct_id_query}) as pdi ON person.id=pdi.person_id
+        group by person.*
+        order by _created_at desc, id desc
+        """.format(
+                person_query=query, distinct_id_query=get_team_distinct_ids_query(self._team_id)
+            ),
+            params,
+        )
 
     def _get_email_clause(self) -> Tuple[str, Dict]:
         if not isinstance(self._filter, Filter):

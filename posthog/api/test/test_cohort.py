@@ -315,6 +315,25 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
+    # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
+    @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
+    def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
+        for i in range(5):
+            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
+
+        _create_person(team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"})
+
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(
+            f"/api/cohort/{cohort.pk}/persons?properties=%s"
+            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person"}]))
+        )
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
     def test_filter_by_cohort_search(self):
         for i in range(5):
             _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
