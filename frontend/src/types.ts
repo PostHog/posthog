@@ -226,8 +226,6 @@ export interface OrganizationBasicType {
 }
 
 interface OrganizationMetadata {
-    taxonomy_set_events_count: number
-    taxonomy_set_properties_count: number
     instance_tag?: string
 }
 
