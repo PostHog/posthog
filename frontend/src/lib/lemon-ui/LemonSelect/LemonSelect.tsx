@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo } from 'react'
 import { IconClose } from '../icons'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { PopoverProps } from '../Popover'
@@ -77,16 +77,18 @@ export interface LemonSelectPropsBase<T>
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
     allowClear: true
-    value: T | null
+    /** Should only be undefined in form fields. */
+    value?: T | null
     /** Callback fired when a value different from the one currently set is selected. */
-    onChange: (newValue: T | null) => void
+    onChange?: (newValue: T | null) => void
 }
 
 export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T> {
     allowClear?: false
-    value: T
+    /** Should only be undefined in form fields. */
+    value?: T
     /** Callback fired when a value different from the one currently set is selected. */
-    onChange: (newValue: T) => void
+    onChange?: (newValue: T) => void
 }
 
 export type LemonSelectProps<T> = LemonSelectPropsClearable<T> | LemonSelectPropsNonClearable<T>
@@ -106,29 +108,19 @@ export function LemonSelect<T>({
     menu,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
-    const [activeValue, setActiveValue] = useState<T | null>(value)
-
-    useEffect(() => {
-        if (!buttonProps.loading) {
-            setActiveValue(value)
-        }
-    }, [value, buttonProps.loading])
-
-    const wrappedOnSelect: NonNullable<LemonSelectPropsBase<T>['onSelect']> = (newValue) => {
-        if (newValue !== activeValue) {
-            onChange?.(newValue)
-            setActiveValue(newValue)
-        }
-        onSelect?.(newValue)
-    }
-
     const [items, allLeafOptions] = useMemo(
-        () => convertSelectOptionsToMenuItems(options, activeValue, wrappedOnSelect),
-        [options, activeValue]
+        () =>
+            convertSelectOptionsToMenuItems(options, value, (newValue) => {
+                if (newValue !== value) {
+                    onChange?.(newValue)
+                }
+                onSelect?.(newValue)
+            }),
+        [options, value]
     )
 
-    const activeLeaf = allLeafOptions.find((o) => o.value === activeValue)
-    const isClearButtonShown = allowClear && !!activeValue
+    const activeLeaf = allLeafOptions.find((o) => o.value === value)
+    const isClearButtonShown = allowClear && !!value
 
     return (
         <LemonMenu
@@ -154,7 +146,7 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {activeLeaf ? activeLeaf.label : activeValue ?? <span className="text-muted">{placeholder}</span>}
+                    {activeLeaf ? activeLeaf.label : value ?? <span className="text-muted">{placeholder}</span>}
                 </span>
                 {isClearButtonShown && (
                     <LemonButton
@@ -166,7 +158,6 @@ export function LemonSelect<T>({
                         tooltip="Clear selection"
                         onClick={() => {
                             onChange?.(null as T)
-                            setActiveValue(null)
                         }}
                     />
                 )}
