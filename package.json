@@ -187,6 +187,7 @@
         "@storybook/blocks": "^7.3.1",
         "@storybook/components": "^7.3.1",
         "@storybook/core-events": "^7.3.1",
+        "@storybook/csf": "^0.1.1",
         "@storybook/react": "^7.3.1",
         "@storybook/react-webpack5": "^7.3.1",
         "@storybook/test-runner": "^0.13.0",

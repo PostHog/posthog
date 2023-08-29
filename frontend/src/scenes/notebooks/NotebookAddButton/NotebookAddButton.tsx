@@ -53,8 +53,7 @@ function NotebooksChoiceList(props: {
 }
 
 function NotebooksChoicePopoverBody(props: NotebookAddButtonProps): JSX.Element {
-    const { containingNotebooks, containingNotebooksLoading, allNotebooks, allNotebooksLoading, searchQuery } =
-        useValues(notebookAddButtonLogic)
+    const { notebooksLoading, containingNotebooks, allNotebooks, searchQuery } = useValues(notebookAddButtonLogic)
     const { setShowPopover } = useActions(notebookAddButtonLogic)
 
     const openAndAddToNotebook = async (notebookShortId: string, exists: boolean): Promise<void> => {
@@ -66,10 +65,10 @@ function NotebooksChoicePopoverBody(props: NotebookAddButtonProps): JSX.Element 
         })
     }
 
-    if (allNotebooks.length === 0 && containingNotebooks.length === 0) {
+    if (notebooksLoading || (allNotebooks.length === 0 && containingNotebooks.length === 0)) {
         return (
             <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
-                {allNotebooksLoading || containingNotebooksLoading ? (
+                {notebooksLoading ? (
                     'Loading...'
                 ) : searchQuery.length ? (
                     <>No matching notebooks</>
@@ -128,9 +127,13 @@ function NotebooksChoicePopoverBody(props: NotebookAddButtonProps): JSX.Element 
     )
 }
 
-function NotebookAddButtonPopover({ ...props }: NotebookAddButtonProps): JSX.Element {
+function NotebookAddButtonPopover({
+    // so we can pass props to the button below, without passing visible to it
+    visible,
+    ...props
+}: NotebookAddButtonProps): JSX.Element {
     const { resource, newNotebookTitle, children } = props
-    const logic = notebookAddButtonLogic(props)
+    const logic = notebookAddButtonLogic({ ...props, visible })
     const { showPopover, notebooksLoading, containingNotebooks, searchQuery } = useValues(logic)
     const { setShowPopover, setSearchQuery, loadContainingNotebooks } = useActions(logic)
     const { createNotebook } = useActions(notebooksModel)
@@ -162,6 +165,7 @@ function NotebookAddButtonPopover({ ...props }: NotebookAddButtonProps): JSX.Ele
                             value={searchQuery}
                             onChange={(s) => setSearchQuery(s)}
                             fullWidth
+                            disabled={notebooksLoading}
                         />
                         <LemonDivider className="my-1" />
                         <div>

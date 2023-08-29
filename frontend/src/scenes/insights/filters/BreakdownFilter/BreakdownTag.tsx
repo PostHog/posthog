@@ -1,76 +1,94 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { LemonTag, LemonTagProps } from '@posthog/lemon-ui'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
-import { PropertyFilterType } from '~/types'
+import { BreakdownType } from '~/types'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
-import React, { useState } from 'react'
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
+import { cohortsModel } from '~/models/cohortsModel'
+import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 
-type EditWrapperProps = {
-    isViewOnly: boolean
-    filterOpen: boolean
-    setFilterOpen: (open: boolean) => void
-    children: React.ReactNode
-}
+import './BreakdownTag.scss'
 
-const EditWrapper = ({ isViewOnly, filterOpen, setFilterOpen, children }: EditWrapperProps): JSX.Element =>
-    isViewOnly ? (
-        <>{children}</>
-    ) : (
-        <TaxonomicBreakdownPopover open={filterOpen} setOpen={setFilterOpen}>
-            <div>
-                {/* :TRICKY: we don't want the close button to be active when the edit popover is open.
-                 * Therefore we're wrapping the lemon tag a context provider to override the parent context. */}
-                <PopoverReferenceContext.Provider value={null}>{children}</PopoverReferenceContext.Provider>
-            </div>
-        </TaxonomicBreakdownPopover>
-    )
-
-type BreakdownTagProps = {
+type EditableBreakdownTagProps = {
     breakdown: string | number
-    breakdownType: PropertyFilterType
+    breakdownType: BreakdownType
     isTrends: boolean
 }
 
-export function BreakdownTag({ breakdown, breakdownType, isTrends }: BreakdownTagProps): JSX.Element {
+export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: EditableBreakdownTagProps): JSX.Element {
     const [filterOpen, setFilterOpen] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
 
     const logicProps = { breakdown, breakdownType, isTrends }
-    const { isViewOnly, shouldShowMenu, propertyName } = useValues(breakdownTagLogic(logicProps))
+    const { shouldShowMenu } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
 
     return (
         <BindLogic logic={breakdownTagLogic} props={logicProps}>
-            <EditWrapper isViewOnly={isViewOnly} filterOpen={filterOpen} setFilterOpen={setFilterOpen}>
-                <LemonTag
-                    className="taxonomic-breakdown-filter tag-pill"
-                    // display remove button only if we can edit and don't have a separate menu
-                    closable={!isViewOnly && !shouldShowMenu}
-                    onClose={removeBreakdown}
-                    onClick={() => {
-                        if (!isViewOnly) {
-                            setFilterOpen(!filterOpen)
-                        }
-                    }}
-                    popover={{
-                        overlay: shouldShowMenu ? <BreakdownTagMenu /> : undefined,
-                        closeOnClickInside: false,
-                        onVisibilityChange: (visible) => {
-                            setMenuOpen(visible)
-                        },
-                    }}
-                >
-                    {breakdownType === 'hogql' ? (
-                        <HoqQLPropertyInfo value={propertyName as string} />
-                    ) : (
-                        <PropertyKeyInfo value={propertyName} disablePopover={filterOpen || menuOpen} />
-                    )}
-                </LemonTag>
-            </EditWrapper>
+            <TaxonomicBreakdownPopover open={filterOpen} setOpen={setFilterOpen}>
+                <div>
+                    {/* :TRICKY: we don't want the close button to be active when the edit popover is open.
+                     * Therefore we're wrapping the lemon tag a context provider to override the parent context. */}
+                    <PopoverReferenceContext.Provider value={null}>
+                        <BreakdownTag
+                            breakdown={breakdown}
+                            breakdownType={breakdownType}
+                            // display remove button only if we can edit and don't have a separate menu
+                            closable={!shouldShowMenu}
+                            onClose={removeBreakdown}
+                            onClick={() => {
+                                setFilterOpen(!filterOpen)
+                            }}
+                            popover={{
+                                overlay: shouldShowMenu ? <BreakdownTagMenu /> : undefined,
+                                closeOnClickInside: false,
+                                onVisibilityChange: (visible) => {
+                                    setMenuOpen(visible)
+                                },
+                            }}
+                            disablePropertyInfo={filterOpen || menuOpen}
+                        />
+                    </PopoverReferenceContext.Provider>
+                </div>
+            </TaxonomicBreakdownPopover>
         </BindLogic>
+    )
+}
+
+type BreakdownTagProps = {
+    breakdown: string | number
+    breakdownType: BreakdownType | null | undefined
+    disablePropertyInfo?: boolean
+} & Omit<LemonTagProps, 'children'>
+
+export function BreakdownTag({
+    breakdown,
+    breakdownType = 'event',
+    disablePropertyInfo,
+    ...props
+}: BreakdownTagProps): JSX.Element {
+    const { cohortsById } = useValues(cohortsModel)
+
+    let propertyName = breakdown
+
+    if (isAllCohort(breakdown)) {
+        propertyName = 'All Users'
+    } else if (isCohort(breakdown)) {
+        propertyName = cohortsById[breakdown]?.name || `Cohort ${breakdown}`
+    }
+
+    return (
+        <LemonTag className="breakdown-tag" {...props}>
+            {breakdownType === 'hogql' ? (
+                <HoqQLPropertyInfo value={propertyName as string} />
+            ) : (
+                <PropertyKeyInfo value={propertyName as string} disablePopover={disablePropertyInfo} />
+            )}
+        </LemonTag>
     )
 }

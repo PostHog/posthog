@@ -11,6 +11,8 @@ export interface NotebookAddButtonLogicProps {
         attrs: Record<string, any>
         type: NotebookNodeType
     }
+    // allows callers (e.g. storybook) to control starting visibility of the popover
+    visible?: boolean
 }
 
 export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
@@ -23,7 +25,7 @@ export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
         loadContainingNotebooks: true,
         loadAllNotebooks: true,
     }),
-    reducers(() => ({
+    reducers(({ props }) => ({
         searchQuery: [
             '',
             {
@@ -31,7 +33,7 @@ export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
             },
         ],
         showPopover: [
-            false,
+            props.visible,
             {
                 setShowPopover: (_, { visible }) => visible,
             },
