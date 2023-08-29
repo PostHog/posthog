@@ -10,7 +10,7 @@ export function CommunityTag({ isCommunity, noun = 'app' }: { isCommunity?: bool
                     : `This ${noun} was built by the PostHog team.`
             }
         >
-            <LemonTag type={isCommunity ? 'highlight' : 'primary'}>{isCommunity ? 'Community' : 'Official'}</LemonTag>
+            <LemonTag type={isCommunity ? 'highlight' : 'success'}>{isCommunity ? 'Community' : 'Official'}</LemonTag>
         </Tooltip>
     )
 }
