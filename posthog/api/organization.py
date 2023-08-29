@@ -127,18 +127,6 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "instance_tag": settings.INSTANCE_TAG,
         }
 
-        try:
-            from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
-        except ImportError:
-            return output
-
-        # output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(
-        #     description="", tagged_items__isnull=True
-        # ).count()
-        # output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
-        #     description="", tagged_items__isnull=True
-        # ).count()
-
         return output
 
 

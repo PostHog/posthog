@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="week_start_day",
-            field=models.SmallIntegerField(blank=True, choices=[(0, "Monday"), (1, "Sunday")], null=True),
+            field=models.SmallIntegerField(blank=True, choices=[(0, "Sunday"), (1, "Monday")], null=True),
         ),
     ]
