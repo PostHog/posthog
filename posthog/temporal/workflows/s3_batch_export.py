@@ -47,7 +47,15 @@ def get_s3_key(inputs) -> str:
     """Return an S3 key given S3InsertInputs."""
     template_variables = get_allowed_template_variables(inputs)
     key_prefix = inputs.prefix.format(**template_variables)
-    key = posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl")
+
+    base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
+    match inputs.compression:
+        case "gzip":
+            file_name = base_file_name + ".jsonl.gz"
+        case _:
+            file_name = base_file_name + ".jsonl"
+
+    key = posixpath.join(key_prefix, file_name)
 
     if posixpath.isabs(key):
         # Keys are relative to root dir, so this would add an extra "/"
@@ -205,6 +213,7 @@ class S3InsertInputs:
     data_interval_end: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
+    compression: str | None = None
 
 
 def create_or_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -305,7 +314,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         asyncio.create_task(worker_shutdown_handler())
 
         with s3_upload as s3_upload:
-            with BatchExportTemporaryFile() as local_results_file:
+            with BatchExportTemporaryFile(compression=inputs.compression) as local_results_file:
                 for result in results_iterator:
                     record = {
                         "created_at": result["created_at"],
@@ -402,6 +411,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             aws_secret_access_key=inputs.aws_secret_access_key,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            compression=inputs.compression,
         )
         try:
             await workflow.execute_activity(

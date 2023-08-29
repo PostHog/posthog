@@ -50,6 +50,7 @@ class S3BatchExportInputs:
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     data_interval_end: str | None = None
+    compression: str | None = None
 
 
 @dataclass

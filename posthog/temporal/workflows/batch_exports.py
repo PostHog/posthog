@@ -1,6 +1,7 @@
 import collections.abc
 import csv
 import datetime as dt
+import gzip
 import json
 import tempfile
 import typing
@@ -204,6 +205,7 @@ class BatchExportTemporaryFile:
         self,
         mode: str = "w+b",
         buffering=-1,
+        compression: str | None = None,
         encoding: str | None = None,
         newline: str | None = None,
         suffix: str | None = None,
@@ -222,6 +224,7 @@ class BatchExportTemporaryFile:
             dir=dir,
             errors=errors,
         )
+        self.compression = compression
         self.bytes_total = 0
         self.records_total = 0
         self.bytes_since_last_reset = 0
@@ -240,11 +243,28 @@ class BatchExportTemporaryFile:
         """Context-manager protocol exit method."""
         return self._file.__exit__(exc, value, tb)
 
+    def compress(self, content: bytes | str) -> bytes:
+        if isinstance(content, str):
+            encoded = content.encode("utf-8")
+        else:
+            encoded = content
+
+        match self.compression:
+            case "gzip":
+                return gzip.compress(encoded)
+            case None:
+                return encoded
+            case _:
+                raise ValueError(f"Unsupported compression: '{self.compression}'")
+
     def write(self, content: bytes | str):
         """Write bytes to underlying file keeping track of how many bytes were written."""
-        if "b" in self.mode and isinstance(content, str):
-            content = content.encode("utf-8")
-        result = self._file.write(content)
+        compressed_content = self.compress(content)
+
+        if "b" not in self.mode:
+            compressed_content = compressed_content.decode("utf-8")
+
+        result = self._file.write(compressed_content)
 
         self.bytes_total += result
         self.bytes_since_last_reset += result

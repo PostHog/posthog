@@ -1,5 +1,7 @@
 import datetime as dt
 import functools
+import gzip
+import itertools
 import json
 from random import randint
 from unittest import mock
@@ -73,7 +75,7 @@ def s3_client(bucket_name):
     s3_client.delete_bucket(Bucket=bucket_name)
 
 
-def assert_events_in_s3(s3_client, bucket_name, key_prefix, events):
+def assert_events_in_s3(s3_client, bucket_name, key_prefix, events, compression: str | None = None):
     """Assert provided events written to JSON in key_prefix in S3 bucket_name."""
     # List the objects in the bucket with the prefix.
     objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
@@ -88,6 +90,9 @@ def assert_events_in_s3(s3_client, bucket_name, key_prefix, events):
     data = object["Body"].read()
 
     # Check that the data is correct.
+    if compression is not None and compression == "gzip":
+        data = gzip.decompress(data)
+
     json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
     # Pull out the fields we inserted only
 
@@ -105,7 +110,8 @@ def assert_events_in_s3(s3_client, bucket_name, key_prefix, events):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client, activity_environment):
+@pytest.mark.parametrize("compression", [None, "gzip"])
+async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client, activity_environment, compression):
     """Test that the insert_into_s3_activity function puts data into S3."""
 
     data_interval_start = "2023-04-20 14:00:00"
@@ -240,6 +246,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         data_interval_end=data_interval_end,
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
+        compression=compression,
     )
 
     with override_settings(
@@ -248,13 +255,13 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
             await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events)
+    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("interval", ["hour", "day"])
-async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name, interval):
+@pytest.mark.parametrize("interval,compression", itertools.product(["hour", "day"], [None, "gzip"]))
+async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name, interval, compression):
     """Test S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     The workflow should update the batch export run status to completed and produce the expected
@@ -269,6 +276,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "prefix": prefix,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
+            "compression": compression,
         },
     }
 
@@ -384,12 +392,15 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events)
+    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(client: HttpClient, s3_client, bucket_name):
+@pytest.mark.parametrize("compression", [None, "gzip"])
+async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
+    client: HttpClient, s3_client, bucket_name, compression
+):
     """Test the full S3 workflow targetting a MinIO bucket.
 
     The workflow should update the batch export run status to completed and produce the expected
@@ -411,6 +422,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(client: Ht
             "prefix": prefix,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
+            "compression": compression,
         },
     }
 
@@ -485,12 +497,15 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(client: Ht
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix.format(year=2023, month="04", day="25"), events)
+    assert_events_in_s3(s3_client, bucket_name, prefix.format(year=2023, month="04", day="25"), events, compression)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(client: HttpClient, s3_client, bucket_name):
+@pytest.mark.parametrize("compression", [None, "gzip"])
+async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
+    client: HttpClient, s3_client, bucket_name, compression
+):
     """Test the full S3 workflow targetting a MinIO bucket.
 
     In this scenario we assert that when inserted_at is NULL, we default to _timestamp.
@@ -512,6 +527,7 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(clie
             "prefix": prefix,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
+            "compression": compression,
         },
     }
 
@@ -599,12 +615,15 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(clie
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events)
+    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(client: HttpClient, s3_client, bucket_name):
+@pytest.mark.parametrize("compression", [None, "gzip"])
+async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
+    client: HttpClient, s3_client, bucket_name, compression
+):
     """Test the S3BatchExport Workflow utilizing a custom key prefix.
 
     We will be asserting that exported events land in the appropiate S3 key according to the prefix.
@@ -625,6 +644,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(client
             "prefix": prefix,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
+            "compression": compression,
         },
     }
 
@@ -706,12 +726,15 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(client
     assert len(objects.get("Contents", [])) == 1
     assert key.startswith(expected_key_prefix)
 
-    assert_events_in_s3(s3_client, bucket_name, expected_key_prefix, events)
+    assert_events_in_s3(s3_client, bucket_name, expected_key_prefix, events, compression)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(client: HttpClient, s3_client, bucket_name):
+@pytest.mark.parametrize("compression", [None, "gzip"])
+async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(
+    client: HttpClient, s3_client, bucket_name, compression
+):
     """Test that S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     In this particular instance of the test, we assert no duplicates are exported to S3.
@@ -732,6 +755,7 @@ async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(clien
             "prefix": prefix,
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
+            "compression": compression,
         },
     }
 
@@ -837,7 +861,7 @@ async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(clien
         run = runs[0]
         assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events)
+    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
 
 
 # We don't care about these for the next test, just need something to be defined.
@@ -871,6 +895,16 @@ base_inputs = {
         ),
         (
             S3InsertInputs(
+                prefix="",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                compression="gzip",
+                **base_inputs,
+            ),
+            "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.gz",
+        ),
+        (
+            S3InsertInputs(
                 prefix="my-fancy-prefix",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
@@ -886,6 +920,16 @@ base_inputs = {
                 **base_inputs,
             ),
             "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="my-fancy-prefix",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                compression="gzip",
+                **base_inputs,
+            ),
+            "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.gz",
         ),
         (
             S3InsertInputs(
@@ -922,6 +966,16 @@ base_inputs = {
                 **base_inputs,
             ),
             "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                compression="gzip",
+                **base_inputs,
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.gz",
         ),
     ],
 )
