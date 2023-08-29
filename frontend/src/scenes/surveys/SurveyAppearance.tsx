@@ -16,6 +16,7 @@ import {
     veryDissatisfiedEmoji,
     verySatisfiedEmoji,
 } from './SurveyAppearanceUtils'
+import { IconClose } from 'lib/lemon-ui/icons'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
@@ -151,7 +152,7 @@ function BaseAppearance({
                         type="button"
                         style={{ backgroundColor: appearance.backgroundColor }}
                     >
-                        X
+                        <IconClose />
                     </button>
                 </div>
                 <div className="question-textarea-wrapper">

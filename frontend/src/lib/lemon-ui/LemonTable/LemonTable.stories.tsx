@@ -186,12 +186,30 @@ BorderlessRows.args = { borderedRows: false }
 
 export const Loading: Story = BasicTemplate.bind({})
 Loading.args = { loading: true }
+Loading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+        waitForSelector: '.LemonTableLoader',
+    },
+}
 
 export const EmptyLoading: Story = EmptyTemplate.bind({})
 EmptyLoading.args = { loading: true }
+EmptyLoading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+        waitForSelector: '.LemonTableLoader',
+    },
+}
 
 export const EmptyLoadingWithManySkeletonRows: Story = EmptyTemplate.bind({})
 EmptyLoadingWithManySkeletonRows.args = { loading: true, loadingSkeletonRows: 10 }
+EmptyLoadingWithManySkeletonRows.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+        waitForSelector: '.LemonTableLoader',
+    },
+}
 
 export const WithoutHeader: Story = BasicTemplate.bind({})
 WithoutHeader.args = { showHeader: false }

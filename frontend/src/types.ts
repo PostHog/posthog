@@ -226,8 +226,6 @@ export interface OrganizationBasicType {
 }
 
 interface OrganizationMetadata {
-    taxonomy_set_events_count: number
-    taxonomy_set_properties_count: number
     instance_tag?: string
 }
 
@@ -3093,6 +3091,20 @@ export type BatchExportDestinationS3 = {
     }
 }
 
+export type BatchExportDestinationPostgres = {
+    type: 'Postgres'
+    config: {
+        user: string
+        password: string
+        host: string
+        port: number
+        database: string
+        schema: string
+        table_name: string
+        has_self_signed_cert: boolean
+    }
+}
+
 export type BatchExportDestinationSnowflake = {
     type: 'Snowflake'
     config: {
@@ -3107,7 +3119,10 @@ export type BatchExportDestinationSnowflake = {
     }
 }
 
-export type BatchExportDestination = BatchExportDestinationS3 | BatchExportDestinationSnowflake
+export type BatchExportDestination =
+    | BatchExportDestinationS3
+    | BatchExportDestinationSnowflake
+    | BatchExportDestinationPostgres
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
