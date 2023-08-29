@@ -1,4 +1,4 @@
-import { LogLevel, PluginsServerConfig, stringToPluginServerMode } from '../types'
+import { LogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -205,4 +205,19 @@ export function overrideWithEnv(
         )
     }
     return newConfig
+}
+
+export function buildIntegerMatcher(config: string, allowStar: boolean): ValueMatcher<number> {
+    // Builds a ValueMatcher on a coma-separated list of values.
+    // Optionally, supports a '*' value to match everything
+    if (!config) {
+        return () => false
+    } else if (allowStar && config === '*') {
+        return () => true
+    } else {
+        const values = new Set(config.split(',').map((n) => parseInt(n)))
+        return (v: number) => {
+            return values.has(v)
+        }
+    }
 }
