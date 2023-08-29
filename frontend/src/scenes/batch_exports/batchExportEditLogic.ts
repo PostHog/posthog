@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import {
     BatchExportConfiguration,
     BatchExportDestination,
+    BatchExportDestinationPostgres,
     BatchExportDestinationS3,
     BatchExportDestinationSnowflake,
     Breadcrumb,
@@ -25,9 +26,10 @@ export type BatchExportConfigurationForm = Omit<
     BatchExportConfiguration,
     'id' | 'destination' | 'start_at' | 'end_at'
 > &
+    Partial<BatchExportDestinationPostgres['config']> &
     Partial<BatchExportDestinationS3['config']> &
     Partial<BatchExportDestinationSnowflake['config']> & {
-        destination: 'S3' | 'Snowflake'
+        destination: 'S3' | 'Snowflake' | 'Postgres'
         start_at: Dayjs | null
         end_at: Dayjs | null
     }
@@ -46,7 +48,18 @@ const formFields = (
         paused: '',
         start_at: '',
         end_at: '',
-        ...(destination === 'S3'
+        ...(destination === 'Postgres'
+            ? {
+                  user: isNew ? (!config.user ? 'This field is required' : '') : '',
+                  password: isNew ? (!config.password ? 'This field is required' : '') : '',
+                  host: !config.host ? 'This field is required' : '',
+                  port: !config.port ? 'This field is required' : '',
+                  database: !config.database ? 'This field is required' : '',
+                  schema: !config.schema ? 'This field is required' : '',
+                  table_name: !config.table_name ? 'This field is required' : '',
+                  has_self_signed_cert: false,
+              }
+            : destination === 'S3'
             ? {
                   bucket_name: !config.bucket_name ? 'This field is required' : '',
                   region: !config.region ? 'This field is required' : '',
@@ -90,7 +103,12 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             errors: (form) => formFields(props, form),
             submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
                 const destinationObject: BatchExportDestination =
-                    destination === 'S3'
+                    destination == 'Postgres'
+                        ? ({
+                              type: 'Postgres',
+                              config: config,
+                          } as unknown as BatchExportDestinationPostgres)
+                        : destination === 'S3'
                         ? ({
                               type: 'S3',
                               config: config,

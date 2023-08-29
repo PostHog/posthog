@@ -13,7 +13,7 @@ COPY package.json pnpm-lock.yaml ./
 
 ENV CYPRESS_INSTALL_BINARY=0
 
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
 COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json ./
 
