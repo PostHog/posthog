@@ -1,4 +1,4 @@
-import { Button, Card, Col, Row, Space, Tag } from 'antd'
+import { Button, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginConfigType, PluginErrorType } from '~/types'
@@ -14,6 +14,7 @@ import {
     GlobalOutlined,
     ClockCircleOutlined,
     LineChartOutlined,
+    UpOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -36,15 +37,13 @@ import { CommunityTag } from 'lib/CommunityTag'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
-        <Space>
-            <Tooltip title="About">
-                <Link to={url} target="_blank">
-                    <Button disabled={disabled}>
-                        <InfoCircleOutlined />
-                    </Button>
-                </Link>
-            </Tooltip>
-        </Space>
+        <Tooltip title="About">
+            <Link to={url} target="_blank">
+                <Button disabled={disabled}>
+                    <InfoCircleOutlined />
+                </Button>
+            </Link>
+        </Tooltip>
     )
 }
 
@@ -69,7 +68,7 @@ export function PluginCard({
     order,
     maxOrder,
     rearranging,
-    DragColumn = ({ children }) => <Col className="order-handle">{children}</Col>,
+    DragColumn = ({ children }) => <div className="order-handle">{children}</div>,
     unorderedPlugin = false,
 }: PluginCardProps): JSX.Element {
     const {
@@ -100,17 +99,13 @@ export function PluginCard({
     const pluginMaintainer = maintainer || pluginUrlToMaintainer[plugin.url || '']
 
     return (
-        <Col
-            style={{ width: '100%', marginBottom: 20 }}
-            className={`plugins-scene-plugin-card-col${rearranging ? ` rearranging` : ''}`}
-            data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
-        >
-            <Card className="plugins-scene-plugin-card">
-                <Row align="middle" className="plugin-card-row">
+        <div className="w-full mb-5" data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}>
+            <div className="border rounded p-4 bg-bg-light plugins-scene-plugin-card">
+                <div className="flex space-x-3 items-center">
                     {typeof order === 'number' && typeof maxOrder === 'number' ? (
                         <DragColumn>
                             <div className={clsx('arrow', order === 1 && 'invisible')}>
-                                <DownOutlined />
+                                <UpOutlined />
                             </div>
                             <div>
                                 <Tag color={hasMoved ? '#bd0225' : '#555'} onClick={rearrange}>
@@ -124,32 +119,25 @@ export function PluginCard({
                     ) : null}
                     {unorderedPlugin ? (
                         <Tooltip title="This app does not do any processing in order." placement="topRight">
-                            <Col>
-                                <Tag color="#555">-</Tag>
-                            </Col>
+                            <Tag color="#555">-</Tag>
                         </Tooltip>
                     ) : null}
-                    {pluginConfig && (
-                        <Col>
-                            {pluginConfig.id ? (
-                                <LemonSwitch
-                                    checked={pluginConfig.enabled ?? false}
-                                    disabled={rearranging}
-                                    onChange={() =>
-                                        toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
-                                    }
-                                />
-                            ) : (
-                                <Tooltip title="Please configure this plugin before enabling it">
-                                    <LemonSwitch checked={false} disabled={true} />
-                                </Tooltip>
-                            )}
-                        </Col>
-                    )}
-                    <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
+                    {pluginConfig &&
+                        (pluginConfig.id ? (
+                            <LemonSwitch
+                                checked={pluginConfig.enabled ?? false}
+                                disabled={rearranging}
+                                onChange={() => toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })}
+                            />
+                        ) : (
+                            <Tooltip title="Please configure this plugin before enabling it">
+                                <LemonSwitch checked={false} disabled={true} />
+                            </Tooltip>
+                        ))}
+                    <div className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
                         <PluginImage pluginType={pluginType} icon={icon} url={url} />
-                    </Col>
-                    <Col style={{ flex: 1 }}>
+                    </div>
+                    <div className="flex flex-col flex-1">
                         <div className="flex items-center">
                             <strong className="flex items-center mr-2 gap-1">
                                 {showAppMetricsForPlugin(plugin) && pluginConfig?.id && (
@@ -206,91 +194,87 @@ export function PluginCard({
                             )}
                         </div>
                         <div>{endWithPunctation(description)}</div>
-                    </Col>
-                    <Col>
-                        <Space>
-                            {url && <PluginAboutButton url={url} disabled={rearranging} />}
-                            {showUpdateButton && pluginId ? (
-                                <PluginUpdateButton
-                                    updateStatus={updateStatus}
-                                    pluginId={pluginId}
-                                    rearranging={rearranging}
-                                />
-                            ) : pluginId ? (
-                                <>
-                                    {showAppMetricsForPlugin(plugin) && pluginConfig?.id ? (
-                                        <Tooltip title="App metrics">
-                                            <Button
-                                                className="padding-under-500"
-                                                disabled={rearranging}
-                                                data-attr="app-metrics"
-                                            >
-                                                <Link to={urls.appMetrics(pluginConfig.id)}>
-                                                    <LineChartOutlined />
-                                                </Link>
-                                            </Button>
-                                        </Tooltip>
-                                    ) : null}
-                                    {pluginConfig?.id ? (
-                                        <Tooltip title="Activity history">
-                                            <Button
-                                                className="padding-under-500"
-                                                disabled={rearranging}
-                                                data-attr="plugin-history"
-                                            >
-                                                <Link to={urls.appHistory(pluginConfig.id)}>
-                                                    <ClockCircleOutlined />
-                                                </Link>
-                                            </Button>
-                                        </Tooltip>
-                                    ) : null}
-                                    <Tooltip
-                                        title={
-                                            pluginConfig?.id
-                                                ? 'Logs'
-                                                : 'Logs – enable the app for the first time to view them'
-                                        }
-                                    >
+                    </div>
+                    <div className="space-x-2">
+                        {url && <PluginAboutButton url={url} disabled={rearranging} />}
+                        {showUpdateButton && pluginId ? (
+                            <PluginUpdateButton
+                                updateStatus={updateStatus}
+                                pluginId={pluginId}
+                                rearranging={rearranging}
+                            />
+                        ) : pluginId ? (
+                            <>
+                                {showAppMetricsForPlugin(plugin) && pluginConfig?.id ? (
+                                    <Tooltip title="App metrics">
                                         <Button
-                                            className="padding-under-500"
-                                            disabled={rearranging || !pluginConfig?.id}
-                                            onClick={() => showPluginLogs(pluginId)}
-                                            data-attr="plugin-logs"
-                                        >
-                                            <UnorderedListOutlined />
-                                        </Button>
-                                    </Tooltip>
-                                    <Tooltip title="Configure">
-                                        <Button
-                                            type="primary"
                                             className="padding-under-500"
                                             disabled={rearranging}
-                                            onClick={() => editPlugin(pluginId)}
-                                            data-attr="plugin-configure"
+                                            data-attr="app-metrics"
                                         >
-                                            <SettingOutlined />
+                                            <Link to={urls.appMetrics(pluginConfig.id)}>
+                                                <LineChartOutlined />
+                                            </Link>
                                         </Button>
                                     </Tooltip>
-                                </>
-                            ) : !pluginId ? (
-                                <Button
-                                    type="primary"
-                                    className="padding-under-500"
-                                    loading={loading && installingPluginUrl === url}
-                                    disabled={loading && installingPluginUrl !== url}
-                                    onClick={
-                                        url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined
+                                ) : null}
+                                {pluginConfig?.id ? (
+                                    <Tooltip title="Activity history">
+                                        <Button
+                                            className="padding-under-500"
+                                            disabled={rearranging}
+                                            data-attr="plugin-history"
+                                        >
+                                            <Link to={urls.appHistory(pluginConfig.id)}>
+                                                <ClockCircleOutlined />
+                                            </Link>
+                                        </Button>
+                                    </Tooltip>
+                                ) : null}
+                                <Tooltip
+                                    title={
+                                        pluginConfig?.id
+                                            ? 'Logs'
+                                            : 'Logs – enable the app for the first time to view them'
                                     }
-                                    icon={<CloudDownloadOutlined />}
-                                    data-attr="plugin-install"
                                 >
-                                    <span className="show-over-500">Install</span>
-                                </Button>
-                            ) : null}
-                        </Space>
-                    </Col>
-                </Row>
-            </Card>
-        </Col>
+                                    <Button
+                                        className="padding-under-500"
+                                        disabled={rearranging || !pluginConfig?.id}
+                                        onClick={() => showPluginLogs(pluginId)}
+                                        data-attr="plugin-logs"
+                                    >
+                                        <UnorderedListOutlined />
+                                    </Button>
+                                </Tooltip>
+                                <Tooltip title="Configure">
+                                    <Button
+                                        type="primary"
+                                        className="padding-under-500"
+                                        disabled={rearranging}
+                                        onClick={() => editPlugin(pluginId)}
+                                        data-attr="plugin-configure"
+                                    >
+                                        <SettingOutlined />
+                                    </Button>
+                                </Tooltip>
+                            </>
+                        ) : !pluginId ? (
+                            <Button
+                                type="primary"
+                                className="padding-under-500"
+                                loading={loading && installingPluginUrl === url}
+                                disabled={loading && installingPluginUrl !== url}
+                                onClick={url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined}
+                                icon={<CloudDownloadOutlined />}
+                                data-attr="plugin-install"
+                            >
+                                <span className="show-over-500">Install</span>
+                            </Button>
+                        ) : null}
+                    </div>
+                </div>
+            </div>
+        </div>
     )
 }
