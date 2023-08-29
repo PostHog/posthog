@@ -69,6 +69,29 @@
     overflow-y: auto;
 }
 
+.NavbarButton {
+    .LemonButton__icon {
+        transition: color 100ms ease, transform 100ms ease;
+    }
+    &.NavbarButton--here {
+        &::after {
+            content: '•';
+            position: absolute;
+            bottom: 0.25rem;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 1.25rem;
+            line-height: 0.5625rem;
+            color: var(--default);
+        }
+        .LemonButton__icon {
+            color: var(--default);
+            transform: translateY(-0.25rem);
+        }
+    }
+}
+
 // Sidebar
 
 .Sidebar3000 {

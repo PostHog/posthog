@@ -1,6 +1,7 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import clsx from 'clsx'
 
 export interface NavbarButtonProps {
     identifier: string
@@ -10,18 +11,19 @@ export interface NavbarButtonProps {
     to?: string
     persistentTooltip?: boolean
     active?: boolean
+    here?: boolean
 }
 
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<
     HTMLButtonElement,
     NavbarButtonProps
->(({ identifier, title, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
+>(({ identifier, title, onClick, persistentTooltip, here, ...buttonProps }, ref): JSX.Element => {
     const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
     return (
         <li>
             <Tooltip
-                title={title}
+                title={here ? `${title} (you are here)` : title}
                 placement="right"
                 delayMs={0}
                 visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
@@ -34,6 +36,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                         setHasBeenClicked(true)
                         onClick?.()
                     }}
+                    className={clsx('NavbarButton', here && 'NavbarButton--here')}
                     {...buttonProps}
                 />
             </Tooltip>

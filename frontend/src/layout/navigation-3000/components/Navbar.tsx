@@ -13,9 +13,11 @@ import { NAVBAR_ITEMS } from '../navbarItems'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 import { urls } from 'scenes/urls'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { aliasedActiveScene } = useValues(sceneLogic)
     const { isSitePopoverOpen } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
     const { isSidebarShown, activeNavbarItemId } = useValues(navigation3000Logic)
@@ -51,6 +53,7 @@ export function Navbar(): JSX.Element {
                                             : undefined
                                     }
                                     active={activeNavbarItemId === item.identifier && isSidebarShown}
+                                    here={aliasedActiveScene === item.identifier}
                                 />
                             ))}
                         </ul>
