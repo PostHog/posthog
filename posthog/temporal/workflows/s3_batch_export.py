@@ -279,6 +279,41 @@ def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3Mu
     return s3_upload, interval_start
 
 
+def create_or_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
+    key = get_s3_key(inputs)
+    s3_client = boto3.client(
+        "s3",
+        region_name=inputs.region,
+        aws_access_key_id=inputs.aws_access_key_id,
+        aws_secret_access_key=inputs.aws_secret_access_key,
+    )
+    s3_upload = S3MultiPartUpload(s3_client, inputs.bucket_name, key)
+
+    details = activity.info().heartbeat_details
+
+    try:
+        interval_start, upload_state = HeartbeatDetails.from_activity_details(details)
+    except IndexError:
+        # This is the error we expect when no details as the sequence will be empty.
+        interval_start = inputs.data_interval_start
+        activity.logger.info(
+            f"Did not receive details from previous activity Excecution. Export will start from the beginning: {interval_start}"
+        )
+    except Exception as e:
+        # We still start from the beginning, but we make a point to log unexpected errors.
+        # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
+        interval_start = inputs.data_interval_start
+        activity.logger.warning(
+            f"Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning: {interval_start}",
+            exc_info=e,
+        )
+    else:
+        activity.logger.info(f"Received details from previous activity. Export will resume from: {interval_start}")
+        s3_upload.continue_from_state(upload_state)
+
+    return s3_upload, interval_start
+
+
 @activity.defn
 async def insert_into_s3_activity(inputs: S3InsertInputs):
     """
