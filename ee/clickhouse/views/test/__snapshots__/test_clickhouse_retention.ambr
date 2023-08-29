@@ -5,7 +5,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS event_date,
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e.distinct_id AS target
         FROM events e
         WHERE team_id = 2
@@ -15,13 +15,13 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) as event_date,
+       (SELECT min(toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))) as event_date,
                e.distinct_id AS target,
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')),
-                              toStartOfDay(toTimeZone(min(e.timestamp), 'UTC'))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -67,7 +67,7 @@
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS event_date,
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -84,13 +84,13 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) as event_date,
+       (SELECT min(toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')),
-                              toStartOfDay(toTimeZone(min(e.timestamp), 'UTC'))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -139,7 +139,7 @@
           [1] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS event_date,
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -156,13 +156,13 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) as event_date,
+       (SELECT min(toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')),
-                              toStartOfDay(toTimeZone(min(e.timestamp), 'UTC'))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -208,7 +208,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS event_date,
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -237,13 +237,13 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) as event_date,
+       (SELECT min(toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')),
-                              toStartOfDay(toTimeZone(min(e.timestamp), 'UTC'))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -308,7 +308,7 @@
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS event_date,
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -337,13 +337,13 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) as event_date,
+       (SELECT min(toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')),
-                              toStartOfDay(toTimeZone(min(e.timestamp), 'UTC'))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -404,7 +404,7 @@
           [1] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS event_date,
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -433,13 +433,13 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) as event_date,
+       (SELECT min(toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')),
-                              toStartOfDay(toTimeZone(min(e.timestamp), 'UTC'))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
