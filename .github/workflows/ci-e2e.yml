@@ -8,16 +8,13 @@ name: E2E CI
 on:
     pull_request:
 
-env:
-    DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
-
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: true
 
 jobs:
     changes:
-        runs-on: buildjet-2vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run E2E checks
@@ -57,7 +54,7 @@ jobs:
     chunks:
         needs: changes
         name: Cypress preparation
-        runs-on: buildjet-2vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
             chunks: ${{ steps.chunk.outputs.chunks }}
@@ -72,7 +69,7 @@ jobs:
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
-        runs-on: buildjet-4vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
         timeout-minutes: 30
         needs: [chunks, changes]
         permissions:
@@ -99,7 +96,7 @@ jobs:
 
             - name: Set up Node.js
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: buildjet/setup-node@v3
+              uses: actions/setup-node@v3
               with:
                   node-version: 18
 
@@ -113,7 +110,7 @@ jobs:
               id: cypress-cache-dir
               run: echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
 
-            - uses: buildjet/cache@v3
+            - uses: actions/cache@v3
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: pnpm-cache
               with:
