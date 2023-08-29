@@ -2756,10 +2756,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         response = Trends().run(Filter(team=self.team, data={"date_from": "2012-12-12"}), self.team)
         self.assertEqual(response, [])
 
-    def test_interval_filtering(self):
+    def test_interval_filtering_hour(self):
         self._create_events(use_time=True)
 
-        # test hour
         with freeze_time("2020-01-02"):
             response = Trends().run(
                 Filter(data={"date_from": "2019-12-24", "interval": "hour", "events": [{"id": "sign up"}]}),
@@ -2770,7 +2769,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # 217 - 24 - 1
         self.assertEqual(response[0]["data"][192], 3.0)
 
-        # test week
+    def test_interval_filtering_week(self):
+        self._create_events(use_time=True)
+
         with freeze_time("2020-01-02"):
             response = Trends().run(
                 Filter(
@@ -2789,7 +2790,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"][:5], [0.0, 0.0, 0.0, 0.0, 1.0])
 
-        # test month
+    def test_interval_filtering_month(self):
+        self._create_events(use_time=True)
+
         with freeze_time("2020-01-02"):
             response = Trends().run(
                 Filter(
@@ -2804,10 +2807,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[0]["data"][4], 4.0)
 
+    def test_interval_filtering_today_hourly(self):
+        self._create_events(use_time=True)
+
         with freeze_time("2020-01-02 23:30"):
             _create_event(team=self.team, event="sign up", distinct_id="blabla")
 
-        # test today + hourly
         with freeze_time("2020-01-02T23:31:00Z"):
             response = Trends().run(
                 Filter(team=self.team, data={"date_from": "dStart", "interval": "hour", "events": [{"id": "sign up"}]}),
