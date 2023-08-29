@@ -94,7 +94,7 @@ class Database(BaseModel):
 
 def create_hogql_database(team_id: int) -> Database:
     from posthog.models import Team
-    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery
+    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery, DataWarehouseViewLink
 
     team = Team.objects.get(pk=team_id)
     database = Database(timezone=team.timezone)
@@ -102,6 +102,16 @@ def create_hogql_database(team_id: int) -> Database:
         # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+
+    for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
+        table = database.get_table(view.table)
+
+        # Saved query names are unique to team
+        table.fields[view.saved_query.name] = LazyJoin(
+            from_field=view.from_join_key,
+            join_table=view.saved_query.hogql_definition(),
+            join_function=view.join_function,
+        )
 
     tables = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
@@ -156,6 +166,8 @@ def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
 
 
 def serialize_fields(field_input) -> List[SerializedField]:
+    from posthog.hogql.database.models import SavedQuery
+
     field_output: List[SerializedField] = []
     for field_key, field in field_input.items():
         if field_key == "team_id":
@@ -178,7 +190,15 @@ def serialize_fields(field_input) -> List[SerializedField]:
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append({"key": field_key, "type": "array"})
         elif isinstance(field, LazyJoin):
-            field_output.append({"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()})
+            is_view = isinstance(field.join_table, SavedQuery)
+            field_output.append(
+                {
+                    "key": field_key,
+                    "type": "view" if is_view else "lazy_table",
+                    "table": field.join_table.to_printed_hogql(),
+                    "fields": list(field.join_table.fields.keys()),
+                }
+            )
         elif isinstance(field, VirtualTable):
             field_output.append(
                 {
