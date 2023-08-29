@@ -44,6 +44,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             normalizeBreakdownURL,
         }),
         setBreakdownLimit: (value: number | undefined) => ({ value }),
+        updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
     }),
     reducers({
         localHistogramBinCount: [
@@ -54,6 +55,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
     }),
     selectors({
+        display: [(_, p) => [p.display], (display) => display],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         hasNonCohortBreakdown: [
@@ -167,6 +169,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             props.updateBreakdown?.({
                 breakdown_limit: value,
             })
+        },
+        updateBreakdownFilter: ({ breakdownFilter }) => {
+            props.updateBreakdown?.(breakdownFilter)
         },
     })),
 ])
