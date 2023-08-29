@@ -479,8 +479,8 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         parsed_flags = []
         for feature_flag in feature_flags:
             filters = feature_flag.get_filters()
-            # transform cohort filters to be evaluated locally
-            if (
+            # transform cohort filters to be evaluated locally, but only if send_cohorts is false
+            if not should_send_cohorts and (
                 len(
                     feature_flag.get_cohort_ids(
                         using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache

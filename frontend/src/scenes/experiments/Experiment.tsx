@@ -368,7 +368,7 @@ export function Experiment(): JSX.Element {
                                                 </Link>
                                             )}
                                         </div>
-                                        {experimentId === 'new' && (
+                                        {experimentId === 'new' && groupTypes.length > 0 && (
                                             <>
                                                 <div className="mt-4">
                                                     <strong>Default participant type</strong>

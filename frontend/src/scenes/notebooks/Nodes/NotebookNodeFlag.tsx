@@ -1,7 +1,7 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { FeatureFlagType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 import { IconFlag, IconRecording } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { NotebookNodeViewProps } from '../Notebook/utils'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import api from 'lib/api'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = props.node.attrs
@@ -83,7 +84,22 @@ type NotebookNodeFlagAttributes = {
 
 export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
-    title: 'Feature Flag',
+    title: async (attributes) => {
+        if (typeof attributes.title === 'string' && attributes.title.length > 0) {
+            return attributes.title
+        }
+
+        const mountedFlagLogic = featureFlagLogic.findMounted({ id: attributes.id })
+        let title = mountedFlagLogic?.values.featureFlag.key || null
+        if (title === null) {
+            const retrievedFlag: FeatureFlagType = await api.featureFlags.get(Number(attributes.id))
+            if (retrievedFlag) {
+                title = retrievedFlag.key
+            }
+        }
+
+        return title ? `Feature flag: ${title}` : 'Feature flag'
+    },
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.featureFlag(attrs.id),

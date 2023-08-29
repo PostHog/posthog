@@ -1,5 +1,6 @@
-from django.db import models
 from datetime import timedelta
+
+from django.db import models
 
 from posthog.models.utils import UUIDModel
 
@@ -20,10 +21,12 @@ class BatchExportDestination(UUIDModel):
 
         S3 = "S3"
         SNOWFLAKE = "Snowflake"
+        POSTGRES = "Postgres"
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": set("password"),
+        "Postgres": set("password"),
     }
 
     type: models.CharField = models.CharField(

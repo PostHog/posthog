@@ -414,11 +414,11 @@ class ApiRequest {
     }
 
     // # Feature flags
-    public featureFlags(teamId: TeamType['id']): ApiRequest {
+    public featureFlags(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feature_flags')
     }
 
-    public featureFlag(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+    public featureFlag(id: FeatureFlagType['id'], teamId?: TeamType['id']): ApiRequest {
         if (!id) {
             throw new Error('Must provide an ID for the feature flag to construct the URL')
         }
@@ -452,7 +452,7 @@ class ApiRequest {
 
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_table')
+        return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
     }
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
@@ -460,7 +460,7 @@ class ApiRequest {
 
     // # Warehouse view
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_query')
+        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
@@ -603,6 +603,30 @@ const ensureProjectIdNotInvalid = (url: string): void => {
 }
 
 const api = {
+    insights: {
+        loadInsight(
+            shortId: InsightModel['short_id'],
+            basic?: boolean
+        ): Promise<PaginatedResponse<Partial<InsightModel>>> {
+            return new ApiRequest()
+                .insights()
+                .withQueryString(
+                    toParams({
+                        short_id: encodeURIComponent(shortId),
+                        include_query_insights: true,
+                        basic: basic,
+                    })
+                )
+                .get()
+        },
+    },
+
+    featureFlags: {
+        async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
+            return await new ApiRequest().featureFlag(id).get()
+        },
+    },
+
     actions: {
         async get(actionId: ActionType['id']): Promise<ActionType> {
             return await new ApiRequest().actionsDetail(actionId).get()
@@ -1515,6 +1539,7 @@ const api = {
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
+
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         options?: ApiMethodOptions,

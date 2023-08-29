@@ -192,6 +192,11 @@ export async function createHub(
     const closeHub = async () => {
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
+
+        // Break circular references to allow the hub to be GCed when running unit tests
+        // TODO: change these structs to not directly reference the hub
+        hub.eventsProcessor = undefined
+        hub.appMetrics = undefined
     }
 
     return [hub as Hub, closeHub]

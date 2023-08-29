@@ -65,6 +65,11 @@ Loading.args = {
     options: [],
     loading: true,
 }
+Loading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const NoOptions: Story = Template.bind({})
 NoOptions.args = {
