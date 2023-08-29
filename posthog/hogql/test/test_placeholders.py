@@ -8,7 +8,7 @@ from posthog.test.base import BaseTest
 class TestParser(BaseTest):
     def test_find_placeholders(self):
         expr = parse_expr("{foo} and {bar}")
-        self.assertEqual(find_placeholders(expr), ["foo", "bar"])
+        self.assertEqual(sorted(find_placeholders(expr)), sorted(["foo", "bar"]))
 
     def test_replace_placeholders_simple(self):
         expr = parse_expr("{foo}")
