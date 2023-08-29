@@ -304,6 +304,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.exception("S3 BatchExport failed.", exc_info=e)
             update_inputs.status = "Failed"
+            update_inputs.latest_error = str(e)
             raise
 
         finally:
