@@ -45,7 +45,7 @@ export function ViewLinkModal(): JSX.Element {
                         <div className="w-50">
                             <span className="l4">Table Key</span>
                             <Field name="from_join_key">
-                                <LemonSelect fullWidth options={fromJoinKeyOptions} />
+                                <LemonSelect fullWidth options={fromJoinKeyOptions} placeholder="Select a key" />
                             </Field>
                         </div>
                         <div className="mt-5">
@@ -58,6 +58,7 @@ export function ViewLinkModal(): JSX.Element {
                                     fullWidth
                                     disabledReason={selectedView ? '' : 'Select a view to choose join key'}
                                     options={toJoinKeyOptions}
+                                    placeholder="Select a key"
                                 />
                             </Field>
                         </div>
