@@ -110,7 +110,7 @@ export function HelpButton({
                                     reportHelpButtonUsed(HelpType.Updates)
                                     hideHelp()
                                 },
-                                to: 'https://posthog.com/blog/categories/posthog-news',
+                                to: 'https://posthog.com/changelog',
                                 targetBlank: true,
                             },
                         ],
@@ -195,6 +195,7 @@ export function HelpButton({
                 visible={isHelpVisible}
                 placement={placement}
                 actionable
+                onClickOutside={hideHelp}
             >
                 <div className={clsx('help-button', inline && 'inline')} onClick={toggleHelp} data-attr="help-button">
                     {customComponent || (

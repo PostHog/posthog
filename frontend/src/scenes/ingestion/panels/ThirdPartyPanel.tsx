@@ -181,7 +181,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                                 provides a detailed overview of how to set up this integration.
                                             </p>
                                             <b>PostHog Project API Key</b>
-                                            <CodeSnippet copyDescription="project API key">
+                                            <CodeSnippet thing="project API key">
                                                 {currentTeam?.api_token || ''}
                                             </CodeSnippet>
                                         </div>

@@ -21,10 +21,10 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
+from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
-from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
@@ -42,7 +42,6 @@ class Database(BaseModel):
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
     person_overrides: PersonOverridesTable = PersonOverridesTable()
 
-    session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
@@ -53,6 +52,22 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
+
+    # system tables
+    numbers: NumbersTable = NumbersTable()
+
+    # clunky: keep table names in sync with above
+    _table_names: List[str] = [
+        "events",
+        "groups",
+        "person",
+        "person_distinct_id2",
+        "person_overrides",
+        "session_recording_events",
+        "session_replay_events",
+        "cohortpeople",
+        "person_static_cohort",
+    ]
 
     def __init__(self, timezone: Optional[str]):
         super().__init__()
@@ -79,7 +94,7 @@ class Database(BaseModel):
 
 def create_hogql_database(team_id: int) -> Database:
     from posthog.models import Team
-    from posthog.warehouse.models import DataWarehouseTable
+    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery, DataWarehouseViewLink
 
     team = Team.objects.get(pk=team_id)
     database = Database(timezone=team.timezone)
@@ -88,9 +103,23 @@ def create_hogql_database(team_id: int) -> Database:
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
+    for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
+        table = database.get_table(view.table)
+
+        # Saved query names are unique to team
+        table.fields[view.saved_query.name] = LazyJoin(
+            from_field=view.from_join_key,
+            join_table=view.saved_query.hogql_definition(),
+            join_function=view.join_function,
+        )
+
     tables = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
+
+    for table in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+        tables[table.name] = table.hogql_definition()
+
     database.add_warehouse_tables(**tables)
 
     return database
@@ -105,6 +134,7 @@ class _SerializedFieldBase(TypedDict):
         "datetime",
         "date",
         "boolean",
+        "array",
         "json",
         "lazy_table",
         "virtual_table",
@@ -136,6 +166,8 @@ def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
 
 
 def serialize_fields(field_input) -> List[SerializedField]:
+    from posthog.hogql.database.models import SavedQuery
+
     field_output: List[SerializedField] = []
     for field_key, field in field_input.items():
         if field_key == "team_id":
@@ -158,7 +190,15 @@ def serialize_fields(field_input) -> List[SerializedField]:
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append({"key": field_key, "type": "array"})
         elif isinstance(field, LazyJoin):
-            field_output.append({"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()})
+            is_view = isinstance(field.join_table, SavedQuery)
+            field_output.append(
+                {
+                    "key": field_key,
+                    "type": "view" if is_view else "lazy_table",
+                    "table": field.join_table.to_printed_hogql(),
+                    "fields": list(field.join_table.fields.keys()),
+                }
+            )
         elif isinstance(field, VirtualTable):
             field_output.append(
                 {

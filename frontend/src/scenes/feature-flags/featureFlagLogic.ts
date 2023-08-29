@@ -89,38 +89,6 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
-export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
-    events: [
-        {
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
-            type: 'events',
-            properties: defaultPropertyOnFlag(flagKey),
-        },
-    ],
-})
-
-export const defaultPropertyOnFlag = (flagKey: string): AnyPropertyFilter[] => [
-    {
-        key: '$feature/' + flagKey,
-        type: PropertyFilterType.Event,
-        value: ['false'],
-        operator: PropertyOperator.IsNot,
-    },
-    {
-        key: '$feature/' + flagKey,
-        type: PropertyFilterType.Event,
-        value: 'is_set',
-        operator: PropertyOperator.IsSet,
-    },
-    {
-        key: '$feature_flag',
-        type: PropertyFilterType.Event,
-        value: flagKey,
-        operator: PropertyOperator.Exact,
-    },
-]
-
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
@@ -236,7 +204,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         removeVariant: (index: number) => ({ index }),
         editFeatureFlag: (editing: boolean) => ({ editing }),
         distributeVariantsEqually: true,
-        setFilters: (filters) => ({ filters }),
         loadInsightAtIndex: (index: number, filters: Partial<FilterType>) => ({ index, filters }),
         setInsightResultAtIndex: (index: number, average: number) => ({ index, average }),
         loadAllInsightsForFlag: true,
@@ -244,6 +211,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setTotalUsers: (count: number) => ({ count }),
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
+        enrichUsageDashboard: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -422,13 +390,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return state
                     }
 
+                    const originalRolloutPercentage = state.filters.groups[0].rollout_percentage
+
                     return {
                         ...state,
                         filters: {
                             ...state.filters,
                             aggregation_group_type_index: value,
                             // :TRICKY: We reset property filters after changing what you're aggregating by.
-                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: originalRolloutPercentage, variant: null }],
                         },
                     }
                 },
@@ -474,9 +444,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
-                        const retrievedFlag: FeatureFlagType = await api.get(
-                            `api/projects/${values.currentTeamId}/feature_flags/${props.id}`
-                        )
+                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch (e) {
                         actions.setFeatureFlagMissing()
@@ -546,6 +514,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (props.id) {
                 await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
                 actions.loadFeatureFlag()
+            }
+        },
+        enrichUsageDashboard: async (_, breakpoint) => {
+            if (props.id) {
+                await breakpoint(1000) // in ms
+                await api.create(
+                    `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
+                )
             }
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
@@ -802,6 +778,63 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return dashboards.filter((dashboard: DashboardBasicType) => {
                     return featureFlag.analytics_dashboards?.includes(dashboard.id)
                 })
+            },
+        ],
+        recordingFilterForFlag: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                const flagKey = featureFlag?.key
+                if (!flagKey) {
+                    return {}
+                }
+
+                const defaultEntityFilterOnFlag: Partial<FilterType> = {
+                    events: [
+                        {
+                            id: '$feature_flag_called',
+                            name: '$feature_flag_called',
+                            type: 'events',
+                            properties: [
+                                {
+                                    key: '$feature/' + flagKey,
+                                    type: PropertyFilterType.Event,
+                                    value: ['false'],
+                                    operator: PropertyOperator.IsNot,
+                                },
+                                {
+                                    key: '$feature/' + flagKey,
+                                    type: PropertyFilterType.Event,
+                                    value: 'is_set',
+                                    operator: PropertyOperator.IsSet,
+                                },
+                                {
+                                    key: '$feature_flag',
+                                    type: PropertyFilterType.Event,
+                                    value: flagKey,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                }
+
+                if (featureFlag.has_enriched_analytics) {
+                    return {
+                        events: [
+                            {
+                                id: '$feature_interaction',
+                                type: 'events',
+                                order: 0,
+                                name: '$feature_interaction',
+                                properties: [
+                                    { key: 'feature_flag', value: [flagKey], operator: 'exact', type: 'event' },
+                                ],
+                            },
+                        ],
+                    }
+                } else {
+                    return defaultEntityFilterOnFlag
+                }
             },
         ],
     }),

@@ -1,16 +1,10 @@
 from posthog.settings.base_variables import TEST
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 5, type_cast=int)
 
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
-
-ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, type_cast=str_to_bool)
-EVENT_PROPERTY_USAGE_INTERVAL_CRON = get_from_env(
-    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_CRON",
-    "0 */6 * * *",
-)
 
 # Schedule to syncronize insight cache states on. Follows crontab syntax.
 SYNC_INSIGHT_CACHE_STATES_SCHEDULE = get_from_env(

@@ -1,8 +1,6 @@
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
-
-from pydantic import Extra
-from pydantic import Field as PydanticField
+from dataclasses import dataclass, field
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType
 from posthog.hogql.constants import ConstantDataType
@@ -29,6 +27,7 @@ from posthog.hogql.errors import HogQLException, NotImplementedException
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
 
 
+@dataclass(kw_only=True)
 class FieldAliasType(Type):
     alias: str
     type: Type
@@ -40,6 +39,7 @@ class FieldAliasType(Type):
         return self.type.has_child(name)
 
 
+@dataclass(kw_only=True)
 class BaseTableType(Type):
     def resolve_database_table(self) -> Table:
         raise NotImplementedException("BaseTableType.resolve_database_table not overridden")
@@ -64,6 +64,7 @@ class BaseTableType(Type):
         raise HogQLException(f"Field not found: {name}")
 
 
+@dataclass(kw_only=True)
 class TableType(BaseTableType):
     table: Table
 
@@ -71,6 +72,7 @@ class TableType(BaseTableType):
         return self.table
 
 
+@dataclass(kw_only=True)
 class TableAliasType(BaseTableType):
     alias: str
     table_type: TableType
@@ -79,6 +81,7 @@ class TableAliasType(BaseTableType):
         return self.table_type.table
 
 
+@dataclass(kw_only=True)
 class LazyJoinType(BaseTableType):
     table_type: BaseTableType
     field: str
@@ -88,6 +91,7 @@ class LazyJoinType(BaseTableType):
         return self.lazy_join.join_table
 
 
+@dataclass(kw_only=True)
 class LazyTableType(BaseTableType):
     table: LazyTable
 
@@ -95,6 +99,7 @@ class LazyTableType(BaseTableType):
         return self.table
 
 
+@dataclass(kw_only=True)
 class VirtualTableType(BaseTableType):
     table_type: BaseTableType
     field: str
@@ -110,18 +115,19 @@ class VirtualTableType(BaseTableType):
 TableOrSelectType = Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
 
 
+@dataclass(kw_only=True)
 class SelectQueryType(Type):
     """Type and new enclosed scope for a select query. Contains information about all tables and columns in the query."""
 
     # all aliases a select query has access to in its scope
-    aliases: Dict[str, FieldAliasType] = PydanticField(default_factory=dict)
+    aliases: Dict[str, FieldAliasType] = field(default_factory=dict)
     # all types a select query exports
-    columns: Dict[str, Type] = PydanticField(default_factory=dict)
+    columns: Dict[str, Type] = field(default_factory=dict)
     # all from and join, tables and subqueries with aliases
-    tables: Dict[str, TableOrSelectType] = PydanticField(default_factory=dict)
-    ctes: Dict[str, CTE] = PydanticField(default_factory=dict)
+    tables: Dict[str, TableOrSelectType] = field(default_factory=dict)
+    ctes: Dict[str, CTE] = field(default_factory=dict)
     # all from and join subqueries without aliases
-    anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = PydanticField(default_factory=list)
+    anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
     parent: Optional[Union["SelectQueryType", "SelectUnionQueryType"]] = None
 
@@ -142,6 +148,7 @@ class SelectQueryType(Type):
         return name in self.columns
 
 
+@dataclass(kw_only=True)
 class SelectUnionQueryType(Type):
     types: List[SelectQueryType]
 
@@ -155,6 +162,7 @@ class SelectUnionQueryType(Type):
         return self.types[0].has_child(name)
 
 
+@dataclass(kw_only=True)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectUnionQueryType
@@ -170,74 +178,81 @@ class SelectQueryAliasType(Type):
         return self.select_query_type.has_child(name)
 
 
-SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
-
-
+@dataclass(kw_only=True)
 class IntegerType(ConstantType):
-    data_type: ConstantDataType = PydanticField("int", const=True)
+    data_type: ConstantDataType = field(default="int", init=False)
 
     def print_type(self) -> str:
         return "Integer"
 
 
+@dataclass(kw_only=True)
 class FloatType(ConstantType):
-    data_type: ConstantDataType = PydanticField("float", const=True)
+    data_type: ConstantDataType = field(default="float", init=False)
 
     def print_type(self) -> str:
         return "Float"
 
 
+@dataclass(kw_only=True)
 class StringType(ConstantType):
-    data_type: ConstantDataType = PydanticField("str", const=True)
+    data_type: ConstantDataType = field(default="str", init=False)
 
     def print_type(self) -> str:
         return "String"
 
 
+@dataclass(kw_only=True)
 class BooleanType(ConstantType):
-    data_type: ConstantDataType = PydanticField("bool", const=True)
+    data_type: ConstantDataType = field(default="bool", init=False)
 
     def print_type(self) -> str:
         return "Boolean"
 
 
+@dataclass(kw_only=True)
 class DateType(ConstantType):
-    data_type: ConstantDataType = PydanticField("date", const=True)
+    data_type: ConstantDataType = field(default="date", init=False)
 
     def print_type(self) -> str:
         return "Date"
 
 
+@dataclass(kw_only=True)
 class DateTimeType(ConstantType):
-    data_type: ConstantDataType = PydanticField("datetime", const=True)
+    data_type: ConstantDataType = field(default="datetime", init=False)
 
     def print_type(self) -> str:
         return "DateTime"
 
 
+@dataclass(kw_only=True)
 class UUIDType(ConstantType):
-    data_type: ConstantDataType = PydanticField("uuid", const=True)
+    data_type: ConstantDataType = field(default="uuid", init=False)
 
     def print_type(self) -> str:
         return "UUID"
 
 
+@dataclass(kw_only=True)
 class ArrayType(ConstantType):
-    data_type: ConstantDataType = PydanticField("array", const=True)
+    data_type: ConstantDataType = field(default="array", init=False)
     item_type: ConstantType
 
     def print_type(self) -> str:
         return "Array"
 
 
+@dataclass(kw_only=True)
 class TupleType(ConstantType):
-    data_type: ConstantDataType = PydanticField("tuple", const=True)
+    data_type: ConstantDataType = field(default="tuple", init=False)
     item_types: List[ConstantType]
 
     def print_type(self) -> str:
         return "Tuple"
 
 
+@dataclass(kw_only=True)
 class CallType(Type):
     name: str
     arg_types: List[ConstantType]
@@ -248,15 +263,18 @@ class CallType(Type):
         return self.return_type
 
 
+@dataclass(kw_only=True)
 class AsteriskType(Type):
     table_type: TableOrSelectType
 
 
+@dataclass(kw_only=True)
 class FieldTraverserType(Type):
     chain: List[str | int]
     table_type: TableOrSelectType
 
 
+@dataclass(kw_only=True)
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
@@ -297,19 +315,20 @@ class FieldType(Type):
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
-            return FieldType(chain=[name], field_type=self)
+            return PropertyType(chain=[name], field_type=self)
         raise HogQLException(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
 
+@dataclass(kw_only=True)
 class PropertyType(Type):
     chain: List[str | int]
     field_type: FieldType
 
     # The property has been moved into a field we query from a joined subquery
-    joined_subquery: Optional[SelectQueryAliasType]
-    joined_subquery_field_name: Optional[str]
+    joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
+    joined_subquery_field_name: Optional[str] = field(default=None, init=False)
 
     def get_child(self, name: str | int) -> "Type":
         return PropertyType(chain=self.chain + [name], field_type=self.field_type)
@@ -317,15 +336,13 @@ class PropertyType(Type):
     def has_child(self, name: str | int) -> bool:
         return True
 
-    class Config:
-        # Without this, pydantic converts all integers in "chain" into strings, breaking array access
-        smart_union = True
 
-
+@dataclass(kw_only=True)
 class LambdaArgumentType(Type):
     name: str
 
 
+@dataclass(kw_only=True)
 class Alias(Expr):
     alias: str
     expr: Expr
@@ -339,24 +356,21 @@ class ArithmeticOperationOp(str, Enum):
     Mod = "%"
 
 
+@dataclass(kw_only=True)
 class ArithmeticOperation(Expr):
     left: Expr
     right: Expr
     op: ArithmeticOperationOp
 
 
+@dataclass(kw_only=True)
 class And(Expr):
-    class Config:
-        extra = Extra.forbid
-
     type: Optional[ConstantType]
     exprs: List[Expr]
 
 
+@dataclass(kw_only=True)
 class Or(Expr):
-    class Config:
-        extra = Extra.forbid
-
     type: Optional[ConstantType]
     exprs: List[Expr]
 
@@ -373,7 +387,9 @@ class CompareOperationOp(str, Enum):
     NotLike = "not like"
     NotILike = "not ilike"
     In = "in"
+    GlobalIn = "global in"
     NotIn = "not in"
+    GlobalNotIn = "global not in"
     InCohort = "in cohort"
     NotInCohort = "not in cohort"
     Regex = "=~"
@@ -382,58 +398,70 @@ class CompareOperationOp(str, Enum):
     NotIRegex = "!~*"
 
 
+@dataclass(kw_only=True)
 class CompareOperation(Expr):
     left: Expr
     right: Expr
     op: CompareOperationOp
-    type: Optional[ConstantType]
+    type: Optional[ConstantType] = None
 
 
+@dataclass(kw_only=True)
 class Not(Expr):
     expr: Expr
-    type: Optional[ConstantType]
+    type: Optional[ConstantType] = None
 
 
+@dataclass(kw_only=True)
 class OrderExpr(Expr):
     expr: Expr
     order: Literal["ASC", "DESC"] = "ASC"
 
 
+@dataclass(kw_only=True)
 class ArrayAccess(Expr):
     array: Expr
     property: Expr
 
 
+@dataclass(kw_only=True)
 class Array(Expr):
     exprs: List[Expr]
 
 
+@dataclass(kw_only=True)
 class TupleAccess(Expr):
     tuple: Expr
     index: int
 
 
+@dataclass(kw_only=True)
 class Tuple(Expr):
     exprs: List[Expr]
 
 
+@dataclass(kw_only=True)
 class Lambda(Expr):
     args: List[str]
     expr: Expr
 
 
+@dataclass(kw_only=True)
 class Constant(Expr):
     value: Any
 
 
+@dataclass(kw_only=True)
 class Field(Expr):
     chain: List[str | int]
 
 
+@dataclass(kw_only=True)
 class Placeholder(Expr):
     field: str
 
 
+@dataclass(kw_only=True)
 class Call(Expr):
     name: str
     """Function name"""
@@ -446,16 +474,19 @@ class Call(Expr):
     distinct: bool = False
 
 
+@dataclass(kw_only=True)
 class JoinConstraint(Expr):
     expr: Expr
 
 
+@dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType]
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table_args: Optional[List[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional["JoinConstraint"] = None
@@ -463,11 +494,13 @@ class JoinExpr(Expr):
     sample: Optional["SampleExpr"] = None
 
 
+@dataclass(kw_only=True)
 class WindowFrameExpr(Expr):
     frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
     frame_value: Optional[int] = None
 
 
+@dataclass(kw_only=True)
 class WindowExpr(Expr):
     partition_by: Optional[List[Expr]] = None
     order_by: Optional[List[OrderExpr]] = None
@@ -476,6 +509,7 @@ class WindowExpr(Expr):
     frame_end: Optional[WindowFrameExpr] = None
 
 
+@dataclass(kw_only=True)
 class WindowFunction(Expr):
     name: str
     args: Optional[List[Expr]] = None
@@ -483,6 +517,7 @@ class WindowFunction(Expr):
     over_identifier: Optional[str] = None
 
 
+@dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
@@ -490,6 +525,8 @@ class SelectQuery(Expr):
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
+    array_join_op: Optional[str] = None
+    array_join_list: Optional[List[Expr]] = None
     window_exprs: Optional[Dict[str, WindowExpr]] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
@@ -502,22 +539,20 @@ class SelectQuery(Expr):
     offset: Optional[Expr] = None
 
 
+@dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
-    type: Optional[SelectUnionQueryType] = None
+    type: Optional[SelectUnionQueryType]
     select_queries: List[SelectQuery]
 
 
+@dataclass(kw_only=True)
 class RatioExpr(Expr):
     left: Constant
     right: Optional[Constant] = None
 
 
+@dataclass(kw_only=True)
 class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr
-    offset_value: Optional[RatioExpr]
-
-
-JoinExpr.update_forward_refs(SampleExpr=SampleExpr)
-JoinExpr.update_forward_refs(SelectUnionQuery=SelectUnionQuery)
-JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
+    offset_value: Optional[RatioExpr] = None

@@ -1,13 +1,10 @@
 #
 # docker-compose base file used for local development, hobby deploys, and other compose use cases.
 #
-# If you are looking at self-hosted deployment options check
-# https://posthog.com/docs/self-host
-#
 
 services:
     db:
-        image: postgres:12-alpine
+        image: ${DOCKER_REGISTRY_PREFIX:-}postgres:12-alpine
         restart: on-failure
         environment:
             POSTGRES_USER: posthog
@@ -19,7 +16,7 @@ services:
             timeout: 5s
 
     redis:
-        image: redis:6.2.7-alpine
+        image: ${DOCKER_REGISTRY_PREFIX:-}redis:6.2.7-alpine
         restart: on-failure
         command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
 
@@ -28,17 +25,17 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.6.1.1524}
+        image: ${DOCKER_REGISTRY_PREFIX:-}${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.6.1.1524}
         restart: on-failure
         depends_on:
             - kafka
             - zookeeper
     zookeeper:
-        image: zookeeper:3.7.0
+        image: ${DOCKER_REGISTRY_PREFIX:-}zookeeper:3.7.0
         restart: on-failure
 
     kafka:
-        image: bitnami/kafka:2.8.1-debian-10-r99
+        image: ${DOCKER_REGISTRY_PREFIX:-}bitnami/kafka:2.8.1-debian-10-r99
         restart: on-failure
         depends_on:
             - zookeeper
@@ -51,7 +48,7 @@ services:
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
     object_storage:
-        image: minio/minio:RELEASE.2022-06-25T15-50-16Z
+        image: ${DOCKER_REGISTRY_PREFIX:-}minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure
         environment:
             MINIO_ROOT_USER: object_storage_root_user
@@ -60,7 +57,7 @@ services:
         command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
 
     maildev:
-        image: maildev/maildev:2.0.5
+        image: ${DOCKER_REGISTRY_PREFIX:-}maildev/maildev:2.0.5
         restart: on-failure
 
     worker: &worker
@@ -140,7 +137,7 @@ services:
             - discovery.type=single-node
             - ES_JAVA_OPTS=-Xms256m -Xmx256m
             - xpack.security.enabled=false
-        image: elasticsearch:7.16.2
+        image: ${DOCKER_REGISTRY_PREFIX:-}elasticsearch:7.16.2
         expose:
             - 9200
         volumes:
@@ -160,7 +157,7 @@ services:
             - ENABLE_ES=true
             - ES_SEEDS=elasticsearch
             - ES_VERSION=v7
-        image: temporalio/auto-setup:1.20.0
+        image: ${DOCKER_REGISTRY_PREFIX:-}temporalio/auto-setup:1.20.0
         ports:
             - 7233:7233
         labels:
@@ -172,7 +169,7 @@ services:
             - temporal
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
-        image: temporalio/admin-tools:1.20.0
+        image: ${DOCKER_REGISTRY_PREFIX:-}temporalio/admin-tools:1.20.0
         stdin_open: true
         tty: true
     temporal-ui:
@@ -181,7 +178,7 @@ services:
         environment:
             - TEMPORAL_ADDRESS=temporal:7233
             - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-        image: temporalio/ui:2.10.3
+        image: ${DOCKER_REGISTRY_PREFIX:-}temporalio/ui:2.10.3
         ports:
             - 8081:8080
     temporal-django-worker:

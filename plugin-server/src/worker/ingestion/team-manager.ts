@@ -1,22 +1,21 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
-import { Client, Pool } from 'pg'
 
 import { ONE_MINUTE } from '../../config/constants'
 import { PipelineEvent, PluginsServerConfig, Team, TeamId } from '../../types'
-import { postgresQuery } from '../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
 
 export class TeamManager {
-    postgres: Pool
+    postgres: PostgresRouter
     teamCache: LRU<TeamId, Team | null>
     tokenToTeamIdCache: LRU<string, TeamId | null>
     statsd?: StatsD
     instanceSiteUrl: string
 
-    constructor(postgres: Pool, serverConfig: PluginsServerConfig, statsd?: StatsD) {
+    constructor(postgres: PostgresRouter, serverConfig: PluginsServerConfig, statsd?: StatsD) {
         this.postgres = postgres
         this.statsd = statsd
 
@@ -109,16 +108,16 @@ export class TeamManager {
 
     public async setTeamIngestedEvent(team: Team, properties: Properties) {
         if (team && !team.ingested_event) {
-            await postgresQuery(
-                this.postgres,
+            await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
                 [true, team.id],
                 'setTeamIngestedEvent'
             )
 
             // First event for the team captured
-            const organizationMembers = await postgresQuery(
-                this.postgres,
+            const organizationMembers = await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
                 [team.organization_id],
                 'posthog_organizationmembership'
@@ -145,9 +144,9 @@ export class TeamManager {
     }
 }
 
-export async function fetchTeam(client: Client | Pool, teamId: Team['id']): Promise<Team | null> {
-    const selectResult = await postgresQuery<Team>(
-        client,
+export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
+    const selectResult = await client.query<Team>(
+        PostgresUse.COMMON_READ,
         `
             SELECT
                 id,
@@ -169,9 +168,9 @@ export async function fetchTeam(client: Client | Pool, teamId: Team['id']): Prom
     return selectResult.rows[0] ?? null
 }
 
-export async function fetchTeamByToken(client: Client | Pool, token: string): Promise<Team | null> {
-    const selectResult = await postgresQuery<Team>(
-        client,
+export async function fetchTeamByToken(client: PostgresRouter, token: string): Promise<Team | null> {
+    const selectResult = await client.query<Team>(
+        PostgresUse.COMMON_READ,
         `
             SELECT
                 id,
@@ -191,4 +190,22 @@ export async function fetchTeamByToken(client: Client | Pool, token: string): Pr
         'fetchTeamByToken'
     )
     return selectResult.rows[0] ?? null
+}
+
+export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamId>> {
+    const selectResult = await client.query<Pick<Team, 'id' | 'api_token'>>(
+        PostgresUse.COMMON_READ,
+        `
+            SELECT id, api_token
+            FROM posthog_team
+            WHERE session_recording_opt_in = true
+        `,
+        [],
+        'fetchTeamTokensWithRecordings'
+    )
+
+    return selectResult.rows.reduce((acc, row) => {
+        acc[row.api_token] = row.id
+        return acc
+    }, {} as Record<string, TeamId>)
 }

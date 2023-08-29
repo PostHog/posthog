@@ -52,7 +52,7 @@ export function getColorVar(variable: string): string {
  */
 export function getSeriesColor(
     index: number | undefined = 0,
-    comparePrevious: boolean = false,
+    comparePrevious: boolean | null = false,
     asBackgroundHighlight?: boolean
 ): string {
     const adjustedIndex = (comparePrevious ? Math.floor(index / 2) : index) % dataColorVars.length

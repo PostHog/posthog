@@ -5,20 +5,21 @@ import { useActions, useMountedLogic } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { useEffect } from 'react'
 import { infiniteListLogic } from './infiniteListLogic'
-import { ComponentMeta, ComponentStoryFn } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
-export default {
+const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
     component: TaxonomicFilter,
     decorators: [taxonomicFilterMocksDecorator],
     parameters: {
-        testOptions: { waitForLoadersToDisappear: '.definition-popover' },
+        testOptions: { waitForSelector: '.definition-popover' },
     },
-} as ComponentMeta<typeof TaxonomicFilter>
+}
+export default meta
 
-export const EventsFree: ComponentStoryFn<typeof TaxonomicFilter> = (args) => {
+export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
     useMountedLogic(actionsModel)
     const { setIndex } = useActions(
         infiniteListLogic({
@@ -43,7 +44,7 @@ EventsFree.args = {
     taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
 }
 
-export const EventsPremium: ComponentStoryFn<typeof TaxonomicFilter> = (args) => {
+export const EventsPremium: StoryFn<typeof TaxonomicFilter> = (args) => {
     useAvailableFeatures([AvailableFeature.INGESTION_TAXONOMY])
     return <EventsFree {...args} />
 }
@@ -52,7 +53,7 @@ EventsPremium.args = {
     taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
 }
 
-export const Actions: ComponentStoryFn<typeof TaxonomicFilter> = (args) => {
+export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
     useMountedLogic(actionsModel)
     const { setIndex } = useActions(
         infiniteListLogic({
@@ -77,7 +78,7 @@ Actions.args = {
     taxonomicGroupTypes: [TaxonomicFilterGroupType.Actions],
 }
 
-export const Properties: ComponentStoryFn<typeof TaxonomicFilter> = (args) => {
+export const Properties: StoryFn<typeof TaxonomicFilter> = (args) => {
     return (
         <div className="w-fit border rounded p-2 bg-bg-light">
             <TaxonomicFilter {...args} />

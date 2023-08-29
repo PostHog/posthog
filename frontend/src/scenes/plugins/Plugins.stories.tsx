@@ -7,18 +7,17 @@ import { PluginTab } from 'scenes/plugins/types'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Apps',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
         viewMode: 'story',
     },
-} as Meta
-
+}
+export default meta
 export const Installed: Story = () => {
     useAvailableFeatures([AvailableFeature.APP_METRICS])
     useEffect(() => {

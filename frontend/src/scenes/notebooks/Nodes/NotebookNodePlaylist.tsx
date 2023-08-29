@@ -1,25 +1,33 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
-import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, RecordingFilters } from '~/types'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { FilterType, NotebookNodeType, NotebookNodeWidgetSettings, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { posthogNodePasteRule, useJsonNodeState } from './utils'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { useJsonNodeState } from './utils'
+import {
+    addedAdvancedFilters,
+    getDefaultFilters,
+    sessionRecordingsListLogic,
+} from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { fromParamsGivenUrl, uuid } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
+import { IconChevronLeft, IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
+import { ErrorBoundary } from '@sentry/react'
 
-const HEIGHT = 'calc(100vh - 20rem)'
-
-const Component = (props: NodeViewProps): JSX.Element => {
-    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
+const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
+    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(
+        props.node.attrs,
+        props.updateAttributes,
+        'filters'
+    )
 
     const playerKey = useRef(`notebook-${uuid()}`).current
 
@@ -31,10 +39,15 @@ const Component = (props: NodeViewProps): JSX.Element => {
         onFiltersChange: setFilters,
     }
 
+    const { expanded } = useValues(notebookNodeLogic)
+
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
+    if (!expanded) {
+        return <div className="p-4">20+ recordings </div>
+    }
     const content = !activeSessionRecording?.id ? (
         <RecordingsLists {...recordingPlaylistLogicProps} />
     ) : (
@@ -49,70 +62,85 @@ const Component = (props: NodeViewProps): JSX.Element => {
             <SessionRecordingPlayer
                 playerKey={playerKey}
                 sessionRecordingId={activeSessionRecording.id}
-                matching={activeSessionRecording?.matching_events}
                 recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                 nextSessionRecording={nextSessionRecording}
+                matchingEventsMatchType={matchingEventsMatchType}
             />
         </>
     )
 
+    return <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
+}
+
+export const Settings = ({ attributes, updateAttributes }: NotebookNodeWidgetSettings): JSX.Element => {
+    const [filters, setFilters] = useJsonNodeState<RecordingFilters | undefined>(
+        attributes,
+        updateAttributes,
+        'filters'
+    )
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+    const defaultFilters = getDefaultFilters()
+
+    const hasAdvancedFilters = useMemo(() => {
+        const defaultFilters = getDefaultFilters()
+        return addedAdvancedFilters(filters, defaultFilters)
+    }, [filters])
+
     return (
-        <NodeWrapper
-            {...props}
-            nodeType={NotebookNodeType.RecordingPlaylist}
-            title="Session Replays"
-            href={urls.replay(undefined, filters)}
-            heightEstimate={HEIGHT}
-            viewMode={props.extension.options.viewMode}
-        >
-            <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
-        </NodeWrapper>
+        <ErrorBoundary>
+            <SessionRecordingsFilters
+                filters={{ ...defaultFilters, ...filters }}
+                setFilters={setFilters}
+                showPropertyFilters
+                onReset={() => setFilters(undefined)}
+                hasAdvancedFilters={hasAdvancedFilters}
+                showAdvancedFilters={showAdvancedFilters}
+                setShowAdvancedFilters={setShowAdvancedFilters}
+            />
+        </ErrorBoundary>
     )
 }
 
-export const NotebookNodePlaylist = Node.create({
-    name: NotebookNodeType.RecordingPlaylist,
-    group: 'block',
-    atom: true,
-    draggable: true,
+type NotebookNodePlaylistAttributes = {
+    filters: FilterType
+}
 
-    addAttributes() {
-        return {
-            height: {
-                default: HEIGHT,
-            },
-            filters: {
-                default: undefined,
-            },
-        }
+export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylistAttributes>({
+    nodeType: NotebookNodeType.RecordingPlaylist,
+    title: 'Session replays',
+    Component,
+    heightEstimate: 'calc(100vh - 20rem)',
+    href: (attrs) => {
+        // TODO: Fix parsing of attrs
+        return urls.replay(undefined, attrs.filters)
     },
-
-    parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.RecordingPlaylist,
-            },
-        ]
+    resizeable: true,
+    startExpanded: true,
+    attributes: {
+        filters: {
+            default: undefined,
+        },
     },
-
-    renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.RecordingPlaylist, mergeAttributes(HTMLAttributes)]
+    pasteOptions: {
+        find: urls.replay() + '(.+)',
+        getAttributes: async (match) => {
+            const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
+            return { filters: searchParams.filters }
+        },
     },
-
-    addNodeView() {
-        return ReactNodeViewRenderer(Component)
-    },
-
-    addPasteRules() {
-        return [
-            posthogNodePasteRule({
-                find: urls.replay() + '(.+)',
-                type: this.type,
-                getAttributes: (match) => {
-                    const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
-                    return { filters: searchParams.filters }
-                },
-            }),
-        ]
-    },
+    widgets: [
+        {
+            key: 'settings',
+            label: 'Settings',
+            icon: <IconSettings />,
+            Component: Settings,
+        },
+    ],
 })
+
+export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent {
+    return {
+        type: NotebookNodeType.RecordingPlaylist,
+        attrs: { filters },
+    }
+}

@@ -12,7 +12,6 @@ export type NotebookSceneLogicProps = {
     shortId: string
 }
 export const notebookSceneLogic = kea<notebookSceneLogicType>([
-    path(['scenes', 'notebooks', 'notebookSceneLogic']),
     path((key) => ['scenes', 'notebooks', 'notebookSceneLogic', key]),
     props({} as NotebookSceneLogicProps),
     key(({ shortId }) => shortId),

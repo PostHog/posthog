@@ -1,12 +1,19 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 
 import { Spinner as Spinner, SpinnerOverlay } from './Spinner'
 import { LemonButton } from '@posthog/lemon-ui'
 
-export default {
+const meta: Meta<typeof Spinner> = {
     title: 'Lemon UI/Spinner',
     component: Spinner,
-} as ComponentMeta<typeof Spinner>
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
+    tags: ['autodocs'],
+}
+export default meta
 
 export function Default(): JSX.Element {
     return <Spinner />
@@ -41,10 +48,10 @@ export function Sizes(): JSX.Element {
     )
 }
 
-export function Monocolor(): JSX.Element {
+export function TextColored(): JSX.Element {
     return (
         <div className="bg-default p-4 text-4xl">
-            <Spinner monocolor className="text-white" />
+            <Spinner textColored className="text-white" />
         </div>
     )
 }

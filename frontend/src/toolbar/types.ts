@@ -1,5 +1,4 @@
 import { ActionStepType, ActionType, ElementType } from '~/types'
-import { NamePath, StoreValue } from 'rc-field-form/es/interface'
 
 export type ElementsEventType = {
     count: number
@@ -20,9 +19,19 @@ export interface CountedHTMLElement {
     type: '$autocapture' | '$rageclick'
 }
 
+export interface ElementRect {
+    bottom: number
+    height: number
+    left: number
+    right: number
+    top: number
+    width: number
+    x: number
+    y: number
+}
 export interface ElementWithMetadata {
     element: HTMLElement
-    rect?: DOMRect
+    rect?: ElementRect
     index?: number
     count?: number
     clickCount?: number
@@ -52,12 +61,4 @@ export interface ActionStepForm extends ActionStepType {
 
 export interface ActionForm extends ActionDraftType {
     steps?: ActionStepForm[]
-}
-
-export interface AntdFieldData {
-    touched?: boolean
-    validating?: boolean
-    errors?: string[]
-    value?: StoreValue
-    name: NamePath
 }

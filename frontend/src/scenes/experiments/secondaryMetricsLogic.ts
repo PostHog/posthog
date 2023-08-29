@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 
 import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
 import { InsightVizNode } from '~/queries/schema'
 
@@ -23,6 +23,7 @@ export interface SecondaryMetricsProps {
     onMetricsChange: (metrics: SecondaryExperimentMetric[]) => void
     initialMetrics: SecondaryExperimentMetric[]
     experimentId: Experiment['id']
+    defaultAggregationType?: number
 }
 
 export interface SecondaryMetricForm {
@@ -30,17 +31,27 @@ export interface SecondaryMetricForm {
     filters: Partial<FilterType>
 }
 
-const defaultFormValues: SecondaryMetricForm = {
-    name: '',
-    filters: {
-        insight: InsightType.TRENDS,
-        events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
-    },
+const defaultFormValuesGenerator: (
+    aggregationType?: number,
+    disableAddEventToDefault?: boolean
+) => SecondaryMetricForm = (aggregationType, disableAddEventToDefault) => {
+    const groupAggregation =
+        aggregationType !== undefined ? { math: 'unique_group', math_group_type_index: aggregationType } : {}
+
+    const eventAddition = disableAddEventToDefault ? {} : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
+
+    return {
+        name: '',
+        filters: {
+            insight: InsightType.TRENDS,
+            ...eventAddition,
+        },
+    }
 }
 
 export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     props({} as SecondaryMetricsProps),
-    key((props) => props.experimentId || 'new'),
+    key((props) => `${props.experimentId || 'new'}-${props.defaultAggregationType}`),
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
     connect({
         logic: [insightLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })],
@@ -108,9 +119,9 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             },
         ],
     })),
-    forms(() => ({
+    forms(({ props }) => ({
         secondaryMetricModal: {
-            defaults: defaultFormValues as SecondaryMetricForm,
+            defaults: defaultFormValuesGenerator(props.defaultAggregationType) as SecondaryMetricForm,
             errors: () => ({}),
             submit: async () => {
                 // We don't use the form submit anymore
@@ -120,7 +131,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     listeners(({ props, actions, values }) => ({
         openModalToCreateSecondaryMetric: () => {
             actions.resetSecondaryMetricModal()
-            actions.setPreviewInsight(defaultFormValues.filters)
+            actions.setPreviewInsight(defaultFormValuesGenerator(props.defaultAggregationType).filters)
         },
         openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricIdx }) => {
             actions.setSecondaryMetricModalValue('name', name)
@@ -136,6 +147,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
+                    aggregation_group_type_index: props.defaultAggregationType,
                     ...filters,
                 })
             } else {
@@ -143,6 +155,10 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                     insight: InsightType.TRENDS,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    ...defaultFormValuesGenerator(
+                        props.defaultAggregationType,
+                        (filters?.actions?.length || 0) + (filters?.events?.length || 0) > 0
+                    ).filters,
                     ...filters,
                 })
             }

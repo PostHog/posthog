@@ -1,6 +1,9 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
+# PostHog has sunset support for self-hosted K8s deployments. 
+# See: https://posthog.com/blog/sunsetting-helm-support-posthog
+#
 # Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
 #
 # The stages are used to:
@@ -189,6 +192,7 @@ COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
+COPY --chown=posthog:posthog hogvm hogvm/
 
 # Setup ENV.
 ENV NODE_ENV=production \
@@ -199,7 +203,7 @@ ENV NODE_ENV=production \
 # Expose container port and run entry point script.
 EXPOSE 8000
 
-# Expose the port from which we serve OpenMetrics data.
+# Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
 
 CMD ["./bin/docker"]

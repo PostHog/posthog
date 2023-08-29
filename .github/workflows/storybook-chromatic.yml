@@ -6,6 +6,7 @@ on:
             - 'frontend/**'
             - '.storybook/**'
             - 'package.json'
+            - '.github/workflows/storybook-chromatic.yml'
 
 jobs:
     storybook-chromatic:
@@ -44,10 +45,10 @@ jobs:
 
     visual-regression:
         name: Visual regression tests
-        runs-on: ubuntu-latest
+        runs-on: buildjet-4vcpu-ubuntu-2204
         timeout-minutes: 30
         container:
-            image: mcr.microsoft.com/playwright:v1.29.2
+            image: mcr.microsoft.com/playwright:v1.29.2 # Same as @storybook/test-runner@0.13's dependency
         strategy:
             fail-fast: false
             matrix:
@@ -104,7 +105,7 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
               uses: pnpm/action-setup@v2
@@ -112,7 +113,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm
@@ -148,7 +149,7 @@ jobs:
               run: |
                   pnpm test:visual-regression:legacy:ci:$VARIANT
 
-            - name: Count snapshot changes from git diff
+            - name: Count and optimize updated snapshots
               id: diff
               # Skip on forks
               if: github.event.pull_request.head.repo.full_name == github.repository
@@ -159,21 +160,19 @@ jobs:
                   MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
                   DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
                   TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
+
+                  # If added or modified, run OptiPNG
+                  if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
+                    echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
+                    apt update && apt install -y optipng
+                    git add frontend/__snapshots__/ playwright/
+                    pnpm lint-staged
+                  fi
+
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
-
-            - name: Compress new/changed images using OptiPNG
-              if: |
-                  github.event.pull_request.head.repo.full_name == github.repository && (
-                    steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-added != '0'
-                    || steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-modified != '0'
-                  )
-              run: |
-                  apt update && apt install -y optipng
-                  git add frontend/__snapshots__/ playwright/
-                  pnpm lint-staged
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
@@ -184,7 +183,7 @@ jobs:
                   message: 'Update UI snapshots for `${{ matrix.browser }}` (${{ matrix.shard }})'
                   pull: --rebase --autostash # Make sure we're up to date with other browsers' updates
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Add commit hash to outputs, including browser name
               id: commit-hash
@@ -202,7 +201,7 @@ jobs:
               if: github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@v6
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
                   script: |
                       const BROWSERS = ['chromium', 'webkit']
 

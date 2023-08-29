@@ -16,18 +16,15 @@ import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
-import { Pool } from 'pg'
 import { VM } from 'vm2'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
+import { PostgresRouter } from './utils/db/postgres' /** Re-export Element from scaffolding, for backwards compat. */
 import { UUID } from './utils/utils'
-import { ActionManager } from './worker/ingestion/action-manager'
-import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
-import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -76,10 +73,8 @@ export enum PluginServerMode {
     ingestion = 'ingestion',
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',
-    plugins_async = 'async',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
-    plugins_exports = 'exports', // TODO: remove once onevent and webhooks split is out
     jobs = 'jobs',
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
@@ -87,19 +82,12 @@ export enum PluginServerMode {
     recordings_blob_ingestion = 'recordings-blob-ingestion',
 }
 
-export const stringToPluginServerMode: { [key: string]: PluginServerMode } = {
-    ingestion: PluginServerMode.ingestion,
-    'ingestion-overflow': PluginServerMode.ingestion_overflow,
-    async: PluginServerMode.plugins_async,
-    'async-onevent': PluginServerMode.async_onevent,
-    'async-webhooks': PluginServerMode.async_webhooks,
-    exports: PluginServerMode.plugins_exports,
-    jobs: PluginServerMode.jobs,
-    scheduler: PluginServerMode.scheduler,
-    'analytics-ingestion': PluginServerMode.analytics_ingestion,
-    'recordings-ingestion': PluginServerMode.recordings_ingestion,
-    'recordings-blob-ingestion': PluginServerMode.recordings_blob_ingestion,
-}
+export const stringToPluginServerMode = Object.fromEntries(
+    Object.entries(PluginServerMode).map(([key, value]) => [
+        value,
+        PluginServerMode[key as keyof typeof PluginServerMode],
+    ])
+) as Record<string, PluginServerMode>
 
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
@@ -108,6 +96,9 @@ export interface PluginsServerConfig {
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
+    DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
+    PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
+    POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
@@ -209,16 +200,20 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
 
-    SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING: boolean
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
+    SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
+    SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
+    SESSION_RECORDING_BUFFER_AGE_JITTER: number
     SESSION_RECORDING_REMOTE_FOLDER: string
     SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
+    SESSION_RECORDING_KAFKA_BATCH_SIZE: number
+    SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 }
@@ -229,7 +224,7 @@ export interface Hub extends PluginsServerConfig {
     capabilities: PluginServerCapabilities
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
-    postgres: Pool
+    postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     clickhouse: ClickHouse
     kafka: Kafka
@@ -252,9 +247,6 @@ export interface Hub extends PluginsServerConfig {
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
     promiseManager: PromiseManager
-    actionManager: ActionManager
-    actionMatcher: ActionMatcher
-    hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     appMetrics: AppMetrics
     // geoip database, setup in workers
@@ -269,16 +261,18 @@ export interface Hub extends PluginsServerConfig {
 }
 
 export interface PluginServerCapabilities {
+    // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts
+    // and the shouldSetupPluginInServer() test accordingly.
     ingestion?: boolean
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
-    processAsyncHandlers?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
+    transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     http?: boolean
     mmdb?: boolean
 }
@@ -471,7 +465,6 @@ export type VMMethods = {
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
-    onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
@@ -899,6 +892,8 @@ export interface RawAction {
     is_calculating: boolean
     updated_at: string
     last_calculated_at: string
+    bytecode?: any[]
+    bytecode_error?: string
 }
 
 /** Usable Action model. */
@@ -1112,7 +1107,7 @@ export interface EventPropertyType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'processEvent' | 'onSnapshot' | 'pluginTask'
+export type PluginFunction = 'onEvent' | 'processEvent' | 'pluginTask'
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 
@@ -1142,3 +1137,9 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
 }
 
 export type RedisPool = GenericPool<Redis>
+
+export type RRWebEvent = Record<string, any> & {
+    timestamp: number
+    type: number
+    data: any
+}

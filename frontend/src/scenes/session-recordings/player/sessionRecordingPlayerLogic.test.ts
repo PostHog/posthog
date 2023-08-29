@@ -93,24 +93,32 @@ describe('sessionRecordingPlayerLogic', () => {
             silenceKeaLoadersErrors()
             // Unmount and remount the logic to trigger fetching the data again after the mock change
             logic.unmount()
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                autoPlay: true,
+            })
+
             useMocks({
                 get: {
                     '/api/projects/:team/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
             logic.mount()
-            logic.actions.loadRecording(true)
 
             await expectLogic(logic, () => {
                 logic.actions.seekToTime(50) // greater than null buffered time
-            }).toDispatchActionsInAnyOrder([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsFailure,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
-                'seekToTimestamp',
-                'setErrorPlayerState',
-            ])
+            })
+                .toDispatchActions([
+                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                    'seekToTimestamp',
+                ])
+                .toFinishAllListeners()
+                .toDispatchActions([
+                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
+                    'setErrorPlayerState',
+                ])
 
             expect(logic.values).toMatchObject({
                 sessionPlayerData: {
@@ -234,67 +242,61 @@ describe('sessionRecordingPlayerLogic', () => {
             { uuid: '2', timestamp: '2022-06-01T12:01:00.000Z', session_id: '1', window_id: '1' },
             { uuid: '3', timestamp: '2022-06-01T12:02:00.000Z', session_id: '1', window_id: '1' },
         ]
-        it('starts as empty list', async () => {
-            await expectLogic(logic).toMatchValues({
-                matching: [],
-            })
-        })
+
         it('initialized through props', async () => {
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
                 playerKey: 'test',
-                matching: [
-                    {
-                        events: listOfMatchingEvents,
-                    },
-                ],
+                matchingEventsMatchType: {
+                    matchType: 'uuid',
+                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                },
             })
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                matching: [
-                    {
-                        events: listOfMatchingEvents,
+                logicProps: expect.objectContaining({
+                    matchingEventsMatchType: {
+                        matchType: 'uuid',
+                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
                     },
-                ],
+                }),
             })
         })
         it('changes when filter results change', async () => {
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '4',
                 playerKey: 'test',
-                matching: [
-                    {
-                        events: listOfMatchingEvents,
-                    },
-                ],
+                matchingEventsMatchType: {
+                    matchType: 'uuid',
+                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                },
             })
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                matching: [
-                    {
-                        events: listOfMatchingEvents,
+                logicProps: expect.objectContaining({
+                    matchingEventsMatchType: {
+                        matchType: 'uuid',
+                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
                     },
-                ],
+                }),
             })
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '4',
                 playerKey: 'test',
-                matching: [
-                    {
-                        events: [listOfMatchingEvents[0]],
-                    },
-                ],
+                matchingEventsMatchType: {
+                    matchType: 'uuid',
+                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                },
             })
             logic.mount()
-            await expectLogic(logic)
-                .toDispatchActions(['setMatching'])
-                .toMatchValues({
-                    matching: [
-                        {
-                            events: [listOfMatchingEvents[0]],
-                        },
-                    ],
-                })
+            await expectLogic(logic).toMatchValues({
+                logicProps: expect.objectContaining({
+                    matchingEventsMatchType: {
+                        matchType: 'uuid',
+                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                    },
+                }),
+            })
         })
     })
 })

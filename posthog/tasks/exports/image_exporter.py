@@ -21,6 +21,7 @@ from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
+from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +48,7 @@ TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
 ScreenWidth = Literal[800, 1920]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".ExportedNotebook"]
+
 
 # NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
@@ -133,6 +135,8 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         # Ensure we clean up the tmp file in case anything went wrong
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
+
+        log_error_if_site_url_not_reachable()
 
         raise err
 

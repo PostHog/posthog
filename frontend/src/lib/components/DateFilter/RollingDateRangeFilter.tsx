@@ -17,6 +17,7 @@ const dateOptions: LemonSelectOptions<DateOption> = [
 type RollingDateRangeFilterProps = {
     selected?: boolean
     dateFrom?: string | null | dayjs.Dayjs
+    max?: number | null
     onChange?: (fromDate: string) => void
     makeLabel?: (key: React.ReactNode) => React.ReactNode
     popover?: {
@@ -30,8 +31,9 @@ export function RollingDateRangeFilter({
     popover,
     dateFrom,
     selected,
+    max,
 }: RollingDateRangeFilterProps): JSX.Element {
-    const logicProps = { onChange, dateFrom, selected }
+    const logicProps = { onChange, dateFrom, selected, max }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
         useActions(rollingDateRangeFilterLogic(logicProps))
     const { counter, dateOption, formattedDate } = useValues(rollingDateRangeFilterLogic(logicProps))

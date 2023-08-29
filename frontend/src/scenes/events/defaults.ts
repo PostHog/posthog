@@ -14,4 +14,5 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
     },
     propertiesViaUrl: true,
     showSavedQueries: true,
+    showPersistentColumnConfigurator: true,
 })

@@ -30,7 +30,7 @@ from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import correct_result_for_sampling
-from posthog.utils import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode, generate_short_id
 
 
 class EventDefinition(TypedDict):
@@ -638,6 +638,7 @@ class FunnelCorrelation:
             correlation, e.g. "watched video"
 
         """
+        self._filter.team = self._team
 
         event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
 
@@ -676,7 +677,9 @@ class FunnelCorrelation:
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
         return events, skewed_totals
 
-    def construct_people_url(self, success: bool, event_definition: EventDefinition) -> Optional[str]:
+    def construct_people_url(
+        self, success: bool, event_definition: EventDefinition, cache_invalidation_key: str
+    ) -> Optional[str]:
         """
         Given an event_definition and success/failure flag, returns a url that
         get be used to GET the associated people for the event/sucess pair. The
@@ -684,17 +687,25 @@ class FunnelCorrelation:
         fetching incorrect people, given an event definition.
         """
         if not self._filter.correlation_type or self._filter.correlation_type == FunnelCorrelationType.EVENTS:
-            return self.construct_event_correlation_people_url(success=success, event_definition=event_definition)
+            return self.construct_event_correlation_people_url(
+                success=success, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+            )
 
         elif self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
-            return self.construct_event_with_properties_people_url(success=success, event_definition=event_definition)
+            return self.construct_event_with_properties_people_url(
+                success=success, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+            )
 
         elif self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            return self.construct_person_properties_people_url(success=success, event_definition=event_definition)
+            return self.construct_person_properties_people_url(
+                success=success, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+            )
 
         return None
 
-    def construct_event_correlation_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+    def construct_event_correlation_people_url(
+        self, success: bool, event_definition: EventDefinition, cache_invalidation_key: str
+    ) -> str:
         # NOTE: we need to convert certain params to strings. I don't think this
         # class should need to know these details, but shallow_clone is
         # expecting the values as they are serialized in the url
@@ -706,9 +717,11 @@ class FunnelCorrelation:
                 "funnel_correlation_person_entity": {"id": event_definition["event"], "type": "events"},
             }
         ).to_params()
-        return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+        return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}&cache_invalidation_key={cache_invalidation_key}"
 
-    def construct_event_with_properties_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+    def construct_event_with_properties_people_url(
+        self, success: bool, event_definition: EventDefinition, cache_invalidation_key: str
+    ) -> str:
         if self.support_autocapture_elements():
             # If we have an $autocapture event, we need to special case the
             # url by converting the `elements` chain into an `Action`
@@ -735,7 +748,7 @@ class FunnelCorrelation:
                     },
                 }
             ).to_params()
-            return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+            return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}&cache_invalidation_key={cache_invalidation_key}"
 
         event_name, property_name, property_value = event_definition["event"].split("::")
         params = self._filter.shallow_clone(
@@ -752,7 +765,9 @@ class FunnelCorrelation:
         ).to_params()
         return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
-    def construct_person_properties_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+    def construct_person_properties_people_url(
+        self, success: bool, event_definition: EventDefinition, cache_invalidation_key: str
+    ) -> str:
         # NOTE: for property correlations, we just use the regular funnel
         # persons endpoint, with the breakdown value set, and we assume that
         # event.event will be of the format "{property_name}::{property_value}"
@@ -772,7 +787,7 @@ class FunnelCorrelation:
                 ],
             }
         ).to_params()
-        return f"{self._base_uri}api/person/funnel/correlation?{urllib.parse.urlencode(params)}"
+        return f"{self._base_uri}api/person/funnel/correlation?{urllib.parse.urlencode(params)}&cache_invalidation_key={cache_invalidation_key}"
 
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         odds_ratios, skewed_totals = results
@@ -854,11 +869,16 @@ class FunnelCorrelation:
 
     def serialize_event_odds_ratio(self, odds_ratio: EventOddsRatio) -> EventOddsRatioSerialized:
         event_definition = self.serialize_event_with_property(event=odds_ratio["event"])
+        cache_invalidation_key = generate_short_id()
         return {
             "success_count": odds_ratio["success_count"],
-            "success_people_url": self.construct_people_url(success=True, event_definition=event_definition),
+            "success_people_url": self.construct_people_url(
+                success=True, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+            ),
             "failure_count": odds_ratio["failure_count"],
-            "failure_people_url": self.construct_people_url(success=False, event_definition=event_definition),
+            "failure_people_url": self.construct_people_url(
+                success=False, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+            ),
             "odds_ratio": odds_ratio["odds_ratio"],
             "correlation_type": odds_ratio["correlation_type"],
             "event": event_definition,

@@ -63,9 +63,6 @@ export enum NodeKind {
     TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
     TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
 
-    /** Performance */
-    RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
-
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
@@ -95,9 +92,6 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-
-    // Performance
-    | RecentPerformancePageViewNode
 
     // Misc
     | TimeToSeeDataSessionsQuery
@@ -148,6 +142,7 @@ export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
     isValid?: boolean
+    isValidView?: boolean
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -266,13 +261,7 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source:
-        | EventsNode
-        | EventsQuery
-        | PersonsNode
-        | RecentPerformancePageViewNode
-        | HogQLQuery
-        | TimeToSeeDataSessionsQuery
+    source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -300,6 +289,8 @@ export interface DataTableNode extends Node {
     showElapsedTime?: boolean
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
+    /** Show a button to configure and persist the table's default columns if possible */
+    showPersistentColumnConfigurator?: boolean
     /** Shows a list of saved queries */
     showSavedQueries?: boolean
     /** Can expand row to show raw event data (default: true) */
@@ -331,7 +322,7 @@ export interface InsightVizNode extends Node {
     showTable?: boolean
     showCorrelationTable?: boolean
     showLastComputation?: boolean
-    showLegendButton?: boolean
+    showLastComputationRefresh?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
@@ -517,11 +508,6 @@ export interface TimeToSeeDataWaterfallNode {
 }
 
 export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
-
-export interface RecentPerformancePageViewNode extends DataNode {
-    kind: NodeKind.RecentPerformancePageViewNode
-    dateRange: DateRange
-}
 
 export type HogQLExpression = string
 

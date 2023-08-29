@@ -122,7 +122,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             }
         },
     })),
-    selectors(({}) => ({
+    selectors(() => ({
         shouldShowEmptyState: [
             (s) => [s.annotations, s.annotationsLoading],
             (annotations, annotationsLoading): boolean => {

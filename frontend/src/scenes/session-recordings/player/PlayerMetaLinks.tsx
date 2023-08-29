@@ -1,24 +1,31 @@
 import {
-    SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
+import { IconComment, IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
+import { NotebookNodeType } from '~/types'
+import { dayjs } from 'lib/dayjs'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
 
+    const getCurrentPlayerTime = (): number => {
+        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
+        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+        return Math.floor(playerTime / 1000)
+    }
+
     const onShare = (): void => {
         setPause()
-        // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
-        const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         openPlayerShareDialog({
-            seconds: Math.floor(currentPlayerTime / 1000),
+            seconds: getCurrentPlayerTime(),
             id: sessionRecordingId,
         })
     }
@@ -46,8 +53,29 @@ export function PlayerMetaLinks(): JSX.Element {
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
-            {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
+            {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
+                    <NotebookAddButton
+                        size="small"
+                        icon={<IconComment />}
+                        resource={{ type: NotebookNodeType.Recording, attrs: { id: sessionRecordingId } }}
+                        onClick={() => setPause()}
+                        newNotebookTitle={`Notes ${dayjs().format('DD/MM')}`}
+                        onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
+                            const time = getCurrentPlayerTime() * 1000
+
+                            if (theNodeLogic) {
+                                // Node already exists, we just add a comment
+                                theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
+                                return
+                            }
+
+                            theNotebookLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
+                        }}
+                    >
+                        Comment
+                    </NotebookAddButton>
+
                     <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
                         <span>Share</span>
                     </LemonButton>

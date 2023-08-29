@@ -52,6 +52,7 @@ from .tagged_item import TaggedItem
 from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
+from .user_scene_personalisation import UserScenePersonalisation
 
 __all__ = [
     "Action",
@@ -122,6 +123,7 @@ __all__ = [
     "Text",
     "UploadedMedia",
     "User",
+    "UserScenePersonalisation",
     "UserManager",
     "UserPromptState",
     "DataWarehouseTable",

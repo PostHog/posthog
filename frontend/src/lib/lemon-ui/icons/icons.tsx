@@ -45,40 +45,6 @@ const LemonIconBase: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...p
     />
 )
 
-export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { monocolor?: boolean }): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            {/* top-right */}
-            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : 'var(--brand-blue)'} fillOpacity={1} />
-            {/* top-left */}
-            <circle
-                cx="7"
-                cy="7.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-yellow)'}
-                fillOpacity={monocolor ? 0.75 : 1}
-            />
-
-            {/* bottom-left */}
-            <circle
-                cx="7"
-                cy="17.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-red)'}
-                fillOpacity={monocolor ? 0.5 : 1}
-            />
-            {/* bottom-right */}
-            <circle
-                cx="17"
-                cy="17.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-key)'}
-                fillOpacity={monocolor ? 0.25 : 1}
-            />
-        </LemonIconBase>
-    )
-}
-
 // material design format-size icon
 export function IconTextSize(props: LemonIconProps): JSX.Element {
     return (
@@ -413,6 +379,18 @@ export function IconPlus(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
             <path d="m19 13h-6v6h-2v-6h-6v-2h6v-6h2v6h6z" fill="currentColor" />
+        </LemonIconBase>
+    )
+}
+
+/** https://pictogrammers.com/library/mdi/icon/minus-circle-outline/ */
+export function IconMinusOutlined(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M7,13H17V11H7"
+                fill={'currentColor'}
+            />
         </LemonIconBase>
     )
 }
@@ -2469,6 +2447,18 @@ export function IconDocumentExpand({ mode, ...props }: LemonIconProps & { mode: 
                     />
                 </>
             )}
+        </LemonIconBase>
+    )
+}
+
+/** https://pictogrammers.com/library/mdi/icon/target/ */
+export function IconTarget(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M11,2V4.07C7.38,4.53 4.53,7.38 4.07,11H2V13H4.07C4.53,16.62 7.38,19.47 11,19.93V22H13V19.93C16.62,19.47 19.47,16.62 19.93,13H22V11H19.93C19.47,7.38 16.62,4.53 13,4.07V2M11,6.08V8H13V6.09C15.5,6.5 17.5,8.5 17.92,11H16V13H17.91C17.5,15.5 15.5,17.5 13,17.92V16H11V17.91C8.5,17.5 6.5,15.5 6.08,13H8V11H6.09C6.5,8.5 8.5,6.5 11,6.08M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11Z"
+                fill={'currentColor'}
+            />
         </LemonIconBase>
     )
 }

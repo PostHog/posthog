@@ -1,10 +1,9 @@
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Literal
 
 from django.db import models
 from django.db.models import Count
 from django.dispatch import receiver
 
-from posthog import settings
 from posthog.celery import ee_persist_single_recording
 from posthog.models.person.person import Person
 from posthog.models.session_recording.metadata import (
@@ -15,6 +14,8 @@ from posthog.models.session_recording.metadata import (
 from posthog.models.session_recording_event.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
+from posthog.queries.session_recordings.session_replay_events import SessionReplayEvents
+from django.conf import settings
 
 
 class SessionRecording(UUIDModel):
@@ -32,12 +33,26 @@ class SessionRecording(UUIDModel):
     object_storage_path: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     distinct_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
     duration: models.IntegerField = models.IntegerField(blank=True, null=True)
+    active_seconds: models.IntegerField = models.IntegerField(blank=True, null=True)
+    inactive_seconds: models.IntegerField = models.IntegerField(blank=True, null=True)
     start_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     end_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+
     click_count: models.IntegerField = models.IntegerField(blank=True, null=True)
     keypress_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    mouse_activity_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+
+    console_log_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    console_warn_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    console_error_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+
     start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
+
+    # we can't store storage version in the stored content
+    # as we might need to know the version before knowing how to load the data
+    storage_version: models.CharField = models.CharField(blank=True, null=True, max_length=20)
 
     # DYNAMIC FIELDS
 
@@ -51,8 +66,6 @@ class SessionRecording(UUIDModel):
     _snapshots: Optional[DecompressedRecordingData] = None
 
     def load_metadata(self) -> bool:
-        from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
-
         if self._metadata:
             return True
 
@@ -61,11 +74,11 @@ class SessionRecording(UUIDModel):
             pass
         else:
             # Try to load from Clickhouse
-            metadata = SessionRecordingEvents(
+            metadata = SessionReplayEvents().get_metadata(
                 team=self.team,
-                session_recording_id=self.session_id,
+                session_id=self.session_id,
                 recording_start_time=self.start_time,
-            ).get_metadata()
+            )
 
             if not metadata:
                 return False
@@ -73,13 +86,14 @@ class SessionRecording(UUIDModel):
             self._metadata = metadata
 
             # Some fields of the metadata are persisted fully in the model
+            # TODO there is more metadata we can add here
             self.distinct_id = metadata["distinct_id"]
             self.start_time = metadata["start_time"]
             self.end_time = metadata["end_time"]
             self.duration = metadata["duration"]
             self.click_count = metadata["click_count"]
             self.keypress_count = metadata["keypress_count"]
-            self.set_start_url_from_urls(metadata["urls"])
+            self.set_start_url_from_urls(first_url=metadata["first_url"])
 
         return True
 
@@ -99,20 +113,29 @@ class SessionRecording(UUIDModel):
             self._snapshots = snapshots
 
     def load_object_data(self) -> None:
+        """
+        This is only called in the to-be deprecated v1 of session recordings snapshot API
+        """
         try:
             from ee.models.session_recording_extensions import load_persisted_recording
         except ImportError:
-            pass
+            load_persisted_recording = lambda *args: None
 
         data = load_persisted_recording(self)
 
         if not data:
             return
 
-        self._snapshots = {
-            "has_next": False,
-            "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
-        }
+        if data.get("version", None) == "2022-12-22":
+            self._snapshots = {
+                "has_next": False,
+                "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
+            }
+        elif data.get("version", None) == "2023-08-01":
+            raise NotImplementedError("Storage version 2023-08-01 will never be supported in this code path")
+        else:
+            # unknown version
+            return
 
     # S3 / Clickhouse backed fields
     @property
@@ -150,14 +173,24 @@ class SessionRecording(UUIDModel):
             SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
             self.viewed = True
 
-    def build_object_storage_path(self) -> str:
-        path_parts: List[str] = [
-            settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
-            f"team-{self.team_id}",
-            f"session-{self.session_id}",
-        ]
+    def build_object_storage_path(self, version: Literal["2023-08-01", "2022-12-22"]) -> str:
+        if version == "2022-12-22":
+            path_parts: List[str] = [
+                settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
+                f"team-{self.team_id}",
+                f"session-{self.session_id}",
+            ]
+            return "/".join(path_parts)
+        elif version == "2023-08-01":
+            return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
+        else:
+            raise NotImplementedError(f"Unknown session replay object storage version {version}")
 
-        return "/".join(path_parts)
+    def build_blob_ingestion_storage_path(self) -> str:
+        return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER)
+
+    def _build_session_blob_path(self, root_prefix: str) -> str:
+        return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data"
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
@@ -186,16 +219,18 @@ class SessionRecording(UUIDModel):
                 session_id=ch_recording["session_id"], team=team
             )
 
+            recording.distinct_id = ch_recording["distinct_id"]
             recording.start_time = ch_recording["start_time"]
             recording.end_time = ch_recording["end_time"]
+            recording.duration = ch_recording["duration"]
+            recording.active_seconds = ch_recording.get("active_seconds", 0)
+            recording.inactive_seconds = ch_recording.get("inactive_seconds", 0)
             recording.click_count = ch_recording["click_count"]
             recording.keypress_count = ch_recording["keypress_count"]
-            recording.duration = ch_recording["duration"]
-            recording.distinct_id = ch_recording["distinct_id"]
-            recording.matching_events = ch_recording.get("matching_events", None)
-            # TODO add these new fields when we can add postgres migrations again
-            # recording.mouse_activity_count = ch_recording.get('mouse_activity_count', 0)
-            # recording.active_time = ch_recording.get('active_time', 0)
+            recording.mouse_activity_count = ch_recording.get("mouse_activity_count", 0)
+            recording.console_log_count = ch_recording.get("console_log_count", None)
+            recording.console_warn_count = ch_recording.get("console_warn_count", None)
+            recording.console_error_count = ch_recording.get("console_error_count", None)
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recordings.append(recording)
 

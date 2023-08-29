@@ -34,8 +34,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -151,42 +153,6 @@ function SystemStatus(): JSX.Element {
     )
 }
 
-function Version(): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
-    const { minorUpdateAvailable, anyUpdateAvailable, latestVersion } = useValues(navigationLogic)
-    const { preflight } = useValues(preflightLogic)
-
-    return (
-        <LemonRow
-            status={minorUpdateAvailable ? 'warning' : 'success'}
-            icon={minorUpdateAvailable ? <IconUpdate /> : <IconCheckmark />}
-            fullWidth
-        >
-            <>
-                <div className="SitePopover__main-info">
-                    <div>
-                        Version <strong>{preflight?.posthog_version}</strong>
-                    </div>
-                    {anyUpdateAvailable && <div className="supplement">{latestVersion} is available</div>}
-                </div>
-                {latestVersion && (
-                    <Link
-                        to={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
-                        target="_blank"
-                        onClick={() => {
-                            closeSitePopover()
-                        }}
-                        className="SitePopover__side-link"
-                        data-attr="update-indicator-badge"
-                    >
-                        Release notes
-                    </Link>
-                )}
-            </>
-        </LemonRow>
-    )
-}
-
 function AsyncMigrations(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
     const { asyncMigrationsOk } = useValues(navigationLogic)
@@ -231,6 +197,30 @@ function InstanceSettings(): JSX.Element | null {
     )
 }
 
+function FeaturePreviewsButton(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
+
+    const isUsingSiteApp = featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON] === 'site-app'
+
+    return (
+        <LemonButton
+            onClick={() => {
+                closeSitePopover()
+                if (!isUsingSiteApp) {
+                    showFeaturePreviewsModal()
+                }
+            }}
+            data-attr={isUsingSiteApp ? 'early-access-feature-button' : undefined}
+            icon={<IconRedeem />}
+            fullWidth
+        >
+            Feature previews
+        </LemonButton>
+    )
+}
+
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
@@ -247,7 +237,6 @@ export function SitePopoverOverlay(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -268,18 +257,6 @@ export function SitePopoverOverlay(): JSX.Element {
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />
-                {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON] && (
-                    <div
-                        className="LemonButton LemonButton--tertiary LemonButton--status-primary LemonButton--full-width LemonButton__content flex items-center  LemonButton--has-icon"
-                        data-attr="early-access-feature-button"
-                        onClick={closeSitePopover}
-                    >
-                        <span className="LemonButton__icon">
-                            <IconRedeem />
-                        </span>
-                        Enable beta features
-                    </div>
-                )}
             </SitePopoverSection>
             {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                 <SitePopoverSection title="Other organizations">
@@ -296,11 +273,15 @@ export function SitePopoverOverlay(): JSX.Element {
             {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                 <SitePopoverSection title="PostHog instance">
                     <SystemStatus />
-                    {!preflight?.cloud && <Version />}
                     <AsyncMigrations />
                     <InstanceSettings />
                 </SitePopoverSection>
             )}
+            <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
+                <SitePopoverSection>
+                    <FeaturePreviewsButton />
+                </SitePopoverSection>
+            </FlaggedFeature>
             <SitePopoverSection>
                 <SignOutButton />
             </SitePopoverSection>

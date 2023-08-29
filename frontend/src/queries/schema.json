@@ -221,7 +221,7 @@
             ]
         },
         "BreakdownType": {
-            "enum": ["cohort", "person", "event", "group", "session"],
+            "enum": ["cohort", "person", "event", "group", "session", "hogql"],
             "type": "string"
         },
         "ChartDisplayType": {
@@ -341,6 +341,10 @@
                     "description": "Show a button to open the current query as a new insight. (default: true)",
                     "type": "boolean"
                 },
+                "showPersistentColumnConfigurator": {
+                    "description": "Show a button to configure and persist the table's default columns if possible",
+                    "type": "boolean"
+                },
                 "showPropertyFilter": {
                     "description": "Include a property filter above the table",
                     "type": "boolean"
@@ -367,9 +371,6 @@
                         },
                         {
                             "$ref": "#/definitions/PersonsNode"
-                        },
-                        {
-                            "$ref": "#/definitions/RecentPerformancePageViewNode"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -1129,6 +1130,9 @@
                 "isValid": {
                     "type": "boolean"
                 },
+                "isValidView": {
+                    "type": "boolean"
+                },
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -1274,7 +1278,7 @@
                 "showLastComputation": {
                     "type": "boolean"
                 },
-                "showLegendButton": {
+                "showLastComputationRefresh": {
                     "type": "boolean"
                 },
                 "showTable": {
@@ -1700,34 +1704,12 @@
                     "$ref": "#/definitions/LifecycleQuery"
                 },
                 {
-                    "$ref": "#/definitions/RecentPerformancePageViewNode"
-                },
-                {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
-        },
-        "RecentPerformancePageViewNode": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "kind": {
-                    "const": "RecentPerformancePageViewNode",
-                    "description": "Performance",
-                    "type": "string"
-                },
-                "response": {
-                    "description": "Cached query response",
-                    "type": "object"
-                }
-            },
-            "required": ["dateRange", "kind"],
-            "type": "object"
         },
         "RecordingDurationFilter": {
             "additionalProperties": false,
@@ -2040,6 +2022,9 @@
                     "type": "array"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_percent_stack_view": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {

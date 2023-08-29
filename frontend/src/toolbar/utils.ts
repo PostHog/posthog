@@ -1,6 +1,6 @@
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, StringMatching } from '~/types'
-import { ActionStepForm, BoxColor } from '~/toolbar/types'
+import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { combineUrl, encodeParams } from 'kea-router'
@@ -273,7 +273,7 @@ export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opa
     }
 }
 
-export function actionStepToAntdForm(step: ActionStepType, isNew = false): ActionStepForm {
+export function actionStepToActionStepFormItem(step: ActionStepType, isNew = false): ActionStepForm {
     if (!step) {
         return {}
     }
@@ -311,7 +311,7 @@ export function actionStepToAntdForm(step: ActionStepType, isNew = false): Actio
         }
     }
 
-    const newStep = {
+    return {
         ...step,
         url_matching: step.url_matching || StringMatching.Exact,
         href_selected: typeof step.href !== 'undefined' && step.href !== null,
@@ -319,20 +319,17 @@ export function actionStepToAntdForm(step: ActionStepType, isNew = false): Actio
         selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,
         url_selected: typeof step.url !== 'undefined' && step.url !== null,
     }
-
-    return newStep
 }
 
 export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
     const { href_selected, text_selected, selector_selected, url_selected, ...rest } = step
-    const newStep = {
+    return {
         ...rest,
         href: href_selected ? rest.href || null : null,
         text: text_selected ? rest.text || null : null,
         selector: selector_selected ? rest.selector || null : null,
         url: url_selected ? rest.url || null : null,
     }
-    return newStep
 }
 
 export function clearSessionToolbarToken(): void {
@@ -343,7 +340,7 @@ export function clearSessionToolbarToken(): void {
     window.localStorage?.removeItem('_postHogEditorParams')
 }
 
-export function getRectForElement(element: HTMLElement): DOMRect {
+export function getRectForElement(element: HTMLElement): ElementRect {
     const elements = [elementToAreaRect(element)]
 
     let loopElement = element
@@ -365,12 +362,47 @@ export function getRectForElement(element: HTMLElement): DOMRect {
     return maxRect
 }
 
-function elementToAreaRect(element: HTMLElement): { element: HTMLElement; rect: DOMRect; area: number } {
-    const rect = element.getBoundingClientRect()
+export const getZoomLevel = (el: HTMLElement): number[] => {
+    const zooms: number[] = []
+    const getZoom = (el: HTMLElement): void => {
+        const zoom = window.getComputedStyle(el).getPropertyValue('zoom')
+        const rzoom = zoom ? parseFloat(zoom) : 1
+        if (rzoom !== 1) {
+            zooms.push(rzoom)
+        }
+        if (el.parentElement?.parentElement) {
+            getZoom(el.parentElement)
+        }
+    }
+    getZoom(el)
+    zooms.reverse()
+    return zooms
+}
+export const getRect = (el: HTMLElement): ElementRect => {
+    if (!el) {
+        return { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }
+    }
+    const rect = el?.getBoundingClientRect()
+    const zooms = getZoomLevel(el)
+    const rectWithZoom: ElementRect = {
+        bottom: zooms.reduce((a, b) => a * b, rect.bottom),
+        height: zooms.reduce((a, b) => a * b, rect.height),
+        left: zooms.reduce((a, b) => a * b, rect.left),
+        right: zooms.reduce((a, b) => a * b, rect.right),
+        top: zooms.reduce((a, b) => a * b, rect.top),
+        width: zooms.reduce((a, b) => a * b, rect.width),
+        x: zooms.reduce((a, b) => a * b, rect.x),
+        y: zooms.reduce((a, b) => a * b, rect.y),
+    }
+    return rectWithZoom
+}
+
+function elementToAreaRect(element: HTMLElement): { element: HTMLElement; rect: ElementRect; area: number } {
+    const rect = getRect(element)
     return {
         element,
         rect,
-        area: rect.width * rect.height,
+        area: (rect.width ?? 0) * (rect.height ?? 0),
     }
 }
 

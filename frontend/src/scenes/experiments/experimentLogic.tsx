@@ -1,7 +1,7 @@
 import { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import {
@@ -79,7 +79,7 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel', 'groupTypes']],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -279,6 +279,8 @@ export const experimentLogic = kea<experimentLogicType>([
                             // These were used to change feature flag targeting, but this is controlled directly
                             // on the feature flag now.
                             filters: {
+                                events: [],
+                                actions: [],
                                 ...values.experiment.filters,
                                 properties: [],
                             },
@@ -323,6 +325,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
+            const aggregationGroupTypeIndex = values.experiment.parameters?.aggregation_group_type_index
             if (filters?.insight === InsightType.FUNNELS) {
                 newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
@@ -330,13 +333,23 @@ export const experimentLogic = kea<experimentLogicType>([
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
+                    aggregation_group_type_index: aggregationGroupTypeIndex,
                     ...filters,
                 })
             } else {
+                const groupAggregation =
+                    aggregationGroupTypeIndex !== undefined
+                        ? { math: 'unique_group', math_group_type_index: aggregationGroupTypeIndex }
+                        : {}
+                const eventAddition =
+                    filters?.actions || filters?.events
+                        ? {}
+                        : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
                 newInsightFilters = cleanFilters({
                     insight: InsightType.TRENDS,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    ...eventAddition,
                     ...filters,
                 })
             }
@@ -422,7 +435,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         resetRunningExperiment: async () => {
-            actions.updateExperiment({ start_date: null, end_date: null })
+            actions.updateExperiment({ start_date: null, end_date: null, archived: false })
             values.experiment && actions.reportExperimentReset(values.experiment)
 
             actions.loadExperimentResultsSuccess(null)
@@ -823,7 +836,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     const variantResults = (experimentResults.variants as TrendExperimentVariant[]).find(
                         (variantTrend: TrendExperimentVariant) => variantTrend.key === variant
                     )
-                    if (!variantResults) {
+                    if (!variantResults || !variantResults.absolute_exposure) {
                         return errorResult
                     }
 

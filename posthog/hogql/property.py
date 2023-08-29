@@ -207,21 +207,13 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         cohort = Cohort.objects.get(team=team, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["person_id"]),
-            op=ast.CompareOperationOp.In,
-            right=cohort_subquery(cohort.pk, cohort.is_static),
+            op=ast.CompareOperationOp.InCohort,
+            right=ast.Constant(value=cohort.pk),
         )
 
     # TODO: Add support for these types "group", "recording", "behavioral", and "session" types
 
     raise NotImplementedException(f"property_to_expr not implemented for filter type {type(property).__name__}")
-
-
-def cohort_subquery(cohort_id, is_static) -> ast.Expr:
-    if is_static:
-        sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
-    else:
-        sql = "(SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
-    return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)}, start=None)  # clear the source start position
 
 
 def action_to_expr(action: Action) -> ast.Expr:
@@ -262,7 +254,7 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.url_matching == ActionStep.EXACT:
                 expr = parse_expr("properties.$current_url = {url}", {"url": ast.Constant(value=step.url)})
             elif step.url_matching == ActionStep.REGEX:
-                expr = parse_expr("match(properties.$current_url, {regex})", {"regex": ast.Constant(value=step.url)})
+                expr = parse_expr("properties.$current_url =~ {regex}", {"regex": ast.Constant(value=step.url)})
             else:
                 expr = parse_expr("properties.$current_url like {url}", {"url": ast.Constant(value=f"%{step.url}%")})
             exprs.append(expr)
@@ -274,6 +266,8 @@ def action_to_expr(action: Action) -> ast.Expr:
             or_queries.append(exprs[0])
         elif len(exprs) > 1:
             or_queries.append(ast.And(exprs=exprs))
+        else:
+            or_queries.append(ast.Constant(value=True))
 
     if len(or_queries) == 1:
         return or_queries[0]
@@ -293,11 +287,13 @@ def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
         value = re.escape(escaped)
     else:
         raise NotImplementedException(f"element_href_to_expr not implemented for operator {operator}")
-    optional_flag = (
-        "(?i)" if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains else ""
-    )
-    regex = f'{optional_flag}({key}="{value}")'
-    expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(regex))})
+
+    regex = f'({key}="{value}")'
+    if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains:
+        expr = parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(regex))})
+    else:
+        expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(regex))})
+
     if (
         operator == PropertyOperator.is_not_set
         or operator == PropertyOperator.not_icontains
@@ -310,11 +306,11 @@ def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
 
 def tag_name_to_expr(tag_name: str):
     regex = rf"(^|;){tag_name}(\.|$|;|:)"
-    expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(regex))})
+    expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(regex))})
     return expr
 
 
 def selector_to_expr(selector: str):
     regex = build_selector_regex(Selector(selector, escape_slashes=False))
-    expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=regex)})
+    expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)})
     return expr

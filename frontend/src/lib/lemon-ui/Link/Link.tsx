@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import './Link.scss'
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
+import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 type RoutePart = string | Record<string, any>
 
@@ -59,9 +60,20 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         },
         ref
     ) => {
+        const { elementProps: draggableProps } = useNotebookDrag({
+            href: typeof to === 'string' ? to : undefined,
+        })
+
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
                 event.stopPropagation()
+                return
+            }
+
+            onClickRaw?.(event)
+
+            if (event.isDefaultPrevented()) {
+                event.preventDefault()
                 return
             }
 
@@ -75,7 +87,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     }
                 }
             }
-            onClickRaw?.(event)
         }
 
         return to ? (
@@ -87,12 +98,16 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 target={target}
                 rel={target === '_blank' ? 'noopener noreferrer' : undefined}
                 {...props}
+                {...draggableProps}
             >
                 {children}
                 {typeof children === 'string' && target === '_blank' ? <IconOpenInNew /> : null}
             </a>
         ) : (
-            <Tooltip title={!!disabledReason ? <span className="italic">{disabledReason}</span> : undefined}>
+            <Tooltip
+                isDefaultTooltip
+                title={disabledReason ? <span className="italic">{disabledReason}</span> : undefined}
+            >
                 <span>
                     <button
                         ref={ref as any}

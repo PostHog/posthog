@@ -213,7 +213,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"}
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
 
     def test_update_property_tags_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
@@ -221,12 +221,29 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"tags": ["test"]}
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
 
     def test_can_update_property_type_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
             f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"property_type": "DateTime"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["property_type"], "DateTime")
+
+    def test_can_update_property_type_and_unchanged_keys_without_license(self):
+        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            data={
+                "id": property.id,
+                "name": "enterprise property",
+                "is_numerical": False,
+                "property_type": "DateTime",
+                "is_seen_on_filtered_events": None,
+                "tags": [],
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -239,7 +256,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             data={"property_type": "DateTime", "tags": ["test"]},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
 
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -250,7 +267,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"}
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
 
     def test_filter_property_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

@@ -24,7 +24,7 @@
        AND event IN ['user did things', 'user signed up']
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-       AND (and(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 1))
+       AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -48,9 +48,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
-               step_1_conversion_time ,
-               prop
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -59,14 +60,13 @@
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target, prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                   prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                                                       prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -101,7 +101,7 @@
                       AND event IN ['user did things', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                      AND (and(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 1))
+                      AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
                       AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
@@ -128,7 +128,7 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-               step_1_conversion_time
+                               step_1_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -136,13 +136,11 @@
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
@@ -171,7 +169,7 @@
                    AND event IN ['user did things', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                   AND ((and(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 1))
+                   AND ((and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
                         AND (like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')))
                    AND (step_0 = 1
                         OR step_1 = 1) ))
@@ -197,7 +195,7 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-               step_1_conversion_time
+                               step_1_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -205,24 +203,22 @@
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
                         pdi.person_id as person_id,
                         person.person_props as person_props ,
                         if(event = 'user signed up'
-                           AND (and(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 1)
+                           AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1)
                                 AND like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user did things'
-                           AND (and(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 1)
+                           AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1)
                                 AND like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')), 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
@@ -257,7 +253,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
-    (SELECT if(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 'le%ss', 'more') AS value,
+    (SELECT if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -299,13 +295,13 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 'le%ss', 'more') as breakdown_value
+                            if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 'le%ss', 'more') in (['more', 'le%ss'])
+             AND if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -321,7 +317,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
-    (SELECT if(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 'le%ss', 'more') AS value,
+    (SELECT if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -363,13 +359,13 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 'le%ss', 'more') as breakdown_value
+                            if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 'le%ss', 'more') in (['more', 'le%ss'])
+             AND if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -441,7 +437,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND ((and(greater(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 1))
+          AND ((and(ifNull(greater(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
                AND (like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')))
         GROUP BY date)
      GROUP BY day_start
@@ -509,7 +505,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND ((and(greater(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 1))
+          AND ((and(ifNull(greater(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 1))
                AND (like(nullIf(nullIf(pmat_fish, ''), 'null'), '%fish%')))
         GROUP BY date)
      GROUP BY day_start
@@ -551,7 +547,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (and(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 1)
+          AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1)
                AND like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'))
         GROUP BY date)
      GROUP BY day_start
@@ -593,7 +589,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (and(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 1)
+          AND (and(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 1)
                AND like(nullIf(nullIf(pmat_fish, ''), 'null'), '%fish%'))
         GROUP BY date)
      GROUP BY day_start
@@ -642,6 +638,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -684,6 +681,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -802,6 +800,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1022,6 +1021,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1154,6 +1154,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1273,6 +1274,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1372,6 +1374,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1488,6 +1491,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1565,6 +1569,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1641,6 +1646,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1690,6 +1696,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",

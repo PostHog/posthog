@@ -9,11 +9,10 @@ import {
     VerifiedPropertyIcon,
     IconSelectAll,
 } from 'lib/lemon-ui/icons'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { getKeyMapping, KEY_MAPPING } from 'lib/taxonomy'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getSingularType } from 'lib/components/DefinitionPopover/utils'
 import clsx from 'clsx'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -23,14 +22,14 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (!!KEY_MAPPING.event[definition.name]) {
+    if (KEY_MAPPING.event[definition.name]) {
         return (
             <Tooltip title="PostHog event property">
                 <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    if (!!definition.verified) {
+    if (definition.verified) {
         return (
             <Tooltip title="Verified event property">
                 <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
@@ -69,7 +68,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
     }
     if (definition.name && (definition.verified || !!KEY_MAPPING.event[definition.name])) {
         return (
-            <Tooltip title={`${!!KEY_MAPPING.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
+            <Tooltip title={`${KEY_MAPPING.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
                 <IconVerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
@@ -121,15 +120,15 @@ function RawDefinitionHeader({
         innerContent
     )
 
+    const description = definition.description || getKeyMapping(definition.name, 'event')?.description
+
     return (
         <>
             {!hideIcon && icon && <div className="definition-column-name-icon">{icon}</div>}
             {!hideText && (
                 <div className="definition-column-name-content">
                     <div>{linkedInnerContent}</div>
-                    <div className="definition-column-name-content-description">
-                        {definition.description || <i>Add a description for this {getSingularType(group.type)}</i>}
-                    </div>
+                    {description ? <div className="text-xs text-ellipsis">{description}</div> : null}
                 </div>
             )}
         </>

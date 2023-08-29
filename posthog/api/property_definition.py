@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Type, cast
 from django.db import connection
 from django.db.models import Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets, status, request, response
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
@@ -15,10 +16,15 @@ from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import PropertyDefinition, TaggedItem, User
+from posthog.models import PropertyDefinition, TaggedItem, User, EventProperty
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from posthog.models.utils import UUIDT
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
+
+
+class SeenTogetherQuerySerializer(serializers.Serializer):
+    event_names: serializers.ListField = serializers.ListField(child=serializers.CharField(), required=True)
+    property_name: serializers.CharField = serializers.CharField(required=True)
 
 
 class PropertyDefinitionQuerySerializer(serializers.Serializer):
@@ -97,6 +103,7 @@ class QueryContext:
     team_id: int
     table: str
     property_definition_fields: str
+    property_definition_table: str
 
     limit: int
     offset: int
@@ -212,7 +219,7 @@ class QueryContext:
         )
         return dataclasses.replace(
             self,
-            excluded_properties_filter="AND posthog_propertydefinition.name NOT IN %(excluded_properties)s"
+            excluded_properties_filter=f"AND {self.property_definition_table}.name NOT IN %(excluded_properties)s"
             if len(excluded_list) > 0
             else "",
             params={
@@ -227,13 +234,13 @@ class QueryContext:
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = %(team_id)s
+            WHERE {self.property_definition_table}.team_id = %(team_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} posthog_propertydefinition.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -244,7 +251,7 @@ class QueryContext:
             SELECT count(*) as full_count
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = %(team_id)s
+            WHERE {self.property_definition_table}.team_id = %(team_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
              {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
@@ -266,6 +273,51 @@ class QueryContext:
             if self.should_join_event_property
             else ""
         )
+
+
+# See frontend/src/lib/taxonomy.tsx for where this came from and see
+# frontend/scripts/print_property_name_aliases.ts for how to regenerate
+PROPERTY_NAME_ALIASES = {
+    "$autocapture_disabled_server_side": "Autocapture Disabled Server-Side",
+    "$console_log_recording_enabled_server_side": "Console Log Recording Enabled Server-Side",
+    "$exception_colno": "Exception source column number",
+    "$exception_handled": "Exception was handled",
+    "$exception_lineno": "Exception source line number",
+    "$geoip_disable": "GeoIP Disabled",
+    "$geoip_time_zone": "Timezone",
+    "$group_0": "Group 1",
+    "$group_1": "Group 2",
+    "$group_2": "Group 3",
+    "$group_3": "Group 4",
+    "$group_4": "Group 5",
+    "$ip": "IP Address",
+    "$lib": "Library",
+    "$lib_version": "Library Version",
+    "$lib_version__major": "Library Version (Major)",
+    "$lib_version__minor": "Library Version (Minor)",
+    "$lib_version__patch": "Library Version (Patch)",
+    "$performance_raw": "Browser Performance",
+    "$referrer": "Referrer URL",
+    "$session_recording_recorder_version_server_side": "Session Recording Recorder Version Server-Side",
+}
+
+
+def add_name_alias_to_search_query(search_term: str):
+    if not search_term:
+        return ""
+
+    normalised_search_term = search_term.lower()
+    search_words = normalised_search_term.split()
+
+    entries = [
+        f"'{key}'"
+        for (key, value) in PROPERTY_NAME_ALIASES.items()
+        if all(word in value.lower() for word in search_words)
+    ]
+
+    if not entries:
+        return ""
+    return f"""OR name IN ({", ".join(entries)})"""
 
 
 # Event properties generated by ingestion we don't want to show to users
@@ -303,16 +355,20 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
         )
 
     def update(self, property_definition: PropertyDefinition, validated_data):
+        changed_fields = {
+            k: v
+            for k, v in validated_data.items()
+            if validated_data.get(k) != getattr(property_definition, k, None if k != "tags" else [])
+        }
         # free users can update property type but no other properties on property definitions
-        if list(validated_data.keys()) == ["property_type"]:
-            validated_data["updated_by"] = self.context["request"].user
-            if "property_type" in validated_data:
-                if validated_data["property_type"] == "Numeric":
-                    validated_data["is_numerical"] = True
-                else:
-                    validated_data["is_numerical"] = False
+        if set(changed_fields) == {"property_type"}:
+            changed_fields["updated_by"] = self.context["request"].user
+            if changed_fields["property_type"] == "Numeric":
+                changed_fields["is_numerical"] = True
+            else:
+                changed_fields["is_numerical"] = False
 
-            return super().update(property_definition, validated_data)
+            return super().update(property_definition, changed_fields)
         else:
             raise EnterpriseFeatureException()
 
@@ -410,7 +466,9 @@ class PropertyDefinitionViewSet(
         query = PropertyDefinitionQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
 
-        search_query, search_kwargs = term_search_filter_sql(self.search_fields, query.validated_data.get("search"))
+        search = query.validated_data.get("search")
+        search_extra = add_name_alias_to_search_query(search)
+        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search, search_extra)
 
         query_context = (
             QueryContext(
@@ -421,6 +479,7 @@ class PropertyDefinitionViewSet(
                     else "posthog_propertydefinition"
                 ),
                 property_definition_fields=property_definition_fields,
+                property_definition_table="posthog_propertydefinition",
                 limit=limit,
                 offset=offset,
             )
@@ -480,6 +539,28 @@ class PropertyDefinitionViewSet(
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def seen_together(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """
+        Allows a caller to provide a list of event names and a single property name
+        Returns a map of the event names to a boolean representing whether that property has ever been seen with that event_name
+        """
+
+        serializer = SeenTogetherQuerySerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+
+        matches = EventProperty.objects.filter(
+            team_id=self.team_id,
+            event__in=serializer.validated_data["event_names"],
+            property=serializer.validated_data["property_name"],
+        )
+
+        results = {}
+        for event_name in serializer.validated_data["event_names"]:
+            results[event_name] = matches.filter(event=event_name).exists()
+
+        return response.Response(results)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()

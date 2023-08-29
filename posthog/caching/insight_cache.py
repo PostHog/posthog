@@ -41,11 +41,11 @@ def schedule_cache_updates():
     InsightCachingState.objects.filter(pk__in=(id for _, _, id in to_update)).update(last_refresh_queued_at=now())
 
     if len(representative_by_cache_key) > 0:
-        logger.info(
+        logger.warn(
             "Scheduled caches to be updated", candidates=len(to_update), tasks_created=len(representative_by_cache_key)
         )
     else:
-        logger.info("No caches were found to be updated")
+        logger.warn("No caches were found to be updated")
 
 
 def fetch_states_in_need_of_updating(limit: int) -> List[Tuple[int, str, UUID]]:
@@ -120,7 +120,7 @@ def update_cache(caching_state_id: UUID):
         statsd.incr("caching_state_update_success")
         statsd.incr("caching_state_update_rows_updated", rows_updated)
         statsd.timing("caching_state_update_success_timing", duration)
-        logger.info("Re-calculated insight cache", rows_updated=rows_updated, duration=duration, **metadata)
+        logger.warn("Re-calculated insight cache", rows_updated=rows_updated, duration=duration, **metadata)
     else:
         logger.warn(
             "Failed to re-calculate insight cache",

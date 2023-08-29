@@ -230,7 +230,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             const start = performance.now()
 
             await breakpoint(300)
-            const key = propertyKey.split('__')[0]
             actions.setOptionsLoading(propertyKey)
             actions.abortAnyRunningQuery()
 
@@ -246,7 +245,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
 
             const propValues: PropValue[] = await api.get(
                 endpoint ||
-                    'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '') + eventParams,
+                    'api/' +
+                        type +
+                        '/values/?key=' +
+                        encodeURIComponent(propertyKey) +
+                        (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
+                        eventParams,
                 methodOptions
             )
             breakpoint()

@@ -4,11 +4,11 @@ from django.db.models import Model
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
+from posthog.auth import SharingAccessTokenAuthentication
 
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
@@ -240,20 +240,16 @@ class SharingTokenPermission(BasePermission):
     """
 
     def has_object_permission(self, request, view, object) -> bool:
-        sharing_config = cast(SharingConfiguration, request.sharing_configuration)
-        return sharing_config.can_access_object(object)
+        if not isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+            raise ValueError("SharingTokenPermission only works if SharingAccessTokenAuthentication succeeded")
+        return request.successful_authenticator.sharing_configuration.can_access_object(object)
 
     def has_permission(self, request, view) -> bool:
         assert hasattr(
             view, "sharing_enabled_actions"
-        ), "this permission class requires the `sharing_enabled_actions` attribute to be set in the view."
+        ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
 
-        # For now, we assume we are only supporting get requests
-        if request.method != "GET" or view.action not in view.sharing_enabled_actions:
-            return False
-
-        if hasattr(request, "sharing_configuration"):
-            sharing_config = cast(SharingConfiguration, request.sharing_configuration)
-            return sharing_config.enabled or False
+        if isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+            return view.action in view.sharing_enabled_actions
 
         return False

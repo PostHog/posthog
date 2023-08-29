@@ -33,12 +33,26 @@
           {
               "key": "pdi",
               "type": "lazy_table",
-              "table": "person_distinct_ids"
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id",
+                  "person"
+              ]
           },
           {
               "key": "override",
               "type": "lazy_table",
-              "table": "person_overrides"
+              "table": "person_overrides",
+              "fields": [
+                  "team_id",
+                  "old_person_id",
+                  "override_person_id",
+                  "oldest_event",
+                  "merged_at",
+                  "created_at"
+              ]
           },
           {
               "key": "override_person_id",
@@ -177,7 +191,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           }
       ],
       "person_overrides": [
@@ -200,89 +221,6 @@
           {
               "key": "created_at",
               "type": "datetime"
-          }
-      ],
-      "session_recording_events": [
-          {
-              "key": "uuid",
-              "type": "string"
-          },
-          {
-              "key": "timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "distinct_id",
-              "type": "string"
-          },
-          {
-              "key": "session_id",
-              "type": "string"
-          },
-          {
-              "key": "window_id",
-              "type": "string"
-          },
-          {
-              "key": "snapshot_data",
-              "type": "json"
-          },
-          {
-              "key": "created_at",
-              "type": "datetime"
-          },
-          {
-              "key": "has_full_snapshot",
-              "type": "boolean"
-          },
-          {
-              "key": "events_summary",
-              "type": "json"
-          },
-          {
-              "key": "click_count",
-              "type": "integer"
-          },
-          {
-              "key": "keypress_count",
-              "type": "integer"
-          },
-          {
-              "key": "timestamps_summary",
-              "type": "datetime"
-          },
-          {
-              "key": "first_event_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "last_event_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "urls",
-              "type": "string"
-          },
-          {
-              "key": "pdi",
-              "type": "lazy_table",
-              "table": "person_distinct_ids"
-          },
-          {
-              "key": "person",
-              "type": "field_traverser",
-              "chain": [
-                  "pdi",
-                  "person"
-              ]
-          },
-          {
-              "key": "person_id",
-              "type": "field_traverser",
-              "chain": [
-                  "pdi",
-                  "person_id"
-              ]
           }
       ],
       "session_replay_events": [
@@ -341,7 +279,13 @@
           {
               "key": "pdi",
               "type": "lazy_table",
-              "table": "person_distinct_ids"
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id",
+                  "person"
+              ]
           },
           {
               "key": "person",
@@ -380,7 +324,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           }
       ],
       "static_cohort_people": [
@@ -395,7 +346,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           }
       ],
       "raw_session_replay_events": [
@@ -450,7 +408,13 @@
           {
               "key": "pdi",
               "type": "lazy_table",
-              "table": "person_distinct_ids"
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id",
+                  "person"
+              ]
           },
           {
               "key": "person",
@@ -481,7 +445,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           },
           {
               "key": "is_deleted",
@@ -552,7 +523,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           },
           {
               "key": "sign",
@@ -586,6 +564,12 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "numbers": [
+          {
+              "key": "number",
               "type": "integer"
           }
       ]
@@ -627,12 +611,26 @@
           {
               "key": "pdi",
               "type": "lazy_table",
-              "table": "person_distinct_ids"
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id",
+                  "person"
+              ]
           },
           {
               "key": "override",
               "type": "lazy_table",
-              "table": "person_overrides"
+              "table": "person_overrides",
+              "fields": [
+                  "team_id",
+                  "old_person_id",
+                  "override_person_id",
+                  "oldest_event",
+                  "merged_at",
+                  "created_at"
+              ]
           },
           {
               "key": "override_person_id",
@@ -766,7 +764,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           }
       ],
       "person_overrides": [
@@ -789,89 +794,6 @@
           {
               "key": "created_at",
               "type": "datetime"
-          }
-      ],
-      "session_recording_events": [
-          {
-              "key": "uuid",
-              "type": "string"
-          },
-          {
-              "key": "timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "distinct_id",
-              "type": "string"
-          },
-          {
-              "key": "session_id",
-              "type": "string"
-          },
-          {
-              "key": "window_id",
-              "type": "string"
-          },
-          {
-              "key": "snapshot_data",
-              "type": "json"
-          },
-          {
-              "key": "created_at",
-              "type": "datetime"
-          },
-          {
-              "key": "has_full_snapshot",
-              "type": "boolean"
-          },
-          {
-              "key": "events_summary",
-              "type": "json"
-          },
-          {
-              "key": "click_count",
-              "type": "integer"
-          },
-          {
-              "key": "keypress_count",
-              "type": "integer"
-          },
-          {
-              "key": "timestamps_summary",
-              "type": "datetime"
-          },
-          {
-              "key": "first_event_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "last_event_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "urls",
-              "type": "string"
-          },
-          {
-              "key": "pdi",
-              "type": "lazy_table",
-              "table": "person_distinct_ids"
-          },
-          {
-              "key": "person",
-              "type": "field_traverser",
-              "chain": [
-                  "pdi",
-                  "person"
-              ]
-          },
-          {
-              "key": "person_id",
-              "type": "field_traverser",
-              "chain": [
-                  "pdi",
-                  "person_id"
-              ]
           }
       ],
       "session_replay_events": [
@@ -930,7 +852,13 @@
           {
               "key": "pdi",
               "type": "lazy_table",
-              "table": "person_distinct_ids"
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id",
+                  "person"
+              ]
           },
           {
               "key": "person",
@@ -969,7 +897,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           }
       ],
       "static_cohort_people": [
@@ -984,7 +919,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           }
       ],
       "raw_session_replay_events": [
@@ -1039,7 +981,13 @@
           {
               "key": "pdi",
               "type": "lazy_table",
-              "table": "person_distinct_ids"
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id",
+                  "person"
+              ]
           },
           {
               "key": "person",
@@ -1070,7 +1018,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           },
           {
               "key": "is_deleted",
@@ -1141,7 +1096,14 @@
           {
               "key": "person",
               "type": "lazy_table",
-              "table": "persons"
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified"
+              ]
           },
           {
               "key": "sign",
@@ -1175,6 +1137,12 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "numbers": [
+          {
+              "key": "number",
               "type": "integer"
           }
       ]

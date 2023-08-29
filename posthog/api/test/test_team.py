@@ -1,18 +1,21 @@
 import json
 from unittest.mock import ANY, MagicMock, patch
 
-
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from rest_framework import status
+from temporalio.service import RPCError
 
+from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.batch_exports.service import describe_schedule
+from posthog.models import EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
-from posthog.models.team.util import delete_bulky_postgres_data
+from posthog.temporal.client import sync_connect
 from posthog.test.base import APIBaseTest
 
 
@@ -197,7 +200,10 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
         from posthog.models.cohort import Cohort, CohortPeople
-        from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+        from posthog.models.feature_flag.feature_flag import (
+            FeatureFlag,
+            FeatureFlagHashKeyOverride,
+        )
 
         # from posthog.models.insight_caching_state import InsightCachingState
         from posthog.models.person import Person
@@ -214,9 +220,62 @@ class TestTeamAPI(APIBaseTest):
             team_id=team.pk, person_id=person.id, feature_flag_key=flag.key, hash_key="test"
         )
         CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
+        EarlyAccessFeature.objects.create(
+            team=team,
+            name="Test flag",
+            description="A fancy new flag.",
+            stage="beta",
+            feature_flag=flag,
+        )
 
         # if something is missing then teardown fails
-        delete_bulky_postgres_data([team.pk])
+        response = self.client.delete(f"/api/projects/{team.id}")
+        self.assertEqual(response.status_code, 204)
+
+    def test_delete_batch_exports(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team: Team = Team.objects.create_with_data(organization=self.organization)
+
+        destination_data = {
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+        }
+
+        batch_export_data = {
+            "name": "my-production-s3-bucket-destination",
+            "destination": destination_data,
+            "interval": "hour",
+        }
+
+        temporal = sync_connect()
+
+        with start_test_worker(temporal):
+            response = self.client.post(
+                f"/api/projects/{team.id}/batch_exports",
+                json.dumps(batch_export_data),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 201)
+
+            batch_export = response.json()
+            batch_export_id = batch_export["id"]
+
+            response = self.client.delete(f"/api/projects/{team.id}")
+            self.assertEqual(response.status_code, 204)
+
+            response = self.client.get(f"/api/projects/{team.id}/batch_exports/{batch_export_id}")
+            self.assertEqual(response.status_code, 404)
+
+            with self.assertRaises(RPCError):
+                describe_schedule(temporal, batch_export_id)
 
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -349,19 +408,6 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(cached_team.name, "Test")
         self.assertEqual(cached_team.uuid, response.json()["uuid"])
         self.assertEqual(cached_team.session_recording_opt_in, True)
-
-    def test_update_recording_version(self):
-        response = self.client.get("/api/projects/@current/")
-        assert response.json()["session_recording_version"] is None
-
-        response = self.client.patch("/api/projects/@current/", {"session_recording_version": "not-allowed"})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "Invalid session recording version"
-
-        response = self.client.patch("/api/projects/@current/", {"session_recording_version": "v2"})
-        assert response.status_code == status.HTTP_200_OK
-        response = self.client.get("/api/projects/@current/")
-        assert response.json()["session_recording_version"] == "v2"
 
     def test_turn_on_exception_autocapture(self):
         response = self.client.get("/api/projects/@current/")

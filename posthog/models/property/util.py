@@ -23,6 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.database.s3_table import S3Table
 from posthog.models.action.action import Action
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.cohort import Cohort
@@ -764,13 +765,13 @@ def build_selector_regex(selector: Selector) -> str:
             if tag.data["tag_name"] == "*":
                 regex += ".+"
             else:
-                regex += tag.data["tag_name"]
+                regex += re.escape(tag.data["tag_name"])
         if tag.data.get("attr_class__contains"):
-            regex += r".*?\.{}".format(r"\..*?".join(sorted(tag.data["attr_class__contains"])))
+            regex += r".*?\.{}".format(r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])]))
         if tag.ch_attributes:
             regex += ".*?"
             for key, value in sorted(tag.ch_attributes.items()):
-                regex += '{}="{}".*?'.format(key, value)
+                regex += '{}="{}".*?'.format(re.escape(key), re.escape(str(value)))
         regex += r'([-_a-zA-Z0-9\.:"= ]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
             regex += ".*"
@@ -853,3 +854,14 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
             prop.values = [clear_excess_levels(p, skip=True) for p in prop.values]
 
     return prop
+
+
+class S3TableVisitor(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.tables = set()
+
+    def visit_table_type(self, node):
+        if isinstance(node.table, S3Table):
+            self.tables.add(node.table.name)
+        super().visit_table_type(node)

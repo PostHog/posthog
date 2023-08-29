@@ -6,16 +6,19 @@ import { NotFound } from 'lib/components/NotFound'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
 import { NotebookMode } from '~/types'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { notebookSidebarLogic } from './Notebook/notebookSidebarLogic'
+import { notebookPopoverLogic } from './Notebook/notebookPopoverLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconArrowRight, IconDelete, IconEllipsis, IconExport, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { notebooksListLogic } from './Notebook/notebooksListLogic'
+import { notebooksModel } from '~/models/notebooksModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import './NotebookScene.scss'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -34,15 +37,17 @@ export function NotebookScene(): JSX.Element {
     const { setNotebookMode } = useActions(notebookSceneLogic)
     const { notebook, notebookLoading, conflictWarningVisible } = useValues(notebookLogic({ shortId: notebookId }))
     const { exportJSON } = useActions(notebookLogic({ shortId: notebookId }))
-    const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
-    const { selectedNotebook, notebookSideBarShown } = useValues(notebookSidebarLogic)
-    const { push } = useActions(router)
+    const { selectNotebook, setVisibility } = useActions(notebookPopoverLogic)
+    const { selectedNotebook, visibility } = useValues(notebookPopoverLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
 
     if (!notebook && !notebookLoading && !conflictWarningVisible) {
         return <NotFound object="notebook" />
     }
 
-    if (notebookSideBarShown && selectedNotebook === notebookId) {
+    if (visibility === 'visible' && selectedNotebook === notebookId) {
         return (
             <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10">
                 <h2 className="text-muted-alt">
@@ -54,7 +59,7 @@ export function NotebookScene(): JSX.Element {
                     and it will be full screen here instead.
                 </p>
 
-                <LemonButton type="secondary" onClick={() => setNotebookSideBarShown(false)}>
+                <LemonButton type="secondary" onClick={() => setVisibility('hidden')}>
                     Open it here instead
                 </LemonButton>
             </div>
@@ -74,7 +79,7 @@ export function NotebookScene(): JSX.Element {
                 notebookShortId={notebookId}
                 previewIframe
             />
-            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-light z-10">
+            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-3000 z-10">
                 <div className="flex gap-2 items-center">
                     {notebook?.is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
@@ -107,7 +112,7 @@ export function NotebookScene(): JSX.Element {
                                         status: 'danger',
 
                                         onClick: () => {
-                                            notebooksListLogic.actions.deleteNotebook(notebookId, notebook?.title)
+                                            notebooksModel.actions.deleteNotebook(notebookId, notebook?.title)
                                             router.actions.push(urls.notebooks())
                                         },
                                     },
@@ -121,19 +126,21 @@ export function NotebookScene(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         icon={<IconHelpOutline />}
+                        size={buttonSize}
                         onClick={() => {
                             selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
-                            setNotebookSideBarShown(true)
+                            setVisibility('visible')
                         }}
                     >
                         Guide
                     </LemonButton>
-                    <NotebookExpandButton type="secondary" />
+                    <NotebookExpandButton type="secondary" size={buttonSize} />
                     <LemonButton
                         type="secondary"
+                        size={buttonSize}
                         onClick={() => {
                             selectNotebook(notebookId)
-                            setNotebookSideBarShown(true)
+                            setVisibility('visible')
                         }}
                         tooltip={
                             <>
@@ -148,13 +155,21 @@ export function NotebookScene(): JSX.Element {
 
                     {!editEnabled ? null : mode === NotebookMode.Edit ? (
                         <>
-                            <LemonButton type="primary" onClick={() => setNotebookMode(NotebookMode.View)}>
+                            <LemonButton
+                                size={buttonSize}
+                                type="primary"
+                                onClick={() => setNotebookMode(NotebookMode.View)}
+                            >
                                 Done
                             </LemonButton>
                         </>
                     ) : (
                         <>
-                            <LemonButton type="primary" onClick={() => setNotebookMode(NotebookMode.Edit)}>
+                            <LemonButton
+                                size={buttonSize}
+                                type="primary"
+                                onClick={() => setNotebookMode(NotebookMode.Edit)}
+                            >
                                 Edit
                             </LemonButton>
                         </>
@@ -162,12 +177,7 @@ export function NotebookScene(): JSX.Element {
                 </div>
             </div>
 
-            <Notebook
-                key={notebookId}
-                shortId={notebookId}
-                editable={editEnabled && mode === NotebookMode.Edit}
-                viewMode={mode}
-            />
+            <Notebook key={notebookId} shortId={notebookId} editable={editEnabled && mode === NotebookMode.Edit} viewMode={mode}/>
         </div>
     )
 }

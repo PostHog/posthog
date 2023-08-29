@@ -8,8 +8,9 @@ from django.conf import settings
 
 from django.core.cache import cache
 from django.db import connection, connections
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, TestCase
 from django.test.client import Client
+from rest_framework.test import APIClient
 from freezegun import freeze_time
 import pytest
 from rest_framework import status
@@ -18,6 +19,7 @@ from posthog.models.group.group import Group
 
 
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
+from posthog.api.decide import label_for_team_id_to_track
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
@@ -64,6 +66,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         groups={},
         geoip_disable=False,
         ip="127.0.0.1",
+        disable_flags=False,
     ):
         return self.client.post(
             f"/decide/?v={api_version}",
@@ -75,6 +78,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                         "distinct_id": distinct_id,
                         "groups": groups,
                         "geoip_disable": geoip_disable,
+                        "disable_flags": disable_flags,
                     },
                 )
             },
@@ -134,36 +138,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
-
-    def test_user_session_recording_version(self, *args):
-        # :TRICKY: Test for regression around caching
-        response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], False)
-
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"session_recording_opt_in": True})
-
-        response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"],
-            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
-        )
-
-        self._update_team({"session_recording_version": "v2"})
-
-        response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"],
-            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
-        )
-
-        self._update_team({"session_recording_version": "v1"})
-
-        response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"],
-            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
-        )
 
     def test_user_console_log_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
@@ -233,7 +207,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["sessionRecording"], False)
 
     def test_user_session_recording_evil_site(self, *args):
-
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://example.com"]})
 
         response = self._post_decide(origin="evil.site.com").json()
@@ -256,10 +229,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["autocapture_opt_out"], True)
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
-
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
         response = self._post_decide(origin="any.site.com").json()
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
+        )
+
+    def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
+        self._update_team({"session_recording_opt_in": True, "recording_domains": ["capacitor://localhost"]})
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
         self.assertEqual(
             response["sessionRecording"],
             {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
@@ -655,7 +636,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # person2 = Person.objects.create(team=self.team, distinct_ids=["example_id", "other_id"], properties={"email": "tim@posthog.com"})
         person.add_distinct_id("other_id")
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(13):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -695,7 +676,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(13):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": 12345, "$anon_distinct_id": "example_id"},
@@ -771,7 +752,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # identify event is sent, but again, ingestion delays, so no entry in personDistinctID table
         # person.add_distinct_id("other_id")
         # in which case, we're pretty much trashed
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(12):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -839,7 +820,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(13):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -934,7 +915,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # new person with "other_id" is yet to be created
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(13):
             # one extra query to find person_id for $anon_distinct_id
             response = self._post_decide(
                 api_version=2,
@@ -1202,6 +1183,128 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
             mock_counter.labels.assert_called_once_with(reason="timeout")
+
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_HASH_KEY_WRITES_COUNTER")
+    @patch("posthog.api.decide.FLAG_EVALUATION_COUNTER")
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
+    def test_feature_flags_v3_metric_counter(self, mock_error_counter, mock_counter, mock_hash_key_counter, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        # use a non-csrf client to make requests to add feature flags
+        client = Client()
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "email", "value": "tim", "type": "person", "operator": "icontains"}],
+                            "rollout_percentage": 50,
+                        }
+                    ]
+                },
+                "name": "Beta feature",
+                "key": "beta-feature",
+            },
+            content_type="application/json",
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
+            format="json",
+            content_type="application/json",
+        )  # Should be enabled for everyone
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "multivariate-flag",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "ensure_experience_continuity": True,
+            },
+            format="json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # At this stage, our cache should have all 3 flags
+
+        with self.settings(DECIDE_TRACK_TEAM_IDS=["all"]):
+            # also adding team to cache
+            response = self._post_decide(
+                api_version=3,
+                data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
+            )
+
+            mock_counter.labels.assert_called_once_with(
+                team_id=str(self.team.pk), errors_computing=False, has_hash_key_override=True
+            )
+            mock_counter.labels.return_value.inc.assert_called_once()
+            mock_error_counter.labels.assert_not_called()
+            mock_hash_key_counter.labels.assert_called_once_with(team_id=str(self.team.pk), successful_write=True)
+            client.logout()
+
+            mock_counter.reset_mock()
+            mock_hash_key_counter.reset_mock()
+
+            with self.assertNumQueries(9):
+                response = self._post_decide(api_version=3)
+                self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+                self.assertTrue(response.json()["featureFlags"]["default-flag"])
+                self.assertEqual(
+                    "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+                )  # assigned by distinct_id hash
+                self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+            mock_counter.labels.assert_called_once_with(
+                team_id=str(self.team.pk), errors_computing=False, has_hash_key_override=False
+            )
+            mock_counter.labels.return_value.inc.assert_called_once()
+            mock_error_counter.labels.assert_not_called()
+            mock_hash_key_counter.labels.assert_not_called()
+
+            mock_counter.reset_mock()
+
+            # now database is down
+            with connection.execute_wrapper(QueryTimeoutWrapper()):
+                response = self._post_decide(api_version=3, distinct_id="example_id")
+                self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+                self.assertTrue(response.json()["featureFlags"]["default-flag"])
+                self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+                self.assertTrue(response.json()["errorsWhileComputingFlags"])
+
+                mock_counter.labels.assert_called_once_with(
+                    team_id=str(self.team.pk), errors_computing=True, has_hash_key_override=False
+                )
+                mock_counter.labels.return_value.inc.assert_called_once()
+                mock_error_counter.labels.assert_any_call(reason="healthcheck_failed")
+                mock_error_counter.labels.assert_any_call(reason="timeout")
+                self.assertEqual(mock_error_counter.labels.call_count, 2)
+
+                mock_hash_key_counter.labels.assert_not_called()
 
     def test_feature_flags_v3_with_database_errors_and_no_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -1508,7 +1611,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_invalid_payload_on_decide_endpoint(self, *args):
-
         invalid_payloads = [base64.b64encode(b"1-1").decode("utf-8"), "1==1", "{distinct_id-1}"]
 
         for payload in invalid_payloads:
@@ -1520,7 +1622,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertIn("Malformed request data:", detail)
 
     def test_invalid_gzip_payload_on_decide_endpoint(self, *args):
-
         response = self.client.post(
             "/decide/?compression=gzip",
             data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03",
@@ -1597,6 +1698,62 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
         self.assertEqual(geoip_disabled_res.json()["featureFlags"], {"australia-feature": False, "india-feature": True})
+
+    def test_disable_flags(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$geoip_country_name": "India"})
+
+        australia_ip = "13.106.122.3"
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 1",
+            key="australia-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "Australia", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 2",
+            key="india-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "India", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        with self.assertNumQueries(0):
+            flag_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags=True)
+            self.assertEqual(flag_disabled_res.json()["featureFlags"], {})
+
+        # test for falsy/truthy values
+        flags_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags="0")
+        flags_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags="yes")
+
+        # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
+        self.assertEqual(
+            flags_not_disabled_res.json()["featureFlags"], {"australia-feature": True, "india-feature": False}
+        )
+        # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
+        self.assertEqual(flags_disabled_res.json()["featureFlags"], {})
 
     @snapshot_postgres_queries
     def test_decide_doesnt_error_out_when_database_is_down(self, *args):
@@ -1844,7 +2001,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.client.logout()
         with self.settings(DECIDE_RATE_LIMIT_ENABLED="y", DECIDE_BUCKET_REPLENISH_RATE=0.1, DECIDE_BUCKET_CAPACITY=3):
-
             for _ in range(3):
                 response = self._post_decide(api_version=3)
                 self.assertEqual(response.status_code, 200)
@@ -2070,7 +2226,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
 
         with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(
             self
-        ), self.assertNumQueries(4):
+        ), self.assertNumQueries(1):
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
@@ -2105,7 +2261,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
     then run this test:
 
-    POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='posthog' POSTHOG_DB_USER='posthog'  ./bin/tests posthog/api/test/test_decide.py::TestDecideUsesReadReplica
+    POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide,PersonalAPIKey,local_evaluation' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='posthog' POSTHOG_DB_USER='posthog'  ./bin/tests posthog/api/test/test_decide.py::TestDecideUsesReadReplica
 
     or run locally with the same env vars.
     For local run, also change postgres_config in data_stores.py so you can have a different user for the read replica.
@@ -2119,7 +2275,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
     databases = {"default", "replica"}
 
     def setup_user_and_team_in_db(self, dbname: str = "default"):
-
         organization = Organization.objects.using(dbname).create(
             name="Org 1", slug=f"org-{dbname}-{random.randint(1, 1000000)}"
         )
@@ -2216,7 +2371,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
     def test_decide_uses_read_replica(self, mock_is_connected):
-
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -2283,7 +2437,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
     def test_decide_uses_read_replica_for_cohorts_based_flags(self, mock_is_connected):
-
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -2431,7 +2584,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
     def test_feature_flags_v3_consistent_flags(self, mock_is_connected):
-
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -2512,25 +2664,19 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         )
 
         # new request with hash key overrides but not writes should not go to main database
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(2, using="default"):
+        with self.assertNumQueries(7, using="replica"), self.assertNumQueries(0, using="default"):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
-            # E   2. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid" -- a.k.a select the person ids.
+            # E   2. WITH some CTEs,
+            #           SELECT key FROM posthog_featureflag WHERE team_id = 13
+            # E         AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+            # E   3. SET LOCAL statement_timeout = 300
+            # E   4. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid" -- a.k.a select the person ids.
             #        We select person overrides from replica DB when no inserts happened
-            # E   3. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",  - a.k.a select the flag overrides
+            # E   5. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",  - a.k.a select the flag overrides
 
-            # E   4. SET LOCAL statement_timeout = 600
-            # E   5. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
-
-            # Main queries:
-            # E   1. SET LOCAL statement_timeout = 300
-            # E   2. (The insert hashkey overrides query)
-            # E                       WITH some CTEs,
-            # E                       INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-            # E                           SELECT team_id, person_id, key, 'example_id'
-            # E                           FROM flags_to_override, target_person_ids
-            # E                           WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = 7)
-            # E                           ON CONFLICT DO NOTHING
+            # E   6. SET LOCAL statement_timeout = 600
+            # E   7. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
 
             response = self._post_decide(
                 api_version=3,
@@ -2543,16 +2689,18 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # now main database is down, but does not affect replica
 
         with connections["default"].execute_wrapper(QueryTimeoutWrapper()), self.assertNumQueries(
-            5, using="replica"
-        ), self.assertNumQueries(1, using="default"):
+            7, using="replica"
+        ), self.assertNumQueries(0, using="default"):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
-            # E   2. SELECT "posthog_persondistinctid"."person_id", -- i.e person from distinct ids
-            # E   3. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", -- i.e. hash key overrides (note this would've gone to main db if insert did not fail)
-            # E   4. SET LOCAL statement_timeout = 600
-            # E   5. SELECT (true) AS "flag_13_condition_0", (true) AS "flag_14_condition_0", -- flag matching
-            # Main queries:
-            # E   1. SET LOCAL statement_timeout = 300 --> failed here, even before it could insert
+            # E   2. WITH some CTEs,
+            #           SELECT key FROM posthog_featureflag WHERE team_id = 13
+            # E         AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+            # E   3. SET LOCAL statement_timeout = 300
+            # E   4. SELECT "posthog_persondistinctid"."person_id", -- i.e person from distinct ids
+            # E   5. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", -- i.e. hash key overrides (note this would've gone to main db if insert did not fail)
+            # E   6. SET LOCAL statement_timeout = 600
+            # E   7. SELECT (true) AS "flag_13_condition_0", (true) AS "flag_14_condition_0", -- flag matching
 
             response = self._post_decide(
                 api_version=3,
@@ -2575,7 +2723,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
     def test_feature_flags_v3_consistent_flags_with_write_on_hash_key_overrides(self, mock_is_connected):
-
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -2643,11 +2790,14 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
 
         # request with hash key overrides and _new_ writes should go to main database
-        with self.assertNumQueries(2, using="replica"), self.assertNumQueries(5, using="default"):
-            # effectively 3 queries, wrapped around by an atomic transaction
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
             # Replica queries:
-            # E   1. SET LOCAL statement_timeout = 600
-            # E   2. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
+            # E   1. SET LOCAL statement_timeout = 300
+            # E   2. WITH some CTEs,
+            #           SELECT key FROM posthog_featureflag WHERE team_id = 13
+            # E         AND key NOT IN (SELECT feature_flag_key FROM existing_overrides) -- checks whether we need to write
+            # E   3. SET LOCAL statement_timeout = 600
+            # E   4. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
             # Main queries:
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. (The insert hashkey overrides query)
@@ -2756,3 +2906,631 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self._post_decide(distinct_id="example_id", groups={"organization": "foo", "project": "bar"})
             self.assertEqual(response.json()["featureFlags"], {"groups-flag": True, "default-no-prop-group-flag": True})
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
+    def test_site_apps_in_decide_use_replica(self, mock_is_connected):
+        org, team, user = self.setup_user_and_team_in_db("default")
+        self.organization, self.team, self.user = org, team, user
+
+        plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
+        PluginSourceFile.objects.create(
+            plugin=plugin,
+            filename="site.ts",
+            source="export function inject (){}",
+            transpiled="function inject(){}",
+            status=PluginSourceFile.Status.TRANSPILED,
+        )
+        PluginConfig.objects.create(
+            plugin=plugin, enabled=True, order=1, team=self.team, config={}, web_token="tokentoken"
+        )
+        sync_team_inject_web_apps(self.team)
+
+        # update caches
+        self._post_decide(api_version=3)
+
+        with self.assertNumQueries(2, using="replica"), self.assertNumQueries(0, using="default"):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["siteApps"]
+            self.assertEqual(len(injected), 1)
+
+    # Adding local evaluation tests for read replica in one place for now, until we move to a separate CI flow for all read replica tests
+    # since code-level overrides don't work for theses tests, as they affect the DATABASES setting
+    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_local_evaluation(self, mock_rate_limit, mock_capture):
+        org, team, user = self.setup_user_and_team_in_db("replica")
+        self.organization, self.team, self.user = org, team, user
+
+        FeatureFlag.objects.all().delete()
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        client = APIClient()
+        client.force_login(self.user)
+
+        client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 21}]},
+            },
+            format="json",
+        )
+
+        # old style feature flags
+        FeatureFlag.objects.create(
+            name="Beta feature",
+            key="beta-feature",
+            team=self.team,
+            rollout_percentage=51,
+            filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
+            created_by=self.user,
+        )
+        # and inactive flag
+        FeatureFlag.objects.create(
+            name="Inactive feature",
+            key="inactive-flag",
+            team=self.team,
+            active=False,
+            rollout_percentage=100,
+            filters={"properties": []},
+            created_by=self.user,
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        client.logout()
+        self.client.logout()
+        cache.clear()
+
+        # `local_evaluation` is called by logged out clients!
+
+        # missing API key
+        with self.assertNumQueries(0, using="replica"), self.assertNumQueries(0, using="default"):
+            response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        with self.assertNumQueries(0, using="replica"), self.assertNumQueries(0, using="default"):
+            response = self.client.get(f"/api/feature_flag/local_evaluation")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(3, using="default"):
+            # Captured queries for write DB:
+            # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
+            # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
+            # E   3. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id", - user org permissions check
+            # Captured queries for replica DB:
+            # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
+            # E   2. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", "posthog_featureflag"."name", "posthog_featureflag"."filters", -- get flags
+            # E   3. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
+
+            response = self.client.get(
+                f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
+        self.assertEqual(len(response_data["flags"]), 3)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[0],
+        )
+        self.assertDictContainsSubset(
+            {
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {
+                    "groups": [
+                        {"properties": [{"key": "beta-property", "value": "beta-value"}], "rollout_percentage": 51}
+                    ]
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[1],
+        )
+        self.assertDictContainsSubset(
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0},
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[2],
+        )
+
+        self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_local_evaluation_for_cohorts(self, mock_rate_limit, mock_capture):
+        FeatureFlag.objects.all().delete()
+
+        org, team, user = self.setup_user_and_team_in_db("replica")
+        self.organization, self.team, self.user = org, team, user
+
+        client = APIClient()
+        client.force_login(self.user)
+
+        cohort_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        other_cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+
+        Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort2 -unrelated",
+        )
+
+        client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                        }
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": other_cohort1.pk}],
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+
+        client.logout()
+        self.client.logout()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        cache.clear()
+
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(3, using="default"):
+            # Captured queries for write DB:
+            # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
+            # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
+            # E   3. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id", - user org permissions check
+            # Captured queries for replica DB:
+            # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
+            # E   2. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", "posthog_featureflag"."name", "posthog_featureflag"."filters", -- get flags
+            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select all cohorts
+            # E   5. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
+
+            response = self.client.get(
+                f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertTrue(
+                "flags" in response_data and "group_type_mapping" in response_data and "cohorts" in response_data
+            )
+            self.assertEqual(len(response_data["flags"]), 2)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                            "rollout_percentage": 20,
+                        },
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[0],
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "id", "type": "cohort", "value": other_cohort1.pk}],
+                            "rollout_percentage": 20,
+                        },
+                    ],
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[1],
+        )
+
+        # When send_cohorts is true, no transformations happen, so all relevant cohorts are returned
+        self.assertEqual(
+            response_data["cohorts"],
+            {
+                str(cohort_valid_for_ff.pk): {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
+                            ],
+                        }
+                    ],
+                },
+                str(other_cohort1.pk): {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_local_evaluation_for_arbitrary_cohorts(self, mock_rate_limit, mock_capture):
+        FeatureFlag.objects.all().delete()
+
+        org, team, user = self.setup_user_and_team_in_db("replica")
+        self.organization, self.team, self.user = org, team, user
+
+        cohort_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {"key": "id", "value": cohort_valid_for_ff.pk, "type": "cohort", "negation": True},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+
+        client = APIClient()
+        client.force_login(self.user)
+        client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
+                        }
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature-2",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        client.logout()
+        self.client.logout()
+
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(3, using="default"):
+            # Captured queries for write DB:
+            # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
+            # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
+            # E   3. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id", - user org permissions check
+            # Captured queries for replica DB:
+            # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
+            # E   2. SELECT feature flags
+            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select all cohorts
+            # E   5. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
+
+            response = self.client.get(
+                f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertTrue(
+                "flags" in response_data and "group_type_mapping" in response_data and "cohorts" in response_data
+            )
+            self.assertEqual(len(response_data["flags"]), 2)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertEqual(
+            response_data["cohorts"],
+            {
+                str(cohort_valid_for_ff.pk): {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
+                            ],
+                        }
+                    ],
+                },
+                str(cohort2.pk): {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
+                                {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk, "negation": True},
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
+                        }
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[0],
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature-2",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                            "rollout_percentage": 20,
+                        },
+                    ],
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[1],
+        )
+
+
+class TestDecideMetricLabel(TestCase):
+    def test_simple_team_ids(self):
+        with self.settings(DECIDE_TRACK_TEAM_IDS=["1", "2", "3"]):
+            self.assertEqual(label_for_team_id_to_track(3), "3")
+            self.assertEqual(label_for_team_id_to_track(2), "2")
+            self.assertEqual(label_for_team_id_to_track(1), "1")
+            self.assertEqual(label_for_team_id_to_track(0), "unknown")
+            self.assertEqual(label_for_team_id_to_track(4), "unknown")
+            self.assertEqual(label_for_team_id_to_track(40), "unknown")
+            self.assertEqual(label_for_team_id_to_track(10), "unknown")
+            self.assertEqual(label_for_team_id_to_track(20), "unknown")
+            self.assertEqual(label_for_team_id_to_track(31), "unknown")
+
+    def test_all_team_ids(self):
+        with self.settings(DECIDE_TRACK_TEAM_IDS=["1", "2", "3", "all"]):
+            self.assertEqual(label_for_team_id_to_track(3), "3")
+            self.assertEqual(label_for_team_id_to_track(2), "2")
+            self.assertEqual(label_for_team_id_to_track(1), "1")
+            self.assertEqual(label_for_team_id_to_track(0), "0")
+            self.assertEqual(label_for_team_id_to_track(4), "4")
+            self.assertEqual(label_for_team_id_to_track(40), "40")
+            self.assertEqual(label_for_team_id_to_track(10), "10")
+            self.assertEqual(label_for_team_id_to_track(20), "20")
+            self.assertEqual(label_for_team_id_to_track(31), "31")
+
+    def test_range_team_ids(self):
+        with self.settings(DECIDE_TRACK_TEAM_IDS=["1", "2", "1:3", "10:20", "30:40"]):
+            self.assertEqual(label_for_team_id_to_track(3), "3")
+            self.assertEqual(label_for_team_id_to_track(2), "2")
+            self.assertEqual(label_for_team_id_to_track(1), "1")
+            self.assertEqual(label_for_team_id_to_track(0), "unknown")
+            self.assertEqual(label_for_team_id_to_track(4), "unknown")
+            self.assertEqual(label_for_team_id_to_track(40), "40")
+            self.assertEqual(label_for_team_id_to_track(41), "unknown")
+            self.assertEqual(label_for_team_id_to_track(10), "10")
+            self.assertEqual(label_for_team_id_to_track(9), "unknown")
+            self.assertEqual(label_for_team_id_to_track(20), "20")
+            self.assertEqual(label_for_team_id_to_track(25), "unknown")
+            self.assertEqual(label_for_team_id_to_track(31), "31")

@@ -29,7 +29,7 @@ export interface LemonButtonPropsBase
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** Button color scheme. */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth' | 'default-dark'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -73,7 +73,7 @@ export interface LemonButtonProps extends LemonButtonPropsBase {
 }
 
 /** Styled button. */
-export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAttributes<HTMLElement>> =
+export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAttributes<HTMLButtonElement>> =
     React.forwardRef(
         (
             {
@@ -119,7 +119,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 }
             }
             if (loading) {
-                icon = <Spinner monocolor />
+                icon = <Spinner textColored />
                 disabled = true // Cannot interact with a loading button
             }
 
@@ -160,6 +160,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         'LemonButton',
                         `LemonButton--${type}`,
                         `LemonButton--status-${status}`,
+                        loading && `LemonButton--loading`,
                         noPadding && `LemonButton--no-padding`,
                         size && `LemonButton--${size}`,
                         active && 'LemonButton--active',
@@ -203,7 +204,7 @@ LemonButton.displayName = 'LemonButton'
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status'
+    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status' | 'targetBlank'
 > & {
     dropdown?: LemonButtonDropdown
     /**
@@ -224,7 +225,7 @@ export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
  * We can't use `LemonRow`'s `sideIcon` prop because putting `onClick` on it clashes with the parent`s `onClick`.
  */
 export const LemonButtonWithSideAction: React.FunctionComponent<
-    LemonButtonWithSideActionProps & React.RefAttributes<HTMLElement>
+    LemonButtonWithSideActionProps & React.RefAttributes<HTMLButtonElement>
 > = React.forwardRef(({ sideAction, children, ...buttonProps }, ref) => {
     const { dropdown: sideDropdown, divider = !buttonProps.fullWidth, ...sideActionRest } = sideAction
     const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton

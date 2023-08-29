@@ -44,7 +44,20 @@ export const formatAggregationAxisValue = (
     }`
 }
 
-export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {
+export const formatPercentStackAxisValue = (
+    trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
+    value: number | string,
+    isPercentStackView: boolean
+): string => {
+    if (isPercentStackView) {
+        value = Number(value)
+        return percentage(value / 100)
+    } else {
+        return formatAggregationAxisValue(trendsFilter, value)
+    }
+}
+
+export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined): string => {
     switch (chartDisplayType) {
         case ChartDisplayType.ActionsLineGraph:
         case ChartDisplayType.ActionsLineGraphCumulative:

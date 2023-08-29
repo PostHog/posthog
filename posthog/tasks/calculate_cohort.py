@@ -30,21 +30,19 @@ def calculate_cohorts() -> None:
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
-
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         update_cohort(cohort)
 
 
 def update_cohort(cohort: Cohort) -> None:
     pending_version = get_and_update_pending_version(cohort)
-    clear_stale_cohort.delay(cohort.id, cohort.version)
     calculate_cohort_ch.delay(cohort.id, pending_version)
 
 
 @shared_task(ignore_result=True)
-def clear_stale_cohort(cohort_id: int, current_version: int) -> None:
+def clear_stale_cohort(cohort_id: int, before_version: int) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-    clear_stale_cohortpeople(cohort, current_version)
+    clear_stale_cohortpeople(cohort, before_version)
 
 
 @shared_task(ignore_result=True, max_retries=2)

@@ -40,6 +40,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -125,17 +126,5 @@
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:HEATMAP_SAMPLE_N'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='element-stats',route='api/element/stats/%3F%24'*/
-  '
----
-# name: TestElement.test_element_stats_postgres_queries_are_as_expected.5
-  '
-  SELECT "ee_license"."id",
-         "ee_license"."created_at",
-         "ee_license"."plan",
-         "ee_license"."valid_until",
-         "ee_license"."key",
-         "ee_license"."max_users"
-  FROM "ee_license"
-  WHERE ""ee_license"."valid_until">='LICENSE-TIMESTAMP'::timestamptz" /*controller='element-stats',route='api/element/stats/%3F%24'*/
   '
 ---

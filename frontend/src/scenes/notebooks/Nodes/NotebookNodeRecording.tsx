@@ -1,88 +1,120 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookMode, NotebookNodeType } from '~/types'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { NotebookNodeType, NotebookNodeWidgetSettings, SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
-import { posthogNodePasteRule } from './utils'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { useActions, useValues } from 'kea'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { useEffect } from 'react'
+import {
+    SessionRecordingPreview,
+    SessionRecordingPreviewSkeleton,
+} from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { IconSettings } from 'lib/lemon-ui/icons'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 
 const HEIGHT = 500
+const MIN_HEIGHT = 400
 
-const Component = (props: NodeViewProps): JSX.Element => {
+const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>): JSX.Element => {
     const id = props.node.attrs.id
+    const noInspector: boolean = props.node.attrs.noInspector
+
     const recordingLogicProps: SessionRecordingPlayerProps = {
-        sessionRecordingId: id,
-        playerKey: `notebook-${id}`,
+        ...sessionRecordingPlayerProps(id),
         autoPlay: false,
+        mode: SessionRecordingPlayerMode.Notebook,
+        noBorder: true,
+        noInspector: noInspector,
     }
 
-    // KLUDGE: while this node is not shareable we don\t want to set the height here
-    // soon we'll make it shareable and then this can be removed
-    const isShared = props.extension.options.viewMode === NotebookMode.Share
-    const wrappingDivStyle = {}
-    if (!isShared) {
-        wrappingDivStyle['height'] = HEIGHT
-    }
+    const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
+    const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
+    const { expanded } = useValues(notebookNodeLogic)
 
-    return (
-        <NodeWrapper
-            {...props}
-            nodeType={NotebookNodeType.Recording}
-            title="Recording"
-            href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
-            heightEstimate={HEIGHT}
-            viewMode={props.extension.options.viewMode}
-        >
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={wrappingDivStyle}>
-                <SessionRecordingPlayer {...recordingLogicProps} />
-            </div>
-        </NodeWrapper>
+    useEffect(() => {
+        loadRecordingMeta()
+    }, [])
+    // TODO Only load data when in view...
+
+    return !expanded ? (
+        <div>
+            {sessionPlayerMetaData ? (
+                <SessionRecordingPreview recording={sessionPlayerMetaData} recordingPropertiesLoading={false} />
+            ) : (
+                <SessionRecordingPreviewSkeleton />
+            )}
+        </div>
+    ) : (
+        <SessionRecordingPlayer {...recordingLogicProps} />
     )
 }
 
-export const NotebookNodeRecording = Node.create({
-    name: NotebookNodeType.Recording,
-    group: 'block',
-    atom: true,
-    draggable: true,
+export const Settings = ({ attributes, updateAttributes }: NotebookNodeWidgetSettings): JSX.Element => {
+    return (
+        <LemonSwitch
+            onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
+            label="Hide Inspector"
+            checked={attributes.noInspector}
+            fullWidth={true}
+        />
+    )
+}
 
-    addAttributes() {
-        return {
-            id: {
-                default: null,
-            },
-        }
-    },
+type NotebookNodeRecordingAttributes = {
+    id: string
+    noInspector: boolean
+}
 
-    parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Recording,
-            },
-        ]
+export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
+    nodeType: NotebookNodeType.Recording,
+    title: 'Session replay',
+    Component,
+    heightEstimate: HEIGHT,
+    minHeight: MIN_HEIGHT,
+    href: (attrs) => urls.replaySingle(attrs.id),
+    resizeable: true,
+    attributes: {
+        id: {
+            default: null,
+        },
+        noInspector: {
+            default: false,
+        },
     },
-
-    renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.Recording, mergeAttributes(HTMLAttributes)]
+    pasteOptions: {
+        find: urls.replaySingle('(.+)'),
+        getAttributes: async (match) => {
+            return { id: match[1], noInspector: false }
+        },
     },
-
-    addNodeView() {
-        return ReactNodeViewRenderer(Component)
-    },
-
-    addPasteRules() {
-        return [
-            posthogNodePasteRule({
-                find: urls.replaySingle('') + '(.+)',
-                type: this.type,
-                getAttributes: (match) => {
-                    return { id: match[1] }
-                },
-            }),
-        ]
-    },
+    widgets: [
+        {
+            key: 'settings',
+            label: 'Settings',
+            icon: <IconSettings />,
+            Component: Settings,
+        },
+    ],
 })
+
+export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {
+    return {
+        sessionRecordingId: id,
+        playerKey: `notebook-${id}`,
+    }
+}
+
+export function buildRecordingContent(sessionRecordingId: string): JSONContent {
+    return {
+        type: 'ph-recording',
+        attrs: {
+            id: sessionRecordingId,
+        },
+    }
+}

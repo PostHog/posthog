@@ -10,7 +10,7 @@ beforeAll(async () => {
 
 const HISTORICAL_TOPIC = 'events_plugin_ingestion_historical'
 
-test.concurrent(`event ingestion: can ingest into the historical topic`, async () => {
+test(`event ingestion: can ingest into the historical topic`, async () => {
     const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
 
@@ -83,6 +83,7 @@ test.concurrent(`event ingestion: can ingest into the historical topic`, async (
             name: 'haha',
             $group_0: 'posthog',
         },
+        topic: HISTORICAL_TOPIC,
     })
     await waitForExpect(async () => {
         const [event] = await fetchEvents(teamId, secondEventUuid)

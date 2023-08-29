@@ -2,7 +2,7 @@ import './ToolbarButton.scss'
 
 import { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { HogLogo } from '~/toolbar/assets/HogLogo'
+import { Logomark } from '~/toolbar/assets/Logomark'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -16,8 +16,8 @@ import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
-import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconHelpOutline, IconTarget } from 'lib/lemon-ui/icons'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -115,7 +115,14 @@ export function ToolbarButton(): JSX.Element {
             rootNode
             width={62}
             className="floating-toolbar-button"
-            content={!hedgehogMode ? <HogLogo style={{ width: 45, cursor: 'pointer' }} /> : <></>}
+            content={
+                !hedgehogMode ? (
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div style={{ width: 45, display: 'flex' }}>
+                        <Logomark />
+                    </div>
+                ) : undefined
+            }
             {...clickEvents}
             onMouseOver={isAuthenticated ? undefined : () => setExtensionPercentage(1)}
             style={{
@@ -124,6 +131,7 @@ export function ToolbarButton(): JSX.Element {
                 marginTop: -23,
                 pointerEvents: hedgehogMode ? 'none' : undefined,
                 display: hedgehogMode ? 'none' : 'flex',
+                cursor: 'pointer',
             }}
             zIndex={3}
         >
@@ -149,7 +157,7 @@ export function ToolbarButton(): JSX.Element {
                 extensionPercentage={extensionPercentage}
                 distance={hedgehogModeDistance}
                 rotation={hedgehogModeRotation}
-                content={<span style={{ width: 14, height: 14 }}>🦔</span>}
+                content="🦔"
                 zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={() => setHedgehogMode(!hedgehogMode)}
                 style={{
@@ -167,7 +175,7 @@ export function ToolbarButton(): JSX.Element {
                         extensionPercentage={extensionPercentage}
                         distance={helpButtonOnTop ? 75 : 55}
                         rotation={helpButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
-                        content={<QuestionOutlined style={{ fontSize: 22 }} />}
+                        content={<IconHelpOutline style={{ fontSize: 22 }} />}
                         label="Help"
                         zIndex={2}
                         onClick={() => window.open(HELP_URL, '_blank')?.focus()}
@@ -193,18 +201,10 @@ export function ToolbarButton(): JSX.Element {
                             opacity: inspectExtensionPercentage > 0.8 ? (inspectExtensionPercentage - 0.8) / 0.2 : 0,
                         }}
                         content={
-                            <div style={{ position: 'relative' }}>
+                            <div className="relative">
                                 <Magnifier style={{ height: 34, paddingTop: 2 }} engaged={inspectEnabled} />
                                 {inspectEnabled && selectedElement ? (
-                                    <div
-                                        style={{
-                                            position: 'absolute',
-                                            top: 8,
-                                            left: 9,
-                                            fontSize: 13,
-                                            color: 'white',
-                                        }}
-                                    >
+                                    <div className="absolute top-2 left-2.5 text-white text-xs">
                                         <Close style={{ width: 10, height: 10 }} />
                                     </div>
                                 ) : null}
@@ -262,7 +262,7 @@ export function ToolbarButton(): JSX.Element {
                                         placement={side === 'left' ? 'right' : 'left'}
                                         getPopupContainer={getShadowRootPopoverContainer}
                                     >
-                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
+                                        <div className="whitespace-nowrap text-center">{elementCount}</div>
                                     </Tooltip>
                                 }
                                 zIndex={4}
@@ -294,7 +294,7 @@ export function ToolbarButton(): JSX.Element {
                             opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,
                         }}
                         content={
-                            <AimOutlined
+                            <IconTarget
                                 style={{ fontSize: '28px', color: buttonActionsVisible ? '#fef5e2' : '#f1aa04' }}
                             />
                         }
@@ -323,7 +323,7 @@ export function ToolbarButton(): JSX.Element {
                                         placement={side === 'left' ? 'right' : 'left'}
                                         getPopupContainer={getShadowRootPopoverContainer}
                                     >
-                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
+                                        <div className="whitespace-nowrap text-center">{actionCount}</div>
                                     </Tooltip>
                                 }
                                 zIndex={4}

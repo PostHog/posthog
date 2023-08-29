@@ -3,7 +3,7 @@ import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FilterBasedCardContent } from 'lib/components/Cards/InsightCard/InsightCard'
 import './ExportedInsight.scss'
-import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import { Logo } from '~/toolbar/assets/Logo'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { ExportOptions, ExportType } from '~/exporter/types'
 import clsx from 'clsx'
@@ -70,12 +70,12 @@ export function ExportedInsight({
                             {description && <div className="ExportedInsight__header-description">{description}</div>}
                         </div>
 
-                        {!whitelabel && <FriendlyLogo />}
+                        {!whitelabel && <Logo />}
                     </div>
                 )}
                 {showWatermark && (
                     <div className="ExportedInsight__watermark">
-                        <FriendlyLogo />
+                        <Logo />
                     </div>
                 )}
                 <div
@@ -84,8 +84,8 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    {!!query ? (
-                        !!insight.result ? (
+                    {query ? (
+                        insight.result ? (
                             <Query query={query} cachedResults={insight.result} readOnly />
                         ) : (
                             <QueriesUnsupportedHere />

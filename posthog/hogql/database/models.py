@@ -21,8 +21,8 @@ class DatabaseField(FieldOrTable):
         extra = Extra.forbid
 
     name: str
-    array: Optional[bool]
-    nullable: Optional[bool]
+    array: Optional[bool] = None
+    nullable: Optional[bool] = None
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -138,3 +138,27 @@ class FunctionCallTable(Table):
     """
 
     name: str
+    min_args: Optional[int] = None
+    max_args: Optional[int] = None
+
+
+class SavedQuery(Table):
+    """
+    A table that returns a subquery, e.g. my_saved_query -> (SELECT * FROM some_saved_table). The team_id guard is NOT added for the overall subquery
+    """
+
+    query: str
+    name: str
+
+    # Note: redundancy for safety. This validation is used in the data model already
+    def to_printed_clickhouse(self, context):
+        from posthog.warehouse.models import validate_saved_query_name
+
+        validate_saved_query_name(self.name)
+        return self.name
+
+    def to_printed_hogql(self):
+        from posthog.warehouse.models import validate_saved_query_name
+
+        validate_saved_query_name(self.name)
+        return self.name

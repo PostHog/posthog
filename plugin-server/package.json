@@ -4,7 +4,7 @@
     "description": "PostHog Plugin Server",
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
-    "packageManager": "pnpm@8.3.1",
+    "packageManager": "pnpm@8.6.0",
     "scripts": {
         "test": "jest --runInBand --forceExit",
         "functional_tests": "jest --config ./jest.config.functional.js",
@@ -54,6 +54,7 @@
         "@sentry/tracing": "^7.17.4",
         "@sentry/utils": "^7.17.4",
         "@types/lru-cache": "^5.1.0",
+        "@types/tail": "^2.2.1",
         "asn1.js": "^5.4.1",
         "aws-sdk": "^2.927.0",
         "escape-string-regexp": "^4.0.0",
@@ -77,10 +78,12 @@
         "posthog-node": "2.0.2",
         "pretty-bytes": "^5.6.0",
         "prom-client": "^14.2.0",
-        "re2": "^1.17.7",
+        "re2": "^1.20.3",
         "safe-stable-stringify": "^2.4.0",
         "snowflake-sdk": "^1.6.10",
+        "tail": "^2.2.6",
         "uuid": "^8.3.2",
+        "v8-profiler-next": "^1.9.0",
         "vm2": "3.9.18"
     },
     "devDependencies": {

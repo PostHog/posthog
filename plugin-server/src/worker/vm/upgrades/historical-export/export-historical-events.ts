@@ -62,7 +62,8 @@ export function addHistoricalEventsExportCapability(
         Object.keys(JOB_SPEC.payload!).length
     ) {
         hub.promiseManager.trackPromise(
-            hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC)
+            hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC),
+            'exports addOrUpdatePublicJob'
         )
     }
 
@@ -364,7 +365,8 @@ export function addHistoricalEventsExportCapability(
                 source: PluginLogEntrySource.System,
                 type: type,
                 instanceId: hub.instanceId,
-            })
+            }),
+            'exports createLog'
         )
     }
 }

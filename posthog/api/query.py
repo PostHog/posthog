@@ -1,20 +1,19 @@
 import json
-from datetime import datetime, timedelta
+import re
 from typing import Dict, Optional, cast, Any, List
 
-from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
-from django.utils.timezone import now
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from pydantic import BaseModel
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, ValidationError, NotAuthenticated
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
@@ -33,29 +32,12 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode, HogQLMetadata
-from posthog.utils import relative_date_parse
-
-from sentry_sdk import capture_exception
-
-import re
+from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
 
 
 class QueryThrottle(TeamRateThrottle):
     scope = "query"
     rate = "120/hour"
-
-
-def parse_as_date_or(date_string: str | None, default: datetime) -> datetime:
-    if not date_string:
-        return default
-
-    try:
-        timestamp = isoparse(date_string)
-    except ValueError:
-        timestamp = relative_date_parse(date_string)
-
-    return timestamp or default
 
 
 class QuerySchemaParser(JSONParser):
@@ -236,21 +218,6 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)
-    elif query_kind == "RecentPerformancePageViewNode":
-        try:
-            # noinspection PyUnresolvedReferences
-            from ee.api.performance_events import load_performance_events_recent_pageviews
-        except ImportError:
-            raise ValidationError("Performance events are not enabled for this instance")
-
-        recent_performance_query = RecentPerformancePageViewNode.parse_obj(query_json)
-        results = load_performance_events_recent_pageviews(
-            team_id=team.pk,
-            date_from=parse_as_date_or(recent_performance_query.dateRange.date_from, now() - timedelta(hours=1)),
-            date_to=parse_as_date_or(recent_performance_query.dateRange.date_to, now()),
-        )
-
-        return {"results": results}
     elif query_kind == "TimeToSeeDataSessionsQuery":
         sessions_query_serializer = SessionsQuerySerializer(data=query_json)
         sessions_query_serializer.is_valid(raise_exception=True)

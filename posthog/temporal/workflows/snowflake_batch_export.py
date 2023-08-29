@@ -2,7 +2,6 @@ import datetime as dt
 import json
 import tempfile
 from dataclasses import dataclass
-from string import Template
 
 import snowflake.connector
 from django.conf import settings
@@ -19,21 +18,11 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
+    get_data_interval,
     get_results_iterator,
     get_rows_count,
 )
 from posthog.temporal.workflows.clickhouse import get_client
-
-SELECT_QUERY_TEMPLATE = Template(
-    """
-    SELECT $fields
-    FROM events
-    WHERE
-        timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND timestamp < toDateTime({data_interval_end}, 'UTC')
-        AND team_id = {team_id}
-    """
-)
 
 
 class SnowflakeFileNotUploadedError(Exception):
@@ -72,6 +61,7 @@ class SnowflakeInsertInputs:
     table_name: str
     data_interval_start: str
     data_interval_end: str
+    role: str | None = None
 
 
 def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
@@ -103,18 +93,9 @@ def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_n
 
 @activity.defn
 async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
-    """
-    Activity streams data from ClickHouse to Snowflake.
+    """Activity streams data from ClickHouse to Snowflake.
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
-
-    TODO: at the moment this doesn't do anything about catching data that might
-    be late being ingested into the specified time range. To work around this,
-    as a little bit of a hack we should export data only up to an hour ago with
-    the assumption that that will give it enough time to settle. I is a little
-    tricky with the existing setup to properly partition the data into data we
-    have or haven't processed yet. We have `_timestamp` in the events table, but
-    this is the time
     """
     activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
@@ -137,7 +118,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             )
             return
 
-        activity.logger.info("BatchExporting %s rows to S3", count)
+        activity.logger.info("BatchExporting %s rows to Snowflake", count)
 
         conn = snowflake.connector.connect(
             user=inputs.user,
@@ -146,6 +127,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
+            role=inputs.role,
         )
 
         try:
@@ -185,9 +167,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             try:
                 while True:
                     try:
-                        result = await results_iterator.__anext__()
+                        result = results_iterator.__next__()
 
-                    except StopAsyncIteration:
+                    except StopIteration:
                         break
 
                     except json.JSONDecodeError:
@@ -201,7 +183,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                             # We failed right at the beginning
                             new_interval_start = None
                         else:
-                            new_interval_start = result.get("_timestamp", None)
+                            new_interval_start = result.get("inserted_at", None)
 
                         if not isinstance(new_interval_start, str):
                             new_interval_start = inputs.data_interval_start
@@ -218,9 +200,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         break
 
                     # Write the results to a local file
-                    local_results_file.write(
-                        json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
-                    )
+                    local_results_file.write(json.dumps(result).encode("utf-8"))
                     local_results_file.write("\n".encode("utf-8"))
 
                     # Write results to Snowflake when the file reaches 50MB and
@@ -255,15 +235,23 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 )
                 results = cursor.fetchall()
 
-                for result in results:
-                    if not isinstance(result, tuple):
+                for query_result in results:
+                    if not isinstance(query_result, tuple):
                         # Mostly to appease mypy, as this query should always return a tuple.
                         raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(result)}'")
 
-                    file_name, status = result[0:2]
+                    if len(query_result) < 2:
+                        raise SnowflakeFileNotLoadedError(
+                            inputs.table_name,
+                            "NO STATUS",
+                            0,
+                            query_result[1] if len(query_result) == 1 else "NO ERROR MESSAGE",
+                        )
+
+                    _, status = query_result[0:2]
 
                     if status != "LOADED":
-                        errors_seen, first_error = result[5:7]
+                        errors_seen, first_error = query_result[5:7]
                         raise SnowflakeFileNotLoadedError(
                             inputs.table_name,
                             status or "NO STATUS",
@@ -298,7 +286,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         workflow.logger.info("Starting S3 export")
 
-        data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(inputs)
+        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -309,10 +297,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         run_id = await workflow.execute_activity(
             create_export_run,
             create_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
-            schedule_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
-                maximum_attempts=3,
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
@@ -330,21 +319,25 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             table_name=inputs.table_name,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            role=inputs.role,
         )
         try:
             await workflow.execute_activity(
                 insert_into_snowflake_activity,
                 insert_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=dt.timedelta(hours=1),
                 retry_policy=RetryPolicy(
-                    maximum_attempts=3,
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=120),
+                    maximum_attempts=10,
                     non_retryable_error_types=[
-                        # If we can't connect to ClickHouse, no point in
-                        # retrying.
-                        "ConnectionError",
-                        # Validation failed, and will keep failing.
-                        "ValueError",
+                        # Raised when we cannot connect to Snowflake.
+                        "DatabaseError",
+                        # Raised by Snowflake when a query cannot be compiled.
+                        # Usually this means we don't have table permissions or something doesn't exist (db, schema).
+                        "ProgrammingError",
+                        # Raised by Snowflake with an incorrect account name.
+                        "ForbiddenError",
                     ],
                 ),
             )
@@ -361,64 +354,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 update_export_run_status,
                 update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
             )
-
-
-def get_data_interval_from_workflow_inputs(inputs: SnowflakeBatchExportInputs) -> tuple[dt.datetime, dt.datetime]:
-    """Return the start and end of an export's data interval.
-
-    Args:
-        inputs: The Snowflake BatchExport inputs.
-
-    Raises:
-        TypeError: If when trying to obtain the data interval end we run into non-str types.
-
-    Returns:
-        A tuple of two dt.datetime indicating start and end of the
-        data_interval.
-
-    TODO: this is pretty much a straight copy of the same function for S3.
-    Refactor to not use the destination specific inputs.
-    """
-    data_interval_end_str = inputs.data_interval_end
-
-    if not data_interval_end_str:
-        data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
-
-        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
-        # So, they exist to make mypy happy.
-        if data_interval_end_search_attr is None:
-            msg = (
-                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
-                "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
-            )
-            raise TypeError(msg)
-
-        # Failing here would perhaps be a bug in Temporal.
-        if isinstance(data_interval_end_search_attr[0], str):
-            data_interval_end_str = data_interval_end_search_attr[0]
-            data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-        elif isinstance(data_interval_end_search_attr[0], dt.datetime):
-            data_interval_end = data_interval_end_search_attr[0]
-
-        else:
-            msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
-                f"of type '{type(data_interval_end_search_attr[0])}'."
-            )
-            raise TypeError(msg)
-    else:
-        data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-    # TODO: handle different time intervals. I'm also no 100% happy with how we
-    # decide on the interval start/end. I would be much happier if we were to
-    # inspect the previous `data_interval_end` and used that as the start of
-    # the next interval. This would be more robust to failures and retries.
-    data_interval_start = data_interval_end - dt.timedelta(seconds=3600)
-
-    return (data_interval_start, data_interval_end)

@@ -4,10 +4,14 @@ import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { PostgresUse } from '../../../../src/utils/db/postgres'
 import { convertToIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
+import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
+import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
 import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { HookCommander } from '../../../../src/worker/ingestion/hooks'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
@@ -17,6 +21,9 @@ jest.mock('../../../../src/utils/status')
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub
+    let actionManager: ActionManager
+    let actionMatcher: ActionMatcher
+    let hookCannon: HookCommander
     let closeServer: () => Promise<void>
 
     const ingestEvent = async (event: PluginEvent) => {
@@ -25,7 +32,7 @@ describe('Event Pipeline integration test', () => {
         const postIngestionEvent = convertToIngestionEvent(result.args[0])
         return Promise.all([
             runner.runAppsOnEventPipeline(postIngestionEvent),
-            processWebhooksStep(runner.hub, postIngestionEvent),
+            processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
         ])
     }
 
@@ -34,6 +41,11 @@ describe('Event Pipeline integration test', () => {
         await resetTestDatabaseClickhouse()
         process.env.SITE_URL = 'https://example.com'
         ;[hub, closeServer] = await createHub()
+
+        actionManager = new ActionManager(hub.db.postgres)
+        await actionManager.prepare()
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        hookCannon = new HookCommander(hub.db.postgres, hub.teamManager, hub.organizationManager)
 
         jest.spyOn(hub.db, 'fetchPerson')
         jest.spyOn(hub.db, 'createPerson')
@@ -112,7 +124,8 @@ describe('Event Pipeline integration test', () => {
     })
 
     it('fires a webhook', async () => {
-        await hub.db.postgresQuery(
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
             [],
             'testTag'
@@ -129,7 +142,7 @@ describe('Event Pipeline integration test', () => {
             site_url: 'not-used-anymore',
             uuid: new UUIDT().toString(),
         }
-        await hub.actionManager.reloadAllActions()
+        await actionManager.reloadAllActions()
 
         await ingestEvent(event)
 
@@ -148,7 +161,13 @@ describe('Event Pipeline integration test', () => {
     it('fires a REST hook', async () => {
         const timestamp = new Date().toISOString()
 
-        await hub.db.postgresQuery(`UPDATE posthog_organization SET available_features = '{"zapier"}'`, [], 'testTag')
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_organization
+             SET available_features = '{"zapier"}'`,
+            [],
+            'testTag'
+        )
         await insertRow(hub.db.postgres, 'ee_hook', {
             id: 'abc',
             team_id: 2,
@@ -171,7 +190,7 @@ describe('Event Pipeline integration test', () => {
             site_url: 'https://example.com',
             uuid: new UUIDT().toString(),
         }
-        await hub.actionManager.reloadAllActions()
+        await actionManager.reloadAllActions()
 
         await ingestEvent(event)
 

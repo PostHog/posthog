@@ -18,7 +18,8 @@ from posthog.models.property_definition import PropertyType
 from posthog.schema import HogQLPropertyFilter, PropertyOperator
 from posthog.test.base import BaseTest
 
-elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
+elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
+elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
 
 
@@ -312,7 +313,29 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._selector_to_expr("#withid"),
-            clear_locations(elements_chain_match('#withid([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
+            clear_locations(
+                elements_chain_match('.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
+        )
+        self.assertEqual(
+            self._selector_to_expr("#with-dashed-id"),
+            clear_locations(
+                elements_chain_match(
+                    '.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
+        )
+        self.assertEqual(
+            self._selector_to_expr("#with-dashed-id"),
+            self._selector_to_expr("[id='with-dashed-id']"),
+        )
+        self.assertEqual(
+            self._selector_to_expr("#with\\slashed\\id"),
+            clear_locations(
+                elements_chain_match(
+                    '.*?attr_id="with\\\\slashed\\\\id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
     def test_elements_chain_key_filter(self):
@@ -326,11 +349,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.icontains)),
-            clear_locations(elements_chain_match('(?i)(href="[^"]*boo\\.\\.[^"]*")')),
+            clear_locations(elements_chain_imatch('(href="[^"]*boo\\.\\.[^"]*")')),
         )
         self.assertEqual(
             clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.not_icontains)),
-            clear_locations(not_call(elements_chain_match('(?i)(href="[^"]*boo\\.\\.[^"]*")'))),
+            clear_locations(not_call(elements_chain_imatch('(href="[^"]*boo\\.\\.[^"]*")'))),
         )
         self.assertEqual(
             clear_locations(element_chain_key_filter("href", "boo..", PropertyOperator.regex)),
@@ -355,10 +378,10 @@ class TestProperty(BaseTest):
         self.assertEqual(
             clear_locations(action_to_expr(action1)),
             self._parse_expr(
-                "event = '$autocapture' and match(elements_chain, {regex1}) and match(elements_chain, {regex2})",
+                "event = '$autocapture' and elements_chain =~ {regex1} and elements_chain =~ {regex2}",
                 {
                     "regex1": ast.Constant(
-                        value='a.*?\\.active\\..*?nav-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        value='a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                     ),
                     "regex2": ast.Constant(value="(^|;)a(\\.|$|;|:)"),
                 },
@@ -380,12 +403,18 @@ class TestProperty(BaseTest):
             self._parse_expr(
                 "{s1} or {s2}",
                 {
-                    "s1": self._parse_expr(
-                        "event = '$pageview' and match(properties.$current_url, 'https://example2.com')"
-                    ),
+                    "s1": self._parse_expr("event = '$pageview' and properties.$current_url =~ 'https://example2.com'"),
                     "s2": self._parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
                 },
             ),
+        )
+
+        action4 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(event="$pageview", action=action4)
+        ActionStep.objects.create(event=None, action=action4)
+        self.assertEqual(
+            clear_locations(action_to_expr(action4)),
+            self._parse_expr("event = '$pageview' OR true"),  # All events just resolve to "true"
         )
 
     def test_cohort_filter_static(self):
@@ -396,9 +425,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
-            self._parse_expr(
-                f"person_id IN (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.pk})"
-            ),
+            self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
 
     def test_cohort_filter_dynamic(self):
@@ -407,7 +434,5 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
-            self._parse_expr(
-                f"person_id IN (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort.pk} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
-            ),
+            self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )

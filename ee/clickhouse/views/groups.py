@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Dict, List, cast
 
+from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
@@ -12,11 +13,16 @@ from rest_framework.permissions import IsAuthenticated
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    SharingTokenPermission,
+    TeamMemberAccessPermission,
+)
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -30,6 +36,17 @@ class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, v
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+
+    sharing_enabled_actions = ["list"]
+
+    def get_permissions(self):
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            return [SharingTokenPermission()]
+        return super().get_permissions()
+
+    def get_authenticators(self):
+        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
@@ -93,7 +110,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
 
         group_search = self.request.GET.get("search")
         if group_search is not None:
-            queryset = queryset.filter(group_properties__icontains=group_search)
+            queryset = queryset.filter(Q(group_properties__icontains=group_search) | Q(group_key__iexact=group_search))
 
         page = self.paginate_queryset(queryset)
         if page is not None:

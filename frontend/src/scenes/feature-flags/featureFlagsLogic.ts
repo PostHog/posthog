@@ -12,6 +12,9 @@ export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
     HISTORY = 'history',
     EXPOSURE = 'exposure',
+    Analysis = 'analysis',
+    USAGE = 'usage',
+    PERMISSIONS = 'permissions',
 }
 
 export interface FeatureFlagsFilters {
@@ -40,6 +43,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
+        closeEnrichAnalyticsNotice: true,
     },
     loaders: ({ values }) => ({
         featureFlags: {
@@ -132,9 +136,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
         ],
         shouldShowEmptyState: [
-            (s) => [s.featureFlagsLoading, s.searchedFeatureFlags, s.searchTerm],
-            (featureFlagsLoading, searchedFeatureFlags, searchTerm): boolean => {
-                return searchedFeatureFlags && searchedFeatureFlags?.length == 0 && !featureFlagsLoading && !searchTerm
+            (s) => [s.featureFlagsLoading, s.featureFlags],
+            (featureFlagsLoading, featureFlags): boolean => {
+                return !featureFlagsLoading && featureFlags.length <= 0
             },
         ],
     },
@@ -168,6 +172,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     }
                     return { ...state, ...filters }
                 },
+            },
+        ],
+        enrichAnalyticsNoticeAcknowledged: [
+            false,
+            { persist: true },
+            {
+                closeEnrichAnalyticsNotice: () => true,
             },
         ],
     },

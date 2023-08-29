@@ -22,8 +22,9 @@ export function SecondaryMetrics({
     onMetricsChange,
     initialMetrics,
     experimentId,
+    defaultAggregationType,
 }: SecondaryMetricsProps): JSX.Element {
-    const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId })
+    const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId, defaultAggregationType })
     const { metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric, metricIdx } =
         useValues(logic)
 
@@ -144,7 +145,7 @@ export function SecondaryMetrics({
             >
                 <Form
                     logic={secondaryMetricsLogic}
-                    props={{ onMetricsChange, initialMetrics, experimentId }}
+                    props={{ onMetricsChange, initialMetrics, experimentId, defaultAggregationType }}
                     formKey="secondaryMetricModal"
                     id="secondary-metric-modal-form"
                     className="space-y-4"

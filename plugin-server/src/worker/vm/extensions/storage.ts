@@ -1,6 +1,7 @@
 import { StorageExtension } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig } from '../../../types'
+import { PostgresUse } from '../../../utils/db/postgres'
 import { postgresGet } from '../utils'
 
 export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageExtension {
@@ -18,7 +19,8 @@ export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageE
         if (typeof value === 'undefined') {
             await del(key)
         } else {
-            await server.db.postgresQuery(
+            await server.db.postgres.query(
+                PostgresUse.PLUGIN_STORAGE_RW,
                 `
                     INSERT INTO posthog_pluginstorage ("plugin_config_id", "key", "value")
                     VALUES ($1, $2, $3)
@@ -26,7 +28,7 @@ export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageE
                     DO UPDATE SET value = $3
                 `,
                 [pluginConfig.id, key, JSON.stringify(value)],
-                `storageSet(pluginConfig.id=${pluginConfig.id})`
+                `storageSet`
             )
         }
 
@@ -41,7 +43,8 @@ export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageE
     }
 
     const del = async function (key: string): Promise<void> {
-        await server.db.postgresQuery(
+        await server.db.postgres.query(
+            PostgresUse.PLUGIN_STORAGE_RW,
             'DELETE FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2',
             [pluginConfig.id, key],
             'storageDelete'

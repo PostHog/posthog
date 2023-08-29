@@ -1,14 +1,15 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { dashboardsModelType } from './dashboardsModelType'
-import { DashboardType, InsightShortId, DashboardTile, InsightModel, DashboardBasicType } from '~/types'
+import { DashboardBasicType, DashboardTile, DashboardType, InsightModel, InsightShortId } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { tagsModel } from '~/models/tagsModel'
+import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     path: ['models', 'dashboardsModel'],
@@ -16,11 +17,13 @@ export const dashboardsModel = kea<dashboardsModelType>({
         actions: [tagsModel, ['loadTags']],
     },
     actions: () => ({
+        // we page through the dashboards and need to manually track when that is finished
+        dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
         setLastDashboardId: (id: number) => ({ id }),
         addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
-        // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
+        // this is moved out of dashboardLogic, so that you can click "undo" on an item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
         // can provide extra dashboard ids if not all listeners will choose to respond to this action
         // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
@@ -52,7 +55,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
         }),
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
-        loadDashboards: true,
         duplicateDashboard: ({
             id,
             name,
@@ -77,24 +79,21 @@ export const dashboardsModel = kea<dashboardsModelType>({
         tileAddedToDashboard: (dashboardId: number) => ({ dashboardId }),
     }),
     loaders: ({ values, actions }) => ({
-        rawDashboards: [
-            {} as Record<string, DashboardBasicType>,
+        pagedDashboards: [
+            null as PaginatedResponse<DashboardBasicType> | null,
             {
-                loadDashboards: async () => {
+                loadDashboards: async (url?: string) => {
                     // looking at a fully exported dashboard, return its contents
                     const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
                     if (exportedDashboard?.id && exportedDashboard?.tiles) {
-                        return { [exportedDashboard.id]: exportedDashboard }
+                        return { count: 1, next: null, previous: null, results: [exportedDashboard] }
                     }
 
                     if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
-                        return {}
+                        return { count: 0, next: null, previous: null, results: [] }
                     }
-                    const { results } = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=1000`
-                    )
-                    return idToKey(results ?? [])
+                    return await api.get(url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`)
                 },
             },
         ],
@@ -180,6 +179,12 @@ export const dashboardsModel = kea<dashboardsModelType>({
     }),
 
     reducers: {
+        pagingDashboardsCompleted: [
+            false,
+            {
+                dashboardsFullyLoaded: () => true,
+            },
+        ],
         redirect: [
             true,
             {
@@ -187,30 +192,39 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 restoreDashboard: (state, { redirect }) => (typeof redirect !== 'undefined' ? redirect : state),
             },
         ],
-        rawDashboards: {
-            // NB! Kea-TypeGen assignes the type of the reducer to the abcSuccess actions.
-            // This means we must get rid of the `| null` manually until it's fixed:
-            // https://github.com/keajs/kea-typegen/issues/10
-            addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            updateDashboardSuccess: (state, { dashboard }) =>
-                dashboard ? { ...state, [dashboard.id]: dashboard } : state,
-            deleteDashboardSuccess: (state, { dashboard }) => ({
-                ...state,
-                [dashboard.id]: { ...state[dashboard.id], deleted: true },
-            }),
-            delayedDeleteDashboard: (state, { id }) => {
-                // This gives us time to leave the /dashboard/:deleted_id page
-                const { [id]: _discard, ...rest } = state
-                return rest
+        rawDashboards: [
+            {} as Record<string, DashboardBasicType | DashboardType>,
+            {
+                loadDashboardsSuccess: (state, { pagedDashboards }) => {
+                    if (!pagedDashboards) {
+                        return state
+                    }
+                    return { ...state, ...idToKey(pagedDashboards.results) }
+                },
+                // NB! Kea-TypeGen assignes the type of the reducer to the abcSuccess actions.
+                // This means we must get rid of the `| null` manually until it's fixed:
+                // https://github.com/keajs/kea-typegen/issues/10
+                addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+                restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+                updateDashboardSuccess: (state, { dashboard }) =>
+                    dashboard ? { ...state, [dashboard.id]: dashboard } : state,
+                deleteDashboardSuccess: (state, { dashboard }) => ({
+                    ...state,
+                    [dashboard.id]: { ...state[dashboard.id], deleted: true },
+                }),
+                delayedDeleteDashboard: (state, { id }) => {
+                    // This gives us time to leave the /dashboard/:deleted_id page
+                    const { [id]: _discard, ...rest } = state
+                    return rest
+                },
+                pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+                unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+                duplicateDashboardSuccess: (state, { dashboard }) => ({
+                    ...state,
+                    [dashboard.id]: { ...dashboard, _highlight: true },
+                }),
             },
-            pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            duplicateDashboardSuccess: (state, { dashboard }) => ({
-                ...state,
-                [dashboard.id]: { ...dashboard, _highlight: true },
-            }),
-        },
+        ],
         lastDashboardId: [
             null as null | number,
             { persist: true },
@@ -224,9 +238,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
         nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
-                return [...Object.values(rawDashboards)].sort((a, b) =>
-                    (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
-                )
+                return [...Object.values(rawDashboards)]
+                    .filter((dashboard) => !(dashboard.name ?? 'Untitled').startsWith(GENERATED_DASHBOARD_PREFIX))
+                    .sort(nameCompareFunction)
             },
         ],
         /** Display dashboards are additionally sorted by pin status: pinned first. */
@@ -234,13 +248,14 @@ export const dashboardsModel = kea<dashboardsModelType>({
             () => [selectors.nameSortedDashboards],
             (nameSortedDashboards) => {
                 return [...nameSortedDashboards].sort(
-                    (a, b) =>
-                        (Number(b.pinned) - Number(a.pinned)) * 10 +
-                        (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
+                    (a, b) => (Number(b.pinned) - Number(a.pinned)) * 10 + nameCompareFunction(a, b)
                 )
             },
         ],
-        dashboardsLoading: [() => [selectors.rawDashboardsLoading], (dashesLoading) => dashesLoading],
+        dashboardsLoading: [
+            () => [selectors.pagedDashboardsLoading, selectors.pagingDashboardsCompleted],
+            (pagedDashboardsLoading, pagingDashboardsCompleted) => pagedDashboardsLoading || !pagingDashboardsCompleted,
+        ],
         pinnedDashboards: [
             () => [selectors.nameSortedDashboards],
             (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),
@@ -248,10 +263,19 @@ export const dashboardsModel = kea<dashboardsModelType>({
     }),
 
     events: ({ actions }) => ({
-        afterMount: () => actions.loadDashboards(),
+        afterMount: () => {
+            actions.loadDashboards()
+        },
     }),
 
     listeners: ({ actions, values }) => ({
+        loadDashboardsSuccess: ({ pagedDashboards }) => {
+            if (pagedDashboards?.next) {
+                actions.loadDashboards(pagedDashboards.next)
+            } else {
+                actions.dashboardsFullyLoaded()
+            }
+        },
         addDashboardSuccess: ({ dashboard }) => {
             lemonToast.success(<>Dashboard created</>, {
                 button: {
@@ -307,3 +331,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
         },
     }),
 })
+
+export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {
+    // No matter where we're comparing dashboards, we want to sort generated dashboards last
+    const firstName = a.name ?? 'Untitled'
+    const secondName = b.name ?? 'Untitled'
+
+    return firstName.localeCompare(secondName)
+}

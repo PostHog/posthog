@@ -11,21 +11,18 @@ import {
     IconPublic,
 } from 'lib/lemon-ui/icons'
 
-import { ChartDisplayType, FilterType } from '~/types'
+import { ChartDisplayType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-interface ChartFilterProps {
-    filters: FilterType
-}
-
-export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
-    const { insightProps, isSingleSeries } = useValues(insightLogic)
+export function ChartFilter(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
-    const isTrends = isTrendsFilter(filters)
+    const { isTrends, isSingleSeries, formula, breakdown } = useValues(insightVizDataLogic(insightProps))
+
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !isSingleSeries
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
@@ -33,38 +30,39 @@ export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
 
     const options: LemonSelectOptions<ChartDisplayType> = [
         {
-            title: 'Time Series',
+            title: 'Time series',
             options: [
                 {
                     value: ChartDisplayType.ActionsLineGraph,
                     icon: <IconShowChart />,
-                    label: 'Line',
+                    label: 'Line chart',
                 },
                 {
                     value: ChartDisplayType.ActionsBar,
                     icon: <IconBarChart />,
-                    label: 'Bar',
+                    label: 'Bar chart',
                 },
                 {
                     value: ChartDisplayType.ActionsAreaGraph,
                     icon: <IconAreaChart />,
-                    label: 'Area',
+                    label: 'Area chart',
                 },
             ],
         },
         {
-            title: 'Cumulative Time Series',
+            title: 'Cumulative time series',
             options: [
                 {
                     value: ChartDisplayType.ActionsLineGraphCumulative,
                     icon: <IconCumulativeChart />,
-                    label: 'Line',
+                    label: 'Line chart (cumulative)',
+                    labelInMenu: 'Line chart',
                     disabledReason: trendsOnlyDisabledReason,
                 },
             ],
         },
         {
-            title: 'Total Value',
+            title: 'Total value',
             options: [
                 {
                     value: ChartDisplayType.BoldNumber,
@@ -75,13 +73,13 @@ export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
                 {
                     value: ChartDisplayType.ActionsPie,
                     icon: <IconPieChart />,
-                    label: 'Pie',
+                    label: 'Pie chart',
                     disabledReason: trendsOnlyDisabledReason,
                 },
                 {
                     value: ChartDisplayType.ActionsBarValue,
                     icon: <IconBarChart className="rotate-90" />,
-                    label: 'Bar',
+                    label: 'Bar chart',
                     disabledReason: trendsOnlyDisabledReason,
                 },
                 {
@@ -92,16 +90,15 @@ export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
                 {
                     value: ChartDisplayType.WorldMap,
                     icon: <IconPublic />,
-                    label: 'World Map',
+                    label: 'World map',
                     tooltip: 'Visualize data by country.',
                     disabledReason:
                         trendsOnlyDisabledReason ||
-                        singleSeriesOnlyDisabledReason ||
-                        (isTrends && filters.formula
+                        (formula
                             ? "This type isn't available, because it doesn't support formulas."
-                            : !!filters.breakdown &&
-                              filters.breakdown !== '$geoip_country_code' &&
-                              filters.breakdown !== '$geoip_country_name'
+                            : !!breakdown?.breakdown &&
+                              breakdown.breakdown !== '$geoip_country_code' &&
+                              breakdown.breakdown !== '$geoip_country_name'
                             ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
                             : undefined),
                 },
@@ -110,21 +107,18 @@ export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
     ]
 
     return (
-        <>
-            <span>Chart type</span>
-            <LemonSelect
-                key="2"
-                value={chartFilter || ChartDisplayType.ActionsLineGraph}
-                onChange={(value) => {
-                    setChartFilter(value as ChartDisplayType)
-                }}
-                dropdownPlacement="bottom-end"
-                optionTooltipPlacement="left"
-                dropdownMatchSelectWidth={false}
-                data-attr="chart-filter"
-                options={options}
-                size="small"
-            />
-        </>
+        <LemonSelect
+            key="2"
+            value={chartFilter || ChartDisplayType.ActionsLineGraph}
+            onChange={(value) => {
+                setChartFilter(value as ChartDisplayType)
+            }}
+            dropdownPlacement="bottom-end"
+            optionTooltipPlacement="left"
+            dropdownMatchSelectWidth={false}
+            data-attr="chart-filter"
+            options={options}
+            size="small"
+        />
     )
 }

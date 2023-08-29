@@ -1,7 +1,9 @@
 import { runInstrumentedFunction } from '../../../main/utils'
-import { Hub, PostIngestionEvent } from '../../../types'
+import { PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent } from '../../plugins/run'
+import { ActionMatcher } from '../action-matcher'
+import { HookCommander, instrumentWebhookStep } from '../hooks'
 import { EventPipelineRunner } from './runner'
 
 export async function processOnEventStep(runner: EventPipelineRunner, event: PostIngestionEvent) {
@@ -17,9 +19,17 @@ export async function processOnEventStep(runner: EventPipelineRunner, event: Pos
     return null
 }
 
-export async function processWebhooksStep(hub: Hub, event: PostIngestionEvent) {
-    const elements = event.elementsList
-    const actionMatches = await hub.actionMatcher.match(event, elements)
-    await hub.hookCannon.findAndFireHooks(event, actionMatches)
+export async function processWebhooksStep(
+    event: PostIngestionEvent,
+    actionMatcher: ActionMatcher,
+    hookCannon: HookCommander
+) {
+    const actionMatches = await instrumentWebhookStep('actionMatching', async () => {
+        const elements = event.elementsList
+        return await actionMatcher.match(event, elements)
+    })
+    await instrumentWebhookStep('findAndfireHooks', async () => {
+        await hookCannon.findAndFireHooks(event, actionMatches)
+    })
     return null
 }

@@ -2,7 +2,7 @@ import {
     appEditorUrl,
     authorizedUrlListLogic,
     AuthorizedUrlListType,
-    validateProposedURL,
+    validateProposedUrl,
 } from './authorizedUrlListLogic'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -57,7 +57,7 @@ describe('the authorized urls list logic', () => {
                 proposedUrl: { url: 'not a domain or url' },
                 proposedUrlChanged: true,
                 proposedUrlHasErrors: true,
-                proposedUrlValidationErrors: { url: 'Please type a valid URL or domain.' },
+                proposedUrlValidationErrors: { url: 'Please enter a valid URL' },
             })
         })
     })
@@ -67,35 +67,32 @@ describe('the authorized urls list logic', () => {
             { proposedUrl: 'https://valid.*.example.com', validityMessage: undefined },
             {
                 proposedUrl: 'https://notsovalid.*.*',
-                validityMessage:
-                    'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.',
+                validityMessage: 'Wildcards can only be used for subdomains',
             },
             {
                 proposedUrl: 'https://*.*.*',
-                validityMessage:
-                    'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.',
+                validityMessage: 'Wildcards can only be used for subdomains',
             },
             { proposedUrl: 'https://valid*.example.com', validityMessage: undefined },
             { proposedUrl: 'https://*.valid.com', validityMessage: undefined },
             {
                 proposedUrl: 'https://not.*.valid.*',
-                validityMessage:
-                    'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.',
+                validityMessage: 'Wildcards can only be used for subdomains',
             },
         ]
 
         testCases.forEach((testCase) => {
             it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
-                expect(validateProposedURL(testCase.proposedUrl, [], false)).toEqual(testCase.validityMessage)
+                expect(validateProposedUrl(testCase.proposedUrl, [], false)).toEqual(testCase.validityMessage)
             })
         })
 
         it('fails if the proposed URL is already authorized', () => {
-            expect(validateProposedURL('https://valid.*.example.com', ['https://valid.*.example.com'], false)).toBe(
-                'This URL is already registered.'
+            expect(validateProposedUrl('https://valid.*.example.com', ['https://valid.*.example.com'], false)).toBe(
+                'This URL already is registered'
             )
             expect(
-                validateProposedURL(
+                validateProposedUrl(
                     'https://valid.and-not-already-authorized.example.com',
                     ['https://valid.*.example.com'],
                     false
@@ -131,18 +128,21 @@ describe('the authorized urls list logic', () => {
                 { proposedUrl: 'https://valid.*.example.com', validityMessage: undefined },
                 {
                     proposedUrl: 'https://not.valid.com/path',
-                    validityMessage: "Please type a valid domain (URLs with a path aren't allowed).",
+                    validityMessage: "Please enter a valid domain (URLs with a path aren't allowed)",
                 },
                 {
                     proposedUrl: 'https://not.*.valid.*',
-                    validityMessage:
-                        'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.',
+                    validityMessage: 'Wildcards can only be used for subdomains',
+                },
+                {
+                    proposedUrl: 'capacitor://localhost',
+                    validityMessage: undefined,
                 },
             ]
 
             testCases.forEach((testCase) => {
                 it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
-                    expect(validateProposedURL(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
+                    expect(validateProposedUrl(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
                 })
             })
         })

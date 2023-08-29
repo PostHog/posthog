@@ -1,9 +1,8 @@
 import datetime as dt
 from dataclasses import asdict, dataclass
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from asgiref.sync import async_to_sync, sync_to_async
-from temporalio.api.workflowservice.v1 import ResetWorkflowExecutionRequest
+from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client,
     Schedule,
@@ -11,14 +10,16 @@ from temporalio.client import (
     ScheduleBackfill,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
+    SchedulePolicy,
     ScheduleSpec,
     ScheduleState,
+    ScheduleUpdate,
+    ScheduleUpdateInput,
 )
 
 from posthog import settings
 from posthog.batch_exports.models import (
     BatchExport,
-    BatchExportDestination,
     BatchExportRun,
 )
 from posthog.temporal.client import sync_connect
@@ -29,24 +30,23 @@ class S3BatchExportInputs:
     """Inputs for S3 export workflow.
 
     Attributes:
+        batch_export_id: The ID of the parent BatchExport.
+        team_id: The ID of the team that contains the BatchExport whose data we are exporting.
+        interval: The range of data we are exporting.
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
-        file_name_prefix: A prefix for the file name to be created in S3.
-        batch_window_size: The size in seconds of the batch window.
+        prefix: A prefix for the file name to be created in S3.
             For example, for one hour batches, this should be 3600.
-        team_id: The team_id whose data we are exporting.
-        file_format: The format of the file to be created in S3, supported by ClickHouse.
-            A list of all supported formats can be found in https://clickhouse.com/docs/en/interfaces/formats.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
     """
 
+    batch_export_id: str
+    team_id: int
     bucket_name: str
     region: str
     prefix: str
-    batch_window_size: int
-    team_id: int
-    batch_export_id: str
+    interval: str = "hour"
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     data_interval_end: str | None = None
@@ -64,13 +64,34 @@ class SnowflakeBatchExportInputs:
     database: str
     warehouse: str
     schema: str
+    interval: str = "hour"
     table_name: str = "events"
+    data_interval_end: str | None = None
+    role: str | None = None
+
+
+@dataclass
+class PostgresBatchExportInputs:
+    """Inputs for Postgres export workflow."""
+
+    batch_export_id: str
+    team_id: int
+    user: str
+    password: str
+    host: str
+    database: str
+    has_self_signed_cert: bool = False
+    interval: str = "hour"
+    schema: str = "public"
+    table_name: str = "events"
+    port: int = 5432
     data_interval_end: str | None = None
 
 
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
+    "Postgres": ("postgres-export", PostgresBatchExportInputs),
 }
 
 
@@ -87,16 +108,6 @@ class BatchExportIdError(BatchExportServiceError):
 
 class BatchExportServiceRPCError(BatchExportServiceError):
     """Exception raised when the underlying Temporal RPC fails."""
-
-
-@async_to_sync
-async def create_schedule(temporal: Client, id: str, schedule: Schedule, trigger_immediately: bool = False):
-    """Create a Temporal Schedule."""
-    return await temporal.create_schedule(
-        id=id,
-        schedule=schedule,
-        trigger_immediately=trigger_immediately,
-    )
 
 
 def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> None:
@@ -193,7 +204,13 @@ async def describe_schedule(temporal: Client, schedule_id: str):
     return await handle.describe()
 
 
-def backfill_export(temporal: Client, batch_export_id: str, start_at: dt.datetime, end_at: dt.datetime):
+def backfill_export(
+    temporal: Client,
+    batch_export_id: str,
+    start_at: dt.datetime,
+    end_at: dt.datetime,
+    overlap: ScheduleOverlapPolicy = ScheduleOverlapPolicy.BUFFER_ALL,
+):
     """Creates an export run for the given BatchExport, and specified time range.
 
     Arguments:
@@ -205,7 +222,7 @@ def backfill_export(temporal: Client, batch_export_id: str, start_at: dt.datetim
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
 
-    schedule_backfill = ScheduleBackfill(start_at=start_at, end_at=end_at, overlap=ScheduleOverlapPolicy.ALLOW_ALL)
+    schedule_backfill = ScheduleBackfill(start_at=start_at, end_at=end_at, overlap=overlap)
     backfill_schedule(temporal=temporal, schedule_id=batch_export_id, schedule_backfill=schedule_backfill)
 
 
@@ -220,6 +237,7 @@ def create_batch_export_run(
     batch_export_id: UUID,
     data_interval_start: str,
     data_interval_end: str,
+    status: str = BatchExportRun.Status.STARTING,
 ):
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -232,7 +250,7 @@ def create_batch_export_run(
     """
     run = BatchExportRun(
         batch_export_id=batch_export_id,
-        status=BatchExportRun.Status.STARTING,
+        status=status,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start),
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
     )
@@ -252,114 +270,63 @@ def update_batch_export_run_status(run_id: UUID, status: str, latest_error: str 
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
 
 
-def create_batch_export(
-    team_id: int,
-    interval: str,
-    name: str,
-    destination_data: dict,
-    start_at: dt.datetime | None = None,
-    end_at: dt.datetime | None = None,
-    trigger_immediately: bool = False,
-):
-    """Create a BatchExport and its underlying Temporal Schedule.
-
-    Args:
-        team_id: The team this BatchExport belongs to.
-        interval: The time interval the Schedule will use.
-        name: An informative name for the BatchExport.
-        destination_data: Deserialized data for a BatchExportDestination.
-        start_at: No runs will be scheduled before the start_at datetime.
-        end_at: No runs will be scheduled after the end_at datetime.
-        trigger_immediately: Whether a run should be trigger as soon as the Schedule is created
-            or when the next Schedule interval begins.
-    """
-    destination = BatchExportDestination.objects.create(**destination_data)
-
-    batch_export = BatchExport.objects.create(
-        team_id=team_id, name=name, interval=interval, destination=destination, start_at=start_at, end_at=end_at
-    )
-
+def sync_batch_export(batch_export: BatchExport, created: bool):
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
-
     state = ScheduleState(
-        note=f"Schedule created for BatchExport {batch_export.id} to Destination {batch_export.destination.id} in Team {batch_export.team.id}.",
+        note=f"Schedule updated for BatchExport {batch_export.id} to Destination {batch_export.destination.id} in Team {batch_export.team.id}.",
         paused=batch_export.paused,
     )
 
     temporal = sync_connect()
-
-    time_delta_from_interval = dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1)
-
-    create_schedule(
-        temporal,
-        id=str(batch_export.id),
-        schedule=Schedule(
-            action=ScheduleActionStartWorkflow(
-                workflow,
-                asdict(
-                    workflow_inputs(
-                        team_id=batch_export.team.id,
-                        # We could take the batch_export_id from the Workflow id
-                        # But temporal appends a timestamp at the end we would have to parse out.
-                        batch_export_id=str(batch_export.id),
-                        **batch_export.destination.config,
-                    )
-                ),
-                id=str(batch_export.id),
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            workflow,
+            asdict(
+                workflow_inputs(
+                    team_id=batch_export.team.id,
+                    batch_export_id=str(batch_export.id),
+                    interval=str(batch_export.interval),
+                    **batch_export.destination.config,
+                )
             ),
-            spec=ScheduleSpec(
-                start_at=start_at,
-                end_at=end_at,
-                intervals=[ScheduleIntervalSpec(every=time_delta_from_interval)],
-            ),
-            state=state,
+            id=str(batch_export.id),
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
         ),
-        trigger_immediately=trigger_immediately,
+        spec=ScheduleSpec(
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
+            intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
+        ),
+        state=state,
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
+
+    if created:
+        create_schedule(temporal, id=str(batch_export.id), schedule=schedule)
+    else:
+        update_schedule(temporal, id=str(batch_export.id), schedule=schedule)
 
     return batch_export
 
 
-async def acreate_batch_export(team_id: int, interval: str, name: str, destination_data: dict) -> BatchExport:
-    """Create a BatchExport and its underlying Schedule."""
-    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)  # type: ignore
-
-
-def fetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
-    """Fetch the BatchExportRuns for a given BatchExport."""
-    return list(BatchExportRun.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit])
-
-
-async def afetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
-    """Fetch the BatchExportRuns for a given BatchExport."""
-    return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)  # type: ignore
+@async_to_sync
+async def create_schedule(temporal: Client, id: str, schedule: Schedule, trigger_immediately: bool = False):
+    """Create a Temporal Schedule."""
+    return await temporal.create_schedule(
+        id=id,
+        schedule=schedule,
+        trigger_immediately=trigger_immediately,
+    )
 
 
 @async_to_sync
-async def reset_batch_export_run(temporal, batch_export_id: str | UUID) -> str:
-    """Reset an individual batch export run corresponding to a given batch export.
+async def update_schedule(temporal: Client, id: str, schedule: Schedule) -> None:
+    """Update a Temporal Schedule."""
+    handle = temporal.get_schedule_handle(id)
 
-    Resetting a workflow is considered an "advanced concept" by Temporal, hence it's not exposed
-    cleanly via the SDK, and it requries us to make a raw request.
+    async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
+        return ScheduleUpdate(schedule=schedule)
 
-    Resetting a workflow will create a new run with the same workflow id. The new run will have a
-    reference to the original run_id that we can use to tie up re-runs with their originals.
-
-    Returns:
-        The run_id assigned to the new run.
-    """
-    request = ResetWorkflowExecutionRequest(
-        namespace=settings.TEMPORAL_NAMESPACE,
-        workflow_execution={
-            "workflow_id": str(batch_export_id),
-        },
-        # Any unique identifier for the request would work.
-        request_id=str(uuid4()),
-        # Reset can only happen from 'WorkflowTaskStarted' events. The first one always has id = 3.
-        # In other words, this means "reset from the beginning".
-        workflow_task_finish_event_id=3,
+    return await handle.update(
+        updater=updater,
     )
-    resp = await temporal.workflow_service.reset_workflow_execution(request)
-
-    return resp.run_id

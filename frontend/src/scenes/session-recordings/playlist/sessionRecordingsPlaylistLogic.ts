@@ -63,7 +63,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    reducers(({}) => ({
+    reducers(() => ({
         filters: [
             null as RecordingFilters | null,
             {
@@ -85,13 +85,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
     beforeUnload(({ values, actions }) => ({
         enabled: (newLocation) => values.hasChanges && newLocation?.pathname !== router.values.location.pathname,
-        message: 'Leave playlist? Changes you made will be discarded.',
+        message: 'Leave playlist?\nChanges you made will be discarded.',
         onConfirm: () => {
             actions.setFilters(values.playlist?.filters || null)
         },
     })),
 
-    selectors(({}) => ({
+    selectors(() => ({
         breadcrumbs: [
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [
@@ -112,7 +112,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         hasChanges: [
             (s) => [s.playlist, s.filters],
             (playlist, filters): boolean => {
-                console.log(playlist?.filters, filters)
                 return !equal(playlist?.filters, filters)
             },
         ],

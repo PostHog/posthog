@@ -2,28 +2,30 @@ import { useState, useEffect } from 'react'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ChartParams, GraphType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { trendsDataLogic } from '../trendsDataLogic'
 
 type DataSet = any
 
 export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
-    const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
-    const logic = trendsLogic(insightProps)
-    const { indexedResults, labelGroupType } = useValues(logic)
+
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries } = useValues(
+        trendsDataLogic(insightProps)
+    )
 
     function updateData(): void {
         const _data = [...indexedResults]
@@ -75,10 +77,12 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
             labels={data[0].labels}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
-            filters={insight.filters}
+            trendsFilter={trendsFilter}
+            formula={formula}
+            showValueOnSeries={showValueOnSeries}
             inCardView={inCardView}
             onClick={
-                !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters.formula)
+                !showPersonsModal || trendsFilter?.formula
                     ? undefined
                     : (point) => {
                           const { index, points, crossDataset } = point

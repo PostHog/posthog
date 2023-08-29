@@ -8,11 +8,13 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataWarehouseTable,
+    DataWarehouseSavedQuery,
     EarlyAccessFeatureType,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
     EventType,
+    Experiment,
     ExportedAssetType,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
@@ -24,14 +26,12 @@ import {
     NotebookType,
     OrganizationResourcePermissionType,
     OrganizationType,
-    PerformanceEvent,
     PersonListParams,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
     PropertyDefinitionType,
     RawAnnotationType,
-    RecentPerformancePageView,
     RoleMemberType,
     RolesListParams,
     RoleType,
@@ -45,6 +45,10 @@ import {
     Survey,
     TeamType,
     UserType,
+    BatchExportConfiguration,
+    BatchExportRun,
+    NotebookNodeType,
+    UserBasicType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -56,7 +60,6 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/prop
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
 import { decompressSync, strFromU8 } from 'fflate'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -103,7 +106,7 @@ export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
-        return { statusText: response.statusText }
+        return { statusText: response.statusText, status: response.status }
     }
 }
 
@@ -264,6 +267,19 @@ class ApiRequest {
             .addPathComponent(propertyDefinitionId)
     }
 
+    public propertyDefinitionSeenTogether(
+        eventNames: string[],
+        propertyDefinitionName: PropertyDefinition['name'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        const queryParams = toParams({ event_names: eventNames, property_name: propertyDefinitionName }, true)
+
+        return this.projectsDetail(teamId)
+            .addPathComponent('property_definitions')
+            .addPathComponent('seen_together')
+            .withQueryString(queryParams)
+    }
+
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
@@ -286,6 +302,9 @@ class ApiRequest {
     }
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recordings')
+    }
+    public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent('matching_events')
     }
     public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
@@ -344,6 +363,15 @@ class ApiRequest {
         return this.dashboardTemplates().addPathComponent('json_schema')
     }
 
+    // # Experiments
+    public experiments(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('experiments')
+    }
+
+    public experimentsDetail(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.experiments(teamId).addPathComponent(experimentId)
+    }
+
     // # Roles
     public roles(): ApiRequest {
         return this.organizations().current().addPathComponent('roles')
@@ -387,11 +415,11 @@ class ApiRequest {
     }
 
     // # Feature flags
-    public featureFlags(teamId: TeamType['id']): ApiRequest {
+    public featureFlags(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feature_flags')
     }
 
-    public featureFlag(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+    public featureFlag(id: FeatureFlagType['id'], teamId?: TeamType['id']): ApiRequest {
         if (!id) {
             throw new Error('Must provide an ID for the feature flag to construct the URL')
         }
@@ -425,10 +453,18 @@ class ApiRequest {
 
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_table')
+        return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
     }
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
+    }
+
+    // # Warehouse view
+    public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_queries')
+    }
+    public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -470,18 +506,6 @@ class ApiRequest {
         return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
     }
 
-    // Performance events
-    public performanceEvents(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('performance_events')
-    }
-
-    public recentPageViewPerformanceEvents(dateFrom: string, dateTo: string, teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('performance_events')
-            .addPathComponent('recent_pageviews')
-            .withQueryString(toParams({ date_from: dateFrom, date_to: dateTo }))
-    }
-
     // # Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
@@ -500,8 +524,28 @@ class ApiRequest {
         return this.notebook(id, teamId).addPathComponent('sharing')
     }
 
-    // Request finalization
+    // Batch Exports
+    public batchExports(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('batch_exports')
+    }
 
+    public batchExport(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id)
+    }
+
+    public batchExportRuns(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
+    }
+
+    public batchExportRun(
+        id: BatchExportConfiguration['id'],
+        runId: BatchExportRun['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.batchExportRuns(id, teamId).addPathComponent(runId)
+    }
+
+    // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
     }
@@ -564,6 +608,30 @@ const ensureProjectIdNotInvalid = (url: string): void => {
 }
 
 const api = {
+    insights: {
+        loadInsight(
+            shortId: InsightModel['short_id'],
+            basic?: boolean
+        ): Promise<PaginatedResponse<Partial<InsightModel>>> {
+            return new ApiRequest()
+                .insights()
+                .withQueryString(
+                    toParams({
+                        short_id: encodeURIComponent(shortId),
+                        include_query_insights: true,
+                        basic: basic,
+                    })
+                )
+                .get()
+        },
+    },
+
+    featureFlags: {
+        async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
+            return await new ApiRequest().featureFlag(id).get()
+        },
+    },
+
     actions: {
         async get(actionId: ActionType['id']): Promise<ActionType> {
             return await new ApiRequest().actionsDetail(actionId).get()
@@ -758,6 +826,15 @@ const api = {
         }): Promise<PropertyDefinition> {
             return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).get()
         },
+        async seenTogether({
+            eventNames,
+            propertyDefinitionName,
+        }: {
+            eventNames: string[]
+            propertyDefinitionName: PropertyDefinition['name']
+        }): Promise<Record<string, boolean>> {
+            return new ApiRequest().propertyDefinitionSeenTogether(eventNames, propertyDefinitionName).get()
+        },
         async update({
             propertyDefinitionId,
             propertyDefinitionData,
@@ -859,6 +936,10 @@ const api = {
     },
 
     dashboards: {
+        async get(id: number): Promise<DashboardType> {
+            return new ApiRequest().dashboardsDetail(id).get()
+        },
+
         collaborators: {
             async list(dashboardId: DashboardType['id']): Promise<DashboardCollaboratorType[]> {
                 return await new ApiRequest().dashboardCollaborators(dashboardId).get()
@@ -916,6 +997,12 @@ const api = {
         },
         determineSchemaUrl(): string {
             return new ApiRequest().dashboardTemplateSchema().assembleFullUrl()
+        },
+    },
+
+    experiments: {
+        async get(id: number): Promise<Experiment> {
+            return new ApiRequest().experimentsDetail(id).get()
         },
     },
 
@@ -1126,6 +1213,9 @@ const api = {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
         },
+        async getMatchingEvents(params: string): Promise<{ results: string[] }> {
+            return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
+        },
         async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(params).get()
         },
@@ -1147,6 +1237,17 @@ const api = {
                 .withAction('snapshots')
                 .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
                 .getResponse()
+
+            try {
+                const textLines = await response.text()
+
+                if (textLines) {
+                    return textLines.split('\n')
+                }
+            } catch (e) {
+                // Must be gzipped
+            }
+
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
@@ -1218,14 +1319,85 @@ const api = {
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<NotebookListItemType>> {
+        // TODO do I need this?
+        async listBasic(): Promise<PaginatedResponse<NotebookListItemType>> {
             return await new ApiRequest().notebooks().withQueryString('basic=true').get()
+        },
+        async list(
+            contains?: { type: NotebookNodeType; attrs: Record<string, string> }[],
+            createdBy?: UserBasicType['uuid'],
+            search?: string
+        ): Promise<PaginatedResponse<NotebookType>> {
+            // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
+            const apiRequest = new ApiRequest().notebooks()
+            let q = {}
+            if (contains?.length) {
+                const containsString =
+                    contains
+                        .map(({ type, attrs }) => {
+                            const target = type.replace(/^ph-/, '')
+                            const match = attrs['id'] ? `:${attrs['id']}` : ''
+                            return `${target}${match}`
+                        })
+                        .join(',') || undefined
+                q = { ...q, contains: containsString, created_by: createdBy }
+            }
+            if (createdBy) {
+                q = { ...q, created_by: createdBy }
+            }
+            if (search) {
+                q = { ...q, s: search }
+            }
+            return await apiRequest.withQueryString(q).get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()
+        },
+    },
+
+    batchExports: {
+        async list(params: Record<string, any> = {}): Promise<CountedPaginatedResponse<BatchExportConfiguration>> {
+            return await new ApiRequest().batchExports().withQueryString(toParams(params)).get()
+        },
+        async get(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).get()
+        },
+        async update(
+            id: BatchExportConfiguration['id'],
+            data: Partial<BatchExportConfiguration>
+        ): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).update({ data })
+        },
+
+        async create(data?: Partial<BatchExportConfiguration>): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExports().create({ data })
+        },
+        async delete(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).delete()
+        },
+
+        async pause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).withAction('pause').create()
+        },
+
+        async unpause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
+            return await new ApiRequest().batchExport(id).withAction('unpause').create()
+        },
+
+        async listRuns(
+            id: BatchExportConfiguration['id'],
+            params: Record<string, any> = {}
+        ): Promise<PaginatedResponse<BatchExportRun>> {
+            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
+        },
+        async createBackfill(
+            id: BatchExportConfiguration['id'],
+            data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
+        ): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
         },
     },
 
@@ -1286,6 +1458,27 @@ const api = {
             data: Pick<DataWarehouseTable, 'name'>
         ): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
+        },
+    },
+
+    dataWarehouseSavedQueries: {
+        async list(): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
+            return await new ApiRequest().dataWarehouseSavedQueries().get()
+        },
+        async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()
+        },
+        async create(data: Partial<DataWarehouseSavedQuery>): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQueries().create({ data })
+        },
+        async delete(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQuery(viewId).delete()
+        },
+        async update(
+            viewId: DataWarehouseSavedQuery['id'],
+            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+        ): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
     },
 
@@ -1360,40 +1553,10 @@ const api = {
         },
     },
 
-    performanceEvents: {
-        async list(
-            params: any,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<PerformanceEvent>> {
-            return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
-        },
-        recentPageViewsURL(teamId: TeamType['id'] = getCurrentTeamId(), dateFrom?: string, dateTo?: string): string {
-            return new ApiRequest()
-                .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
-                    dateTo || dayjs().toISOString(),
-                    teamId
-                )
-                .assembleEndpointUrl()
-        },
-        async recentPageViews(
-            teamId: TeamType['id'] = getCurrentTeamId(),
-            dateFrom?: string,
-            dateTo?: string
-        ): Promise<PaginatedResponse<RecentPerformancePageView>> {
-            return new ApiRequest()
-                .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
-                    dateTo || dayjs().toISOString(),
-                    teamId
-                )
-                .get()
-        },
-    },
-
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
+
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         options?: ApiMethodOptions,
@@ -1409,7 +1572,7 @@ const api = {
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
-    async get(url: string, options?: ApiMethodOptions): Promise<any> {
+    async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)
     },
@@ -1420,11 +1583,11 @@ const api = {
         let response
         const startTime = new Date().getTime()
         try {
-            const sessionId = posthog.get_session_id()
             response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
-                    'X-POSTHOG-SESSION-ID': sessionId,
+                    // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                    // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
                 },
             })
         } catch (e) {
@@ -1449,7 +1612,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1481,7 +1645,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1507,6 +1672,7 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
                 // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
         })

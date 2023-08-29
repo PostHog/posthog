@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { HTMLProps, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useState } from 'react'
 import { Tooltip } from '../Tooltip'
 import { TableRow } from './TableRow'
 import './LemonTable.scss'
@@ -83,6 +83,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     display?: 'stealth' | 'default'
     /** Footer to be shown below the table. */
     footer?: React.ReactNode
+    /** Whether the first column should always remain visible when scrolling horizontally. */
+    firstColumnSticky?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -116,6 +118,7 @@ export function LemonTable<T extends Record<string, any>>({
     'data-attr': dataAttr,
     display = 'default',
     footer,
+    firstColumnSticky,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -158,7 +161,7 @@ export function LemonTable<T extends Record<string, any>>({
     ) as LemonTableColumnGroup<T>[]
     const columns = columnGroups.flatMap((group) => group.children)
 
-    const [scrollRef, scrollableClassNames] = useScrollable()
+    const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
 
     /** Sorting. */
     const currentSorting =
@@ -202,18 +205,25 @@ export function LemonTable<T extends Record<string, any>>({
         }
     }, [paginationState.currentPage, scrollRef.current])
 
+    if (firstColumnSticky && expandable) {
+        // Due to CSS, for firstColumnSticky to work the first column needs to be a content column
+        throw new Error('LemonTable `firstColumnSticky` prop cannot be used with `expandable`')
+    }
+
     return (
         <div
             id={id}
             className={clsx(
-                'LemonTable',
+                'LemonTable scrollable',
                 size && size !== 'middle' && `LemonTable--${size}`,
                 inset && 'LemonTable--inset',
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
-                !borderedRows && 'LemonTable--borderlessRows',
+                rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
+                !borderedRows && 'LemonTable--borderless-rows',
                 display === 'stealth' && 'LemonTable--stealth',
-                ...scrollableClassNames,
+                isScrollableLeft && 'scrollable--left',
+                isScrollableRight && 'scrollable--right',
                 className
             )}
             style={style}
@@ -223,7 +233,6 @@ export function LemonTable<T extends Record<string, any>>({
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
-                            {!!rowRibbonColor && <col style={{ width: 4 }} /> /* Ribbon column */}
                             {!!expandable && <col style={{ width: 0 }} /> /* Expand/collapse column */}
                             {columns.map((column, index) => (
                                 <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
@@ -237,22 +246,32 @@ export function LemonTable<T extends Record<string, any>>({
                             >
                                 {columnGroups.some((group) => group.title) && (
                                     <tr className="LemonTable__row--grouping">
-                                        {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
-                                        {!!expandable && <th /> /* Expand/collapse column */}
-                                        {columnGroups.map((columnGroup, columnGroupIndex) => (
-                                            <th
-                                                key={`LemonTable-th-group-${columnGroupIndex}`}
-                                                colSpan={columnGroup.children.length}
-                                                className="LemonTable__boundary"
-                                            >
-                                                {columnGroup.title}
-                                            </th>
-                                        ))}
+                                        {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
+                                        {columnGroups.map((columnGroup, columnGroupIndex) =>
+                                            columnGroupIndex === 0 && firstColumnSticky ? (
+                                                <React.Fragment key={`LemonTable-th-group-${columnGroupIndex}`}>
+                                                    <th
+                                                        colSpan={1}
+                                                        className="LemonTable__boundary LemonTable__header--sticky"
+                                                    >
+                                                        {columnGroup.title}
+                                                    </th>
+                                                    <th colSpan={columnGroup.children.length - 1} />
+                                                </React.Fragment>
+                                            ) : (
+                                                <th
+                                                    key={`LemonTable-th-group-${columnGroupIndex}`}
+                                                    colSpan={columnGroup.children.length}
+                                                    className="LemonTable__boundary"
+                                                >
+                                                    {columnGroup.title}
+                                                </th>
+                                            )
+                                        )}
                                     </tr>
                                 )}
                                 <tr>
-                                    {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
-                                    {!!expandable && <th /> /* Expand/collapse column */}
+                                    {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
                                     {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                         columnGroup.children.map((column, columnIndex) => (
                                             <th
@@ -262,8 +281,11 @@ export function LemonTable<T extends Record<string, any>>({
                                                 className={clsx(
                                                     'LemonTable__header',
                                                     column.sorter && 'LemonTable__header--actionable',
-                                                    columnIndex === columnGroup.children.length - 1 &&
-                                                        'LemonTable__boundary',
+                                                    columnIndex === 0 && 'LemonTable__boundary',
+                                                    firstColumnSticky &&
+                                                        columnGroupIndex === 0 &&
+                                                        columnIndex === 0 &&
+                                                        'LemonTable__header--sticky',
                                                     column.className
                                                 )}
                                                 /* eslint-disable-next-line react/forbid-dom-props */
@@ -338,7 +360,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             </th>
                                         ))
                                     )}
-                                    <LemonTableLoader loading={loading} />
+                                    <LemonTableLoader loading={loading} tag="th" />
                                 </tr>
                             </thead>
                         )}
@@ -372,6 +394,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             columnGroups={columnGroups}
                                             onRow={onRow}
                                             expandable={expandable}
+                                            firstColumnSticky={firstColumnSticky}
                                         />
                                     )
                                 })
@@ -387,6 +410,9 @@ export function LemonTable<T extends Record<string, any>>({
                                                         className={clsx(
                                                             columnIndex === columnGroup.children.length - 1 &&
                                                                 'LemonTable__boundary',
+                                                            firstColumnSticky &&
+                                                                columnIndex === 0 &&
+                                                                'LemonTable__cell--sticky',
                                                             column.className
                                                         )}
                                                     >

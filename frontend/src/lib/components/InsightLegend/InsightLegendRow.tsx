@@ -2,11 +2,23 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
-import { ChartDisplayType, FilterType } from '~/types'
+import { ChartDisplayType } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { useEffect, useRef } from 'react'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { TrendsFilter } from '~/queries/schema'
+
+type InsightLegendRowProps = {
+    hiddenLegendKeys: Record<string, boolean | undefined>
+    rowIndex: number
+    item: IndexedTrendResult
+    hasMultipleSeries: boolean
+    toggleVisibility: (index: number) => void
+    compare?: boolean | null
+    display?: ChartDisplayType | null
+    trendsFilter?: TrendsFilter | null
+    highlighted: boolean
+}
 
 export function InsightLegendRow({
     hiddenLegendKeys,
@@ -14,17 +26,11 @@ export function InsightLegendRow({
     item,
     hasMultipleSeries,
     toggleVisibility,
-    filters,
+    compare,
+    display,
+    trendsFilter,
     highlighted,
-}: {
-    hiddenLegendKeys: Record<string, boolean | undefined>
-    rowIndex: number
-    item: IndexedTrendResult
-    hasMultipleSeries: boolean
-    toggleVisibility: (index: number) => void
-    filters: Partial<FilterType>
-    highlighted: boolean
-}): JSX.Element {
+}: InsightLegendRowProps): JSX.Element {
     const highlightStyle: Record<string, any> = highlighted
         ? {
               style: { backgroundColor: getSeriesColor(item.seriesIndex, false, true) },
@@ -37,8 +43,6 @@ export function InsightLegendRow({
             rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
         }
     }, [highlighted])
-
-    const compare = isTrendsFilter(filters) && !!filters.compare
 
     return (
         <div key={item.id} className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
@@ -64,8 +68,10 @@ export function InsightLegendRow({
                     }
                 />
             </div>
-            {isTrendsFilter(filters) && filters.display === ChartDisplayType.ActionsPie && (
-                <div className="text-muted grow-0">{formatAggregationAxisValue(filters, item.aggregated_value)}</div>
+            {display === ChartDisplayType.ActionsPie && (
+                <div className="text-muted grow-0">
+                    {formatAggregationAxisValue(trendsFilter, item.aggregated_value)}
+                </div>
             )}
         </div>
     )

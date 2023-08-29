@@ -2,17 +2,17 @@ import { useActions, useValues } from 'kea'
 import { HogQLQuery } from '~/queries/schema'
 import { useEffect, useRef, useState } from 'react'
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
-import MonacoEditor, { Monaco } from '@monaco-editor/react'
+import { Monaco } from '@monaco-editor/react'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import type { IDisposable, editor as importedEditor, languages } from 'monaco-editor'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CodeEditor } from 'lib/components/CodeEditors'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -28,9 +28,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const [monaco, editor] = monacoAndEditor ?? []
     const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
-    const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
-    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt } = useActions(logic)
-    const { isDarkModeOn } = useValues(themeLogic)
+    const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading, isValidView } =
+        useValues(logic)
+    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
@@ -44,9 +45,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="space-y-2">
             <div
                 data-attr="hogql-query-editor"
-                className={'flex flex-col p-2 border rounded bg-bg-light space-y-2 resize-y w-full'}
+                className={'flex flex-col p-2 border rounded bg-bg-light space-y-2 resize-y w-full overflow-hidden'}
+                style={{ height: 318 }}
             >
-                <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG} match>
+                <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
                     <div className="flex gap-2">
                         <LemonInput
                             className="grow"
@@ -80,7 +82,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     </div>
                 </FlaggedFeature>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
-                <div className="relative flex-1">
+                <div className="relative flex-1 overflow-hidden">
                     <span className="absolute top-0 right-0 mt-1 mr-1 z-10">
                         <LemonButtonWithDropdown
                             icon={<IconInfo />}
@@ -94,7 +96,16 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             HogQL
                                         </a>
                                         , our wrapper around ClickHouse SQL. Explore the{' '}
-                                        <Link to={urls.dataWarehouse()}>database schema</Link> available to you.
+                                        <Link
+                                            to={
+                                                featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
+                                                    ? urls.dataWarehouse()
+                                                    : urls.database()
+                                            }
+                                        >
+                                            database schema
+                                        </Link>{' '}
+                                        available to you.
                                     </div>
                                 ),
                                 placement: 'right-start',
@@ -104,13 +115,12 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             }}
                         />
                     </span>
-                    <MonacoEditor
-                        theme={isDarkModeOn ? 'vs-dark' : 'light'}
-                        className="py-2 border rounded overflow-hidden"
+                    <CodeEditor
+                        className="py-2 border rounded overflow-hidden h-full"
                         language="mysql"
                         value={queryInput}
                         onChange={(v) => setQueryInput(v ?? '')}
-                        height={234} // 12 lines without scrolling
+                        height="100%"
                         onMount={(editor, monaco) => {
                             monaco.languages.registerCodeActionProvider('mysql', {
                                 provideCodeActions: (model, _range, context) => {
@@ -182,26 +192,43 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             },
                             wordWrap: 'on',
                             scrollBeyondLastLine: false,
+                            automaticLayout: true,
+                            fixedOverflowWidgets: true,
                         }}
-                        loading={<Spinner />}
                     />
                 </div>
-                <LemonButton
-                    onClick={saveQuery}
-                    type="primary"
-                    disabledReason={
-                        !props.setQuery
-                            ? 'No permission to update'
-                            : hasErrors
-                            ? error ?? 'Query has errors'
-                            : undefined
-                    }
-                    fullWidth
-                    center
-                    data-attr="hogql-query-editor-save"
-                >
-                    {!props.setQuery ? 'No permission to update' : 'Update and run'}
-                </LemonButton>
+                <div className="flex flex-row">
+                    <div className="flex-1">
+                        <LemonButton
+                            onClick={saveQuery}
+                            type="primary"
+                            disabledReason={
+                                !props.setQuery
+                                    ? 'No permission to update'
+                                    : hasErrors
+                                    ? error ?? 'Query has errors'
+                                    : undefined
+                            }
+                            center
+                            fullWidth
+                            data-attr="hogql-query-editor-save"
+                        >
+                            {!props.setQuery ? 'No permission to update' : 'Update and run'}
+                        </LemonButton>
+                    </div>
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] ? (
+                        <LemonButton
+                            className="ml-2"
+                            onClick={saveAsView}
+                            type="primary"
+                            center
+                            disabledReason={!isValidView && 'All fields must have an alias'}
+                            data-attr="hogql-query-editor-save-as-view"
+                        >
+                            {'Save as View'}
+                        </LemonButton>
+                    ) : null}
+                </div>
             </div>
         </div>
     )

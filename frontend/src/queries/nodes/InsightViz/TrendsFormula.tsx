@@ -5,7 +5,7 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
-const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
+const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z \-*^0-9+/().]+$/
 
 export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { formula, hasFormula } = useValues(insightVizDataLogic(insightProps))
@@ -37,7 +37,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                     setValue(changedValue)
                 }}
                 onBlur={(e) => {
-                    // Ignore TrendsFormulaLabel switch click to prevent conflicting setFilters calls
+                    // Ignore TrendsFormulaLabel switch click to prevent conflicting updateInsightFilter calls
                     // Type assertion is needed because for some React relatedTarget isn't defined as an element
                     // in React types - and it is in reality
                     if (

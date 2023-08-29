@@ -7,14 +7,15 @@ from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
-from posthog.hogql.errors import SyntaxException
+from posthog.hogql.errors import SyntaxException, HogQLException
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.test.test_factory import create_snapshot
+from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -503,7 +504,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
                 self.assertEqual(
                     response.clickhouse,
-                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING greater(sum(cohortpeople.sign), 0)))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), ifNull(in(events__pdi.person_id, (SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
                 )
                 self.assertEqual(response.results, [("$pageview", 2)])
 
@@ -522,7 +523,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     f"SELECT events.event, count(*) FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, "
                     f"(SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), "
                     f"equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, "
-                    f"cohortpeople.version HAVING greater(sum(cohortpeople.sign), 0)))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                    f"cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
                 )
                 self.assertEqual(response.results, [("$pageview", 2)])
 
@@ -556,7 +557,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
                 self.assertEqual(
                     response.clickhouse,
-                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), ifNull(in(events__pdi.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk})))), 0)) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
                 )
 
             with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True):
@@ -590,25 +591,27 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="some_id",
                 properties={"attr": "some_val", "$session_id": "111"},
             )
-            create_snapshot(distinct_id="some_id", session_id="111", timestamp=timezone.now(), team_id=self.team.pk)
+            produce_replay_summary(
+                distinct_id="some_id", session_id="111", first_timestamp=timezone.now(), team_id=self.team.pk
+            )
 
             response = execute_hogql_query(
-                "select e.event, s.session_id from events e left join session_recording_events s on s.session_id = e.properties.$session_id where e.properties.$session_id is not null limit 10",
+                "select e.event, s.session_id from events e left join session_replay_events s on s.session_id = e.properties.$session_id where e.properties.$session_id is not null limit 10",
                 team=self.team,
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT e.event, s.session_id FROM events AS e LEFT JOIN session_recording_events AS s ON equals(s.session_id, nullIf(nullIf(e.`$session_id`, ''), 'null')) WHERE and(equals(s.team_id, {self.team.pk}), equals(e.team_id, {self.team.pk}), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                f"SELECT e.event, s.session_id FROM events AS e LEFT JOIN session_replay_events AS s ON equals(s.session_id, nullIf(nullIf(e.`$session_id`, ''), 'null')) WHERE and(equals(s.team_id, {self.team.pk}), equals(e.team_id, {self.team.pk}), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
             )
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
             response = execute_hogql_query(
-                "select e.event, s.session_id from session_recording_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
+                "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
                 team=self.team,
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT e.event, s.session_id FROM session_recording_events AS s LEFT JOIN events AS e ON equals(nullIf(nullIf(e.`$session_id`, ''), 'null'), s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                f"SELECT e.event, s.session_id FROM session_replay_events AS s LEFT JOIN events AS e ON equals(nullIf(nullIf(e.`$session_id`, ''), 'null'), s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
             )
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
@@ -627,25 +630,27 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="some_id",
                 properties={"attr": "some_val", "$$$session_id": "111"},
             )
-            create_snapshot(distinct_id="some_id", session_id="111", timestamp=timezone.now(), team_id=self.team.pk)
+            produce_replay_summary(
+                distinct_id="some_id", session_id="111", first_timestamp=timezone.now(), team_id=self.team.pk
+            )
 
             response = execute_hogql_query(
-                "select e.event, s.session_id from events e left join session_recording_events s on s.session_id = e.properties.$$$session_id where e.properties.$$$session_id is not null limit 10",
+                "select e.event, s.session_id from events e left join session_replay_events s on s.session_id = e.properties.$$$session_id where e.properties.$$$session_id is not null limit 10",
                 team=self.team,
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT e.event, s.session_id FROM events AS e LEFT JOIN session_recording_events AS s ON equals(s.session_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')) WHERE and(equals(s.team_id, {self.team.pk}), equals(e.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                f"SELECT e.event, s.session_id FROM events AS e LEFT JOIN session_replay_events AS s ON equals(s.session_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')) WHERE and(equals(s.team_id, {self.team.pk}), equals(e.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
             )
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
             response = execute_hogql_query(
-                "select e.event, s.session_id from session_recording_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
+                "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
                 team=self.team,
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT e.event, s.session_id FROM session_recording_events AS s LEFT JOIN events AS e ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                f"SELECT e.event, s.session_id FROM session_replay_events AS s LEFT JOIN events AS e ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
             )
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
@@ -1060,6 +1065,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             columns = ",".join(alternatives)
             query = f"SELECT {columns} FROM events WHERE properties.string = '{random_uuid}'"
             response = execute_hogql_query(query, team=self.team)
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s, %(hogql_val_4)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s, %(hogql_val_6)s, %(hogql_val_7)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_8)s, %(hogql_val_9)s, %(hogql_val_10)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_11)s, %(hogql_val_12)s, %(hogql_val_13)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_14)s, %(hogql_val_15)s, %(hogql_val_16)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_17)s, %(hogql_val_18)s, %(hogql_val_19)s, %(hogql_val_20)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_21)s, %(hogql_val_22)s, %(hogql_val_23)s, %(hogql_val_24)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_25)s, %(hogql_val_26)s, %(hogql_val_27)s, %(hogql_val_28)s, %(hogql_val_29)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_30)s, %(hogql_val_31)s, %(hogql_val_32)s, %(hogql_val_33)s, %(hogql_val_34)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_35)s, %(hogql_val_36)s, %(hogql_val_37)s, %(hogql_val_38)s, %(hogql_val_39)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_40)s, %(hogql_val_41)s, %(hogql_val_42)s), ''), 'null'), '^\"|\"$', ''), "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_43)s, %(hogql_val_44)s, %(hogql_val_45)s), ''), 'null'), '^\"|\"$', '') "
+                f"FROM events "
+                f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
+                f"LIMIT 100 "
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+            )
             self.assertEqual(response.results[0], tuple(map(lambda x: random_uuid, alternatives)))
 
     def test_property_access_with_arrays_zero_index_error(self):
@@ -1111,38 +1138,101 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_null_equality(self):
         expected = [
-            ("null", "!=", "2", 1),
-            ("2", "!=", "null", 1),
-            ("3", "!=", "4", 1),
-            ("3", "!=", "3", 0),
-            ("null", "!=", "null", 0),
+            # left op right (result 0=False 1=True)
             ("null", "=", "2", 0),
             ("2", "=", "null", 0),
             ("3", "=", "4", 0),
             ("3", "=", "3", 1),
             ("null", "=", "null", 1),
+            ("null", "!=", "2", 1),
+            ("2", "!=", "null", 1),
+            ("3", "!=", "4", 1),
+            ("3", "!=", "3", 0),
+            ("null", "!=", "null", 0),
+            ("null", "<", "2", 0),
+            ("2", "<", "null", 0),
+            ("3", "<", "4", 1),
+            ("3", "<", "3", 0),
+            ("null", "<", "null", 0),
+            ("null", "<=", "2", 0),
+            ("2", "<=", "null", 0),
+            ("3", "<=", "4", 1),
+            ("3", "<=", "3", 1),
+            ("3", "<=", "2", 0),
+            ("null", "<=", "null", 0),
+            ("null", ">", "2", 0),
+            ("2", ">", "null", 0),
+            ("4", ">", "3", 1),
+            ("3", ">", "3", 0),
+            ("null", ">", "null", 0),
+            ("null", ">=", "2", 0),
+            ("2", ">=", "null", 0),
+            ("4", ">=", "3", 1),
+            ("3", ">=", "3", 1),
+            ("2", ">=", "3", 0),
+            ("null", ">=", "null", 0),
+            ("null", "like", "'2'", 0),
+            ("'2'", "like", "null", 0),
+            ("'3'", "like", "'4'", 0),
+            ("'3'", "like", "'3'", 1),
+            ("null", "like", "null", 1),
+            ("null", "not like", "'2'", 1),
+            ("'2'", "not like", "null", 1),
+            ("'3'", "not like", "'4'", 1),
+            ("'3'", "not like", "'3'", 0),
+            ("null", "not like", "null", 0),
+            ("null", "ilike", "'2'", 0),
+            ("'2'", "ilike", "null", 0),
+            ("'3'", "ilike", "'4'", 0),
+            ("'3'", "ilike", "'3'", 1),
+            ("null", "ilike", "null", 1),
+            ("null", "not ilike", "'2'", 1),
+            ("'2'", "not ilike", "null", 1),
+            ("'3'", "not ilike", "'4'", 1),
+            ("'3'", "not ilike", "'3'", 0),
+            ("null", "not ilike", "null", 0),
+            ("null", "=~", "'2'", 0),
+            ("'2'", "=~", "null", 0),
+            ("'3'", "=~", "'4'", 0),
+            ("'3'", "=~", "'3'", 1),
+            ("null", "=~", "null", 1),
+            ("null", "!~", "'2'", 1),
+            ("'2'", "!~", "null", 1),
+            ("'3'", "!~", "'4'", 1),
+            ("'3'", "!~", "'3'", 0),
+            ("null", "!~", "null", 0),
+            ("null", "=~*", "'2'", 0),
+            ("'2'", "=~*", "null", 0),
+            ("'3'", "=~*", "'4'", 0),
+            ("'3'", "=~*", "'3'", 1),
+            ("null", "=~*", "null", 1),
+            ("null", "!~*", "'2'", 1),
+            ("'2'", "!~*", "null", 1),
+            ("'3'", "!~*", "'4'", 1),
+            ("'3'", "!~*", "'3'", 0),
+            ("null", "!~*", "null", 0),
         ]
 
         for (a, op, b, res) in expected:
             # works when selecting directly
             query = f"select {a} {op} {b}"
             response = execute_hogql_query(query, team=self.team)
-            self.assertEqual(response.results, [(res,)], query)
+            self.assertEqual(response.results, [(res,)], [query, response.clickhouse])
 
             # works when selecting via a subquery
             query = f"select a {op} b from (select {a} as a, {b} as b)"
             response = execute_hogql_query(query, team=self.team)
-            self.assertEqual(response.results, [(res,)], query)
+            self.assertEqual(response.results, [(res,)], [query, response.clickhouse])
 
             # works when selecting via a subquery
             query = f"select {a} {op} b from (select {b} as b)"
             response = execute_hogql_query(query, team=self.team)
-            self.assertEqual(response.results, [(res,)], query)
+            self.assertEqual(response.results, [(res,)], [query, response.clickhouse])
 
             # works when selecting via a subquery
             query = f"select a {op} {b} from (select {a} as a)"
             response = execute_hogql_query(query, team=self.team)
-            self.assertEqual(response.results, [(res,)], query)
+            self.assertEqual(response.results, [(res,)], [query, response.clickhouse])
 
     def test_regex_functions(self):
         query = """
@@ -1191,3 +1281,142 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response.results,
             [(1, 2, 3, "string", 6, 5, 20, 10)],
         )
+
+    def test_numbers_table(self):
+        query = "SELECT number from numbers(1, 4)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (1,),
+                (2,),
+                (3,),
+                (4,),
+            ],
+        )
+
+        query = "SELECT * from numbers(1, 4)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (1,),
+                (2,),
+                (3,),
+                (4,),
+            ],
+        )
+
+        query = "SELECT number from numbers(4)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (0,),
+                (1,),
+                (2,),
+                (3,),
+            ],
+        )
+
+        query = "SELECT number from numbers(2 + 2)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (0,),
+                (1,),
+                (2,),
+                (3,),
+            ],
+        )
+
+        query = "SELECT number + number + 1 from numbers(2 + 2)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (1,),
+                (3,),
+                (5,),
+                (7,),
+            ],
+        )
+
+        query = f"SELECT number from numbers"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "Table function 'numbers' requires arguments")
+
+        query = f"SELECT number from numbers()"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "Table function 'numbers' requires at least 1 argument")
+
+        query = f"SELECT number from numbers(1,2,3)"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "Table function 'numbers' requires at most 2 arguments")
+
+        query = "SELECT number from numbers(2 + ifNull((select 2), 1000))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (0,),
+                (1,),
+                (2,),
+                (3,),
+            ],
+        )
+
+        query = "SELECT number from numbers(assumeNotNull(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00')), toDateTime('2012-01-14 23:59:59'))))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (0,),
+                (1,),
+                (2,),
+                (3,),
+                (4,),
+                (5,),
+                (6,),
+                (7,),
+                (8,),
+                (9,),
+                (10,),
+                (11,),
+                (12,),
+                (13,),
+            ],
+        )
+
+    def test_events_table_error_if_function(self):
+        query = "SELECT * from events(1, 4)"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(str(e.exception), "Table 'events' does not accept arguments")
+
+    def test_view_link(self):
+        self._create_random_events()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select distinct_id AS fake from events LIMIT 100",
+                },
+            },
+        )
+        saved_query_response = response.json()
+        saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
+
+        DataWarehouseViewLink.objects.create(
+            saved_query=saved_query, table="events", to_join_key="fake", from_join_key="distinct_id", team=self.team
+        )
+
+        response = execute_hogql_query("SELECT event_view.fake FROM events", team=self.team)
+
+        self.assertEqual(response.results, [("bla",), ("bla",), ("bla",), ("bla",)])

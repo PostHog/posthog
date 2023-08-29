@@ -7,7 +7,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Events',
     decorators: [
         mswDecorator({
@@ -18,15 +18,14 @@ export default {
     ],
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
     },
-} as Meta
-
+}
+export default meta
 export const EventExplorer = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.events())

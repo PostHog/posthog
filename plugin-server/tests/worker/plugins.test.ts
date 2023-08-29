@@ -3,6 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { Hub, LogLevel } from '../../src/types'
 import { processError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
+import { PostgresUse } from '../../src/utils/db/postgres'
 import { delay, IllegalOperationError } from '../../src/utils/utils'
 import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
 import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
@@ -84,7 +85,6 @@ describe('plugins', () => {
             'exportEvents',
             'getSettings',
             'onEvent',
-            'onSnapshot',
             'processEvent',
             'setupPlugin',
             'teardownPlugin',
@@ -609,7 +609,7 @@ describe('plugins', () => {
                 source__index_ts: `
         function processEvent (event, meta) { event.properties={"x": 1}; return event }
         function randomFunction (event, meta) { return event}
-        function onSnapshot (event, meta) { return event }`,
+        function onEvent (event, meta) { return event }`,
             },
         ])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
@@ -623,7 +623,7 @@ describe('plugins', () => {
         await pluginConfig.vm?.resolveInternalVm
         // async loading of capabilities
 
-        expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onSnapshot', 'processEvent'])
+        expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
         expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
         expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
     })
@@ -637,7 +637,8 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const {
             rows: [{ transpiled }],
-        } = await hub.db.postgresQuery(
+        } = await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `SELECT transpiled FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
             [60, 'frontend.tsx'],
             ''
@@ -662,7 +663,8 @@ exports.scene = scene;; return exports; }`)
         await setupPlugins(hub)
         const {
             rows: [plugin],
-        } = await hub.db.postgresQuery(
+        } = await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `SELECT * FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
             [60, 'frontend.tsx'],
             ''
@@ -687,7 +689,8 @@ exports.scene = scene;; return exports; }`)
         await setupPlugins(hub)
         const getStatus = async () =>
             (
-                await hub.db.postgresQuery(
+                await hub.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `SELECT status FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
                     [60, 'frontend.tsx'],
                     ''
@@ -698,7 +701,8 @@ exports.scene = scene;; return exports; }`)
         expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
         expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
 
-        await hub.db.postgresQuery(
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
             'UPDATE posthog_pluginsourcefile SET transpiled = NULL, status = NULL WHERE filename = $1',
             ['frontend.tsx'],
             ''

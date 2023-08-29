@@ -3,11 +3,52 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { instrument } from '../../utils/metrics'
-import { runRetriableFunction } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
 
+async function runSingleTeamPluginOnEvent(
+    hub: Hub,
+    event: ProcessedPluginEvent,
+    pluginConfig: PluginConfig,
+    onEvent: any
+): Promise<void> {
+    // Runs onEvent for a single plugin without any retries
+    const metricName = 'plugin.on_event'
+    const metricTags = {
+        plugin: pluginConfig.plugin?.name ?? '?',
+        teamId: event.team_id.toString(),
+    }
+
+    const timer = new Date()
+    try {
+        await onEvent!(event)
+        await hub.appMetrics.queueMetric({
+            teamId: event.team_id,
+            pluginConfigId: pluginConfig.id,
+            category: 'onEvent',
+            successes: 1,
+        })
+    } catch (error) {
+        hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
+        await processError(hub, pluginConfig, error, event)
+        await hub.appMetrics.queueError(
+            {
+                teamId: event.team_id,
+                pluginConfigId: pluginConfig.id,
+                category: 'onEvent',
+                failures: 1,
+            },
+            {
+                error,
+                event,
+            }
+        )
+    }
+    hub.statsd?.timing(metricName, timer, metricTags)
+}
+
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
+    // Runs onEvent for all plugins for this team in parallel
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
 
     await Promise.all(
@@ -21,55 +62,7 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
                         key: 'plugin',
                         tag: pluginConfig.plugin?.name || '?',
                     },
-                    () =>
-                        runRetriableFunction({
-                            hub,
-                            metricName: 'plugin.on_event',
-                            metricTags: {
-                                plugin: pluginConfig.plugin?.name ?? '?',
-                                teamId: event.team_id.toString(),
-                            },
-                            tryFn: async () => await onEvent!(event),
-                            catchFn: async (error) => await processError(hub, pluginConfig, error, event),
-                            payload: event,
-                            appMetric: {
-                                teamId: event.team_id,
-                                pluginConfigId: pluginConfig.id,
-                                category: 'onEvent',
-                            },
-                            appMetricErrorContext: { event },
-                        })
-                )
-            )
-    )
-}
-
-export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onSnapshot')
-
-    await Promise.all(
-        pluginMethodsToRun
-            .filter(([, method]) => !!method)
-            .map(([pluginConfig, onSnapshot]) =>
-                instrument(
-                    hub.statsd,
-                    {
-                        metricName: 'plugin.runOnSnapshot',
-                        key: 'plugin',
-                        tag: pluginConfig.plugin?.name || '?',
-                    },
-                    () =>
-                        runRetriableFunction({
-                            hub,
-                            metricName: 'plugin.on_snapshot',
-                            metricTags: {
-                                plugin: pluginConfig.plugin?.name ?? '?',
-                                teamId: event.team_id.toString(),
-                            },
-                            tryFn: async () => await onSnapshot!(event),
-                            catchFn: async (error) => await processError(hub, pluginConfig, error, event),
-                            payload: event,
-                        })
+                    () => runSingleTeamPluginOnEvent(hub, event, pluginConfig, onEvent)
                 )
             )
     )
@@ -146,8 +139,7 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
         }
 
         const onEvent = await pluginConfig.vm?.getOnEvent()
-        const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
-        if (onEvent || onSnapshot) {
+        if (onEvent) {
             pluginsDeferred.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
         }
     }

@@ -9,11 +9,10 @@ import { notebookWithPostHogNodes } from './__mocks__/notebook-with-posthog-node
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { NotebookMode } from '~/types'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Notebooks',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-07-04', // To stabilize relative dates
     },
@@ -73,8 +72,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function NotebooksList(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.notebooks())

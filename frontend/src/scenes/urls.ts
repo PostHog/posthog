@@ -5,13 +5,13 @@ import {
     DashboardType,
     FilterType,
     InsightShortId,
-    PerformancePageView,
     ReplayTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
 import { PluginTab } from './plugins/types'
+import { toParams } from 'lib/utils'
 
 /**
  * To add a new URL to the front end:
@@ -52,9 +52,11 @@ export const urls = {
     events: (): string => '/events',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
-    exports: (): string => '/exports',
-    createExport: (): string => `/exports/new`,
-    viewExport: (id: string | number): string => `/exports/${id}`,
+    batchExports: (): string => '/batch_exports',
+    batchExportNew: (): string => `/batch_exports/new`,
+    batchExport: (id: string, params?: { runId?: string }): string =>
+        `/batch_exports/${id}` + (params ? `?${toParams(params)}` : ''),
+    batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
@@ -78,14 +80,6 @@ export const urls = {
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
-    webPerformance: (): string => '/web-performance',
-    webPerformanceWaterfall: (pageview?: PerformancePageView): string => {
-        // KLUDGE: only allow no pageview param for urlToAction in the logic
-        const queryParams = !!pageview
-            ? `?sessionId=${pageview.session_id}&pageviewId=${pageview.pageview_id}&timestamp=${pageview.timestamp}`
-            : ''
-        return `/web-performance/waterfall${queryParams}`
-    },
 
     replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
@@ -111,7 +105,10 @@ export const urls = {
     surveys: (): string => '/surveys',
     dataWarehouse: (): string => '/warehouse',
     dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
-    survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
+    dataWarehousePosthog: (): string => '/data-warehouse/posthog',
+    dataWarehouseExternal: (): string => '/data-warehouse/external',
+    dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
+    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
     annotations: (): string => '/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
@@ -146,6 +143,7 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     ingestion: (): string => '/ingestion',
+    products: (): string => '/products',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only

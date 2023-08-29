@@ -2,7 +2,6 @@ import json
 from unittest.mock import patch
 from urllib.parse import quote
 
-from dateutil.parser import isoparse
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -468,12 +467,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(response.get("columns"), ["event"])
 
-    def test_invalid_recent_performance_pageviews(self):
-        api_response = self.client.post(
-            f"/api/projects/{self.team.id}/query/", {"kind": "RecentPerformancePageViewNode"}
-        )
-        assert api_response.status_code == 400
-
     def test_invalid_query_kind(self):
         api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
         assert api_response.status_code == 400
@@ -481,27 +474,49 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert "validation errors for Model" in api_response.json()["detail"]
         assert "type=value_error.const; given=Tomato Soup" in api_response.json()["detail"]
 
-    def test_valid_recent_performance_pageviews(self):
-        api_response = self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            {"query": {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}}},
-        )
-        assert api_response.status_code == 200
-
-    @patch("ee.api.performance_events.load_performance_events_recent_pageviews")
-    def test_valid_recent_performance_pageviews_defaults_to_the_last_hour(self, patched_load_performance_events):
-        frozen_now = "2020-01-10T12:14:00Z"
-        one_hour_before = "2020-01-10T11:14:00Z"
-
-        with freeze_time(frozen_now):
-            process_query(
-                self.team,
-                {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}},
-                False,
+    @snapshot_clickhouse_queries
+    def test_full_hogql_query_view(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
             )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(
+                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+            )
+        flush_persons_and_events()
 
-            patched_load_performance_events.assert_called_with(
-                team_id=self.team.pk,
-                date_from=isoparse(one_hour_before),
-                date_to=isoparse(frozen_now),
+        with freeze_time("2020-01-10 12:14:00"):
+
+            self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": f"select event AS event, distinct_id as distinct_id, properties.key as key from events order by timestamp",
+                    },
+                },
+            )
+            query = HogQLQuery(query="select * from event_view")
+            api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            query.response = HogQLQueryResponse.parse_obj(api_response)
+
+            self.assertEqual(query.response.results and len(query.response.results), 4)
+            self.assertEqual(
+                query.response.results,
+                [
+                    ["sign up", "2", "test_val1"],
+                    ["sign out", "2", "test_val2"],
+                    ["sign out", "3", "test_val2"],
+                    ["sign out", "4", "test_val3"],
+                ],
             )
