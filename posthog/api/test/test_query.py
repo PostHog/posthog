@@ -497,7 +497,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
 
             self.client.post(
-                f"/api/projects/{self.team.id}/warehouse_saved_query/",
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/",
                 {
                     "name": "event_view",
                     "query": {

@@ -18,6 +18,7 @@ import {
 } from './SurveyAppearanceUtils'
 import { surveysLogic } from './surveysLogic'
 import { useValues } from 'kea'
+import { IconClose } from 'lib/lemon-ui/icons'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
@@ -168,7 +169,7 @@ function BaseAppearance({
                         type="button"
                         style={{ backgroundColor: appearance.backgroundColor }}
                     >
-                        X
+                        <IconClose />
                     </button>
                 </div>
                 <div className="question-textarea-wrapper">
