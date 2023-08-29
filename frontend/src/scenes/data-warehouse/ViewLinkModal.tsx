@@ -11,9 +11,12 @@ export function ViewLinkModal(): JSX.Element {
 
     return (
         <LemonModal
-            title="Add Fields"
+            title="Link view to table"
             description={
-                'Posthog models can be extended with custom fields based on views that have been created. These fields can be used in queries and accessible at the top level without needing to define joins.'
+                <span>
+                    Define a join between the table and view. <b>All</b> fields from the view will be accessible in
+                    queries at the top level without needing to explicitly join the view.
+                </span>
             }
             isOpen={isFieldModalOpen}
             onClose={toggleFieldModal}
@@ -29,13 +32,18 @@ export function ViewLinkModal(): JSX.Element {
                         <div className="w-50">
                             <span className="l4">View</span>
                             <Field name="saved_query_id">
-                                <LemonSelect fullWidth options={viewOptions} onSelect={selectView} />
+                                <LemonSelect
+                                    fullWidth
+                                    options={viewOptions}
+                                    onSelect={selectView}
+                                    placeholder="Select a view"
+                                />
                             </Field>
                         </div>
                     </div>
                     <div className="mt-3 flex flex-row justify-between items-center w-full">
                         <div className="w-50">
-                            <span className="l4">Join Key</span>
+                            <span className="l4">Table Key</span>
                             <Field name="from_join_key">
                                 <LemonSelect fullWidth options={fromJoinKeyOptions} />
                             </Field>
@@ -44,7 +52,7 @@ export function ViewLinkModal(): JSX.Element {
                             <IconSwapHoriz />
                         </div>
                         <div className="w-50">
-                            <span className="l4">Join Key</span>
+                            <span className="l4">View Key</span>
                             <Field name="to_join_key">
                                 <LemonSelect
                                     fullWidth

@@ -33,7 +33,7 @@ export function DatabaseTablesContainer(): JSX.Element {
                                             toggleFieldModal()
                                         }}
                                     >
-                                        Add Fields
+                                        Add link to view
                                     </LemonButton>
                                 </div>
                             </div>
