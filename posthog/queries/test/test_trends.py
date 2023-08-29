@@ -34,6 +34,7 @@ from posthog.models import (
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.models.person.util import create_person_distinct_id
+from posthog.models.team.team import WeekStartDay
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
     APIBaseTest,
@@ -5893,45 +5894,69 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_timezones_weekly(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        _create_event(  # This event should be ignored, as it's before the -14d range
+        _create_event(  # This event is before the time range (but counts towards week of 2020-01-06 in Monday mode)
             team=self.team,
             event="sign up",
             distinct_id="blabla",
             properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            timestamp="2020-01-11T19:01:01",  # TRICKY: This is the next UTC day in America/Phoenix
+            timestamp="2020-01-11T19:01:01",  # Saturday; TRICKY: This is the next UTC day in America/Phoenix
         )
-        _create_event(  # This event should count towards week of 2020-01-12
+        _create_event(  # This event should count towards week of 2020-01-12 (or 2020-01-06 in Monday mode)
             team=self.team,
             event="sign up",
             distinct_id="blabla",
             properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            timestamp="2020-01-12T02:01:01",  # TRICKY: This is the previous UTC day in Asia/Tokyo
+            timestamp="2020-01-12T02:01:01",  # Sunday; TRICKY: This is the previous UTC day in Asia/Tokyo
         )
-        _create_event(  # This event should count towards week of 2020-01-19
+        _create_event(  # This event should count towards week of 2020-01-19 (or 2020-01-20 in Monday mode)
             team=self.team,
             event="sign up",
             distinct_id="blabla",
             properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
-            timestamp="2020-01-21T18:01:01",  # TRICKY: This is the next UTC day in America/Phoenix
+            timestamp="2020-01-21T18:01:01",  # Tuesday; TRICKY: This is the next UTC day in America/Phoenix
         )
+
+        self.team.week_start_day = WeekStartDay.SUNDAY  # This is the default, but let's be explicit
+        self.team.save()
 
         # TRICKY: This is the previous UTC day in Asia/Tokyo
         with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 26, 3, 0))):
             # Total volume query
-            response = Trends().run(
+            response_sunday = Trends().run(
                 Filter(
-                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "interval": "week",
                         "events": [{"id": "sign up", "name": "sign up"}],
                     },
+                    team=self.team,
                 ),
                 self.team,
             )
 
-        self.assertEqual(response[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
-        self.assertEqual(response[0]["data"], [1.0, 1.0, 0.0])
+        self.assertEqual(response_sunday[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
+        self.assertEqual(response_sunday[0]["data"], [1.0, 1.0, 0.0])
+
+        self.team.week_start_day = WeekStartDay.MONDAY
+        self.team.save()
+
+        # TRICKY: This is the previous UTC day in Asia/Tokyo
+        with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 26, 3, 0))):
+            # Total volume query
+            response_monday = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "interval": "week",
+                        "events": [{"id": "sign up", "name": "sign up"}],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response_monday[0]["days"], ["2020-01-06", "2020-01-13", "2020-01-20"])
+        self.assertEqual(response_monday[0]["data"], [2.0, 0.0, 1.0])
 
     def test_same_day(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
