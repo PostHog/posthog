@@ -817,7 +817,9 @@ def count_hogql_properties(
 ) -> TCounter[PropertyIdentifier]:
     if not counter:
         counter = Counter()
-    node = parse_expr(expr)
+    node = parse_expr(
+        expr
+    )  # this does not support %-signs. is a previous translate_hogql necessary? better to use another approach?
     property_checker = HogQLPropertyChecker()
     property_checker.visit(node)
     for field in property_checker.event_properties:

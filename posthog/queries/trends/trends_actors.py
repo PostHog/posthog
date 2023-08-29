@@ -77,7 +77,7 @@ class TrendsActors(ActorBaseQuery):
             else:
                 breakdown_props = [
                     Property(
-                        key=f"({self._filter.breakdown}) = '{self._filter.breakdown_value}'"
+                        key=f"({self._filter.breakdown}) = {self._filter.hogql_context.add_value(self._filter.breakdown_value)}"
                         if self._filter.breakdown_type == "hogql"
                         else self._filter.breakdown,
                         value=self._filter.breakdown_value,
