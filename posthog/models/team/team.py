@@ -115,8 +115,8 @@ def get_default_data_attributes() -> List[str]:
 
 
 class WeekStartDay(models.IntegerChoices):
-    SUNDAY = 0, "Monday"
-    MONDAY = 1, "Sunday"
+    SUNDAY = 0, "Sunday"
+    MONDAY = 1, "Monday"
 
     @property
     def clickhouse_mode(self) -> str:
