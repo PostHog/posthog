@@ -100,9 +100,6 @@ class Database(BaseModel):
             setattr(self, f_name, f_def)
 
 
-BUILT_IN_TABLE_NAMES = [attr for attr in dir(Database) if isinstance(getattr(Database, attr), Table)]
-
-
 def create_hogql_database(team_id: int) -> Database:
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery, DataWarehouseViewLink

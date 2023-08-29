@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.team import Team
 
 from posthog.hogql.database.models import SavedQuery
-from posthog.hogql.database.database import BUILT_IN_TABLE_NAMES
+from posthog.hogql.database.database import Database
 from typing import Dict
 import re
 from django.core.exceptions import ValidationError
@@ -17,7 +17,7 @@ def validate_saved_query_name(value):
             params={"value": value},
         )
 
-    if value in BUILT_IN_TABLE_NAMES:
+    if value in Database._table_names:
         raise ValidationError(
             f"{value} is not a valid view name. View names cannot overlap with PostHog table names.",
             params={"value": value},
