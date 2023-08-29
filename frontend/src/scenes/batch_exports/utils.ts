@@ -20,5 +20,9 @@ export function humanizeDestination(destination: BatchExportDestination): string
         return `snowflake:${destination.config.account}:${destination.config.database}:${destination.config.table_name}`
     }
 
+    if (destination.type === 'Postgres') {
+        return `postgresql://${destination.config.user}:***@${destination.config.host}:${destination.config.port}/${destination.config.database}`
+    }
+
     return 'Unknown'
 }
