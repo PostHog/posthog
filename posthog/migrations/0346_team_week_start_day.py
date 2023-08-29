@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0343_team_has_completed_onboarding_for"),
+        ("posthog", "0345_view_link_and_s3_table_update"),
     ]
 
     operations = [

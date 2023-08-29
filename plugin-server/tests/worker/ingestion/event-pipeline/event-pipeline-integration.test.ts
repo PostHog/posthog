@@ -4,6 +4,7 @@ import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { PostgresUse } from '../../../../src/utils/db/postgres'
 import { convertToIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
@@ -123,7 +124,8 @@ describe('Event Pipeline integration test', () => {
     })
 
     it('fires a webhook', async () => {
-        await hub.db.postgresQuery(
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
             [],
             'testTag'
@@ -159,7 +161,13 @@ describe('Event Pipeline integration test', () => {
     it('fires a REST hook', async () => {
         const timestamp = new Date().toISOString()
 
-        await hub.db.postgresQuery(`UPDATE posthog_organization SET available_features = '{"zapier"}'`, [], 'testTag')
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_organization
+             SET available_features = '{"zapier"}'`,
+            [],
+            'testTag'
+        )
         await insertRow(hub.db.postgres, 'ee_hook', {
             id: 'abc',
             team_id: 2,

@@ -54,7 +54,7 @@ export const CardView: Story = () => {
     return <App />
 }
 CardView.parameters = {
-    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
 export const EmptyState: Story = () => {

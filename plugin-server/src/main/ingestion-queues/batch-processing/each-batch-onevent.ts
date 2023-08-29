@@ -1,13 +1,48 @@
 import * as Sentry from '@sentry/node'
-import { StatsD } from 'hot-shots'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
+import { RawClickHouseEvent } from '../../../types'
+import { convertToIngestionEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { groupIntoBatches } from '../../../utils/utils'
+import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
-import { latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
+
+export async function eachMessageAppsOnEventHandlers(
+    message: KafkaMessage,
+    queue: KafkaJSIngestionConsumer
+): Promise<void> {
+    const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+
+    if (queue.pluginsServer.pluginConfigsPerTeam.has(clickHouseEvent.team_id)) {
+        const event = convertToIngestionEvent(clickHouseEvent)
+        await runInstrumentedFunction({
+            event: event,
+            func: () => queue.workerMethods.runAppsOnEventPipeline(event),
+            statsKey: `kafka_queue.process_async_handlers_on_event`,
+            timeoutMessage: 'After 30 seconds still running runAppsOnEventPipeline',
+            teamId: event.teamId,
+        })
+    } else {
+        eventDroppedCounter
+            .labels({
+                event_type: 'onevent',
+                drop_cause: 'no_matching_plugin',
+            })
+            .inc()
+    }
+}
+
+export async function eachBatchAppsOnEventHandlers(
+    payload: EachBatchPayload,
+    queue: KafkaJSIngestionConsumer
+): Promise<void> {
+    await eachBatch(payload, queue, eachMessageAppsOnEventHandlers, groupIntoBatches, 'async_handlers_on_event')
+}
 
 export async function eachBatch(
     /**
@@ -77,74 +112,6 @@ export async function eachBatch(
         )
     } finally {
         queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
-        transaction.finish()
-    }
-}
-
-export async function eachBatchWebhooks(
-    /**
-     * A copy of the above eachBatch function, but without the dependency on the KafkaJSIngestionConsumer.
-     */
-    { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
-    statsd: StatsD | undefined,
-    eachMessage: (message: KafkaMessage) => Promise<void>,
-    groupIntoBatches: (messages: KafkaMessage[], batchSize: number) => KafkaMessage[][],
-    concurrency: number,
-    key: string
-): Promise<void> {
-    const batchStartTimer = new Date()
-    const loggingKey = `each_batch_${key}`
-
-    const transaction = Sentry.startTransaction({ name: `eachBatch(${eachMessage.name})` })
-
-    try {
-        const messageBatches = groupIntoBatches(batch.messages, concurrency)
-        statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, { key: key })
-        statsd?.histogram('ingest_event_batching.batch_count', messageBatches.length, { key: key })
-
-        for (const messageBatch of messageBatches) {
-            const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: messageBatch.length } })
-
-            if (!isRunning() || isStale()) {
-                status.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
-                    isRunning: isRunning(),
-                    isStale: isStale(),
-                    msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
-                })
-                await heartbeat()
-                return
-            }
-
-            const lastBatchMessage = messageBatch[messageBatch.length - 1]
-            await Promise.all(
-                messageBatch.map((message: KafkaMessage) => eachMessage(message).finally(() => heartbeat()))
-            )
-
-            // this if should never be false, but who can trust computers these days
-            if (lastBatchMessage) {
-                resolveOffset(lastBatchMessage.offset)
-            }
-            await commitOffsetsIfNecessary()
-
-            // Record that latest messages timestamp, such that we can then, for
-            // instance, alert on if this value is too old.
-            latestOffsetTimestampGauge
-                .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
-                .set(Number.parseInt(lastBatchMessage.timestamp))
-
-            await heartbeat()
-
-            batchSpan.finish()
-        }
-
-        status.debug(
-            '🧩',
-            `Kafka batch of ${batch.messages.length} events completed in ${
-                new Date().valueOf() - batchStartTimer.valueOf()
-            }ms (${loggingKey})`
-        )
-    } finally {
-        statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
         transaction.finish()
     }
 }
