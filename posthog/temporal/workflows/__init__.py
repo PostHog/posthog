@@ -15,10 +15,10 @@ from posthog.temporal.workflows.squash_person_overrides import *
 
 WORKFLOWS = [
     NoOpWorkflow,
-    SquashPersonOverridesWorkflow,
+    PostgresBatchExportWorkflow,
     S3BatchExportWorkflow,
     SnowflakeBatchExportWorkflow,
-    PostgresBatchExportWorkflow,
+    SquashPersonOverridesWorkflow,
 ]
 
 ACTIVITIES: Sequence[Callable] = [
@@ -26,8 +26,8 @@ ACTIVITIES: Sequence[Callable] = [
     delete_squashed_person_overrides_from_clickhouse,
     delete_squashed_person_overrides_from_postgres,
     drop_dictionary,
-    insert_into_s3_activity,
     insert_into_postgres_activity,
+    insert_into_s3_activity,
     insert_into_snowflake_activity,
     noop_activity,
     prepare_dictionary,
