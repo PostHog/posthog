@@ -6,7 +6,7 @@ import TextareaAutosize from 'react-textarea-autosize'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export interface EditableFieldProps {
     /** What this field stands for. */

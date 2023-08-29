@@ -8,7 +8,7 @@ import type { notificationsLogicType } from './notificationsLogicType'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { dayjs } from 'lib/dayjs'
 import posthog from 'posthog-js'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
 const MARK_READ_TIMEOUT = 2500

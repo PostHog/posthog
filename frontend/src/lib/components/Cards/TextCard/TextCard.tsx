@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import React, { useState } from 'react'
 import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number

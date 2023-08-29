@@ -19,7 +19,7 @@ import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 window.process = MOCK_NODE_PROCESS
 
