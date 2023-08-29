@@ -1539,12 +1539,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(5):
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(5):
             # get cohort, get person filter
             response = self._post_decide(api_version=3, distinct_id="another_id")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
@@ -1575,12 +1575,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(5):
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
             self.assertEqual(response.json()["featureFlags"], {})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(5):
             response = self._post_decide(api_version=3, distinct_id="another_id")
             self.assertEqual(response.json()["featureFlags"], {})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], True)

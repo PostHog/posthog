@@ -126,9 +126,7 @@ class Cohort(models.Model):
                         group["properties"] = new_properties
 
                     # Do not try simplifying properties at this stage. We'll let this happen at query time.
-                    property_groups.append(
-                        Filter(team=self.team, data={**group, "is_simplified": True}).property_groups
-                    )
+                    property_groups.append(Filter(data={**group, "is_simplified": True}).property_groups)
                 elif group.get("action_id") or group.get("event_id"):
                     key = group.get("action_id") or group.get("event_id")
                     event_type: Literal["actions", "events"] = "actions" if group.get("action_id") else "events"

@@ -408,7 +408,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(2):
             matched_person = (
                 Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
                 .filter(properties_to_Q(filter.property_groups.flat))
@@ -426,7 +426,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(2):
             matched_person = (
                 Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
                 .filter(properties_to_Q(filter.property_groups.flat))
