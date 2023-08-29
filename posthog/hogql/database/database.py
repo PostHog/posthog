@@ -58,7 +58,7 @@ class Database(BaseModel):
     numbers: NumbersTable = NumbersTable()
 
     # clunky: keep table names in sync with above
-    _TABLE_NAMES: List[str] = [
+    _table_names: List[str] = [
         "events",
         "groups",
         "person",
