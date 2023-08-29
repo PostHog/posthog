@@ -369,6 +369,9 @@ devDependencies:
   '@storybook/core-events':
     specifier: ^7.3.1
     version: 7.3.1
+  '@storybook/csf':
+    specifier: ^0.1.1
+    version: 0.1.1
   '@storybook/react':
     specifier: ^7.3.1
     version: 7.3.1(react-dom@16.14.0)(react@16.14.0)(typescript@4.9.5)
@@ -12904,7 +12907,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
