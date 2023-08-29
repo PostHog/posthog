@@ -73,7 +73,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     })),
 
     selectors({
-        notebookLogic: [(_, p) => [p.notebookLogic], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
+        notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic): BuiltLogic<notebookLogicType> => notebookLogic],
         nodeAttributes: [(_, p) => [p.nodeAttributes], (nodeAttributes): Record<string, any> => nodeAttributes],
         widgets: [() => [(_, props) => props], (props): NotebookNodeWidget[] => props.widgets],
     }),
