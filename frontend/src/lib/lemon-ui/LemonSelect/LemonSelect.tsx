@@ -22,7 +22,7 @@ interface LemonSelectOptionBase extends Omit<LemonMenuItemBase, 'active' | 'stat
     hidden?: boolean
 }
 
-type LemonSelectCustomControl<T> = ({ onSelect }: { onSelect: (newValue: T) => void }) => JSX.Element
+type LemonSelectCustomControl<T> = ({ onSelect }: { onSelect: OnSelect<T> }) => JSX.Element
 export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
     value: T
     /**
@@ -46,9 +46,11 @@ export interface LemonSelectSection<T> {
     footer?: string | React.ReactNode
 }
 
+type OnChange<T> = (newValue: T | null) => void
+type OnSelect<T> = (newValue: T) => void
 export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<T>[]
 
-export interface LemonSelectPropsBase<T>
+export interface LemonSelectProps<T>
     extends Pick<
         LemonButtonProps,
         | 'id'
@@ -63,33 +65,22 @@ export interface LemonSelectPropsBase<T>
         | 'tabIndex'
     > {
     options: LemonSelectOptions<T>
+    /** Null only is valid for clearable selects. */
+    value?: T | null
+    /** Callback fired when a value different from the one currently set is selected. */
+    onChange?: OnChange<T>
     /** Callback fired when a value is selected, even if it already is set. */
-    onSelect?: (newValue: T) => void
+    onSelect?: OnSelect<T>
     optionTooltipPlacement?: TooltipProps['placement']
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
     dropdownPlacement?: PopoverProps['placement']
+    allowClear?: boolean
     className?: string
     placeholder?: string
     size?: 'small' | 'medium'
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
 }
-
-export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
-    allowClear: true
-    value: T | null
-    /** Callback fired when a value different from the one currently set is selected. */
-    onChange: (newValue: T | null) => void
-}
-
-export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T> {
-    allowClear?: false
-    value: T
-    /** Callback fired when a value different from the one currently set is selected. */
-    onChange: (newValue: T) => void
-}
-
-export type LemonSelectProps<T> = LemonSelectPropsClearable<T> | LemonSelectPropsNonClearable<T>
 
 export function LemonSelect<T>({
     value = null,
@@ -114,7 +105,7 @@ export function LemonSelect<T>({
         }
     }, [value, buttonProps.loading])
 
-    const wrappedOnSelect: NonNullable<LemonSelectPropsBase<T>['onSelect']> = (newValue) => {
+    const wrappedOnSelect: OnSelect<T> = (newValue) => {
         if (newValue !== activeValue) {
             onChange?.(newValue)
             setActiveValue(newValue)
@@ -165,7 +156,7 @@ export function LemonSelect<T>({
                         icon={<IconClose />}
                         tooltip="Clear selection"
                         onClick={() => {
-                            onChange?.(null as T)
+                            onChange?.(null)
                             setActiveValue(null)
                         }}
                     />
@@ -184,7 +175,7 @@ export function LemonSelect<T>({
 function convertSelectOptionsToMenuItems<T>(
     options: LemonSelectOptions<T>,
     activeValue: T | null,
-    onSelect: NonNullable<LemonSelectPropsBase<T>['onSelect']>
+    onSelect: OnSelect<T>
 ): [(LemonMenuItem | LemonMenuSection)[], LemonSelectOptionLeaf<T>[]] {
     const leafOptionsAccumulator: LemonSelectOptionLeaf<T>[] = []
     const items = options
@@ -196,7 +187,7 @@ function convertSelectOptionsToMenuItems<T>(
 function convertToMenuSingle<T>(
     option: LemonSelectOption<T> | LemonSelectSection<T>,
     activeValue: T | null,
-    onSelect: NonNullable<LemonSelectPropsBase<T>['onSelect']>,
+    onSelect: OnSelect<T>,
     acc: LemonSelectOptionLeaf<T>[]
 ): LemonMenuItem | LemonMenuSection | null {
     if (isLemonSelectSection(option)) {
