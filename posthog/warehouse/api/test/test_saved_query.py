@@ -6,7 +6,7 @@ from posthog.test.base import (
 class TestSavedQuery(APIBaseTest):
     def test_create(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
@@ -22,7 +22,7 @@ class TestSavedQuery(APIBaseTest):
 
     def test_create_name_overlap_error(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "events",
                 "query": {
@@ -35,7 +35,7 @@ class TestSavedQuery(APIBaseTest):
 
     def test_saved_query_doesnt_exist(self):
         saved_query_1_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
@@ -48,7 +48,7 @@ class TestSavedQuery(APIBaseTest):
 
     def test_view_updated(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
@@ -60,7 +60,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.content)
         saved_query_1_response = response.json()
         saved_query_1_response = self.client.patch(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/" + saved_query_1_response["id"],
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/" + saved_query_1_response["id"],
             {
                 "query": {
                     "kind": "HogQLQuery",
@@ -76,7 +76,7 @@ class TestSavedQuery(APIBaseTest):
 
     def test_circular_view(self):
         saved_query_1_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
@@ -89,7 +89,7 @@ class TestSavedQuery(APIBaseTest):
         saved_query_1 = saved_query_1_response.json()
 
         saved_view_2_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/",
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "outer_event_view",
                 "query": {
@@ -101,7 +101,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(saved_view_2_response.status_code, 201, saved_view_2_response.content)
 
         saved_view_1_response = self.client.patch(
-            f"/api/projects/{self.team.id}/warehouse_saved_query/" + saved_query_1["id"],
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/" + saved_query_1["id"],
             {
                 "name": "event_view",
                 "query": {

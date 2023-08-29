@@ -120,26 +120,10 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         visible_team_ids = set(self.user_permissions.team_ids_visible_for_user)
         return [team for team in teams if team["id"] in visible_team_ids]
 
-    def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:
-        output = {
-            "taxonomy_set_events_count": 0,
-            "taxonomy_set_properties_count": 0,
+    def get_metadata(self) -> Dict[str, Union[str, int, object]]:
+        return {
             "instance_tag": settings.INSTANCE_TAG,
         }
-
-        try:
-            from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
-        except ImportError:
-            return output
-
-        output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(
-            description="", tagged_items__isnull=True
-        ).count()
-        output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
-            description="", tagged_items__isnull=True
-        ).count()
-
-        return output
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
