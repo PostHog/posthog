@@ -33,7 +33,7 @@ const OnboardingProductIntro = ({ product }: { product: BillingProductV2Type }):
     const communityUrl = 'https://posthog.com/questions/topic/' + productWebsiteKey
     const tutorialsUrl = 'https://posthog.com/tutorials/categories/' + productWebsiteKey
     const productPageUrl = 'https://posthog.com/' + productWebsiteKey
-    const productImageUrl = `https://posthog.com/images/product/billing-products/${productWebsiteKey}.png`
+    const productImageUrl = `https://posthog.com/images/product/${productWebsiteKey}-product.png`
 
     return (
         <div className="w-full">
