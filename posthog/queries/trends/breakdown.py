@@ -4,6 +4,7 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import pytz
 from django.forms import ValidationError
 
 from posthog.constants import (
@@ -575,12 +576,22 @@ class TrendsBreakdown:
         filter: Filter,
         entity: Entity,
         team: Team,
-        point_datetimes: List[datetime],
+        point_dates: List[datetime],
         breakdown_value: Union[str, int],
     ) -> List[Dict[str, Any]]:
         persons_url = []
         cache_invalidation_key = generate_short_id()
-        for point_datetime in point_datetimes:
+        for point_date in point_dates:
+            point_datetime = datetime(
+                point_date.year,
+                point_date.month,
+                point_date.day,
+                getattr(point_date, "hour", 0),
+                getattr(point_date, "minute", 0),
+                getattr(point_date, "second", 0),
+                tzinfo=getattr(point_date, "tzinfo", pytz.UTC),
+            ).astimezone(pytz.UTC)
+
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
