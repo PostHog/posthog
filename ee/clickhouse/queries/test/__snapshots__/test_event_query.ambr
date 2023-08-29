@@ -44,7 +44,7 @@
      AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'event_name'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2021-01-14 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
   '
 ---
@@ -54,7 +54,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2021-05-01 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
   '
 ---
@@ -84,7 +84,7 @@
      AND (has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2021-05-01 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
   '
 ---
@@ -95,7 +95,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'user signed up'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
     AND ((has(['hi'], "mat_test_prop"))
          AND (has(['hi'], "mat_test_prop")))
@@ -107,7 +107,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'event_name'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2021-01-14 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
     AND ((match(elements_chain, '(^|;)label(\\.|$|;|:)')))
   '
@@ -118,7 +118,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'event_name'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2021-01-14 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
     AND (0 = 191)
   '
@@ -149,7 +149,7 @@
      AND (has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2021-05-01 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
   '
 ---
@@ -205,7 +205,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2021-05-01 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
@@ -216,7 +216,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2021-05-01 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
@@ -241,7 +241,7 @@
      GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
          AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'another'), '^"|"$', ''))))
@@ -280,7 +280,7 @@
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
   '
@@ -305,7 +305,7 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2021-05-01 00:00:00', 'UTC'), 'UTC')))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (pdi.person_id IN
            (SELECT person_id as id
