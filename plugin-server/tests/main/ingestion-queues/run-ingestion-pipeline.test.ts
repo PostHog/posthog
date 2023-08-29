@@ -1,8 +1,10 @@
 import Redis from 'ioredis'
+import { Pool } from 'pg'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { createTaskRunner } from '../../../src/worker/worker'
 import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '../../helpers/sql'
@@ -18,7 +20,7 @@ describe('workerTasks.runEventPipeline()', () => {
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
         piscinaTaskRunner = createTaskRunner(hub)
-        await hub.postgres.query(POSTGRES_DELETE_TABLES_QUERY) // Need to clear the DB to avoid unique constraint violations on ids
+        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, '') // Need to clear the DB to avoid unique constraint violations on ids
         process.env = { ...OLD_ENV } // Make a copy
     })
 
@@ -45,7 +47,7 @@ describe('workerTasks.runEventPipeline()', () => {
         const organizationId = await createOrganization(hub.postgres)
         const teamId = await createTeam(hub.postgres, organizationId)
 
-        jest.spyOn(hub.db.postgres, 'query').mockImplementation(() => {
+        const pgQueryMock = jest.spyOn(Pool.prototype, 'query').mockImplementation(() => {
             return Promise.reject(new Error(errorMessage))
         })
 
@@ -64,5 +66,6 @@ describe('workerTasks.runEventPipeline()', () => {
                 },
             })
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
+        pgQueryMock.mockRestore()
     })
 })

@@ -18,7 +18,6 @@ export function TaxonomicBreakdownButton(): JSX.Element {
                 icon={<IconPlusMini color="var(--primary)" />}
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
-                className="taxonomic-breakdown-filter tag-button"
                 sideIcon={null}
             >
                 {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers

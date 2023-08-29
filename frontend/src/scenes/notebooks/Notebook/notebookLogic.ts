@@ -18,7 +18,7 @@ import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } fr
 
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from a utils file
-import { JSONContent, NotebookEditor } from './utils'
+import { JSONContent, NotebookEditor, Node } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
@@ -59,10 +59,10 @@ export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
-    connect({
+    connect(() => ({
         values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [notebooksModel, ['receiveNotebookUpdate']],
-    }),
+    })),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
         editorIsReady: true,
@@ -75,6 +75,9 @@ export const notebookLogic = kea<notebookLogicType>([
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         exportJSON: true,
         showConflictWarning: true,
+        updatePreviousAndNextNodes: true,
+        setPreviousNode: (node: Node | null) => ({ node }),
+        setNextNode: (node: Node | null) => ({ node }),
         registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
@@ -135,18 +138,37 @@ export const notebookLogic = kea<notebookLogicType>([
         nodeLogics: [
             {} as Record<string, BuiltLogic<notebookNodeLogicType>>,
             {
-                registerNodeLogic: (state, { nodeLogic }) => ({
-                    ...state,
-                    [nodeLogic.props.nodeId]: nodeLogic,
-                }),
+                registerNodeLogic: (state, { nodeLogic }) => {
+                    if (nodeLogic.props.nodeId === null) {
+                        return state
+                    } else {
+                        return {
+                            ...state,
+                            [nodeLogic.props.nodeId]: nodeLogic,
+                        }
+                    }
+                },
                 unregisterNodeLogic: (state, { nodeLogic }) => {
                     const newState = { ...state }
-                    delete newState[nodeLogic.props.nodeId]
+                    if (nodeLogic.props.nodeId !== null) {
+                        delete newState[nodeLogic.props.nodeId]
+                    }
                     return newState
                 },
             },
         ],
-
+        previousNode: [
+            null as Node | null,
+            {
+                setPreviousNode: (_, { node }) => node,
+            },
+        ],
+        nextNode: [
+            null as Node | null,
+            {
+                setNextNode: (_, { node }) => node,
+            },
+        ],
         isEditable: [
             false,
             {
@@ -410,6 +432,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             const jsonContent = values.editor.getJSON()
             actions.setLocalContent(jsonContent)
+            actions.updatePreviousAndNextNodes()
         },
 
         setEditable: ({ editable }) => {
@@ -435,11 +458,21 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         onEditorSelectionUpdate: () => {
-            const node = values.editor?.getSelectedNode()
-            actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
+            if (values.editor) {
+                const node = values.editor.getSelectedNode()
+                actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
 
-            if (node?.attrs.nodeId) {
-                actions.scrollToSelection()
+                if (node?.attrs.nodeId) {
+                    actions.scrollToSelection()
+                }
+
+                actions.updatePreviousAndNextNodes()
+            }
+        },
+        updatePreviousAndNextNodes: () => {
+            if (values.editor) {
+                actions.setPreviousNode(values.editor.getPreviousNode())
+                actions.setNextNode(values.editor.getNextNode())
             }
         },
         scrollToSelection: () => {

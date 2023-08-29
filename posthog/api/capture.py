@@ -40,7 +40,8 @@ from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
-from posthog.utils import cors_response, get_ip_address
+from posthog.utils import get_ip_address
+from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
 

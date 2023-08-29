@@ -95,12 +95,6 @@ jobs:
                   fetch-depth: 1
                   path: 'current/'
 
-            - name: Stop/Start stack with Docker Compose
-              run: |
-                  cd current
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
-
             - name: Set up Python
               id: python
               uses: buildjet/setup-python@v4
