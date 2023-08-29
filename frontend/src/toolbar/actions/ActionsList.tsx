@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
+import { Button, Row, Input } from 'antd'
+import { PlusOutlined } from '@ant-design/icons'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconPlus } from 'lib/lemon-ui/icons'
 
 export function ActionsList(): JSX.Element {
     const { allActions, sortedActions, allActionsLoading, searchTerm } = useValues(actionsLogic)
@@ -14,21 +13,22 @@ export function ActionsList(): JSX.Element {
 
     return (
         <>
-            <LemonInput
+            <Input.Search
+                allowClear
                 autoFocus
-                fullWidth
                 placeholder="Search"
-                type={'search'}
                 value={searchTerm}
-                className={'mb-1'}
-                onChange={(s) => setSearchTerm(s)}
+                style={{
+                    paddingBottom: '4px',
+                }}
+                onChange={(e) => setSearchTerm(e.target.value)}
             />
             <div className="actions-list">
-                <div className="actions-list-header pt-2 pb-4">
-                    <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>
-                        New action
-                    </LemonButton>
-                </div>
+                <Row className="actions-list-header">
+                    <Button type="primary" size="small" onClick={() => newAction()} style={{ float: 'right' }}>
+                        <PlusOutlined /> New action
+                    </Button>
+                </Row>
                 {allActions.length === 0 && allActionsLoading ? (
                     <div className="text-center my-4">
                         <Spinner />

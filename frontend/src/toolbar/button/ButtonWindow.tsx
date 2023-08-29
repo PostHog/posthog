@@ -1,7 +1,6 @@
 import { Fade } from 'lib/components/Fade/Fade'
 import Draggable from 'react-draggable'
-import { IconClose } from 'lib/lemon-ui/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { CloseOutlined } from '@ant-design/icons'
 
 interface ButtonWindowProps {
     name: string
@@ -38,14 +37,7 @@ export function ButtonWindow({
                             <div className="window-label">{label}</div>
                             {tagComponent}
                         </div>
-                        <LemonButton
-                            type="tertiary"
-                            status={'stealth'}
-                            icon={<IconClose />}
-                            className="close-button"
-                            onClick={close}
-                            data-attr={'toolbar-' + name + '-window-close'}
-                        />
+                        <CloseOutlined className="close-button" onClick={close} />
                     </div>
                     {children}
                 </div>

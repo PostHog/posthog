@@ -1,12 +1,9 @@
 .action-block-body {
-    form {
-        .form-error {
-            color: var(--danger);
-        }
-    }
+    padding: 16px;
 }
 
 .action-section {
+    padding: 8px;
     &.highlight {
         background: hsla(228, 14%, 96%, 1);
         &:nth-child(even) {
@@ -17,9 +14,19 @@
         }
     }
 }
-
+.action-title-field {
+    margin-bottom: 10px;
+}
+.action-inspect {
+    margin: 20px 0;
+}
 .action-field {
-    transition: opacity 0.5s;
+    margin: 5px -20px;
+    padding: 2px 20px 8px 20px;
+
+    .ant-form-item {
+        margin-bottom: 0;
+    }
 
     .action-field-hint {
         font-size: 12px;
@@ -33,15 +40,11 @@
     }
 }
 
-.ActionsListItem {
-    border-bottom: 1px solid #e8e8e8;
-    transition: background-color 0.5s;
-
-    &:hover {
-        background: #f0f0f0;
+.actions-list {
+    .actions-list-header {
+        padding: 6px 0;
     }
-
-    &:last-child {
-        border-bottom: none;
+    .ant-list-item {
+        padding: 6px 0;
     }
 }

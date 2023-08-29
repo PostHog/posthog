@@ -2,49 +2,42 @@ import './featureFlags.scss'
 
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
+import { Radio, Switch, Row, List, Input } from 'antd'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { urls } from 'scenes/urls'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import clsx from 'clsx'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 export function FeatureFlags(): JSX.Element {
-    const { searchTerm, filteredFlags, userFlagsLoading } = useValues(featureFlagsLogic)
+    const { searchTerm, filteredFlags } = useValues(featureFlagsLogic)
     const { setOverriddenUserFlag, deleteOverriddenUserFlag, setSearchTerm } = useActions(featureFlagsLogic)
     const { apiURL } = useValues(toolbarLogic)
 
     return (
-        <div className="toolbar-block px-2">
-            <div className="local-feature-flag-override-note rounded border p-2 my-2">
+        <div className="toolbar-block">
+            <div className="local-feature-flag-override-note">
                 Note, overriding feature flags below will only affect this browser.
             </div>
             <>
-                <LemonInput
+                <Input.Search
+                    allowClear
                     autoFocus
                     placeholder="Search"
-                    fullWidth
-                    type={'search'}
                     value={searchTerm}
                     className={'feature-flag-row'}
-                    onChange={(s) => setSearchTerm(s)}
+                    onChange={(e) => setSearchTerm(e.target.value)}
                 />
-                <div className={'flex flex-col w-full space-y-1 py-2'}>
-                    {filteredFlags.length > 0 ? (
-                        filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
-                            <div className={'feature-flag-row'} key={feature_flag.key}>
-                                <div
-                                    className={clsx(
-                                        'feature-flag-row-header flex flex-row items-center rounded',
-                                        hasOverride && 'overridden'
-                                    )}
+                <List
+                    dataSource={filteredFlags}
+                    renderItem={({ feature_flag, value, hasOverride, hasVariants, currentValue }) => {
+                        return (
+                            <div className={'feature-flag-row'}>
+                                <Row
+                                    className={
+                                        hasOverride ? 'feature-flag-row-header overridden' : 'feature-flag-row-header'
+                                    }
                                 >
-                                    <div className="feature-flag-title flex-1 font-bold truncate">
-                                        {feature_flag.key}
-                                    </div>
+                                    <div className="feature-flag-title">{feature_flag.key}</div>
                                     <a
                                         className="feature-flag-external-link"
                                         href={`${apiURL}${
@@ -55,7 +48,7 @@ export function FeatureFlags(): JSX.Element {
                                     >
                                         <IconOpenInNew />
                                     </a>
-                                    <LemonSwitch
+                                    <Switch
                                         checked={!!currentValue}
                                         onChange={(checked) => {
                                             const newValue =
@@ -69,50 +62,38 @@ export function FeatureFlags(): JSX.Element {
                                             }
                                         }}
                                     />
-                                </div>
+                                </Row>
 
                                 <AnimatedCollapsible collapsed={!hasVariants || !currentValue}>
-                                    <div
-                                        className={clsx(
-                                            'variant-radio-group flex flex-col w-full px-4 py-2 ml-8',
-                                            hasOverride && 'overridden'
-                                        )}
+                                    <Row
+                                        className={
+                                            hasOverride ? 'variant-radio-group overridden' : 'variant-radio-group'
+                                        }
                                     >
-                                        {feature_flag.filters?.multivariate?.variants.map((variant) => (
-                                            <LemonCheckbox
-                                                key={variant.key}
-                                                fullWidth
-                                                checked={currentValue === variant.key}
-                                                label={`${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`}
-                                                onChange={() => {
-                                                    const newValue = variant.key
-                                                    if (newValue === value && hasOverride) {
-                                                        deleteOverriddenUserFlag(feature_flag.key)
-                                                    } else {
-                                                        setOverriddenUserFlag(feature_flag.key, newValue)
-                                                    }
-                                                }}
-                                                className={clsx(
-                                                    currentValue === variant.key &&
-                                                        'font-bold rounded bg-primary-highlight',
-                                                    'px-2 py-1'
-                                                )}
-                                            />
-                                        ))}
-                                    </div>
+                                        <Radio.Group
+                                            disabled={!currentValue}
+                                            value={currentValue}
+                                            onChange={(event) => {
+                                                const newValue = event.target.value
+                                                if (newValue === value && hasOverride) {
+                                                    deleteOverriddenUserFlag(feature_flag.key)
+                                                } else {
+                                                    setOverriddenUserFlag(feature_flag.key, newValue)
+                                                }
+                                            }}
+                                        >
+                                            {feature_flag.filters?.multivariate?.variants.map((variant) => (
+                                                <Radio key={variant.key} value={variant.key}>
+                                                    {`${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`}
+                                                </Radio>
+                                            ))}
+                                        </Radio.Group>
+                                    </Row>
                                 </AnimatedCollapsible>
                             </div>
-                        ))
-                    ) : (
-                        <div className={'flex flex-row items-center px-2 py-1'}>
-                            {userFlagsLoading ? (
-                                <Spinner className={'text-2xl'} />
-                            ) : (
-                                `No ${searchTerm.length ? 'matching ' : ''}feature flags found.`
-                            )}
-                        </div>
-                    )}
-                </div>
+                        )
+                    }}
+                />
             </>
         </div>
     )

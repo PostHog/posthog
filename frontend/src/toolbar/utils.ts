@@ -273,7 +273,7 @@ export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opa
     }
 }
 
-export function actionStepToActionStepFormItem(step: ActionStepType, isNew = false): ActionStepForm {
+export function actionStepToAntdForm(step: ActionStepType, isNew = false): ActionStepForm {
     if (!step) {
         return {}
     }
@@ -311,7 +311,7 @@ export function actionStepToActionStepFormItem(step: ActionStepType, isNew = fal
         }
     }
 
-    return {
+    const newStep = {
         ...step,
         url_matching: step.url_matching || StringMatching.Exact,
         href_selected: typeof step.href !== 'undefined' && step.href !== null,
@@ -319,17 +319,20 @@ export function actionStepToActionStepFormItem(step: ActionStepType, isNew = fal
         selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,
         url_selected: typeof step.url !== 'undefined' && step.url !== null,
     }
+
+    return newStep
 }
 
 export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
     const { href_selected, text_selected, selector_selected, url_selected, ...rest } = step
-    return {
+    const newStep = {
         ...rest,
         href: href_selected ? rest.href || null : null,
         text: text_selected ? rest.text || null : null,
         selector: selector_selected ? rest.selector || null : null,
         url: url_selected ? rest.url || null : null,
     }
+    return newStep
 }
 
 export function clearSessionToolbarToken(): void {

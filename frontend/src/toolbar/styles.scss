@@ -1,12 +1,5 @@
 @import '../styles/vars';
 
-// was inherited from antd.less before removing that
-*,
-*:before,
-*:after {
-    box-sizing: border-box;
-}
-
 :host {
     @include root-variables;
 
@@ -27,8 +20,28 @@
     }
 }
 
+.ant-modal-mask,
+.ant-modal-wrap {
+    z-index: 2147483030 !important;
+}
+
+.ant-select-dropdown,
+.ant-picker-dropdown {
+    z-index: 2147483031 !important;
+}
+
+.ant-tooltip {
+    z-index: 2147483032 !important;
+}
+
 .LemonModal__overlay--force-modal-above-popovers {
     z-index: 2147483033 !important;
+}
+
+.ant-list-item {
+    &:hover {
+        background: #f0f0f0;
+    }
 }
 
 .section-title {
