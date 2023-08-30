@@ -15,6 +15,12 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
+    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
+    cancel-in-progress: false
+
 env:
     DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -94,12 +100,6 @@ jobs:
               with:
                   fetch-depth: 1
                   path: 'current/'
-
-            - name: Stop/Start stack with Docker Compose
-              run: |
-                  cd current
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
               id: python

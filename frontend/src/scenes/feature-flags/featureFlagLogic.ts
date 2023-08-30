@@ -444,9 +444,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
-                        const retrievedFlag: FeatureFlagType = await api.get(
-                            `api/projects/${values.currentTeamId}/feature_flags/${props.id}`
-                        )
+                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch (e) {
                         actions.setFeatureFlagMissing()

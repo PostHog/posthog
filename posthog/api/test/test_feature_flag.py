@@ -1865,11 +1865,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filters": {
                     "groups": [
                         {
-                            "properties": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}],
-                            "rollout_percentage": 20,
-                        },
-                        {
-                            "properties": [{"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}],
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
                             "rollout_percentage": 20,
                         },
                     ],

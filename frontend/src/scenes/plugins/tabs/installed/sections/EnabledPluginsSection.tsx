@@ -5,7 +5,7 @@ import {
     SaveOutlined,
     OrderedListOutlined,
 } from '@ant-design/icons'
-import { Button, Col, Row, Space, Tag } from 'antd'
+import { Button, Tag } from 'antd'
 import { Subtitle } from 'lib/components/PageHeader'
 import { useActions, useValues } from 'kea'
 import { PluginSection, pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -19,7 +19,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 type HandleProps = { children?: JSX.Element }
 
 const DragColumn = SortableHandle<HandleProps>(({ children }: HandleProps) => (
-    <Col className="order-handle">{children}</Col>
+    <div className="order-handle">{children}</div>
 ))
 
 const SortablePlugin = SortableElement(
@@ -44,11 +44,7 @@ const SortablePlugin = SortableElement(
     )
 )
 const SortablePlugins = SortableContainer(({ children }: { children: React.ReactNode }) => {
-    return (
-        <Row gutter={16} style={{ marginTop: 16 }}>
-            {children}
-        </Row>
-    )
+    return <div className="mt-4">{children}</div>
 })
 
 export function EnabledPluginSection(): JSX.Element {
@@ -174,7 +170,11 @@ export function EnabledPluginSection(): JSX.Element {
                         )}
                     </>
                 }
-                buttons={<Space>{sectionsOpen.includes(PluginSection.Enabled) && rearrangingButtons}</Space>}
+                buttons={
+                    <div className="space-x-2">
+                        {sectionsOpen.includes(PluginSection.Enabled) && rearrangingButtons}
+                    </div>
+                }
             />
         </div>
     )
@@ -220,7 +220,7 @@ export function EnabledPluginSection(): JSX.Element {
                             )}
                         </>
                     ) : (
-                        <Row gutter={16} style={{ marginTop: 16 }}>
+                        <div className="mt-4">
                             {sortableEnabledPlugins.length > 0 && (
                                 <>
                                     {sortableEnabledPlugins.map((plugin, index) => (
@@ -233,7 +233,7 @@ export function EnabledPluginSection(): JSX.Element {
                                     ))}
                                 </>
                             )}
-                        </Row>
+                        </div>
                     )}
                     {unsortableEnabledPlugins.map((plugin) => (
                         <InstalledPlugin

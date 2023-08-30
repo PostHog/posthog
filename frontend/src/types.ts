@@ -114,14 +114,6 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
 }
 
-export type Product = {
-    name: string
-    key: ProductKey
-    description: string
-    productUrl: string
-    onboardingUrl: string
-}
-
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -226,8 +218,6 @@ export interface OrganizationBasicType {
 }
 
 interface OrganizationMetadata {
-    taxonomy_set_events_count: number
-    taxonomy_set_properties_count: number
     instance_tag?: string
 }
 
@@ -2107,6 +2097,7 @@ export interface SurveyAppearance {
     descriptionTextColor?: string
     ratingButtonColor?: string
     ratingButtonHoverColor?: string
+    whiteLabel?: boolean
 }
 
 interface SurveyQuestionBase {
@@ -3083,6 +3074,15 @@ export interface DataWarehouseSavedQuery {
     columns: DatabaseSchemaQueryResponseField[]
 }
 
+export interface DataWarehouseViewLink {
+    id: string
+    saved_query_id?: string
+    saved_query?: string
+    table?: string
+    to_join_key?: string
+    from_join_key?: string
+}
+
 export type BatchExportDestinationS3 = {
     type: 'S3'
     config: {
@@ -3091,6 +3091,20 @@ export type BatchExportDestinationS3 = {
         prefix: string
         aws_access_key_id: string
         aws_secret_access_key: string
+    }
+}
+
+export type BatchExportDestinationPostgres = {
+    type: 'Postgres'
+    config: {
+        user: string
+        password: string
+        host: string
+        port: number
+        database: string
+        schema: string
+        table_name: string
+        has_self_signed_cert: boolean
     }
 }
 
@@ -3108,7 +3122,10 @@ export type BatchExportDestinationSnowflake = {
     }
 }
 
-export type BatchExportDestination = BatchExportDestinationS3 | BatchExportDestinationSnowflake
+export type BatchExportDestination =
+    | BatchExportDestinationS3
+    | BatchExportDestinationSnowflake
+    | BatchExportDestinationPostgres
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user

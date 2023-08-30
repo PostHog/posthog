@@ -121,8 +121,13 @@ export const DisabledWithReason = (): JSX.Element => {
 }
 // TODO: Add DisabledWithReason.play for a proper snapshot showcasing the tooltip
 
-export const Loading = (): JSX.Element => {
+export const Loading: Story = (): JSX.Element => {
     return <TypesAndStatusesTemplate loading />
+}
+Loading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const LoadingViaOnClick = (): JSX.Element => {
