@@ -57,6 +57,7 @@ class CTE(Expr):
 @dataclass(kw_only=True)
 class ConstantType(Type):
     data_type: ConstantDataType
+    nullable: bool = field(default=True)
 
     def resolve_constant_type(self) -> "ConstantType":
         return self
