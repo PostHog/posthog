@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -62,9 +62,6 @@ dependencies:
   '@types/md5':
     specifier: ^2.3.0
     version: 2.3.2
-  '@types/react-input-autosize':
-    specifier: ^2.2.1
-    version: 2.2.1
   '@types/react-textfit':
     specifier: ^1.1.0
     version: 1.1.0
@@ -6182,12 +6179,6 @@ packages:
     dependencies:
       '@types/react': 16.14.34
     dev: true
-
-  /@types/react-input-autosize@2.2.1:
-    resolution: {integrity: sha512-RxzEjd4gbLAAdLQ92Q68/AC+TfsAKTc4evsArUH1aIShIMqQMIMjsxoSnwyjtbFTO/AGIW/RQI94XSdvOxCz/w==}
-    dependencies:
-      '@types/react': 16.14.34
-    dev: false
 
   /@types/react-modal@3.13.1:
     resolution: {integrity: sha512-iY/gPvTDIy6Z+37l+ibmrY+GTV4KQTHcCyR5FIytm182RQS69G5ps4PH2FxtC7bAQ2QRHXMevsBgck7IQruHNg==}
