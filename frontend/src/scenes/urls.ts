@@ -122,6 +122,8 @@ export const urls = {
     appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
     appHistory: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
         combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
+    appLogs: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
+        combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,

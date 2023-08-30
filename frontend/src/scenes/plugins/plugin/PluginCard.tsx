@@ -75,7 +75,6 @@ export function PluginCard({
         name,
         description,
         url,
-        icon,
         plugin_type: pluginType,
         pluginConfig,
         tag,
@@ -135,7 +134,7 @@ export function PluginCard({
                             </Tooltip>
                         ))}
                     <div className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
-                        <PluginImage pluginType={pluginType} icon={icon} url={url} />
+                        <PluginImage plugin={plugin} />
                     </div>
                     <div className="flex flex-col flex-1">
                         <div className="flex items-center">
