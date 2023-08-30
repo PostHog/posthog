@@ -60,13 +60,13 @@ export const sdksLogic = kea<sdksLogicType>({
     listeners: ({ actions, values }) => ({
         filterSDKs: () => {
             const filteredSDks: SDK[] = allSDKs
-                .filter((sdk) => Object.keys(productAvailableSDKs[values.productKey || '']).includes(sdk.key))
                 .filter((sdk) => {
-                    if (!values.sourceFilter) {
-                        return true
+                    if (!values.sourceFilter || !sdk) {
+                        return
                     }
                     return sdk.tags.includes(values.sourceFilter)
                 })
+                .filter((sdk) => Object.keys(productAvailableSDKs[values.productKey || '']).includes(sdk.key))
             actions.setSDKs(filteredSDks)
         },
         setSourceFilter: () => {
