@@ -15,7 +15,7 @@ export const sdksLogic = kea<sdksLogicType>({
     path: ['scenes', 'onboarding', 'sdks', 'sdksLogic'],
     connect: {
         values: [onboardingLogic, ['productKey']],
-        actions: [onboardingLogic, ['setProductKey']],
+        actions: [onboardingLogic, ['setProduct']],
     },
     actions: {
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
@@ -62,7 +62,7 @@ export const sdksLogic = kea<sdksLogicType>({
             const filteredSDks: SDK[] = allSDKs
                 .filter((sdk) => {
                     if (!values.sourceFilter || !sdk) {
-                        return
+                        return true
                     }
                     return sdk.tags.includes(values.sourceFilter)
                 })
@@ -72,7 +72,7 @@ export const sdksLogic = kea<sdksLogicType>({
         setSourceFilter: () => {
             actions.filterSDKs()
         },
-        setProductKey: () => {
+        setProduct: () => {
             actions.filterSDKs()
         },
         setSDKs: () => {
