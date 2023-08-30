@@ -228,10 +228,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         layout: 'plain',
     },
-    [Scene.OnboardingSDKs]: {
-        projectBased: true,
-        layout: 'plain',
-    },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch Toolbar',
@@ -475,7 +471,6 @@ export const routes: Record<string, Scene> = {
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.products()]: Scene.Products,
     [urls.onboarding(':productKey')]: Scene.Onboarding,
-    [urls.onboardingSDKs(':productKey')]: Scene.OnboardingSDKs,
     [urls.verifyEmail()]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
