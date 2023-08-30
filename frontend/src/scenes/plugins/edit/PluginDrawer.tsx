@@ -6,10 +6,8 @@ import { DeleteOutlined, CodeOutlined, LockFilled, GlobalOutlined, RollbackOutli
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
-import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
 import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
 import ReactMarkdown from 'react-markdown'
-import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from '../source/PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
@@ -20,6 +18,7 @@ import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { PluginTags } from '../tabs/apps/components'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -230,28 +229,19 @@ export function PluginDrawer(): JSX.Element {
                     {/* TODO: Rework as Kea form with Lemon UI components */}
                     {editingPlugin ? (
                         <div>
-                            <div className="flex mb-4">
-                                <PluginImage
-                                    pluginType={editingPlugin.plugin_type}
-                                    url={editingPlugin.url}
-                                    icon={editingPlugin.icon}
-                                    size="large"
-                                />
-                                <div className="grow pl-4">
-                                    {endWithPunctation(editingPlugin.description)}
-                                    <div className="mt-1.5">
-                                        {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (
-                                            <LocalPluginTag url={editingPlugin.url} title="Installed Locally" />
-                                        ) : editingPlugin.plugin_type === 'source' ? (
-                                            <SourcePluginTag />
-                                        ) : null}
+                            <div className="flex gap-4">
+                                <PluginImage plugin={editingPlugin} size="large" />
+                                <div className="flex flex-col grow gap-2">
+                                    <span>{endWithPunctation(editingPlugin.description)}</span>
+                                    <div className="flex items-center">
+                                        <PluginTags plugin={editingPlugin} />
                                         {editingPlugin.url && (
                                             <a href={editingPlugin.url}>
                                                 <i>⤷ Learn more</i>
                                             </a>
                                         )}
                                     </div>
-                                    <div className="flex items-center mt-1.5">
+                                    <div className="flex items-center">
                                         <Form.Item
                                             fieldKey="__enabled"
                                             name="__enabled"
