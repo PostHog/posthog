@@ -3155,3 +3155,11 @@ export type GroupedBatchExportRuns = {
     data_interval_end: Dayjs
     runs: BatchExportRun[]
 }
+
+export type SDK = {
+    name: string
+    key: string
+    recommended?: boolean
+    tags: string[]
+    image: string
+}

@@ -1,14 +1,7 @@
 import { kea } from 'kea'
 
 import type { sdksLogicType } from './sdksLogicType'
-
-type SDK = {
-    name: string
-    key: string
-    recommended?: boolean
-    tags: string[]
-    image: string
-}
+import { SDK } from '~/types'
 
 export const allSDKs: SDK[] = [
     // Web
@@ -104,7 +97,7 @@ export const sdksLogic = kea<sdksLogicType>({
             allSDKs,
             {
                 setSDKs: (_, { sdks }) => sdks,
-                setSourceFilter: (state, { sourceFilter }) => {
+                setSourceFilter: (_, { sourceFilter }) => {
                     if (!sourceFilter) {
                         return allSDKs
                     }
