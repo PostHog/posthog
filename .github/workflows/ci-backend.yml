@@ -22,7 +22,6 @@ concurrency:
     cancel-in-progress: false
 
 env:
-    DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -109,6 +108,14 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   cache: pip
 
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-async-migrations-tests
+              with:
+                  custom_cache_key_element: v1-${{ inputs.cache-id }}
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
@@ -116,6 +123,7 @@ jobs:
               if: steps.python.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   cd current
                   python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -186,6 +194,14 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   cache: pip
 
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
@@ -193,6 +209,7 @@ jobs:
               if: steps.python.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   python -m pip install -r requirements.txt -r requirements-dev.txt
 
@@ -324,6 +341,14 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   cache: pip
 
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
@@ -331,6 +356,7 @@ jobs:
               if: steps.python.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               shell: bash
               run: |
                   python -m pip install -r requirements.txt -r requirements-dev.txt
