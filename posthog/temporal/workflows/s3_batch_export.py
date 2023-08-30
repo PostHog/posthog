@@ -279,7 +279,8 @@ def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3Mu
     return s3_upload, interval_start
 
 
-def create_or_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
+def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
+    """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
     key = get_s3_key(inputs)
     s3_client = boto3.client(
         "s3",
@@ -308,8 +309,19 @@ def create_or_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPa
             exc_info=e,
         )
     else:
-        activity.logger.info(f"Received details from previous activity. Export will resume from: {interval_start}")
+        activity.logger.info(
+            f"Received details from previous activity. Export will attempt to resume from: {interval_start}"
+        )
         s3_upload.continue_from_state(upload_state)
+
+        if inputs.compression == "brotli":
+            # Even if we receive details we cannot resume a brotli compressed upload as we have lost the compressor state.
+            interval_start = inputs.data_interval_start
+
+            activity.logger.info(
+                f"Export will start from the beginning as we are using brotli compression: {interval_start}"
+            )
+            s3_upload.abort()
 
     return s3_upload, interval_start
 
