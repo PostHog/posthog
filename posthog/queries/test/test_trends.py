@@ -34,7 +34,6 @@ from posthog.models import (
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.models.person.util import create_person_distinct_id
-from posthog.models.team.team import WeekStartDay
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
     APIBaseTest,
@@ -5916,7 +5915,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-21T18:01:01",  # Tuesday; TRICKY: This is the next UTC day in America/Phoenix
         )
 
-        self.team.week_start_day = WeekStartDay.SUNDAY  # This is the default, but let's be explicit
+        self.team.week_start_day = 0  # DB value for WeekStartDay.SUNDAY (the default, but let's be explicit)
         self.team.save()
 
         # TRICKY: This is the previous UTC day in Asia/Tokyo
@@ -5937,7 +5936,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_sunday[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
         self.assertEqual(response_sunday[0]["data"], [1.0, 1.0, 0.0])
 
-        self.team.week_start_day = WeekStartDay.MONDAY
+        self.team.week_start_day = 1  # DB value for WeekStartDay.MONDAY
         self.team.save()
 
         # TRICKY: This is the previous UTC day in Asia/Tokyo
