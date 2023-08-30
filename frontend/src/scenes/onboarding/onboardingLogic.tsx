@@ -19,8 +19,10 @@ export const onboardingLogic = kea<onboardingLogicType>({
     actions: {
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
-        setOnboaringStep: (onboardingStep: number) => ({ onboardingStep }),
+        setOnboardingStep: (onboardingStep: number) => ({ onboardingStep }),
         incrementOnboardingStep: true,
+        setTotalOnboardingSteps: (totalOnboardingSteps: number) => ({ totalOnboardingSteps }),
+        completeOnboarding: true,
     },
     reducers: () => ({
         productKey: [
@@ -36,10 +38,33 @@ export const onboardingLogic = kea<onboardingLogicType>({
             },
         ],
         onboardingStep: [
-            0,
+            1,
             {
-                setOnboaringStep: (_, { onboardingStep }) => onboardingStep,
+                setOnboardingStep: (_, { onboardingStep }) => onboardingStep,
                 incrementOnboardingStep: (state) => state + 1,
+            },
+        ],
+        totalOnboardingSteps: [
+            1,
+            {
+                setTotalOnboardingSteps: (_, { totalOnboardingSteps }) => totalOnboardingSteps,
+            },
+        ],
+        onCompleteOnbardingRedirectUrl: [
+            urls.default() as string,
+            {
+                setProductKey: (_, { productKey }) => {
+                    switch (productKey) {
+                        case 'product_analytics':
+                            return urls.default()
+                        case 'session_replay':
+                            return urls.replay()
+                        case 'feature_flags':
+                            return urls.featureFlags()
+                        default:
+                            return urls.default()
+                    }
+                },
             },
         ],
     }),
@@ -62,6 +87,9 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
             }
         },
+        completeOnboarding: () => {
+            window.location.href = values.onCompleteOnbardingRedirectUrl
+        },
     }),
     urlToAction: ({ actions }) => ({
         '/onboarding/:productKey': ({ productKey }) => {
@@ -70,7 +98,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 return
             }
             actions.setProductKey(productKey)
-            actions.setOnboaringStep(0)
+            actions.setOnboardingStep(1)
         },
     }),
 })

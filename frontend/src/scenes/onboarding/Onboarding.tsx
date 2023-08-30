@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { onboardingLogic } from './onboardingLogic'
 import { SDKs } from './sdks/SDKs'
 import { OnboardingProductIntro } from './OnboardingProductIntro'
+import { OnboardingStep } from './OnboardingStep'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -15,10 +16,16 @@ export const scene: SceneExport = {
 
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { onboardingStep } = useValues(onboardingLogic)
+    const { setTotalOnboardingSteps } = useActions(onboardingLogic)
+
+    useEffect(() => {
+        setTotalOnboardingSteps(Array.isArray(children) ? children.length : 1)
+    }, [children])
+
     if (!Array.isArray(children)) {
         return children as JSX.Element
     }
-    return children ? (children[onboardingStep] as JSX.Element) : <></>
+    return children ? (children[onboardingStep - 1] as JSX.Element) : <></>
 }
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
@@ -28,6 +35,9 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingProductIntro product={product} />
             <SDKs usersAction="collecting events" />
+            <OnboardingStep title="my onboarding step" subtitle="my onboarding subtitle">
+                <div>my onboarding content</div>
+            </OnboardingStep>
         </OnboardingWrapper>
     ) : (
         <></>
