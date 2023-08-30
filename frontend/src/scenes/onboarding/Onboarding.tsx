@@ -27,7 +27,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     return product ? (
         <OnboardingWrapper>
             <OnboardingProductIntro product={product} />
-            <SDKs />
+            <SDKs usersAction="collecting events" />
         </OnboardingWrapper>
     ) : (
         <></>
@@ -39,7 +39,19 @@ const SessionReplayOnboarding = (): JSX.Element => {
     return product ? (
         <OnboardingWrapper>
             <OnboardingProductIntro product={product} />
-            <SDKs />
+            <SDKs usersAction="recording sessions" />
+        </OnboardingWrapper>
+    ) : (
+        <></>
+    )
+}
+const FeatureFlagsOnboarding = (): JSX.Element => {
+    const { product } = useValues(onboardingLogic)
+
+    return product ? (
+        <OnboardingWrapper>
+            <OnboardingProductIntro product={product} />
+            <SDKs usersAction="loading flags" />
         </OnboardingWrapper>
     ) : (
         <></>
@@ -51,6 +63,8 @@ const getOnboarding = (productKey: string): JSX.Element => {
         return <ProductAnalyticsOnboarding />
     } else if (productKey === 'session_replay') {
         return <SessionReplayOnboarding />
+    } else if (productKey === 'feature_flags') {
+        return <FeatureFlagsOnboarding />
     }
     return <></>
 }
