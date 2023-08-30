@@ -320,7 +320,7 @@ jobs:
         name: Async migrations tests
         needs: changes
         if: needs.changes.outputs.backend == 'true'
-        runs-on: buildjet-2vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v3
