@@ -201,9 +201,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <div>
                                 <LemonTag
                                     type={
-                                        earlyAccessFeature.stage === 'beta'
+                                        earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                             ? 'warning'
-                                            : earlyAccessFeature.stage === 'general-availability'
+                                            : earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
                                             ? 'success'
                                             : 'default'
                                     }
@@ -308,7 +308,7 @@ interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
 }
 
-function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
+export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
     const { implementOptInInstructionsModal, activeTab } = useValues(earlyAccessFeatureLogic)
     const { toggleImplementOptInInstructionsModal, setActiveTab } = useActions(earlyAccessFeatureLogic)
 

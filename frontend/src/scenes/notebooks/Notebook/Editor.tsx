@@ -29,6 +29,7 @@ import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
+import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -92,6 +93,7 @@ export function Editor({
             NotebookNodeFlagCodeExample,
             NotebookNodeFlag,
             NotebookNodeExperiment,
+            NotebookNodeEarlyAccessFeature,
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
