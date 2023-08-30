@@ -3081,6 +3081,15 @@ export interface DataWarehouseSavedQuery {
     columns: DatabaseSchemaQueryResponseField[]
 }
 
+export interface DataWarehouseViewLink {
+    id: string
+    saved_query_id?: string
+    saved_query?: string
+    table?: string
+    to_join_key?: string
+    from_join_key?: string
+}
+
 export type BatchExportDestinationS3 = {
     type: 'S3'
     config: {
