@@ -161,6 +161,9 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
     SURVEYS_MULTIPLE_CHOICE: 'surveys-multiple-choice', // owner: @liyiy
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
+    NOTEBOOK_SETTINGS_WIDGETS: 'notebook-settings-widgets', // owner: #team-monitoring
+    PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
+    REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
