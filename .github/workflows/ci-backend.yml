@@ -40,7 +40,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: buildjet-2vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
@@ -103,7 +103,7 @@ jobs:
 
             - name: Set up Python
               id: python
-              uses: buildjet/setup-python@v4
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -168,7 +168,7 @@ jobs:
         timeout-minutes: 5
 
         name: Validate Django migrations
-        runs-on: buildjet-2vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
 
         steps:
             - uses: actions/checkout@v3
@@ -226,7 +226,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: buildjet-4vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -318,7 +318,7 @@ jobs:
 
             - name: Set up Python
               id: python
-              uses: buildjet/setup-python@v4
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}

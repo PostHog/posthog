@@ -45,7 +45,7 @@ runs:
 
         - name: Set up Python
           id: python
-          uses: buildjet/setup-python@v4
+          uses: actions/setup-python@v4
           with:
               python-version: ${{ inputs.python-version }}
               token: ${{ inputs.token }}
