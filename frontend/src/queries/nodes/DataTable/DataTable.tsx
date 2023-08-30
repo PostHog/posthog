@@ -65,12 +65,12 @@ let uniqueNode = 0
 
 export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const uniqueNodeKey = useState(() => uniqueNode++)
-    const [nodeLogicKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    const [tableLogicKey] = useState(() => `DataTable.${uniqueKey || uniqueNodeKey}`)
+    const [vizKey] = useState(() => `DataTable.${uniqueKey || uniqueNodeKey}`)
+    const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: nodeLogicKey,
+        key: dataKey,
         cachedResults: cachedResults,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
@@ -87,7 +87,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         highlightedRows,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, key: tableLogicKey, nodeKey: nodeLogicKey, context }
+    const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
