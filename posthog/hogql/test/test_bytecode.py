@@ -58,6 +58,10 @@ class TestBytecode(BaseTest):
         self.assertEqual(
             to_bytecode("match('test', 'x.*')"), [_H, op.STRING, "x.*", op.STRING, "test", op.CALL, "match", 2]
         )
+        self.assertEqual(to_bytecode("not('test')"), [_H, op.STRING, "test", op.NOT])
+        self.assertEqual(to_bytecode("not 'test'"), [_H, op.STRING, "test", op.NOT])
+        self.assertEqual(to_bytecode("or('test', 'test2')"), [_H, op.STRING, "test2", op.STRING, "test", op.OR, 2])
+        self.assertEqual(to_bytecode("and('test', 'test2')"), [_H, op.STRING, "test2", op.STRING, "test", op.AND, 2])
 
     def test_bytecode_create_error(self):
         with self.assertRaises(NotImplementedException) as e:

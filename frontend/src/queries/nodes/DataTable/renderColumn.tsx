@@ -59,7 +59,9 @@ export function renderColumn(
                         />
                     )
                 }
-            } catch (e) {}
+            } catch (e) {
+                // do nothing
+            }
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}/)) {
                 return <TZLabel time={value} showSeconds />
             }
@@ -195,7 +197,7 @@ export function renderColumn(
         return <Property value={eventRecord.person?.properties?.[propertyKey]} />
     } else if (key === 'person' && isEventsQuery(query.source)) {
         const personRecord = value as EventsQueryPersonColumn
-        return !!personRecord.distinct_id ? (
+        return personRecord.distinct_id ? (
             <PersonDisplay withIcon person={personRecord} />
         ) : (
             <PersonDisplay noLink withIcon person={value} />

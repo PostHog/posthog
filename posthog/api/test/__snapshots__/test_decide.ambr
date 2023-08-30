@@ -40,6 +40,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -51,6 +52,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -74,6 +76,22 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  '
+---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.10
+  '
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginconfig"."web_token",
+         "posthog_pluginsourcefile"."updated_at",
+         "posthog_plugin"."updated_at",
+         "posthog_pluginconfig"."updated_at"
+  FROM "posthog_pluginconfig"
+  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
+  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
+  WHERE ("posthog_pluginconfig"."enabled"
+         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
+         AND "posthog_pluginconfig"."team_id" = 2)
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.2
@@ -256,6 +274,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -267,6 +286,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -403,6 +423,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -414,6 +435,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -545,6 +567,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -556,6 +579,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",

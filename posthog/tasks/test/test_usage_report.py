@@ -16,6 +16,7 @@ from ee.billing.billing_manager import build_billing_token
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.clickhouse.client import sync_execute
+from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Organization, Plugin, Team
 from posthog.models.dashboard import Dashboard
@@ -36,6 +37,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from posthog.models.event.util import create_event
 from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +47,9 @@ logger = structlog.get_logger(__name__)
 class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
+
+        # make sure we don't collapse duplicate rows
+        sync_execute("SYSTEM STOP MERGES")
 
         self.expected_properties: dict = {}
 
@@ -108,14 +113,28 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 active=True,
             )
 
-            for _ in range(0, 10):
-                _create_event(
+            uuids = [uuid4() for _ in range(0, 10)]
+            for uuid in uuids:
+                create_event(
+                    event_uuid=uuid,
                     distinct_id=distinct_id,
                     event="$event1",
                     properties={"$lib": "$web"},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_1,
                 )
+
+            # create duplicate events
+            for uuid in uuids:
+                _create_event(
+                    event_uuid=uuid,
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=12),
+                    team=self.org_1_team_1,
+                )
+
             _create_event(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
@@ -306,9 +325,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 44,
+                    "event_count_lifetime": 54,
                     "event_count_in_period": 22,
-                    "event_count_in_month": 32,
+                    "event_count_in_month": 42,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
                     "recording_count_total": 16,
@@ -345,9 +364,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_lifetime": 33,
+                            "event_count_lifetime": 43,
                             "event_count_in_period": 12,
-                            "event_count_in_month": 22,
+                            "event_count_in_month": 32,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
@@ -857,6 +876,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         _create_event(event="$pageview", team=self.team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
         flush_persons_and_events()
+        TEST_clear_instance_license_cache()
 
     def _usage_report_response(self) -> Any:
         # A roughly correct billing response
@@ -1026,6 +1046,7 @@ class SendUsageNoLicenseTest(APIBaseTest):
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
     def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+        TEST_clear_instance_license_cache()
         # Same test, we just don't include the LicensedTestMixin so no license
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")

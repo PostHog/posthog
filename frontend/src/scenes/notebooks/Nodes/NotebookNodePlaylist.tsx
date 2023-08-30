@@ -1,23 +1,33 @@
-import { NodeViewProps } from '@tiptap/core'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, RecordingFilters } from '~/types'
+import { FilterType, NotebookNodeType, NotebookNodeWidgetSettings, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { useJsonNodeState } from './utils'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import {
+    addedAdvancedFilters,
+    getDefaultFilters,
+    sessionRecordingsListLogic,
+} from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { fromParamsGivenUrl, uuid } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
+import { IconChevronLeft, IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
+import { ErrorBoundary } from '@sentry/react'
 
-const Component = (props: NodeViewProps): JSX.Element => {
-    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
+const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
+    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(
+        props.node.attrs,
+        props.updateAttributes,
+        'filters'
+    )
 
     const playerKey = useRef(`notebook-${uuid()}`).current
 
@@ -32,7 +42,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const { expanded } = useValues(notebookNodeLogic)
 
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
     if (!expanded) {
@@ -52,9 +62,9 @@ const Component = (props: NodeViewProps): JSX.Element => {
             <SessionRecordingPlayer
                 playerKey={playerKey}
                 sessionRecordingId={activeSessionRecording.id}
-                matching={activeSessionRecording?.matching_events}
                 recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                 nextSessionRecording={nextSessionRecording}
+                matchingEventsMatchType={matchingEventsMatchType}
             />
         </>
     )
@@ -62,9 +72,42 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
 }
 
-export const NotebookNodePlaylist = createPostHogWidgetNode({
+export const Settings = ({ attributes, updateAttributes }: NotebookNodeWidgetSettings): JSX.Element => {
+    const [filters, setFilters] = useJsonNodeState<RecordingFilters | undefined>(
+        attributes,
+        updateAttributes,
+        'filters'
+    )
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+    const defaultFilters = getDefaultFilters()
+
+    const hasAdvancedFilters = useMemo(() => {
+        const defaultFilters = getDefaultFilters()
+        return addedAdvancedFilters(filters, defaultFilters)
+    }, [filters])
+
+    return (
+        <ErrorBoundary>
+            <SessionRecordingsFilters
+                filters={{ ...defaultFilters, ...filters }}
+                setFilters={setFilters}
+                showPropertyFilters
+                onReset={() => setFilters(undefined)}
+                hasAdvancedFilters={hasAdvancedFilters}
+                showAdvancedFilters={showAdvancedFilters}
+                setShowAdvancedFilters={setShowAdvancedFilters}
+            />
+        </ErrorBoundary>
+    )
+}
+
+type NotebookNodePlaylistAttributes = {
+    filters: FilterType
+}
+
+export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylistAttributes>({
     nodeType: NotebookNodeType.RecordingPlaylist,
-    title: 'Session Replays',
+    title: 'Session replays',
     Component,
     heightEstimate: 'calc(100vh - 20rem)',
     href: (attrs) => {
@@ -80,9 +123,24 @@ export const NotebookNodePlaylist = createPostHogWidgetNode({
     },
     pasteOptions: {
         find: urls.replay() + '(.+)',
-        getAttributes: (match) => {
+        getAttributes: async (match) => {
             const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
             return { filters: searchParams.filters }
         },
     },
+    widgets: [
+        {
+            key: 'settings',
+            label: 'Settings',
+            icon: <IconSettings />,
+            Component: Settings,
+        },
+    ],
 })
+
+export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent {
+    return {
+        type: NotebookNodeType.RecordingPlaylist,
+        attrs: { filters },
+    }
+}

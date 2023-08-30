@@ -235,10 +235,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.reportUsageIfFullyLoaded()
             }
         },
-        loadRecordingSnapshotsV1Success: () => {
+        loadRecordingSnapshotsV1Success: ({ sessionPlayerSnapshotData }) => {
+            if (sessionPlayerSnapshotData?.sources?.length) {
+                // v1 request was force-upgraded to v2
+                actions.loadRecordingSnapshotsV2Success(sessionPlayerSnapshotData, undefined)
+                return
+            }
+
             actions.loadRecordingSnapshotsSuccess()
 
-            if (!!values.sessionPlayerSnapshotData?.next) {
+            if (values.sessionPlayerSnapshotData?.next) {
                 actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
             } else {
                 actions.reportUsageIfFullyLoaded()
@@ -348,13 +354,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const apiUrl =
                         nextUrl ||
                         `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
+
                     const response: SessionRecordingSnapshotResponse = await api.get(apiUrl)
                     breakpoint()
 
-                    // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
-                    // this is for future support of the API that will return them as a simple array
-
                     if (response.snapshot_data_by_window_id) {
+                        // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
+                        // this is for future support of the API that will return them as a simple array
                         const snapshots = convertSnapshotsResponse(
                             response.snapshot_data_by_window_id,
                             nextUrl ? values.sessionPlayerSnapshotData?.snapshots ?? [] : []
@@ -368,6 +374,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             snapshots,
                             next: response.next,
                         }
+                    } else if (response.sources) {
+                        // we've been force-upgraded to V2 by 302 redirect
+                        const data: SessionPlayerSnapshotData = {
+                            ...(values.sessionPlayerSnapshotData || {}),
+                        }
+                        data.sources = response.sources
+                        return data
                     } else {
                         throw new Error('Invalid response from snapshots API')
                     }
@@ -480,10 +493,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
                             // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
-                            let pathname = undefined
+                            let pathname: string | undefined
                             try {
                                 pathname = event[5] ? new URL(event[5]).pathname : undefined
-                            } catch {}
+                            } catch {
+                                pathname = undefined
+                            }
 
                             return {
                                 id: event[0],

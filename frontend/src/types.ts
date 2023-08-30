@@ -111,6 +111,7 @@ export enum ProductKey {
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
+    PRODUCT_ANALYTICS = 'product_analytics',
 }
 
 export enum LicensePlan {
@@ -217,8 +218,6 @@ export interface OrganizationBasicType {
 }
 
 interface OrganizationMetadata {
-    taxonomy_set_events_count: number
-    taxonomy_set_properties_count: number
     instance_tag?: string
 }
 
@@ -318,6 +317,7 @@ export interface TeamBasicType {
     api_token: string
     name: string
     completed_snippet_onboarding: boolean
+    has_completed_onboarding_for?: Record<string, boolean>
     ingested_event: boolean
     is_demo: boolean
     timezone: string
@@ -346,6 +346,8 @@ export interface TeamType extends TeamBasicType {
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
+    /** 0 or unset for Sunday, 1 for Monday. */
+    week_start_day?: number
     path_cleaning_filters: PathCleaningFilter[]
     data_attributes: string[]
     person_display_name_properties: string[]
@@ -1480,6 +1482,7 @@ export interface PluginConfigType {
     team_id: number
     enabled: boolean
     order: number
+
     config: Record<string, any>
     error?: PluginErrorType
     delivery_rate_24h?: number | null
@@ -1561,7 +1564,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
@@ -2097,6 +2100,7 @@ export interface SurveyAppearance {
     descriptionTextColor?: string
     ratingButtonColor?: string
     ratingButtonHoverColor?: string
+    whiteLabel?: boolean
 }
 
 interface SurveyQuestionBase {
@@ -2190,6 +2194,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     tags: string[]
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
+    has_enriched_analytics?: boolean
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -3026,11 +3031,17 @@ export enum NotebookNodeType {
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
+    FeatureFlagCodeExample = 'ph-feature-flag-code-example',
+    Experiment = 'ph-experiment',
     Person = 'ph-person',
-    Link = 'ph-link',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+}
+
+export type NotebookNodeWidgetSettings = {
+    attributes: Record<string, any>
+    updateAttributes: (attributes: Record<string, any>) => void
 }
 
 export enum NotebookTarget {
@@ -3064,4 +3075,87 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaQueryResponseField[]
+}
+
+export interface DataWarehouseViewLink {
+    id: string
+    saved_query_id?: string
+    saved_query?: string
+    table?: string
+    to_join_key?: string
+    from_join_key?: string
+}
+
+export type BatchExportDestinationS3 = {
+    type: 'S3'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+    }
+}
+
+export type BatchExportDestinationPostgres = {
+    type: 'Postgres'
+    config: {
+        user: string
+        password: string
+        host: string
+        port: number
+        database: string
+        schema: string
+        table_name: string
+        has_self_signed_cert: boolean
+    }
+}
+
+export type BatchExportDestinationSnowflake = {
+    type: 'Snowflake'
+    config: {
+        account: string
+        database: string
+        warehouse: string
+        user: string
+        password: string
+        schema: string
+        table_name: string
+        role: string | null
+    }
+}
+
+export type BatchExportDestination =
+    | BatchExportDestinationS3
+    | BatchExportDestinationSnowflake
+    | BatchExportDestinationPostgres
+
+export type BatchExportConfiguration = {
+    // User provided data for the export. This is the data that the user
+    // provides when creating the export.
+    id: string
+    name: string
+    destination: BatchExportDestination
+    interval: 'hour' | 'day'
+    created_at: string
+    start_at: string | null
+    end_at: string | null
+    paused: boolean
+    latest_runs?: BatchExportRun[]
+}
+
+export type BatchExportRun = {
+    id: string
+    status: 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut' | 'Running' | 'Starting'
+    created_at: Dayjs
+    data_interval_start: Dayjs
+    data_interval_end: Dayjs
+    last_updated_at?: Dayjs
+}
+
+export type GroupedBatchExportRuns = {
+    last_run_at: Dayjs
+    data_interval_start: Dayjs
+    data_interval_end: Dayjs
+    runs: BatchExportRun[]
 }

@@ -218,22 +218,24 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
-                    <LemonDivider />
                     {exporterResourceParams ? (
-                        <ExportButton
-                            fullWidth
-                            items={[
-                                {
-                                    export_format: ExporterFormat.PNG,
-                                    insight: insight.id,
-                                    dashboard: insightProps.dashboardId,
-                                },
-                                {
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: exporterResourceParams,
-                                },
-                            ]}
-                        />
+                        <>
+                            <LemonDivider />
+                            <ExportButton
+                                fullWidth
+                                items={[
+                                    {
+                                        export_format: ExporterFormat.PNG,
+                                        insight: insight.id,
+                                        dashboard: insightProps.dashboardId,
+                                    },
+                                    {
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: exporterResourceParams,
+                                    },
+                                ]}
+                            />
+                        </>
                     ) : null}
                     {moreButtons && (
                         <>

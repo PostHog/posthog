@@ -51,7 +51,7 @@ def _get_filter_by_provided_session_ids_clause(
     if recording_filters.session_ids is None:
         return "", {}
 
-    return f"AND {column_name} in %(session_ids)s", {"session_ids": recording_filters.session_ids}
+    return f'AND "{column_name}" in %(session_ids)s', {"session_ids": recording_filters.session_ids}
 
 
 class PersonsQuery(EventQuery):
@@ -166,6 +166,7 @@ class SessionIdEventsQuery(EventQuery):
 
     _raw_events_query = """
         SELECT
+            {select_event_ids}
             {event_filter_having_events_select}
             `$session_id`
         FROM events e
@@ -269,7 +270,7 @@ class SessionIdEventsQuery(EventQuery):
             timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
         return timestamp_clause, timestamp_params
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self, select_event_ids: bool = False) -> Tuple[str, Dict[str, Any]]:
         if not self._determine_should_join_events():
             return "", {}
 
@@ -308,6 +309,7 @@ class SessionIdEventsQuery(EventQuery):
 
         return (
             self._raw_events_query.format(
+                select_event_ids="groupArray(uuid) as event_ids," if select_event_ids else "",
                 event_filter_where_conditions=event_filters.where_conditions,
                 event_filter_having_events_condition=event_filters.having_conditions,
                 event_filter_having_events_select=event_filters.having_select,
@@ -354,6 +356,14 @@ class SessionIdEventsQuery(EventQuery):
             person_id_clause = "AND person_id = %(person_uuid)s"
             person_id_params = {"person_uuid": self._filter.person_uuid}
         return person_id_clause, person_id_params
+
+    def matching_events(self) -> List[str]:
+        self._filter.hogql_context.person_on_events_mode = PersonOnEventsMode.DISABLED
+        query, query_params = self.get_query(select_event_ids=True)
+        query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
+        results = [row[0] for row in query_results]
+        # flatten and return results
+        return [item for sublist in results for item in sublist]
 
 
 class SessionRecordingListFromReplaySummary(EventQuery):

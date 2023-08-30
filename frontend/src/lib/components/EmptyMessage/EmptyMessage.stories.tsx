@@ -1,11 +1,12 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 
 import { EmptyMessage } from './EmptyMessage'
 
-export default {
+const meta: Meta<typeof EmptyMessage> = {
     title: 'Components/Empty Message',
     component: EmptyMessage,
-} as ComponentMeta<typeof EmptyMessage>
+}
+export default meta
 
 export function EmptyMessage_(): JSX.Element {
     return (

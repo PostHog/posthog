@@ -1,11 +1,12 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { ProductIntroduction } from './ProductIntroduction'
 import { ProductKey } from '~/types'
 
-export default {
+const meta: Meta<typeof ProductIntroduction> = {
     title: 'Components/Product Empty State',
     component: ProductIntroduction,
-} as ComponentMeta<typeof ProductIntroduction>
+}
+export default meta
 
 export function ProductIntroduction_(): JSX.Element {
     return (

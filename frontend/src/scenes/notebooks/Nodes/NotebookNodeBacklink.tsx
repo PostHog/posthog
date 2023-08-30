@@ -7,9 +7,12 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { router } from 'kea-router'
-import { openNotebook } from '../Notebook/notebooksListLogic'
+import { posthogNodePasteRule } from './utils'
+import api from 'lib/api'
 import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
+
+import { openNotebook } from '~/models/notebooksModel'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,
@@ -83,11 +86,7 @@ export const NotebookNodeBacklink = Node.create({
     },
 
     parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Backlink,
-            },
-        ]
+        return [{ tag: NotebookNodeType.Backlink }]
     },
 
     renderHTML({ HTMLAttributes }) {
@@ -96,5 +95,50 @@ export const NotebookNodeBacklink = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            posthogNodePasteRule({
+                find: urls.eventDefinition('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const event = await api.eventDefinitions.get({ eventDefinitionId: id })
+                    return { id: id, type: TaxonomicFilterGroupType.Events, title: event.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.cohort('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const event = await api.cohorts.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Cohorts, title: event.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.experiment('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const experiment = await api.experiments.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Experiments, title: experiment.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.dashboard('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const dashboard = await api.dashboards.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Dashboards, title: dashboard.name }
+                },
+            }),
+        ]
     },
 })

@@ -25,8 +25,8 @@ from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
-from posthog.utils import cors_response, get_ip_address, label_for_team_id_to_track, load_data_from_request
-
+from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
+from posthog.utils_cors import cors_response
 
 FLAG_EVALUATION_COUNTER = Counter(
     "flag_evaluation_total",
@@ -149,7 +149,6 @@ def get_decide(request: HttpRequest):
             feature_flags = None
             errors = False
             if not disable_flags:
-
                 distinct_id = data.get("distinct_id")
                 if distinct_id is None:
                     return cors_response(

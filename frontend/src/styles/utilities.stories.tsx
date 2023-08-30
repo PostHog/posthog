@@ -1,8 +1,11 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import { Meta } from '@storybook/react'
 
-export default {
+const meta: Meta = {
     title: 'Lemon UI/Utilities',
+    tags: ['autodocs'],
 }
+export default meta
 
 export const Overview = (): JSX.Element => {
     // TODO: I should be fleshed out using this example to describe when utilities should and should not be used...
@@ -173,6 +176,7 @@ export const Widths = (): JSX.Element => {
 }
 export const Heights = (): JSX.Element => {
     return (
+        // eslint-disable-next-line react/forbid-dom-props
         <div className="flex flex-row space-x-2" style={{ height: '100px' }}>
             <div className="h-1/5 border rounded text-center">h-1/5</div>
             <div className="h-1/3 border rounded text-center">h-1/3</div>

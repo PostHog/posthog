@@ -159,7 +159,7 @@ def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedR
 
     capture_message(
         "session_recording.load_persisted_recording.unexpected_recording_storage_version",
-        extra={
+        extras={
             "recording_id": recording.session_id,
             "storage_version": recording.storage_version,
             "path": recording.object_storage_path,

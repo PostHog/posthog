@@ -55,7 +55,7 @@ jobs:
         needs: changes
         name: Cypress preparation
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        timeout-minutes: 5
         outputs:
             chunks: ${{ steps.chunk.outputs.chunks }}
 

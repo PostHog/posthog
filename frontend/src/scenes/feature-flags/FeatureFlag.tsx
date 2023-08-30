@@ -1,30 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, InputNumber, Popconfirm, Select, Skeleton, Card } from 'antd'
+import { Row, Col, Radio, Popconfirm, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
-import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { LockOutlined } from '@ant-design/icons'
-import { defaultEntityFilterOnFlag, featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import {
-    IconOpenInNew,
-    IconCopy,
-    IconDelete,
-    IconPlus,
-    IconSubArrowRight,
-    IconErrorOutline,
-    IconUnfoldLess,
-    IconUnfoldMore,
-} from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconDelete, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { groupsModel } from '~/models/groupsModel'
-import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
 import {
     AnyPropertyFilter,
@@ -36,6 +24,7 @@ import {
     FeatureFlagType,
     ReplayTabs,
     FeatureFlagGroupType,
+    NotebookNodeType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -45,22 +34,18 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { FeatureFlagsTab } from './featureFlagsLogic'
-import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
-import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
-import { LemonSelect } from '@posthog/lemon-ui'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -72,7 +57,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import clsx from 'clsx'
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
@@ -80,6 +64,8 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { PostHogFeature } from 'posthog-js/react'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
+import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -97,7 +83,8 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
+    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, recordingFilterForFlag } =
+        useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate } =
         useActions(featureFlagLogic)
@@ -389,7 +376,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <div>
                                     <LemonButton
                                         fullWidth
-                                        status="default-dark"
+                                        status="stealth"
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
@@ -527,19 +514,20 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     buttons={
                                         <>
                                             <div className="flex items-center gap-2 mb-2">
+                                                <NotebookAddButton
+                                                    resource={{
+                                                        type: NotebookNodeType.FeatureFlag,
+                                                        attrs: { id: featureFlag.id },
+                                                    }}
+                                                    type="secondary"
+                                                />
                                                 {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
                                                     <>
                                                         <LemonButton
-                                                            to={urls.replay(ReplayTabs.Recent, {
-                                                                events: defaultEntityFilterOnFlag(featureFlag.key)
-                                                                    .events,
-                                                            })}
+                                                            to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
                                                             type="secondary"
                                                         >
                                                             View Recordings
-                                                            <LemonTag type="warning" className="uppercase ml-2 mr-2">
-                                                                Beta
-                                                            </LemonTag>
                                                         </LemonButton>
                                                         <LemonDivider vertical />
                                                     </>
@@ -593,13 +581,32 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 }
 
 function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
-    const { key: featureFlagKey, usage_dashboard: dashboardId } = featureFlag
-    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const {
+        key: featureFlagKey,
+        usage_dashboard: dashboardId,
+        has_enriched_analytics: hasEnrichedAnalytics,
+    } = featureFlag
+    const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    const { receivedErrorsFromAPI } = useValues(
+    const { receivedErrorsFromAPI, dashboard } = useValues(
         dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
     )
     const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
+
+    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+    const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
+
+    useEffect(() => {
+        if (
+            connectedDashboardExists &&
+            dashboard &&
+            hasEnrichedAnalytics &&
+            !(dashboard.tiles?.find((tile) => (tile.insight?.name?.indexOf('Feature Viewed') ?? -1) > -1) !== undefined)
+        ) {
+            enrichUsageDashboard()
+        }
+    }, [dashboard])
+
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
@@ -612,7 +619,17 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     return (
         <div>
             {connectedDashboardExists ? (
-                <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+                <>
+                    {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
+                        <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
+                            Get richer insights automatically by{' '}
+                            <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
+                                enabling enriched analytics for flags{' '}
+                            </Link>
+                        </LemonBanner>
+                    )}
+                    <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+                </>
             ) : (
                 <div>
                     <b>Dashboard</b>
@@ -661,13 +678,7 @@ function variantConcatWithPunctuation(phrases: string[]): string {
     }
 }
 
-interface FeatureFlagReadOnlyProps {
-    readOnly?: boolean
-    isSuper?: boolean
-    excludeTitle?: boolean
-}
-
-function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
+function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
     const {
         multivariateEnabled,
         variants,
@@ -1040,448 +1051,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                         </LemonButton>
                     </div>
                 </div>
-            )}
-        </>
-    )
-}
-
-export function FeatureFlagReleaseConditions({
-    readOnly,
-    isSuper,
-    excludeTitle,
-}: FeatureFlagReadOnlyProps): JSX.Element {
-    const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
-    const {
-        aggregationTargetName,
-        featureFlag,
-        groupTypes,
-        taxonomicGroupTypes,
-        nonEmptyVariants,
-        propertySelectErrors,
-        computeBlastRadiusPercentage,
-        affectedUsers,
-        totalUsers,
-    } = useValues(featureFlagLogic)
-    const {
-        setAggregationGroupTypeIndex,
-        updateConditionSet,
-        duplicateConditionSet,
-        removeConditionSet,
-        addConditionSet,
-    } = useActions(featureFlagLogic)
-    const { cohortsById } = useValues(cohortsModel)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
-
-    const filterGroups: FeatureFlagGroupType[] = isSuper
-        ? featureFlag.filters.super_groups || []
-        : featureFlag.filters.groups
-    // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
-    const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
-    const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
-        return !!properties.find(
-            (property) => property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
-        )
-    }
-
-    const isEarlyAccessFeatureCondition = (group: FeatureFlagGroupType): boolean => {
-        return !!(
-            featureFlag.features?.length &&
-            featureFlag.features?.length > 0 &&
-            group.properties?.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
-        )
-    }
-
-    const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
-        return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
-                {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
-                    <Row align="middle" justify="space-between">
-                        <Row align="middle">
-                            <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
-                            <div>
-                                {group.properties?.length ? (
-                                    <>
-                                        {readOnly ? (
-                                            <>
-                                                Match <b>{aggregationTargetName}</b> against <b>all</b> criteria
-                                            </>
-                                        ) : (
-                                            <>
-                                                Matching <b>{aggregationTargetName}</b> against the criteria
-                                            </>
-                                        )}
-                                    </>
-                                ) : (
-                                    <>
-                                        Condition set will match <b>all {aggregationTargetName}</b>
-                                    </>
-                                )}
-                            </div>
-                        </Row>
-                        {!readOnly && (
-                            <Row>
-                                <LemonButton
-                                    icon={<IconCopy />}
-                                    status="muted"
-                                    noPadding
-                                    onClick={() => duplicateConditionSet(index)}
-                                />
-                                {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
-                                    <LemonButton
-                                        icon={<IconDelete />}
-                                        status="muted"
-                                        noPadding
-                                        onClick={() => removeConditionSet(index)}
-                                    />
-                                )}
-                            </Row>
-                        )}
-                    </Row>
-                    <LemonDivider className="my-3" />
-                    {!readOnly && hasNonInstantProperty(group.properties || []) && (
-                        <LemonBanner type="info" className="mt-3 mb-3">
-                            These properties aren't immediately available on first page load for unidentified persons.
-                            This feature flag requires that at least one event is sent prior to becoming available to
-                            your product or website.{' '}
-                            <a href="https://posthog.com/docs/integrate/client/js#bootstrapping-flags" target="_blank">
-                                {' '}
-                                Learn more about how to make feature flags available instantly.
-                            </a>
-                        </LemonBanner>
-                    )}
-
-                    {readOnly ? (
-                        <>
-                            {group.properties?.map((property, idx) => (
-                                <>
-                                    <div className="feature-flag-property-display" key={idx}>
-                                        {idx === 0 ? (
-                                            <LemonButton
-                                                icon={<IconSubArrowRight className="arrow-right" />}
-                                                status="muted"
-                                                size="small"
-                                            />
-                                        ) : (
-                                            <LemonButton
-                                                icon={<span className="text-sm">&</span>}
-                                                status="muted"
-                                                size="small"
-                                            />
-                                        )}
-                                        <span className="simple-tag tag-light-blue text-primary-alt">
-                                            {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
-                                        </span>
-                                        {isPropertyFilterWithOperator(property) ? (
-                                            <span>{allOperatorsToHumanName(property.operator)} </span>
-                                        ) : null}
-
-                                        {property.type === 'cohort' ? (
-                                            <a
-                                                href={urls.cohort(property.value)}
-                                                target="_blank"
-                                                rel="noopener"
-                                                className="simple-tag tag-light-blue text-primary-alt display-value"
-                                            >
-                                                {(property.value && cohortsById[property.value]?.name) ||
-                                                    `ID ${property.value}`}
-                                            </a>
-                                        ) : (
-                                            [
-                                                ...(Array.isArray(property.value) ? property.value : [property.value]),
-                                            ].map((val, idx) => (
-                                                <span
-                                                    key={idx}
-                                                    className="simple-tag tag-light-blue text-primary-alt display-value"
-                                                >
-                                                    {val}
-                                                </span>
-                                            ))
-                                        )}
-                                    </div>
-                                </>
-                            ))}
-                        </>
-                    ) : (
-                        <div>
-                            <PropertyFilters
-                                orFiltering={true}
-                                pageKey={`feature-flag-${featureFlag.id}-${index}-${filterGroups.length}-${
-                                    featureFlag.filters.aggregation_group_type_index ?? ''
-                                }`}
-                                propertyFilters={group?.properties}
-                                logicalRowDivider
-                                addText="Add condition"
-                                onChange={(properties) => updateConditionSet(index, undefined, properties)}
-                                taxonomicGroupTypes={taxonomicGroupTypes}
-                                hasRowOperator={false}
-                                sendAllKeyUpdates
-                                errorMessages={
-                                    propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
-                                        ? propertySelectErrors[index].properties?.map((message, index) => {
-                                              return message.value ? (
-                                                  <div
-                                                      key={index}
-                                                      className="text-danger flex items-center gap-1 text-sm"
-                                                  >
-                                                      <IconErrorOutline className="text-xl" /> {message.value}
-                                                  </div>
-                                              ) : (
-                                                  <></>
-                                              )
-                                          })
-                                        : null
-                                }
-                            />
-                        </div>
-                    )}
-                    {(!readOnly || (readOnly && (group.properties?.length || 0) > 0)) && (
-                        <LemonDivider className="my-3" />
-                    )}
-                    {readOnly ? (
-                        <LemonTag
-                            type={
-                                filterGroups.length == 1
-                                    ? group.rollout_percentage == null || group.rollout_percentage == 100
-                                        ? 'highlight'
-                                        : group.rollout_percentage == 0
-                                        ? 'caution'
-                                        : 'none'
-                                    : 'none'
-                            }
-                        >
-                            <div className="text-sm ">
-                                Rolled out to{' '}
-                                <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                <b>{aggregationTargetName}</b> in this set.{' '}
-                            </div>
-                        </LemonTag>
-                    ) : (
-                        <div className="feature-flag-form-row">
-                            <div className="centered">
-                                Roll out to{' '}
-                                <InputNumber
-                                    style={{ width: 100, marginLeft: 8, marginRight: 8 }}
-                                    onChange={(value): void => {
-                                        updateConditionSet(index, value as number)
-                                    }}
-                                    value={group.rollout_percentage != null ? group.rollout_percentage : 100}
-                                    min={0}
-                                    max={100}
-                                    addonAfter="%"
-                                />{' '}
-                                of <b>{aggregationTargetName}</b> in this set.{' '}
-                                {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
-                                    <>
-                                        Will match approximately{' '}
-                                        {affectedUsers[index] !== undefined ? (
-                                            <b>
-                                                {`${
-                                                    computeBlastRadiusPercentage(
-                                                        group.rollout_percentage,
-                                                        index
-                                                    ).toPrecision(2) * 1
-                                                    // Multiplying by 1 removes trailing zeros after the decimal
-                                                    // point added by toPrecision
-                                                }% `}
-                                            </b>
-                                        ) : (
-                                            <Spinner className="mr-1" />
-                                        )}{' '}
-                                        {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
-                                            ? `(${humanFriendlyNumber(
-                                                  Math.floor(
-                                                      (affectedUsers[index] * (group.rollout_percentage ?? 100)) / 100
-                                                  )
-                                              )} / ${humanFriendlyNumber(totalUsers)})`
-                                            : ''}{' '}
-                                        of total {aggregationTargetName}.
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                    {nonEmptyVariants.length > 0 && (
-                        <>
-                            <LemonDivider className="my-3" />
-                            {readOnly ? (
-                                <div>
-                                    All <b>{aggregationTargetName}</b> in this set{' '}
-                                    {group.variant ? (
-                                        <>
-                                            {' '}
-                                            will be in variant <b>{group.variant}</b>
-                                        </>
-                                    ) : (
-                                        <>have no variant override</>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="feature-flag-form-row">
-                                    <div className="centered">
-                                        <b>Optional override:</b> Set variant for all <b>{aggregationTargetName}</b> in
-                                        this set to{' '}
-                                        <LemonSelect
-                                            placeholder="Select variant"
-                                            allowClear={true}
-                                            value={group.variant}
-                                            onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
-                                            options={nonEmptyVariants.map((variant) => ({
-                                                label: variant.key,
-                                                value: variant.key,
-                                            }))}
-                                            data-attr="feature-flags-variant-override-select"
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                        </>
-                    )}
-                </div>
-            </Col>
-        )
-    }
-
-    const renderSuperReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
-        if (!readOnly) {
-            return <></>
-        }
-
-        return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
-                {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
-                    <Row align="middle" justify="space-between">
-                        <Row align="middle">
-                            <div>
-                                {group.properties?.length ? (
-                                    <>
-                                        Match <b>{aggregationTargetName}</b> against value set on{' '}
-                                        <span className="simple-tag tag-light-blue text-primary-alt">
-                                            {'$feature_enrollment/' + featureFlag.key}
-                                        </span>
-                                    </>
-                                ) : (
-                                    <>
-                                        Condition set will match <b>all {aggregationTargetName}</b>
-                                    </>
-                                )}
-                            </div>
-                        </Row>
-                    </Row>
-                    <LemonDivider className="my-3" />
-
-                    {(group.properties?.length || 0) > 0 && (
-                        <>
-                            <div className="feature-flag-property-display">
-                                <LemonButton
-                                    icon={<IconSubArrowRight className="arrow-right" />}
-                                    status="muted"
-                                    size="small"
-                                />
-                                <span>
-                                    If null, default to <b>Release conditions</b>
-                                </span>
-                            </div>
-                            <LemonDivider className="my-3" />
-                        </>
-                    )}
-                    <Row justify="space-between" align="middle">
-                        <div />
-                        <LemonButton
-                            aria-label="more"
-                            data-attr={'feature-flag-feature-list-button'}
-                            status="primary"
-                            size="small"
-                            onClick={() =>
-                                featureFlag.features &&
-                                featureFlag.features.length &&
-                                router.actions.push(urls.earlyAccessFeature(featureFlag.features[0].id))
-                            }
-                        >
-                            View Early Access Feature
-                        </LemonButton>
-                    </Row>
-                </div>
-            </Col>
-        )
-    }
-
-    return (
-        <>
-            <div className={`feature-flag-form-row ${excludeTitle && 'mb-2'}`}>
-                <div data-attr="feature-flag-release-conditions">
-                    {readOnly ? (
-                        excludeTitle ? null : (
-                            <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
-                        )
-                    ) : (
-                        <>
-                            {!excludeTitle && (
-                                <>
-                                    <h3 className="l3">Release conditions</h3>
-                                    <div className="text-muted mb-4">
-                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
-                                        that condition sets are rolled out independently of each other.
-                                    </div>
-                                </>
-                            )}
-                        </>
-                    )}
-                    {!readOnly &&
-                        !filterGroups.every(
-                            (group) =>
-                                filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2
-                        ) && (
-                            <LemonBanner type="info" className="mt-3 mb-3">
-                                Multiple variant overrides detected. We use the variant override for the first condition
-                                set that matches.
-                            </LemonBanner>
-                        )}
-                </div>
-                {!readOnly && showGroupsOptions && (
-                    <div className="centered">
-                        Match by
-                        <Select
-                            value={
-                                featureFlag.filters.aggregation_group_type_index != null
-                                    ? featureFlag.filters.aggregation_group_type_index
-                                    : -1
-                            }
-                            onChange={(value) => {
-                                const groupTypeIndex = value !== -1 ? value : null
-                                setAggregationGroupTypeIndex(groupTypeIndex)
-                            }}
-                            style={{ marginLeft: 8 }}
-                            data-attr="feature-flag-aggregation-filter"
-                            dropdownMatchSelectWidth={false}
-                            dropdownAlign={{
-                                // Align this dropdown by the right-hand-side of button
-                                points: ['tr', 'br'],
-                            }}
-                        >
-                            <Select.Option key={-1} value={-1}>
-                                Users
-                            </Select.Option>
-                            {groupTypes.map((groupType) => (
-                                <Select.Option key={groupType.group_type_index} value={groupType.group_type_index}>
-                                    {capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural)}
-                                </Select.Option>
-                            ))}
-                            {matchByGroupsIntroductionOption}
-                        </Select>
-                    </div>
-                )}
-            </div>
-            <Row className="FeatureConditionCard" gutter={16}>
-                {filterGroups.map((group, index) =>
-                    isSuper ? renderSuperReleaseConditionGroup(group, index) : renderReleaseConditionGroup(group, index)
-                )}
-            </Row>
-            {!readOnly && (
-                <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
-                    Add condition set
-                </LemonButton>
             )}
         </>
     )

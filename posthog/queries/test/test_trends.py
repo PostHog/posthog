@@ -226,7 +226,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             # with self.assertNumQueries(16):
             response = Trends().run(
-                Filter(data={"date_from": "-7d", "events": [{"id": "sign up"}, {"id": "no events"}]}), self.team
+                Filter(team=self.team, data={"date_from": "-7d", "events": [{"id": "sign up"}, {"id": "no events"}]}),
+                self.team,
             )
         self.assertEqual(response[0]["label"], "sign up")
         self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
@@ -278,7 +279,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
                 util.can_enable_actor_on_events = True
 
-                response = Trends().run(Filter(data=data), self.team)
+                response = Trends().run(Filter(team=self.team, data=data), self.team)
                 self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0])
 
                 url = response[0]["persons_urls"][7]["url"]
@@ -312,6 +313,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "$some_property",
@@ -319,7 +321,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             {"id": "sign up", "name": "sign up", "type": "events", "order": 0},
                             {"id": "no events"},
                         ],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -329,11 +331,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-03T13:00:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-48h",
                         "interval": "day",
                         "events": [{"id": "sign up"}, {"id": "no events"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -348,11 +351,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-7d",
                         "display": "ActionsLineGraphCumulative",
                         "events": [{"id": "sign up"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -370,6 +374,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-7d",
                         "display": "ActionsLineGraphCumulative",
@@ -380,7 +385,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                                 "math_group_type_index": 0,
                             }
                         ],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -397,12 +402,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-7d",
                         "display": "ActionsLineGraphCumulative",
                         "events": [{"id": "sign up", "math": "dau"}],
                         "breakdown": "$some_property",
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -422,14 +428,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
                 Filter(
-                    data={"display": TRENDS_TABLE, "interval": "week", "events": [{"id": "sign up", "math": "dau"}]}
+                    team=self.team,
+                    data={"display": TRENDS_TABLE, "interval": "week", "events": [{"id": "sign up", "math": "dau"}]},
                 ),
                 self.team,
             )
 
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = Trends().run(
-                Filter(data={"display": TRENDS_TABLE, "interval": "day", "events": [{"id": "sign up", "math": "dau"}]}),
+                Filter(
+                    team=self.team,
+                    data={"display": TRENDS_TABLE, "interval": "day", "events": [{"id": "sign up", "math": "dau"}]},
+                ),
                 self.team,
             )
 
@@ -455,11 +465,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "week",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -467,11 +478,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "day",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -552,11 +564,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "week",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -564,11 +577,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "day",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -648,6 +662,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": "ActionsLineGraph",
                         "interval": "day",
@@ -658,7 +673,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "breakdown_histogram_bin_count": 3,
                         "properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}],
                         "date_from": "-3d",
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -741,12 +756,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "breakdown": json.dumps([cohort1.pk, cohort2.pk, cohort3.pk, "all"]),
                         "breakdown_type": "cohort",
                         "events": [{"id": "sign up"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -813,7 +829,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
-                Filter(data={"display": TRENDS_TABLE, "breakdown": "$browser", "events": [{"id": "sign up"}]}),
+                Filter(
+                    team=self.team,
+                    data={"display": TRENDS_TABLE, "breakdown": "$browser", "events": [{"id": "sign up"}]},
+                ),
                 self.team,
             )
 
@@ -914,7 +933,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
-                Filter(data={"display": TRENDS_TABLE, "breakdown": "$browser", "events": [{"id": "sign up"}]}),
+                Filter(
+                    team=self.team,
+                    data={"display": TRENDS_TABLE, "breakdown": "$browser", "events": [{"id": "sign up"}]},
+                ),
                 self.team,
             )
 
@@ -977,12 +999,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "day",
                         "breakdown": "$some_property",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -990,12 +1013,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "week",
                         "breakdown": "$some_property",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -1090,12 +1114,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "week",
                         "breakdown": "$some_property",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -1109,12 +1134,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "day",
                         "breakdown": "$some_property",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -1215,13 +1241,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "week",
                         "breakdown": "$some_prop",
                         "breakdown_type": "person",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -1237,21 +1264,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             response1 = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_LINEAR,
                         "interval": "day",
                         "events": [{"id": None, "math": "total"}],
-                    }
+                    },
                 ),
                 self.team,
             )
             response2 = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_LINEAR,
                         "interval": "day",
                         "events": [{"id": "sign up", "math": "total"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -1288,12 +1317,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "day",
                         "breakdown": "$some_property",
                         "events": [{"id": "sign up", "math": "p90", "math_property": "$math_prop"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -1301,11 +1331,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         breakdown_vals = [val["breakdown_value"] for val in daily_response]
         self.assertTrue("value_21" in breakdown_vals)
 
+    @snapshot_clickhouse_queries
     def test_trends_compare_day_interval_relative_range(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
             response = Trends().run(
-                Filter(data={"compare": "true", "date_from": "-7d", "events": [{"id": "sign up"}]}), self.team
+                Filter(team=self.team, data={"compare": "true", "date_from": "-7d", "events": [{"id": "sign up"}]}),
+                self.team,
             )
 
         self.assertEqual(response[0]["label"], "sign up")
@@ -1348,7 +1380,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-04T13:00:01Z"):
             no_compare_response = Trends().run(
-                Filter(data={"compare": "false", "events": [{"id": "sign up"}]}), self.team
+                Filter(team=self.team, data={"compare": "false", "events": [{"id": "sign up"}]}), self.team
             )
 
         self.assertEqual(no_compare_response[0]["label"], "sign up")
@@ -1362,13 +1394,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-02T20:17:00Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "compare": "true",
                         # A fixed single-day range requires different handling than a relative range like -7d
                         "date_from": "2020-01-02",
                         "interval": "day",
                         "events": [{"id": "sign up"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -1401,12 +1434,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-02T20:17:00Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "compare": "true",
                         "date_from": "dStart",
                         "interval": "hour",
                         "events": [{"id": "sign up"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -1526,17 +1560,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         if query_time:
             with freeze_time(query_time):
-                response = Trends().run(Filter(data={**filter_params, "events": [{"id": "event_name"}]}), self.team)
+                response = Trends().run(
+                    Filter(team=self.team, data={**filter_params, "events": [{"id": "event_name"}]}), self.team
+                )
         else:
-            response = Trends().run(Filter(data={**filter_params, "events": [{"id": "event_name"}]}), self.team)
+            response = Trends().run(
+                Filter(team=self.team, data={**filter_params, "events": [{"id": "event_name"}]}), self.team
+            )
 
         self.assertEqual(result[0]["count"], response[0]["count"])
         self.assertEqual(result[0]["labels"], response[0]["labels"])
         self.assertEqual(result[0]["data"], response[0]["data"])
         self.assertEqual(result[0]["days"], response[0]["days"])
 
+        return response
+
     def test_hour_interval(self):
-        self._test_events_with_dates(
+        response = self._test_events_with_dates(
             dates=["2020-11-01 13:00:00", "2020-11-01 13:20:00", "2020-11-01 17:00:00"],
             interval="hour",
             date_from="2020-11-01 12:00:00",
@@ -1589,9 +1629,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+        self.assertEqual(
+            {
+                "date_from": datetime(2020, 11, 1, 12, tzinfo=pytz.UTC),
+                "date_to": datetime(2020, 11, 1, 13, tzinfo=pytz.UTC),
+                "entity_id": "event_name",
+                "entity_math": None,
+                "entity_order": None,
+                "entity_type": "events",
+            },
+            response[0]["persons_urls"][0]["filter"],
+        )
 
     def test_day_interval(self):
-        self._test_events_with_dates(
+        response = self._test_events_with_dates(
             dates=["2020-11-01", "2020-11-02", "2020-11-03", "2020-11-04"],
             interval="day",
             date_from="2020-11-01",
@@ -1633,6 +1684,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ],
                 }
             ],
+        )
+        self.assertEqual(
+            {
+                "date_from": datetime(2020, 11, 1, tzinfo=pytz.UTC),
+                "date_to": datetime(2020, 11, 1, 23, 59, 59, 999999, tzinfo=pytz.UTC),
+                "entity_id": "event_name",
+                "entity_math": None,
+                "entity_order": None,
+                "entity_type": "events",
+            },
+            response[0]["persons_urls"][0]["filter"],
         )
 
     def test_week_interval(self):
@@ -2243,10 +2305,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "properties": [{"key": "$some_property", "value": "value"}],
                         "events": [{"id": "sign up"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -2280,6 +2343,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "interval": "week",
                         "events": [
@@ -2290,7 +2354,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             }
                         ],
                     },
-                    team=self.team,
                 ),
                 self.team,
             )
@@ -2386,10 +2449,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "interval": "week",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -2397,10 +2461,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "interval": "day",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -2512,11 +2577,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "breakdown": "$some_property",
                         "interval": "week",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -2524,11 +2590,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "breakdown": "$some_property",
                         "interval": "day",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -2604,10 +2671,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-06T13:00:01Z"):
             weekly_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "interval": "day",
                         "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -2661,11 +2729,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
                     "events": [{"id": "event_name"}],
                 },
-                team=self.team,
             ),
             self.team,
         )
@@ -2694,11 +2762,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
                 response = Trends().run(
                     Filter(
+                        team=self.team,
                         data={
                             "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
                             "events": [{"id": "event_name"}],
                         },
-                        team=self.team,
                     ),
                     self.team,
                 )
@@ -2709,13 +2777,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_response_empty_if_no_events(self):
         self._create_events()
         flush_persons_and_events()
-        response = Trends().run(Filter(data={"date_from": "2012-12-12"}), self.team)
+        response = Trends().run(Filter(team=self.team, data={"date_from": "2012-12-12"}), self.team)
         self.assertEqual(response, [])
 
-    def test_interval_filtering(self):
+    def test_interval_filtering_hour(self):
         self._create_events(use_time=True)
 
-        # test hour
         with freeze_time("2020-01-02"):
             response = Trends().run(
                 Filter(data={"date_from": "2019-12-24", "interval": "hour", "events": [{"id": "sign up"}]}),
@@ -2726,16 +2793,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # 217 - 24 - 1
         self.assertEqual(response[0]["data"][192], 3.0)
 
-        # test week
+    def test_interval_filtering_week(self):
+        self._create_events(use_time=True)
+
         with freeze_time("2020-01-02"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         #  2019-11-24 is a Sunday, i.e. beginning of our week
                         "date_from": "2019-11-24",
                         "interval": "week",
                         "events": [{"id": "sign up"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -2744,10 +2814,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"][:5], [0.0, 0.0, 0.0, 0.0, 1.0])
 
-        # test month
+    def test_interval_filtering_month(self):
+        self._create_events(use_time=True)
+
         with freeze_time("2020-01-02"):
             response = Trends().run(
-                Filter(data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}),
+                Filter(
+                    team=self.team, data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}
+                ),
                 self.team,
             )
         self.assertEqual(response[0]["labels"][0], "1-Sep-2019")
@@ -2757,13 +2831,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[0]["data"][4], 4.0)
 
+    def test_interval_filtering_today_hourly(self):
+        self._create_events(use_time=True)
+
         with freeze_time("2020-01-02 23:30"):
             _create_event(team=self.team, event="sign up", distinct_id="blabla")
 
-        # test today + hourly
         with freeze_time("2020-01-02T23:31:00Z"):
             response = Trends().run(
-                Filter(data={"date_from": "dStart", "interval": "hour", "events": [{"id": "sign up"}]}), self.team
+                Filter(team=self.team, data={"date_from": "dStart", "interval": "hour", "events": [{"id": "sign up"}]}),
+                self.team,
             )
         self.assertEqual(response[0]["labels"][23], "2-Jan-2020 23:00")
         self.assertEqual(response[0]["data"][23], 1.0)
@@ -2797,12 +2874,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "oh"})
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "-14d",
                     "breakdown": "key",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                     "properties": [{"key": "key", "value": "oh", "operator": "not_icontains"}],
-                }
+                },
             ),
             self.team,
         )
@@ -2811,8 +2889,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
-        action_response = Trends().run(Filter(data={"actions": [{"id": sign_up_action.id}]}), self.team)
-        event_response = Trends().run(Filter(data={"events": [{"id": "sign up"}]}), self.team)
+        action_response = Trends().run(Filter(team=self.team, data={"actions": [{"id": sign_up_action.id}]}), self.team)
+        event_response = Trends().run(Filter(team=self.team, data={"events": [{"id": "sign up"}]}), self.team)
         self.assertEqual(len(action_response), 1)
 
         self.assertEntityResponseEqual(action_response, event_response)
@@ -2861,12 +2939,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             action_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "actions": [{"id": sign_up_action.id}],
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-07",
                         "properties": [{"key": "$bool_prop", "value": "x", "type": "person"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -2903,17 +2982,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time("2020-01-04T13:01:01Z"):
-            response = Trends().run(Filter({"actions": [{"id": event_filtering_action.id}]}), self.team)
+            response = Trends().run(
+                Filter(team=self.team, data={"actions": [{"id": event_filtering_action.id}]}), self.team
+            )
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["count"], 3)
 
         with freeze_time("2020-01-04T13:01:01Z"):
             response_with_email_filter = Trends().run(
                 Filter(
-                    {
+                    team=self.team,
+                    data={
                         "actions": [{"id": event_filtering_action.id}],
                         "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -2929,7 +3011,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-04"):
             action_response = Trends().run(
-                Filter(data={"actions": [{"id": sign_up_action.id, "math": "dau"}]}), self.team
+                Filter(team=self.team, data={"actions": [{"id": sign_up_action.id, "math": "dau"}]}), self.team
             )
             response = Trends().run(Filter(data={"events": [{"id": "sign up", "math": "dau"}]}), self.team)
 
@@ -2952,7 +3034,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         action_response = Trends().run(
             Filter(
-                data={"actions": [{"id": sign_up_action.id, "math": math_property, "math_property": "some_number"}]}
+                team=self.team,
+                data={"actions": [{"id": sign_up_action.id, "math": math_property, "math_property": "some_number"}]},
             ),
             self.team,
         )
@@ -3020,13 +3103,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-7d",
                         "events": [
                             {"id": "sign up", "properties": [{"key": "$some_property", "value": "value"}]},
                             {"id": "sign up", "properties": [{"key": "$some_property", "value": "other_value"}]},
                         ],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3106,10 +3190,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "properties": [{"key": "name", "value": "person1", "type": "person"}],
                         "events": [{"id": "watched movie"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3128,10 +3213,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "properties": [{"key": "name", "value": "person1", "type": "person"}],
                         "events": [{"id": "watched movie"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3144,10 +3230,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "properties": [{"key": "name", "value": "1", "type": "event"}],
                         "events": [{"id": "watched movie"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3163,6 +3250,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "events": [
                             {
@@ -3170,7 +3258,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                                 "properties": [{"key": "name", "value": "person1", "type": "person"}],
                             }
                         ]
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3186,12 +3274,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": json.dumps(["all"]),
                         "breakdown_type": "cohort",
                         "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3226,23 +3315,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": json.dumps([cohort.pk, cohort2.pk, cohort3.pk, "all"]),
                         "breakdown_type": "cohort",
                         "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                    }
+                    },
                 ),
                 self.team,
             )
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": json.dumps([cohort.pk, cohort2.pk, cohort3.pk, "all"]),
                         "breakdown_type": "cohort",
                         "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3278,13 +3369,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-02"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "2019-12-24",
                         "interval": "hour",
                         "events": [{"id": "sign up"}],
                         "breakdown": json.dumps([cohort.pk]),
                         "breakdown_type": "cohort",
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3297,6 +3389,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-02"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         # 2019-11-24 is a Sunday
                         "date_from": "2019-11-24",
@@ -3304,7 +3397,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "events": [{"id": "sign up"}],
                         "breakdown": json.dumps([cohort.pk]),
                         "breakdown_type": "cohort",
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3318,13 +3411,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-02"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "2019-9-24",
                         "interval": "month",
                         "events": [{"id": "sign up"}],
                         "breakdown": json.dumps([cohort.pk]),
                         "breakdown_type": "cohort",
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3340,13 +3434,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-02T23:31:00Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "dStart",
                         "interval": "hour",
                         "events": [{"id": "sign up"}],
                         "breakdown": json.dumps([cohort.pk]),
                         "breakdown_type": "cohort",
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3360,23 +3455,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "name",
                         "breakdown_type": "person",
                         "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                    }
+                    },
                 ),
                 self.team,
             )
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "name",
                         "breakdown_type": "person",
                         "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3403,12 +3500,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "name",
                         "breakdown_type": "person",
                         "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3461,12 +3559,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "name",
                         "breakdown_type": "person",
                         "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3547,12 +3646,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "watched movie", "name": "watched movie", "type": "events", "order": 0, "math": "dau"}
                 ],
             }
-            event_response = Trends().run(Filter(data=data), self.team)
+            event_response = Trends().run(Filter(team=self.team, data=data), self.team)
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
 
             entity = Entity({"id": "watched movie", "type": "events", "math": "dau"})
 
-            people_value_1 = self._get_trend_people(Filter(data={**data, "breakdown_value": "value_1"}), entity)
+            people_value_1 = self._get_trend_people(
+                Filter(team=self.team, data={**data, "breakdown_value": "value_1"}), entity
+            )
             assert people_value_1 == [
                 # Persons with higher value come first
                 {
@@ -3593,7 +3694,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             ]
 
-            people_value_2 = self._get_trend_people(Filter(data={**data, "breakdown_value": "value_2"}), entity)
+            people_value_2 = self._get_trend_people(
+                Filter(team=self.team, data={**data, "breakdown_value": "value_2"}), entity
+            )
             assert people_value_2 == [
                 {
                     "created_at": "2020-01-01T12:00:00Z",
@@ -3616,6 +3719,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "name",
@@ -3630,7 +3734,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                                 "math": "dau",
                             }
                         ],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3671,6 +3775,76 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(event_response), 2)
             self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
             self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
+
+    def test_breakdown_hour_interval(self):
+        response = self._test_events_with_dates(
+            dates=["2020-11-01 13:00:00", "2020-11-01 13:20:00", "2020-11-01 17:00:00"],
+            interval="hour",
+            date_from="2020-11-01 12:00:00",
+            breakdown="$browser",
+            breakdown_type="event",
+            query_time="2020-11-01 23:00:00",
+            result=[
+                {
+                    "action": {
+                        "id": "event_name",
+                        "type": "events",
+                        "order": None,
+                        "name": "event_name",
+                        "custom_name": None,
+                        "math": None,
+                        "math_hogql": None,
+                        "math_property": None,
+                        "math_group_type_index": None,
+                        "properties": [],
+                    },
+                    "label": "event_name",
+                    "count": 3.0,
+                    "data": [0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0, 0, 0, 0, 0],
+                    "labels": [
+                        "1-Nov-2020 12:00",
+                        "1-Nov-2020 13:00",
+                        "1-Nov-2020 14:00",
+                        "1-Nov-2020 15:00",
+                        "1-Nov-2020 16:00",
+                        "1-Nov-2020 17:00",
+                        "1-Nov-2020 18:00",
+                        "1-Nov-2020 19:00",
+                        "1-Nov-2020 20:00",
+                        "1-Nov-2020 21:00",
+                        "1-Nov-2020 22:00",
+                        "1-Nov-2020 23:00",
+                    ],
+                    "days": [
+                        "2020-11-01 12:00:00",
+                        "2020-11-01 13:00:00",
+                        "2020-11-01 14:00:00",
+                        "2020-11-01 15:00:00",
+                        "2020-11-01 16:00:00",
+                        "2020-11-01 17:00:00",
+                        "2020-11-01 18:00:00",
+                        "2020-11-01 19:00:00",
+                        "2020-11-01 20:00:00",
+                        "2020-11-01 21:00:00",
+                        "2020-11-01 22:00:00",
+                        "2020-11-01 23:00:00",
+                    ],
+                    "persons_urls": [],
+                }
+            ],
+        )
+        self.assertEqual(
+            {
+                "breakdown_type": "event",
+                "breakdown_value": "Safari",
+                "date_from": datetime(2020, 11, 1, 12, tzinfo=pytz.UTC),
+                "date_to": datetime(2020, 11, 1, 13, tzinfo=pytz.UTC),
+                "entity_id": "event_name",
+                "entity_math": None,
+                "entity_type": "events",
+            },
+            response[0]["persons_urls"][0]["filter"],
+        )
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_test_accounts_cohorts(self):
@@ -3713,11 +3887,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "events": [{"id": "event_name"}],
                         "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
                     },
-                    team=self.team,
                 ),
                 self.team,
             )
@@ -3744,13 +3918,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "events": [{"id": "event_name"}],
                         "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
                         "breakdown": "name",
                         "breakdown_type": "person",
                     },
-                    team=self.team,
                 ),
                 self.team,
             )
@@ -3765,11 +3939,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             # with self.assertNumQueries(16):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-7d",
                         "events": [{"id": "sign up"}, {"id": "no events"}],
                         "display": TRENDS_BAR_VALUE,
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3809,7 +3984,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk},4"):
             with freeze_time("2019-12-31T13:00:01Z"):
                 daily_response = Trends().run(
-                    Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "dau"}]}), self.team
+                    Filter(team=self.team, data={"interval": "day", "events": [{"id": "sign up", "math": "dau"}]}),
+                    self.team,
                 )
 
             self.assertEqual(daily_response[0]["data"][0], 3)
@@ -3817,11 +3993,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with freeze_time("2019-12-31T13:00:01Z"):
                 daily_response = Trends().run(
                     Filter(
+                        team=self.team,
                         data={
                             "interval": "day",
                             "events": [{"id": "sign up", "math": "dau"}],
                             "properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}],
-                        }
+                        },
                     ),
                     self.team,
                 )
@@ -3831,12 +4008,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with freeze_time("2019-12-31T13:00:01Z"):
                 daily_response = Trends().run(
                     Filter(
+                        team=self.team,
                         data={
                             "interval": "day",
                             "events": [{"id": "sign up", "math": "dau"}],
                             "breakdown_type": "person",
                             "breakdown": "$some_prop",
-                        }
+                        },
                     ),
                     self.team,
                 )
@@ -3848,14 +4026,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             # MAU
             with freeze_time("2019-12-31T13:00:01Z"):
                 monthly_response = Trends().run(
-                    Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "monthly_active"}]}),
+                    Filter(
+                        team=self.team,
+                        data={"interval": "day", "events": [{"id": "sign up", "math": "monthly_active"}]},
+                    ),
                     self.team,
                 )
             self.assertEqual(monthly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
 
             with freeze_time("2019-12-31T13:00:01Z"):
                 weekly_response = Trends().run(
-                    Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "weekly_active"}]}),
+                    Filter(
+                        team=self.team, data={"interval": "day", "events": [{"id": "sign up", "math": "weekly_active"}]}
+                    ),
                     self.team,
                 )
             self.assertEqual(weekly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
@@ -3864,11 +4047,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with freeze_time("2019-12-31T13:00:01Z"):
                 daily_response = Trends().run(
                     Filter(
+                        team=self.team,
                         data={
                             "interval": "day",
                             "events": [{"id": "sign up", "math": "dau"}],
                             "breakdown": "$some_prop",
-                        }
+                        },
                     ),
                     self.team,
                 )
@@ -3879,11 +4063,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "$some_property",
                         "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3897,17 +4082,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "order",
                         "actions": [{"id": action.pk, "type": "actions", "order": 0}],
                         "properties": [{"key": "name", "value": "person2", "type": "person"}],
-                    }
+                    },
                 ),
                 self.team,
             )
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "order",
@@ -3920,7 +4107,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                                 "properties": [{"key": "name", "value": "person2", "type": "person"}],
                             }
                         ],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3936,6 +4123,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "$some_property",
@@ -3943,7 +4131,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             {"id": "sign up", "name": "sign up", "type": "events", "order": 0},
                             {"id": "no events"},
                         ],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -3969,12 +4157,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="sign up", distinct_id="person3", team=self.team, properties={"key": "val"})
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "-14d",
                     "breakdown": "email",
                     "breakdown_type": "person",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-                }
+                },
             ),
             self.team,
         )
@@ -4003,12 +4192,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "-14d",
                     "breakdown": "email",
                     "breakdown_type": "person",
                     "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                }
+                },
             ),
             self.team,
         )
@@ -4052,6 +4242,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-05T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-7d",
                         "breakdown": "$current_url",
@@ -4065,7 +4256,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             }
                         ],
                         "properties": [{"key": "$browser", "value": "Firefox"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -4112,6 +4303,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-05T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "$current_url",
@@ -4128,7 +4320,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             "type": "OR",
                             "values": [{"key": "$browser", "value": "Firefox"}, {"key": "$os", "value": "Windows"}],
                         },
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -4143,6 +4335,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-05T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "breakdown": "$current_url",
@@ -4159,7 +4352,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             "type": "AND",
                             "values": [{"key": "$browser", "value": "Firefox"}, {"key": "$os", "value": "Windows"}],
                         },
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -4196,13 +4389,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "breakdown": "$some_prop",
                         "breakdown_type": "person",
                         "events": [{"id": "sign up", "math": "monthly_active"}],
                         "properties": [{"key": "filter_prop", "value": "filter_val", "type": "person"}],
                         "display": "ActionsLineGraph",
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -4225,11 +4419,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
-                Filter(data={"breakdown": "$some_property", "actions": [{"id": sign_up_action.id, "math": "dau"}]}),
+                Filter(
+                    team=self.team,
+                    data={"breakdown": "$some_property", "actions": [{"id": sign_up_action.id, "math": "dau"}]},
+                ),
                 self.team,
             )
             event_response = Trends().run(
-                Filter(data={"breakdown": "$some_property", "events": [{"id": "sign up", "math": "dau"}]}),
+                Filter(
+                    team=self.team, data={"breakdown": "$some_property", "events": [{"id": "sign up", "math": "dau"}]}
+                ),
                 self.team,
             )
 
@@ -4254,21 +4453,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "sampling_factor": 1,
                         "breakdown": "$some_property",
                         "actions": [{"id": sign_up_action.id, "math": "dau"}],
-                    }
+                    },
                 ),
                 self.team,
             )
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "sampling_factor": 1,
                         "breakdown": "$some_property",
                         "events": [{"id": "sign up", "math": "dau"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -4297,21 +4498,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "breakdown": "$some_property",
                         "actions": [{"id": sign_up_action.id, "math": "dau"}],
                         "properties": [{"key": "$os", "value": "Windows"}],
-                    }
+                    },
                 ),
                 self.team,
             )
             event_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "breakdown": "$some_property",
                         "events": [{"id": "sign up", "math": "dau"}],
                         "properties": [{"key": "$os", "value": "Windows"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -4340,6 +4543,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "events": [
                             {
@@ -4350,7 +4554,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "properties": [{"key": "$host", "value": ["app.example.com", "another.com"]}],
                         "breakdown": "$some_prop",
                         "breakdown_type": "person",
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -4388,10 +4592,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "actions": [{"id": sign_up_action.id, "math": "dau"}],
                         "properties": [{"key": "$current_url", "value": "fake"}],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -4408,12 +4613,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         action_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "actions": [{"id": sign_up_action.id, "math": "dau"}],
                     "properties": [{"key": "$current_url", "value": "ii", "operator": "icontains"}],
                     "breakdown": [cohort.pk, "all"],
                     "breakdown_type": "cohort",
-                }
+                },
             ),
             self.team,
         )
@@ -4436,7 +4642,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             step.save()
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
-                Filter(data={"actions": [{"id": sign_up_action.id}], "breakdown": "$some_property"}), self.team
+                Filter(team=self.team, data={"actions": [{"id": sign_up_action.id}], "breakdown": "$some_property"}),
+                self.team,
             )
         self.assertEqual(action_response[0]["count"], 2)
 
@@ -4451,6 +4658,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "-14d",
                     "breakdown": "email",
@@ -4460,7 +4668,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
                         {"key": "key", "value": "val"},
                     ],
-                }
+                },
             ),
             self.team,
         )
@@ -4524,6 +4732,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-01 00:00:00",
                     "date_to": "2020-07-01 00:00:00",
@@ -4554,7 +4763,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             },
                         ],
                     },
-                }
+                },
             ),
             self.team,
         )
@@ -4570,6 +4779,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # now have more strict filters with entity props
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-01 00:00:00",
                     "date_to": "2020-07-01 00:00:00",
@@ -4607,7 +4817,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             }
                         ],
                     },
-                }
+                },
             ),
             self.team,
         )
@@ -4691,7 +4901,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         # Only p0 was active on 2020-01-08 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
@@ -4708,7 +4918,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         # Only p0 was active on 2020-01-08 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
@@ -4724,7 +4934,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         # All were active on 2020-01-12 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 3)
@@ -4741,7 +4951,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["days"], ["2019-12-01", "2020-01-01", "2020-02-01"])
         # No users fall into the period of 7 days during or before the first day of any of those three months
@@ -4758,7 +4968,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(
             result[0]["days"],
@@ -4806,7 +5016,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "actions": [{"id": action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(
             result[0]["days"],
@@ -4840,7 +5050,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["days"], ["2019-12-29", "2020-01-05", "2020-01-12"])
         self.assertEqual(result[0]["data"], [0.0, 1.0, 3.0])
@@ -4856,7 +5066,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(
             result[0]["days"],
@@ -4914,7 +5124,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "actions": [{"id": action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         # Zero person IDs shouldn't be counted
         self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
@@ -4967,7 +5177,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
@@ -4998,6 +5208,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
@@ -5005,7 +5216,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "properties": [
                     {"key": "name", "operator": "exact", "value": ["person-1", "person-2"], "type": "person"}
                 ],
-            }
+            },
         )
 
         result = Trends().run(filter, self.team)
@@ -5089,7 +5300,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "actions": [{"id": pageview_action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
@@ -5106,7 +5317,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "breakdown": "key",
         }
 
-        filter = Filter(data=data)
+        filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
         # All were active on 2020-01-12 or in the preceding 6 days
         self.assertEqual(len(result), 2)
@@ -5137,23 +5348,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.test_account_filters = [{"key": "name", "value": "p1", "operator": "is_not", "type": "person"}]
         self.team.save()
         filter = Filter(
-            {
+            team=self.team,
+            data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
                 "filter_test_accounts": "true",
             },
-            team=self.team,
         )
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["count"], 1)
         filter2 = Filter(
-            {
+            team=self.team,
+            data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
             },
-            team=self.team,
         )
         result = Trends().run(filter2, self.team)
         self.assertEqual(result[0]["count"], 2)
@@ -5168,12 +5379,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-7d",
                         "breakdown": "$some_property",
                         "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                         "display": TRENDS_BAR_VALUE,
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -5243,13 +5455,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with freeze_time("2020-01-04T13:01:01Z"):
                 res = Trends().run(
                     Filter(
+                        team=self.team,
                         data={
                             "date_from": "-7d",
                             "events": [{"id": "$pageview"}],
                             "properties": [],
                             "breakdown": [cohort1.pk, cohort2.pk],
                             "breakdown_type": "cohort",
-                        }
+                        },
                     ),
                     self.team,
                 )
@@ -5298,13 +5511,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with freeze_time("2020-01-04T13:01:01Z"):
                 res = Trends().run(
                     Filter(
+                        team=self.team,
                         data={
                             "date_from": "-7d",
                             "events": [{"id": "$pageview"}],
                             "properties": [],
                             "breakdown": cohort1.pk,
                             "breakdown_type": "cohort",
-                        }
+                        },
                     ),
                     self.team,
                 )
@@ -5365,7 +5579,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
-    def test_timezones_hourly(self):
+    def test_timezones_hourly_relative_from(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
         _create_event(
             team=self.team,
@@ -5395,12 +5609,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time(query_time):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "dStart",
                         "interval": "hour",
                         "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
                     },
-                    team=self.team,
                 ),
                 self.team,
             )
@@ -5444,12 +5658,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "dStart",
                         "interval": "hour",
                         "events": [{"id": "sign up", "name": "sign up"}],
                     },
-                    team=self.team,
                 ),
                 self.team,
             )
@@ -5471,6 +5685,91 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+
+    @also_test_with_different_timezones
+    def test_timezones_hourly_absolute_from(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-02T17:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T17:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-06T00:30:01",  # Shouldn't be included anywhere
+        )
+
+        # Custom date range, single day, hourly interval
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03 23:59:59",
+                    "interval": "hour",
+                    "events": [{"id": "sign up", "name": "sign up"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+
+        self.assertEqual(
+            response[0]["days"],
+            [
+                "2020-01-03 00:00:00",
+                "2020-01-03 01:00:00",
+                "2020-01-03 02:00:00",
+                "2020-01-03 03:00:00",
+                "2020-01-03 04:00:00",
+                "2020-01-03 05:00:00",
+                "2020-01-03 06:00:00",
+                "2020-01-03 07:00:00",
+                "2020-01-03 08:00:00",
+                "2020-01-03 09:00:00",
+                "2020-01-03 10:00:00",
+                "2020-01-03 11:00:00",
+                "2020-01-03 12:00:00",
+                "2020-01-03 13:00:00",
+                "2020-01-03 14:00:00",
+                "2020-01-03 15:00:00",
+                "2020-01-03 16:00:00",
+                "2020-01-03 17:00:00",
+                "2020-01-03 18:00:00",
+                "2020-01-03 19:00:00",
+                "2020-01-03 20:00:00",
+                "2020-01-03 21:00:00",
+                "2020-01-03 22:00:00",
+                "2020-01-03 23:00:00",
+            ],
+        )
+        self.assertEqual(response[0]["data"][17], 1)
+        self.assertEqual(len(response[0]["data"]), 24)
+
+        # Custom date range, single day, dayly interval
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [1.0])
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -5523,8 +5822,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-05T13:01:01Z"):
             response = Trends().run(
                 Filter(
-                    data={"date_from": "-14d", "events": [{"id": "sign up", "name": "sign up", "math": "dau"}]},
                     team=self.team,
+                    data={"date_from": "-14d", "events": [{"id": "sign up", "name": "sign up", "math": "dau"}]},
                 ),
                 self.team,
             )
@@ -5555,11 +5854,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-05T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-7d",
                         "events": [{"id": "sign up", "name": "sign up", "math": "weekly_active"}],
                     },
-                    team=self.team,
                 ),
                 self.team,
             )
@@ -5582,8 +5881,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-05T13:01:01Z"):
             response = Trends().run(
                 Filter(
-                    data={"date_from": "-7d", "events": [{"id": "sign up", "name": "sign up", "breakdown": "$os"}]},
                     team=self.team,
+                    data={"date_from": "-7d", "events": [{"id": "sign up", "name": "sign up", "breakdown": "$os"}]},
                 ),
                 self.team,
             )
@@ -5607,46 +5906,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-05T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-7d",
                         "breakdown": "$os",
                         "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
                     },
-                    team=self.team,
                 ),
                 self.team,
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
-
-        # Custom date range, single day, hourly interval
-        response = Trends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03 23:59:59",
-                    "interval": "hour",
-                    "events": [{"id": "sign up", "name": "sign up"}],
-                },
-                team=self.team,
-            ),
-            self.team,
-        )
-        self.assertEqual(response[0]["data"][17], 1)
-        self.assertEqual(len(response[0]["data"]), 24)
-
-        # Custom date range, single day, dayly interval
-        response = Trends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
-                    "events": [{"id": "sign up", "name": "sign up"}],
-                },
-                team=self.team,
-            ),
-            self.team,
-        )
-        self.assertEqual(response[0]["data"], [1.0])
 
     # Regression test to ensure we handle non-deterministic timezones correctly
     # US/Pacific for example changes from PST to PDT due to Daylight Savings Time
@@ -5701,12 +5970,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2022-11-30T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-30d",
                         "events": [{"id": "sign up", "name": "sign up", "math": "wau"}],
                         "interval": "week",
                     },
-                    team=self.team,
                 ),
                 self.team,
             )
@@ -5718,32 +5987,35 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_timezones_weekly(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        _create_event(  # This event should be ignored, as it's before the -14d range
+        _create_event(  # This event is before the time range (but counts towards week of 2020-01-06 in Monday mode)
             team=self.team,
             event="sign up",
             distinct_id="blabla",
             properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            timestamp="2020-01-11T19:01:01",  # TRICKY: This is the next UTC day in America/Phoenix
+            timestamp="2020-01-11T19:01:01",  # Saturday; TRICKY: This is the next UTC day in America/Phoenix
         )
-        _create_event(  # This event should count towards week of 2020-01-12
+        _create_event(  # This event should count towards week of 2020-01-12 (or 2020-01-06 in Monday mode)
             team=self.team,
             event="sign up",
             distinct_id="blabla",
             properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            timestamp="2020-01-12T02:01:01",  # TRICKY: This is the previous UTC day in Asia/Tokyo
+            timestamp="2020-01-12T02:01:01",  # Sunday; TRICKY: This is the previous UTC day in Asia/Tokyo
         )
-        _create_event(  # This event should count towards week of 2020-01-19
+        _create_event(  # This event should count towards week of 2020-01-19 (or 2020-01-20 in Monday mode)
             team=self.team,
             event="sign up",
             distinct_id="blabla",
             properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
-            timestamp="2020-01-21T18:01:01",  # TRICKY: This is the next UTC day in America/Phoenix
+            timestamp="2020-01-21T18:01:01",  # Tuesday; TRICKY: This is the next UTC day in America/Phoenix
         )
+
+        self.team.week_start_day = 0  # DB value for WeekStartDay.SUNDAY (the default, but let's be explicit)
+        self.team.save()
 
         # TRICKY: This is the previous UTC day in Asia/Tokyo
         with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 26, 3, 0))):
             # Total volume query
-            response = Trends().run(
+            response_sunday = Trends().run(
                 Filter(
                     data={
                         "date_from": "-14d",
@@ -5755,8 +6027,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
-        self.assertEqual(response[0]["data"], [1.0, 1.0, 0.0])
+        self.assertEqual(response_sunday[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
+        self.assertEqual(response_sunday[0]["data"], [1.0, 1.0, 0.0])
+
+        self.team.week_start_day = 1  # DB value for WeekStartDay.MONDAY
+        self.team.save()
+
+        # TRICKY: This is the previous UTC day in Asia/Tokyo
+        with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 26, 3, 0))):
+            # Total volume query
+            response_monday = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "interval": "week",
+                        "events": [{"id": "sign up", "name": "sign up"}],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response_monday[0]["days"], ["2020-01-06", "2020-01-13", "2020-01-20"])
+        self.assertEqual(response_monday[0]["data"], [2.0, 0.0, 1.0])
 
     def test_same_day(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
@@ -5769,12 +6062,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-03",
                     "date_to": "2020-01-03",
                     "events": [{"id": "sign up", "name": "sign up"}],
                 },
-                team=self.team,
             ),
             self.team,
         )
@@ -5811,12 +6104,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-03",
                     "date_to": "2020-01-03",
                     "events": [{"id": "sign up", "name": "sign up"}],
                 },
-                team=self.team,
             ),
             self.team,
         )
@@ -5824,12 +6117,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-03",
                     "date_to": "2020-01-03",
                     "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
                 },
-                team=self.team,
             ),
             self.team,
         )
@@ -5882,12 +6175,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-03",
                     "date_to": "2020-01-03",
                     "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
                 },
-                team=self.team,
             ),
             self.team,
         )
@@ -5897,12 +6190,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-03",
                     "date_to": "2020-01-03",
                     "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
                 },
-                team=self.team,
             ),
             self.team,
         )
@@ -5912,12 +6205,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-03",
                     "date_to": "2020-01-03",
                     "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
                 },
-                team=self.team,
             ),
             self.team,
         )
@@ -5936,6 +6229,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "-14d",
                         "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
@@ -5944,7 +6238,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             {"key": "name", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
                             {"key": "name", "type": "person", "value": "posthog.com", "operator": "not_icontains"},
                         ],
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -5956,12 +6250,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_LINEAR,
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                }
+                },
             ),
             self.team,
         )
@@ -5983,13 +6278,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         weekly_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_LINEAR,
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
                     "interval": "week",
-                }
+                },
             ),
             self.team,
         )
@@ -6005,12 +6301,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_TABLE,
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                }
+                },
             ),
             self.team,
         )
@@ -6023,12 +6320,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_LINEAR,
                     "events": [{"id": "viewed video", "math": "max_count_per_actor"}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                }
+                },
             ),
             self.team,
         )
@@ -6050,13 +6348,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_LINEAR,
                     "breakdown": "color",
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                }
+                },
             ),
             self.team,
         )
@@ -6085,6 +6384,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_LINEAR,
                     "breakdown": "fruit",
@@ -6092,7 +6392,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                }
+                },
             ),
             self.team,
         )
@@ -6118,13 +6418,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_TABLE,
                     "breakdown": "color",
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                }
+                },
             ),
             self.team,
         )
@@ -6143,6 +6444,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "sampling_factor": 1,
                     "display": TRENDS_TABLE,
@@ -6150,7 +6452,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                }
+                },
             ),
             self.team,
         )
@@ -6172,12 +6474,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_LINEAR,
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor", "math_group_type_index": 0}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                }
+                },
             ),
             self.team,
         )
@@ -6212,12 +6515,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_TABLE,
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor", "math_group_type_index": 0}],
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
-                }
+                },
             ),
             self.team,
         )
@@ -6238,6 +6542,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         daily_response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "display": TRENDS_LINEAR,
                     "events": [{"id": "viewed video", "math": "dau"}],
@@ -6245,7 +6550,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "date_from": "2020-01-01",
                     "date_to": "2020-03-07",
                     "interval": "month",
-                }
+                },
             ),
             self.team,
         )
@@ -6294,13 +6599,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-01T00:00:00Z",
                     "date_to": "2020-01-12T00:00:00Z",
                     "breakdown": "key",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                     "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
-                }
+                },
             ),
             self.team,
         )
@@ -6342,13 +6648,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-01T00:00:00Z",
                     "date_to": "2020-01-12T00:00:00Z",
                     "breakdown": "key",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                     "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
-                }
+                },
             ),
             self.team,
         )
@@ -6402,13 +6709,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         create_person_id_override_by_distinct_id("test_breakdown_d1", "test_breakdown_d2", self.team.pk)
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-01T00:00:00Z",
                     "date_to": "2020-01-12T00:00:00Z",
                     "breakdown": "key",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0, "math": "dau"}],
                     "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
-                }
+                },
             ),
             self.team,
         )
@@ -6450,6 +6758,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         journeys_for(events_by_person=journey, team=self.team)
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12",
@@ -6457,7 +6766,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
                 "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-            }
+            },
         )
         response = Trends().run(filter, self.team)
 
@@ -6509,6 +6818,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         journeys_for(events_by_person=journey, team=self.team)
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-12",
@@ -6516,7 +6826,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
                 "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-            }
+            },
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
@@ -6562,6 +6872,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
@@ -6570,7 +6881,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_group_type_index": 0,
                 "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                 "properties": [{"key": "key", "value": "value", "type": "person"}],
-            }
+            },
         )
 
         response = Trends().run(filter, self.team)
@@ -6608,7 +6919,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
-            {
+            team=self.team,
+            data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
@@ -6617,7 +6929,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     {"key": "key", "value": "value", "type": "person"},
                 ],
             },
-            team=self.team,
         )
 
         response = Trends().run(filter, self.team)
@@ -6648,7 +6959,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
-            {
+            team=self.team,
+            data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
@@ -6663,7 +6975,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     {"key": "key", "value": "value", "type": "person"},
                 ],
             },
-            team=self.team,
         )
 
         response = Trends().run(filter, self.team)
@@ -6702,6 +7013,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
@@ -6710,7 +7022,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_group_type_index": 0,
                 "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
                 "properties": [{"key": "key", "value": "value", "type": "person"}],
-            }
+            },
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
@@ -6752,7 +7064,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
-            {
+            team=self.team,
+            data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
@@ -6761,7 +7074,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     {"key": "key", "value": "value", "type": "person"},
                 ],
             },
-            team=self.team,
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
@@ -6801,6 +7113,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         journeys_for(events_by_person=journey, team=self.team)
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12",
@@ -6809,7 +7122,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},
                     {"key": "name", "value": "six", "type": "group", "group_type_index": 2},
                 ],
-            }
+            },
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
@@ -6833,12 +7146,12 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_to": "2020-11-01 10:26:00",
                 "events": [{"id": "sign up", "name": "sign up"}],
                 "interval": "hour",
             },
-            team=self.team,
         )
 
         is_present = Trends().get_cached_result(filter, self.team)
@@ -6852,12 +7165,12 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_to": "2020-11-01 10:26:00",
                 "events": [{"id": "sign up", "name": "sign up"}],
                 "interval": "hour",
             },
-            team=self.team,
         )
         cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
@@ -6875,12 +7188,12 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_to": "2020-11-01 10:26:00",
                 "events": [{"id": "sign up", "name": "sign up"}],
                 "interval": "hour",
             },
-            team=self.team,
         )
         cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
@@ -6889,12 +7202,12 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(res)
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_to": "2020-11-02 05:26:00",
                 "events": [{"id": "sign up", "name": "sign up"}],
                 "interval": "hour",
             },
-            team=self.team,
         )
 
         res = Trends().get_cached_result(filter, self.team)
@@ -6904,8 +7217,8 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
         fake_cached = {"result": [{"days": ["2020-01-02", "2020-01-03", "2020-01-04"], "data": [0.0, 0.0, 0.0]}]}
         filter = Filter(
-            data={"date_from": "2020-01-02", "date_to": "2020-01-04", "events": [{"id": "sign up", "name": "sign up"}]},
             team=self.team,
+            data={"date_from": "2020-01-02", "date_to": "2020-01-04", "events": [{"id": "sign up", "name": "sign up"}]},
         )
         cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
@@ -6926,8 +7239,8 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         fake_cached = {"result": [{"days": ["2020-11-01", "2020-11-08", "2020-11-15"], "data": [0.0, 0.0, 0.0]}]}
 
         filter = Filter(
-            data={"date_to": "2020-11-16", "events": [{"id": "sign up", "name": "sign up"}], "interval": "week"},
             team=self.team,
+            data={"date_to": "2020-11-16", "events": [{"id": "sign up", "name": "sign up"}], "interval": "week"},
         )
         cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
@@ -6936,8 +7249,8 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(res)
 
         filter = Filter(
-            data={"date_to": "2020-11-23", "events": [{"id": "sign up", "name": "sign up"}], "interval": "week"},
             team=self.team,
+            data={"date_to": "2020-11-23", "events": [{"id": "sign up", "name": "sign up"}], "interval": "week"},
         )
 
         res = Trends().get_cached_result(filter, self.team)
@@ -6949,8 +7262,8 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         fake_cached = {"result": [{"days": ["2020-09-01", "2020-10-01", "2020-11-01"], "data": [0.0, 0.0, 0.0]}]}
 
         filter = Filter(
-            data={"date_to": "2020-11-16", "events": [{"id": "sign up", "name": "sign up"}], "interval": "month"},
             team=self.team,
+            data={"date_to": "2020-11-16", "events": [{"id": "sign up", "name": "sign up"}], "interval": "month"},
         )
         cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
@@ -6959,8 +7272,8 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(res)
 
         filter = Filter(
-            data={"date_to": "2020-12-01", "events": [{"id": "sign up", "name": "sign up"}], "interval": "week"},
             team=self.team,
+            data={"date_to": "2020-12-01", "events": [{"id": "sign up", "name": "sign up"}], "interval": "week"},
         )
 
         res = Trends().get_cached_result(filter, self.team)
@@ -6976,8 +7289,8 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             }
         }
         filter = Filter(
-            data={"date_from": "2020-01-02", "date_to": "2020-01-04", "events": [{"id": "sign up", "name": "sign up"}]},
             team=self.team,
+            data={"date_from": "2020-01-02", "date_to": "2020-01-04", "events": [{"id": "sign up", "name": "sign up"}]},
         )
         result = [{"label": "sign up - Chrome", "data": [15.0, 12.0]}]
 
@@ -6987,8 +7300,8 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
     def test_merge_result_no_cache(self):
 
         filter = Filter(
-            data={"date_from": "2020-01-02", "date_to": "2020-01-04", "events": [{"id": "sign up", "name": "sign up"}]},
             team=self.team,
+            data={"date_from": "2020-01-02", "date_to": "2020-01-04", "events": [{"id": "sign up", "name": "sign up"}]},
         )
 
         result = [{"label": "sign up - Chrome", "data": [15.0, 12.0]}]
@@ -7012,8 +7325,8 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             },
         }
         filter = Filter(
-            data={"date_from": "2020-01-02", "date_to": "2020-01-04", "events": [{"id": "sign up", "name": "sign up"}]},
             team=self.team,
+            data={"date_from": "2020-01-02", "date_to": "2020-01-04", "events": [{"id": "sign up", "name": "sign up"}]},
         )
 
         result = [

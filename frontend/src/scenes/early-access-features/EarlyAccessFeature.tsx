@@ -297,7 +297,7 @@ export function FlagSelector({ value, onChange, readOnly }: FlagSelectorProps): 
                 <div>{featureFlag.key}</div>
             ) : (
                 <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
-                    {!!featureFlag.key ? featureFlag.key : 'Select flag'}
+                    {featureFlag.key ? featureFlag.key : 'Select flag'}
                 </LemonButton>
             )}
         </Popover>

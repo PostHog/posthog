@@ -50,6 +50,7 @@ export const defaultSurveyAppearance = {
     textColor: 'black',
     submitButtonText: 'Submit',
     descriptionTextColor: '#4b4b52',
+    whiteLabel: false,
 }
 
 const NEW_SURVEY: NewSurvey = {
@@ -136,7 +137,6 @@ export const getSurveyDataVizQuery = (survey: Survey): InsightVizNode => {
             trendsFilter: { display: ChartDisplayType.ActionsBarValue },
             breakdown: { breakdown: '$survey_response', breakdown_type: 'event' },
         },
-        showHeader: true,
         showTable: true,
     }
 }

@@ -4,11 +4,11 @@ import {
     personActivityResponseJson,
 } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { mswDecorator } from '~/mocks/browser'
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
-export default {
+const meta: Meta<typeof ActivityLog> = {
     title: 'Components/ActivityLog',
     component: ActivityLog,
     parameters: { testOptions: { skip: true } }, // FIXME: Currently disabled as the Timeout story is flaky
@@ -39,7 +39,8 @@ export default {
             },
         }),
     ],
-} as ComponentMeta<typeof ActivityLog>
+}
+export default meta
 
 export function FeatureFlagActivity(): JSX.Element {
     return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} />

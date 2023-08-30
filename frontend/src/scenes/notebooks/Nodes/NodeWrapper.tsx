@@ -1,5 +1,4 @@
 import {
-    NodeViewProps,
     Node,
     NodeViewWrapper,
     mergeAttributes,
@@ -7,7 +6,7 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
+import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
 import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -21,12 +20,13 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
+import { NotebookNode, NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
 
-export interface NodeWrapperProps {
-    title: string
+export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
+    title: string | ((attributes: NotebookNode<T>['attrs']) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
-    href?: string | ((attributes: Record<string, any>) => string)
+    href?: string | ((attributes: T) => string)
 
     // Sizing
     expandable?: boolean
@@ -36,9 +36,10 @@ export interface NodeWrapperProps {
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
     autoHideMetadata?: boolean
+    widgets?: NotebookNodeWidget[]
 }
 
-export function NodeWrapper({
+export function NodeWrapper<T extends NotebookNodeAttributes>({
     title: defaultTitle,
     nodeType,
     children,
@@ -53,27 +54,28 @@ export function NodeWrapper({
     node,
     getPos,
     updateAttributes,
-}: NodeWrapperProps & NodeViewProps): JSX.Element {
+    widgets = [],
+}: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
+    const { isEditable } = useValues(mountedNotebookLogic)
+
+    // nodeId can start null, but should then immediately be generated
+    const nodeId = node.attrs.nodeId
     const nodeLogicProps = {
         node,
         nodeType,
+        nodeAttributes: node.attrs,
+        updateAttributes,
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
         title: defaultTitle,
+        widgets,
+        startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { isEditable } = useValues(mountedNotebookLogic)
     const { title, expanded } = useValues(nodeLogic)
     const { setExpanded, deleteNode } = useActions(nodeLogic)
-
-    useEffect(() => {
-        if (startExpanded) {
-            setExpanded(true)
-        }
-    }, [startExpanded])
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -120,6 +122,7 @@ export function NodeWrapper({
                         {!inView ? (
                             <>
                                 <div className="h-4" /> {/* Placeholder for the drag handle */}
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
                                 <div style={{ height: heightEstimate }}>
                                     <LemonSkeleton className="h-full" />
                                 </div>
@@ -182,24 +185,33 @@ export function NodeWrapper({
     )
 }
 
-export type CreatePostHogWidgetNodeOptions = NodeWrapperProps & {
+export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
-    Component: (props: NodeViewProps) => JSX.Element | null
+    Component: (props: NotebookNodeViewProps<T>) => JSX.Element | null
     pasteOptions?: {
         find: string
-        getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
-    attributes: Record<string, Partial<Attribute>>
+    attributes: Record<keyof T, Partial<Attribute>>
+    widgets?: NotebookNodeWidget[]
 }
 
-// TODO: Correct return type
-export const createPostHogWidgetNode = ({
+export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
     Component,
     pasteOptions,
     attributes,
     ...wrapperProps
-}: CreatePostHogWidgetNodeOptions): any => {
-    const WrappedComponent = (props: NodeViewProps): JSX.Element => {
+}: CreatePostHogWidgetNodeOptions<T>): Node {
+    const WrappedComponent = (props: NotebookNodeViewProps<T>): JSX.Element => {
+        if (props.node.attrs.nodeId === null) {
+            // TODO only wrapped in setTimeout because of the flushSync bug
+            setTimeout(() => {
+                props.updateAttributes({
+                    nodeId: uuid(),
+                })
+            }, 0)
+        }
+
         return (
             <NodeWrapper {...props} {...wrapperProps}>
                 <Component {...props} />
@@ -216,6 +228,10 @@ export const createPostHogWidgetNode = ({
         addAttributes() {
             return {
                 height: {},
+                title: {},
+                nodeId: {
+                    default: null,
+                },
                 ...attributes,
             }
         },
@@ -240,6 +256,7 @@ export const createPostHogWidgetNode = ({
             return pasteOptions
                 ? [
                       posthogNodePasteRule({
+                          editor: this.editor,
                           type: this.type,
                           ...pasteOptions,
                       }),

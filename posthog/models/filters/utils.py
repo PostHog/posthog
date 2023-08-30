@@ -22,10 +22,10 @@ def earliest_timestamp_func(team_id: int):
 
 
 def get_filter(team, data: dict = {}, request: Optional[Request] = None):
-    from posthog.models.filters.filter import Filter
-    from posthog.models.filters.path_filter import PathFilter
-    from posthog.models.filters.retention_filter import RetentionFilter
-    from posthog.models.filters.stickiness_filter import StickinessFilter
+    from .filter import Filter
+    from .path_filter import PathFilter
+    from .retention_filter import RetentionFilter
+    from .stickiness_filter import StickinessFilter
 
     insight = data.get("insight")
     if not insight and request:

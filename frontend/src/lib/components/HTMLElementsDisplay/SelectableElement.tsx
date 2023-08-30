@@ -47,7 +47,7 @@ function IdPart({
     const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
     const isSelected = !readonly && !!selectedParts.id
 
-    return !!id ? (
+    return id ? (
         <span
             onClick={(e) => {
                 e.stopPropagation()

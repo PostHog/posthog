@@ -16,7 +16,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
-from posthog.models.team.util import delete_bulky_postgres_data, delete_batch_exports
+from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
@@ -38,7 +38,6 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
     def has_permission(self, request: request.Request, view) -> bool:
         user = cast(User, request.user)
         if request.method in CREATE_METHODS:
-
             if user.organization is None:
                 return False
 
@@ -128,6 +127,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_opt_in",
             "effective_membership_level",
             "access_control",
+            "week_start_day",
             "has_group_types",
             "primary_dashboard",
             "live_events_columns",
@@ -136,6 +136,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "groups_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
+            "has_completed_onboarding_for",
         )
         read_only_fields = (
             "id",
@@ -207,6 +208,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         else:
             team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
+        request.user.team = request.user.current_team  # Update cached property
         request.user.save()
         return team
 

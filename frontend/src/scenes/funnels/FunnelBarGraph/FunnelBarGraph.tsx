@@ -39,7 +39,11 @@ export function FunnelBarGraph({
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div data-attr="funnel-bar-graph" className={clsx('funnel-bar-graph', 'white')} ref={graphRef}>
+        <div
+            data-attr="funnel-bar-graph"
+            className={clsx('funnel-bar-graph', 'white', inCardView && 'pt-4')}
+            ref={graphRef}
+        >
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)

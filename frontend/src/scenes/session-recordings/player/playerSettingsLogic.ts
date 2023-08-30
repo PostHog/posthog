@@ -178,11 +178,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
+        setSearchQuery: (search: string) => ({ search }),
         setSyncScroll: (enabled: boolean) => ({ enabled }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
     }),
-    reducers(({}) => ({
+    reducers(() => ({
         showFilters: [
             true,
             {
@@ -297,6 +298,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
 
                     return newFilters
                 },
+            },
+        ],
+
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { search }) => search || '',
             },
         ],
 

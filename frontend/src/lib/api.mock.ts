@@ -93,10 +93,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     teams: [MOCK_DEFAULT_TEAM],
     available_features: [],
     is_member_join_email_enabled: true,
-    metadata: {
-        taxonomy_set_events_count: 60,
-        taxonomy_set_properties_count: 17,
-    },
+    metadata: {},
     available_product_features: [],
 }
 

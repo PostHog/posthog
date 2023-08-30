@@ -1,4 +1,6 @@
+import csv
 import datetime as dt
+import io
 import json
 import operator
 from random import randint
@@ -11,9 +13,11 @@ import pytest_asyncio
 from django.conf import settings
 
 from posthog.temporal.workflows.batch_exports import (
+    BatchExportTemporaryFile,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    json_dumps_bytes,
 )
 from posthog.temporal.workflows.clickhouse import ClickHouseClient
 
@@ -31,7 +35,12 @@ EventValues = TypedDict(
         "person_properties": dict | None,
         "team_id": int,
         "properties": dict | None,
-        "elements_chain": str,
+        "elements_chain": str | None,
+        "elements": str | None,
+        "ip": str | None,
+        "site_url": str | None,
+        "set": str | None,
+        "set_once": str | None,
     },
 )
 
@@ -115,8 +124,18 @@ async def test_get_rows_count(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(10000)
     ]
@@ -147,8 +166,18 @@ async def test_get_rows_count_handles_duplicates(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(10000)
     ]
@@ -182,8 +211,18 @@ async def test_get_results_iterator(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(20000)
     ]
@@ -224,8 +263,18 @@ async def test_get_results_iterator_handles_duplicates(client):
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
             "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
         }
         for i in range(10000)
     ]
@@ -276,3 +325,167 @@ def test_get_data_interval(interval, data_interval_end, expected):
     """Test get_data_interval returns the expected data interval tuple."""
     result = get_data_interval(interval, data_interval_end)
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "to_write",
+    [
+        (b"",),
+        (b"", b""),
+        (b"12345",),
+        (b"12345", b"12345"),
+        (b"abbcccddddeeeee",),
+        (b"abbcccddddeeeee", b"abbcccddddeeeee"),
+    ],
+)
+def test_batch_export_temporary_file_tracks_bytes(to_write):
+    """Test the bytes written by BatchExportTemporaryFile match expected."""
+    with BatchExportTemporaryFile() as be_file:
+        for content in to_write:
+            be_file.write(content)
+
+        assert be_file.bytes_total == sum(len(content) for content in to_write)
+        assert be_file.bytes_since_last_reset == sum(len(content) for content in to_write)
+
+        be_file.reset()
+
+        assert be_file.bytes_total == sum(len(content) for content in to_write)
+        assert be_file.bytes_since_last_reset == 0
+
+
+TEST_RECORDS = [
+    [],
+    [
+        {"id": "record-1", "property": "value", "property_int": 1},
+        {"id": "record-2", "property": "another-value", "property_int": 2},
+        {
+            "id": "record-3",
+            "property": {"id": "nested-record", "property": "nested-value"},
+            "property_int": 3,
+        },
+    ],
+]
+
+
+@pytest.mark.parametrize(
+    "records",
+    TEST_RECORDS,
+)
+def test_batch_export_temporary_file_write_records_to_jsonl(records):
+    """Test JSONL records written by BatchExportTemporaryFile match expected."""
+    jsonl_dump = b"\n".join(map(json_dumps_bytes, records))
+
+    with BatchExportTemporaryFile() as be_file:
+        be_file.write_records_to_jsonl(records)
+
+        assert be_file.bytes_total == len(jsonl_dump)
+        assert be_file.bytes_since_last_reset == len(jsonl_dump)
+        assert be_file.records_total == len(records)
+        assert be_file.records_since_last_reset == len(records)
+
+        be_file.seek(0)
+        lines = be_file.readlines()
+        assert len(lines) == len(records)
+
+        for line_index, jsonl_record in enumerate(lines):
+            json_loaded = json.loads(jsonl_record)
+            assert json_loaded == records[line_index]
+
+        be_file.reset()
+
+        assert be_file.bytes_total == len(jsonl_dump)
+        assert be_file.bytes_since_last_reset == 0
+        assert be_file.records_total == len(records)
+        assert be_file.records_since_last_reset == 0
+
+
+@pytest.mark.parametrize(
+    "records",
+    TEST_RECORDS,
+)
+def test_batch_export_temporary_file_write_records_to_csv(records):
+    """Test CSV written by BatchExportTemporaryFile match expected."""
+    in_memory_file_obj = io.StringIO()
+    writer = csv.DictWriter(
+        in_memory_file_obj,
+        fieldnames=records[0].keys() if len(records) > 0 else [],
+        delimiter=",",
+        quotechar='"',
+        escapechar="\\",
+        quoting=csv.QUOTE_NONE,
+    )
+    writer.writerows(records)
+
+    with BatchExportTemporaryFile(mode="w+") as be_file:
+        be_file.write_records_to_csv(records)
+
+        assert be_file.bytes_total == in_memory_file_obj.tell()
+        assert be_file.bytes_since_last_reset == in_memory_file_obj.tell()
+        assert be_file.records_total == len(records)
+        assert be_file.records_since_last_reset == len(records)
+
+        be_file.seek(0)
+        reader = csv.reader(be_file._file, delimiter=",", quotechar='"', escapechar="\\", quoting=csv.QUOTE_NONE)
+
+        rows = [row for row in reader]
+        assert len(rows) == len(records)
+
+        for row_index, csv_record in enumerate(rows):
+            for value_index, value in enumerate(records[row_index].values()):
+                # Everything returned by csv.reader is a str.
+                # This means type information is lost when writing to CSV
+                # but this just a limitation of the format.
+                assert csv_record[value_index] == str(value)
+
+        be_file.reset()
+
+        assert be_file.bytes_total == in_memory_file_obj.tell()
+        assert be_file.bytes_since_last_reset == 0
+        assert be_file.records_total == len(records)
+        assert be_file.records_since_last_reset == 0
+
+
+@pytest.mark.parametrize(
+    "records",
+    TEST_RECORDS,
+)
+def test_batch_export_temporary_file_write_records_to_tsv(records):
+    """Test TSV written by BatchExportTemporaryFile match expected."""
+    in_memory_file_obj = io.StringIO()
+    writer = csv.DictWriter(
+        in_memory_file_obj,
+        fieldnames=records[0].keys() if len(records) > 0 else [],
+        delimiter="\t",
+        quotechar='"',
+        escapechar="\\",
+        quoting=csv.QUOTE_NONE,
+    )
+    writer.writerows(records)
+
+    with BatchExportTemporaryFile(mode="w+") as be_file:
+        be_file.write_records_to_tsv(records)
+
+        assert be_file.bytes_total == in_memory_file_obj.tell()
+        assert be_file.bytes_since_last_reset == in_memory_file_obj.tell()
+        assert be_file.records_total == len(records)
+        assert be_file.records_since_last_reset == len(records)
+
+        be_file.seek(0)
+        reader = csv.reader(be_file._file, delimiter="\t", quotechar='"', escapechar="\\", quoting=csv.QUOTE_NONE)
+
+        rows = [row for row in reader]
+        assert len(rows) == len(records)
+
+        for row_index, csv_record in enumerate(rows):
+            for value_index, value in enumerate(records[row_index].values()):
+                # Everything returned by csv.reader is a str.
+                # This means type information is lost when writing to CSV
+                # but this just a limitation of the format.
+                assert csv_record[value_index] == str(value)
+
+        be_file.reset()
+
+        assert be_file.bytes_total == in_memory_file_obj.tell()
+        assert be_file.bytes_since_last_reset == 0
+        assert be_file.records_total == len(records)
+        assert be_file.records_since_last_reset == 0
