@@ -65,7 +65,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
 
     selectors: {
         filter: [
-            (s) => [s.filters, (_, props) => props.filterIndex],
+            (s, p) => [s.filters, p.filterIndex],
             (filters, filterIndex): AnyPropertyFilter | null =>
                 filters[filterIndex] ? sanitizePropertyFilter(filters[filterIndex]) : null,
         ],
