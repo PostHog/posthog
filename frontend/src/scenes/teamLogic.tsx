@@ -129,6 +129,11 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
         timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
+        /** 0 means Sunday, 1 means Monday. */
+        weekStartDay: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number => currentTeam?.week_start_day || 0,
+        ],
         isTeamTokenResetAvailable: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): boolean =>
