@@ -36,7 +36,7 @@ class Type(AST):
         return self.get_child(name) is not None
 
     def resolve_constant_type(self) -> Optional["ConstantType"]:
-        return UnknownType()
+        raise NotImplementedException("Type.resolve_constant_type not overridden")
 
 
 @dataclass(kw_only=True)

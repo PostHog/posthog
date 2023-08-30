@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 from dataclasses import dataclass, field
 
-from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType
+from posthog.hogql.base import Type, Expr, CTE, ConstantType
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database.models import (
     FieldTraverser,
@@ -11,12 +11,6 @@ from posthog.hogql.database.models import (
     Table,
     VirtualTable,
     LazyTable,
-    IntegerDatabaseField,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    BooleanDatabaseField,
-    DateDatabaseField,
-    FloatDatabaseField,
     FieldOrTable,
     DatabaseField,
     StringArrayDatabaseField,
@@ -293,20 +287,41 @@ class FieldType(Type):
         return True
 
     def resolve_constant_type(self) -> ConstantType:
-        database_field = self.resolve_database_field()
-        if isinstance(database_field, IntegerDatabaseField):
-            return IntegerType()
-        elif isinstance(database_field, FloatDatabaseField):
-            return FloatType()
-        elif isinstance(database_field, StringDatabaseField):
-            return StringType()
-        elif isinstance(database_field, BooleanDatabaseField):
-            return BooleanType()
-        elif isinstance(database_field, DateTimeDatabaseField):
-            return DateTimeType()
-        elif isinstance(database_field, DateDatabaseField):
-            return DateType()
-        return UnknownType()
+        table_type = self.table_type
+        while True:
+            if isinstance(table_type, SelectQueryAliasType):
+                table_type = table_type.select_query_type
+                continue
+
+            if isinstance(table_type, SelectQueryType):
+                field_type = table_type.columns.get(self.name)
+                constant_type = field_type.resolve_constant_type()
+                return constant_type
+
+            if isinstance(table_type, BaseTableType):
+                table = table_type.resolve_database_table()
+                database_field = None
+                if table is not None:
+                    database_field = table.get_field(self.name)
+                if isinstance(database_field, DatabaseField):
+                    constant_type = database_field.get_constant_type()
+                    return constant_type
+                else:
+                    raise NotImplementedException(
+                        f"FieldType.resolve_constant_type, for BaseTableType: unknown database_field type: {str(database_field.__class__)}"
+                    )
+
+            if isinstance(table_type, SelectUnionQueryType):
+                table_type = table_type.types[0]
+                continue
+
+            if isinstance(table_type, FieldTraverserType):
+                table_type = table_type.table_type
+                continue
+
+            raise NotImplementedException(
+                f"FieldType.resolve_constant_type found unexpected table_type: {str(table_type.__class__)}"
+            )
 
     def get_child(self, name: str | int) -> Type:
         database_field = self.resolve_database_field()

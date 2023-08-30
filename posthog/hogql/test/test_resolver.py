@@ -962,3 +962,33 @@ class TestResolver(BaseTest):
         self.assertEqual(lambda_type.parent, node.type)
         self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
         self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
+
+    def test_types_pass_outside_subqueries_two_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        events_table_type = ast.TableType(table=self.database.events)
+        inner_select_type = ast.SelectQueryType(
+            tables={"events": events_table_type},
+            anonymous_tables=[],
+            aliases={},
+            columns={
+                "event": ast.FieldType(name="event", table_type=events_table_type),
+            },
+        )
+        self.assertEqual(
+            node.select,
+            [ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=inner_select_type))],
+        )
+
+        self.assertEqual(node.select_from.table.select[0].type.resolve_constant_type(), ast.StringType(nullable=False))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.StringType(nullable=False))
+
+    def test_types_pass_outside_subqueries_three_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from (select event from events))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(
+            node.select_from.table.select_from.table.select[0].type.resolve_constant_type(),
+            ast.StringType(nullable=False),
+        )
+        self.assertEqual(node.select_from.table.select[0].type.resolve_constant_type(), ast.StringType(nullable=False))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.StringType(nullable=False))
