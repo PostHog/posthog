@@ -45,7 +45,7 @@ export function RepositoryApps(): JSX.Element {
         <div>
             {(!repositoryLoading || filteredUninstalledPlugins.length > 0) && (
                 <>
-                    <Row gutter={16} style={{ marginTop: 16, display: 'block' }}>
+                    <div className="-mx-2">
                         <div
                             className="plugins-repository-tab-section-header"
                             onClick={() => toggleRepositorySectionOpen(RepositorySection.Official)}
@@ -65,11 +65,11 @@ export function RepositoryApps(): JSX.Element {
                         </div>
                         {repositorySectionsOpen.includes(RepositorySection.Official) && (
                             <>
-                                <Col span={24}>
+                                <div className="px-2">
                                     {officialPlugins.length > 0
                                         ? 'Official apps are built and maintained by the PostHog team.'
                                         : 'You have already installed all official apps!'}
-                                </Col>
+                                </div>
                                 <br />
                                 {officialPlugins.map((plugin) => {
                                     return (
@@ -87,8 +87,8 @@ export function RepositoryApps(): JSX.Element {
                                 })}
                             </>
                         )}
-                    </Row>
-                    <Row gutter={16} style={{ marginTop: 16, display: 'block' }}>
+                    </div>
+                    <div className="-mx-2">
                         <div
                             className="plugins-repository-tab-section-header"
                             onClick={() => toggleRepositorySectionOpen(RepositorySection.Community)}
@@ -108,7 +108,7 @@ export function RepositoryApps(): JSX.Element {
                         </div>
                         {repositorySectionsOpen.includes(RepositorySection.Community) && (
                             <>
-                                <Col span={24}>
+                                <div className="px-2">
                                     {communityPlugins.length > 0 ? (
                                         <span>
                                             Community apps are not built nor maintained by the PostHog team.{' '}
@@ -123,7 +123,7 @@ export function RepositoryApps(): JSX.Element {
                                     ) : (
                                         'You have already installed all community apps!'
                                     )}
-                                </Col>
+                                </div>
                                 <br />
                                 {communityPlugins.map((plugin) => {
                                     return (
@@ -141,7 +141,7 @@ export function RepositoryApps(): JSX.Element {
                                 })}
                             </>
                         )}
-                    </Row>
+                    </div>
                 </>
             )}
             {repositoryLoading && filteredUninstalledPlugins.length === 0 && (
