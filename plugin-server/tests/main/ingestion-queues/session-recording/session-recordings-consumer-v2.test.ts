@@ -2,7 +2,6 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { Message } from 'node-rdkafka-acosom'
 import path from 'path'
 
-import { expect } from '../../../../../playwright/fixtures/storybook'
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngesterV2 } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v2'
