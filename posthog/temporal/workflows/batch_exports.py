@@ -23,17 +23,33 @@ SELECT_QUERY_TEMPLATE = Template(
         AND COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
+        $exclude_events
     $order_by
     $format
     """
 )
 
 
-async def get_rows_count(client, team_id: int, interval_start: str, interval_end: str) -> int:
+async def get_rows_count(
+    client,
+    team_id: int,
+    interval_start: str,
+    interval_end: str,
+    exclude_events: collections.abc.Iterable[str] | None = None,
+) -> int:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+
+    if exclude_events:
+        exclude_events_statement = f"AND event NOT IN {str(tuple(exclude_events))}"
+    else:
+        exclude_events_statement = ""
+
     query = SELECT_QUERY_TEMPLATE.substitute(
-        fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count", order_by="", format=""
+        fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
+        order_by="",
+        format="",
+        exclude_events=exclude_events_statement,
     )
 
     count = await client.read_query(
@@ -70,14 +86,25 @@ elements_chain
 
 
 def get_results_iterator(
-    client, team_id: int, interval_start: str, interval_end: str
+    client,
+    team_id: int,
+    interval_start: str,
+    interval_end: str,
+    exclude_events: collections.abc.Iterable[str] | None = None,
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+
+    if exclude_events:
+        exclude_events_statement = f"AND event NOT IN {str(tuple(exclude_events))}"
+    else:
+        exclude_events_statement = ""
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=FIELDS,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
+        exclude_events=exclude_events_statement,
     )
 
     for batch in client.stream_query_as_arrow(
@@ -272,10 +299,10 @@ class BatchExportTemporaryFile:
         """Write bytes to underlying file keeping track of how many bytes were written."""
         compressed_content = self.compress(content)
 
-        if "b" not in self.mode:
-            compressed_content = compressed_content.decode("utf-8")
-
-        result = self._file.write(compressed_content)
+        if "b" in self.mode:
+            result = self._file.write(compressed_content)
+        else:
+            result = self._file.write(compressed_content.decode("utf-8"))
 
         self.bytes_total += result
         self.bytes_since_last_reset += result

@@ -229,6 +229,7 @@ class S3InsertInputs:
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     compression: str | None = None
+    exclude_events: list[str] | None = None
 
 
 def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -439,6 +440,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
+            exclude_events=inputs.exclude_events,
         )
         try:
             await workflow.execute_activity(
