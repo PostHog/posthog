@@ -1573,8 +1573,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["data"], response[0]["data"])
         self.assertEqual(result[0]["days"], response[0]["days"])
 
+        return response
+
     def test_hour_interval(self):
-        self._test_events_with_dates(
+        response = self._test_events_with_dates(
             dates=["2020-11-01 13:00:00", "2020-11-01 13:20:00", "2020-11-01 17:00:00"],
             interval="hour",
             date_from="2020-11-01 12:00:00",
@@ -1627,9 +1629,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+        self.assertEqual(
+            {
+                "date_from": datetime(2020, 11, 1, 12, tzinfo=pytz.UTC),
+                "date_to": datetime(2020, 11, 1, 13, tzinfo=pytz.UTC),
+                "entity_id": "event_name",
+                "entity_math": None,
+                "entity_order": None,
+                "entity_type": "events",
+            },
+            response[0]["persons_urls"][0]["filter"],
+        )
 
     def test_day_interval(self):
-        self._test_events_with_dates(
+        response = self._test_events_with_dates(
             dates=["2020-11-01", "2020-11-02", "2020-11-03", "2020-11-04"],
             interval="day",
             date_from="2020-11-01",
@@ -1671,6 +1684,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ],
                 }
             ],
+        )
+        self.assertEqual(
+            {
+                "date_from": datetime(2020, 11, 1, tzinfo=pytz.UTC),
+                "date_to": datetime(2020, 11, 1, 23, 59, 59, 999999, tzinfo=pytz.UTC),
+                "entity_id": "event_name",
+                "entity_math": None,
+                "entity_order": None,
+                "entity_type": "events",
+            },
+            response[0]["persons_urls"][0]["filter"],
         )
 
     def test_week_interval(self):
@@ -3751,6 +3775,76 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(event_response), 2)
             self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
             self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
+
+    def test_breakdown_hour_interval(self):
+        response = self._test_events_with_dates(
+            dates=["2020-11-01 13:00:00", "2020-11-01 13:20:00", "2020-11-01 17:00:00"],
+            interval="hour",
+            date_from="2020-11-01 12:00:00",
+            breakdown="$browser",
+            breakdown_type="event",
+            query_time="2020-11-01 23:00:00",
+            result=[
+                {
+                    "action": {
+                        "id": "event_name",
+                        "type": "events",
+                        "order": None,
+                        "name": "event_name",
+                        "custom_name": None,
+                        "math": None,
+                        "math_hogql": None,
+                        "math_property": None,
+                        "math_group_type_index": None,
+                        "properties": [],
+                    },
+                    "label": "event_name",
+                    "count": 3.0,
+                    "data": [0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0, 0, 0, 0, 0],
+                    "labels": [
+                        "1-Nov-2020 12:00",
+                        "1-Nov-2020 13:00",
+                        "1-Nov-2020 14:00",
+                        "1-Nov-2020 15:00",
+                        "1-Nov-2020 16:00",
+                        "1-Nov-2020 17:00",
+                        "1-Nov-2020 18:00",
+                        "1-Nov-2020 19:00",
+                        "1-Nov-2020 20:00",
+                        "1-Nov-2020 21:00",
+                        "1-Nov-2020 22:00",
+                        "1-Nov-2020 23:00",
+                    ],
+                    "days": [
+                        "2020-11-01 12:00:00",
+                        "2020-11-01 13:00:00",
+                        "2020-11-01 14:00:00",
+                        "2020-11-01 15:00:00",
+                        "2020-11-01 16:00:00",
+                        "2020-11-01 17:00:00",
+                        "2020-11-01 18:00:00",
+                        "2020-11-01 19:00:00",
+                        "2020-11-01 20:00:00",
+                        "2020-11-01 21:00:00",
+                        "2020-11-01 22:00:00",
+                        "2020-11-01 23:00:00",
+                    ],
+                    "persons_urls": [],
+                }
+            ],
+        )
+        self.assertEqual(
+            {
+                "breakdown_type": "event",
+                "breakdown_value": "Safari",
+                "date_from": datetime(2020, 11, 1, 12, tzinfo=pytz.UTC),
+                "date_to": datetime(2020, 11, 1, 13, tzinfo=pytz.UTC),
+                "entity_id": "event_name",
+                "entity_math": None,
+                "entity_type": "events",
+            },
+            response[0]["persons_urls"][0]["filter"],
+        )
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_test_accounts_cohorts(self):

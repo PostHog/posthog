@@ -1,7 +1,31 @@
 import { InsightQueryNode } from '~/queries/schema'
 
 import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
-import { filterForQuery, filterPropertyForQuery, isEventsNode, isInsightQueryWithSeries } from '~/queries/utils'
+import {
+    filterForQuery,
+    filterPropertyForQuery,
+    isEventsNode,
+    isInsightQueryWithDisplay,
+    isInsightQueryWithSeries,
+} from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
+
+const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
+    // time series
+    [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsAreaGraph]: ChartDisplayType.ActionsLineGraph,
+
+    // cumulative time series
+    [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayType.ActionsLineGraphCumulative,
+
+    // total value
+    [ChartDisplayType.BoldNumber]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.WorldMap]: ChartDisplayType.ActionsBarValue,
+}
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
 const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChanges: boolean): InsightQueryNode => {
@@ -32,6 +56,11 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
             aggregation_axis_postfix: undefined,
             layout: undefined,
             toggledLifecycles: undefined,
+        }
+
+        if (isInsightQueryWithDisplay(cleanedQuery)) {
+            cleanedQuery[insightFilterKey].display =
+                groupedChartDisplayTypes[cleanedQuery[insightFilterKey].display || ChartDisplayType.ActionsLineGraph]
         }
     }
 

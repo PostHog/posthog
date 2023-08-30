@@ -114,14 +114,6 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
 }
 
-export type Product = {
-    name: string
-    key: ProductKey
-    description: string
-    productUrl: string
-    onboardingUrl: string
-}
-
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -2107,6 +2099,7 @@ export interface SurveyAppearance {
     descriptionTextColor?: string
     ratingButtonColor?: string
     ratingButtonHoverColor?: string
+    whiteLabel?: boolean
 }
 
 interface SurveyQuestionBase {
@@ -3080,6 +3073,15 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaQueryResponseField[]
+}
+
+export interface DataWarehouseViewLink {
+    id: string
+    saved_query_id?: string
+    saved_query?: string
+    table?: string
+    to_join_key?: string
+    from_join_key?: string
 }
 
 export type BatchExportDestinationS3 = {
