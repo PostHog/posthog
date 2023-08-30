@@ -15,8 +15,13 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
+    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
+    cancel-in-progress: false
+
 env:
-    DOCKER_REGISTRY_PREFIX: us-east1-docker.pkg.dev/posthog-301601/mirror/
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -34,7 +39,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: buildjet-2vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
@@ -77,7 +82,7 @@ jobs:
 
     backend-code-quality:
         needs: changes
-        timeout-minutes: 10
+        timeout-minutes: 30
 
         name: Python code quality checks
         runs-on: buildjet-2vcpu-ubuntu-2204
@@ -97,11 +102,19 @@ jobs:
 
             - name: Set up Python
               id: python
-              uses: buildjet/setup-python@v4
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   cache: pip
+
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-async-migrations-tests
+              with:
+                  custom_cache_key_element: v1-${{ inputs.cache-id }}
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -110,6 +123,7 @@ jobs:
               if: steps.python.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   cd current
                   python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -162,7 +176,7 @@ jobs:
         timeout-minutes: 5
 
         name: Validate Django migrations
-        runs-on: buildjet-2vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
 
         steps:
             - uses: actions/checkout@v3
@@ -180,6 +194,14 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   cache: pip
 
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
@@ -187,6 +209,7 @@ jobs:
               if: steps.python.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   python -m pip install -r requirements.txt -r requirements-dev.txt
 
@@ -220,7 +243,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: buildjet-4vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -297,7 +320,7 @@ jobs:
         name: Async migrations tests
         needs: changes
         if: needs.changes.outputs.backend == 'true'
-        runs-on: buildjet-2vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v3
@@ -312,11 +335,19 @@ jobs:
 
             - name: Set up Python
               id: python
-              uses: buildjet/setup-python@v4
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   cache: pip
+
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -325,6 +356,7 @@ jobs:
               if: steps.python.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               shell: bash
               run: |
                   python -m pip install -r requirements.txt -r requirements-dev.txt

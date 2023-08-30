@@ -4,26 +4,15 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import {
-    AvailableFeature,
-    ChartDisplayType,
-    FilterType,
-    FunnelStep,
-    FunnelVizType,
-    InsightShortId,
-    InsightType,
-} from '~/types'
+import { AvailableFeature, FunnelStep, InsightType } from '~/types'
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
-import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
+import { CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
-import { FunnelLayout } from 'lib/constants'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { SecondaryMetrics } from './SecondaryMetrics'
-import { getSeriesColor } from 'lib/colors'
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -40,14 +29,13 @@ import { userLogic } from 'scenes/userLogic'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { EXPERIMENT_INSIGHT_ID } from './constants'
-import { NodeKind } from '~/queries/schema'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Query } from '~/queries/Query/Query'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentInsightCreator } from './MetricSelector'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { ExperimentResult } from './ExperimentResult'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -65,25 +53,17 @@ export function Experiment(): JSX.Element {
         recommendedExposureForCountData,
         variants,
         experimentResults,
-        countDataForVariant,
-        exposureCountDataForVariant,
         editingExistingExperiment,
         experimentInsightType,
         experimentResultsLoading,
         experimentLoading,
         areResultsSignificant,
-        conversionRateForVariant,
-        getIndexForVariant,
         significanceBannerDetails,
-        areTrendResultsConfusing,
         isExperimentRunning,
-        experimentResultCalculationError,
         flagImplementationWarning,
         props,
-        sortedExperimentResultVariants,
         aggregationLabel,
         groupTypes,
-        experimentCountPerUserMath,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -122,7 +102,6 @@ export function Experiment(): JSX.Element {
     const trendCount = trendResults[0]?.count
     const entrants = results?.[0]?.count
     const exposure = recommendedExposureForCountData(trendCount)
-    const secondaryColumnSpan = Math.floor(24 / (variants.length + 2)) // +2 for the names column
 
     useEffect(() => {
         setExposureAndSampleSize(exposure, sampleSize)
@@ -143,16 +122,6 @@ export function Experiment(): JSX.Element {
             ? ((funnelResultsPersonsTotal || 0) / (experiment?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experiment?.start_date, 'day') / (experiment?.parameters?.recommended_running_time || 1)) *
               100
-
-    const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
-    const status = (): string => {
-        if (!isExperimentRunning) {
-            return 'draft'
-        } else if (!experiment?.end_date) {
-            return 'running'
-        }
-        return 'complete'
-    }
 
     const maxVariants = 10
 
@@ -556,21 +525,8 @@ export function Experiment(): JSX.Element {
                                             >
                                                 <span className="text-muted">{experiment.feature_flag?.key}</span>
                                             </CopyToClipboardInline>
-                                            <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
-                                                <b className="uppercase">{status()}</b>
-                                            </Tag>
-                                            {experimentResults && experiment.end_date && (
-                                                <Tag
-                                                    style={{ alignSelf: 'center' }}
-                                                    color={areResultsSignificant ? 'green' : 'geekblue'}
-                                                >
-                                                    <b className="uppercase">
-                                                        {areResultsSignificant
-                                                            ? 'Significant Results'
-                                                            : 'Results not significant'}
-                                                    </b>
-                                                </Tag>
-                                            )}
+                                            <StatusTag />
+                                            <ResultsTag />
                                         </>
                                     }
                                 />
@@ -861,205 +817,7 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
                     </Row>
-                    <div className="experiment-result">
-                        {experimentResults ? (
-                            (experiment?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
-                                <>
-                                    <Row
-                                        className="border-t"
-                                        justify="space-between"
-                                        style={{
-                                            paddingTop: 8,
-                                            paddingBottom: 8,
-                                        }}
-                                    >
-                                        <Col span={2 * secondaryColumnSpan}>Variant</Col>
-                                        {sortedExperimentResultVariants.map((variant, idx) => (
-                                            <Col
-                                                key={idx}
-                                                span={secondaryColumnSpan}
-                                                style={{
-                                                    color: getSeriesColor(
-                                                        getIndexForVariant(variant, experimentInsightType)
-                                                    ),
-                                                }}
-                                            >
-                                                <b>{capitalizeFirstLetter(variant)}</b>
-                                            </Col>
-                                        ))}
-                                    </Row>
-                                    <Row
-                                        className="border-t"
-                                        justify="space-between"
-                                        style={{
-                                            paddingTop: 8,
-                                            paddingBottom: 8,
-                                        }}
-                                    >
-                                        <Col span={2 * secondaryColumnSpan}>
-                                            {experimentInsightType === InsightType.TRENDS ? 'Count' : 'Conversion Rate'}
-                                        </Col>
-                                        {sortedExperimentResultVariants.map((variant, idx) => (
-                                            <Col key={idx} span={secondaryColumnSpan}>
-                                                {experimentInsightType === InsightType.TRENDS
-                                                    ? countDataForVariant(variant)
-                                                    : `${conversionRateForVariant(variant)}%`}
-                                            </Col>
-                                        ))}
-                                    </Row>
-                                    <Row
-                                        className="border-t"
-                                        justify="space-between"
-                                        style={{
-                                            paddingTop: 8,
-                                            paddingBottom: 8,
-                                        }}
-                                    >
-                                        <Col span={2 * secondaryColumnSpan}>Probability to be the best</Col>
-                                        {sortedExperimentResultVariants.map((variant, idx) => (
-                                            <Col key={idx} span={secondaryColumnSpan}>
-                                                <b>
-                                                    {experimentResults.probability[variant]
-                                                        ? `${(experimentResults.probability[variant] * 100).toFixed(
-                                                              1
-                                                          )}%`
-                                                        : '--'}
-                                                </b>
-                                            </Col>
-                                        ))}
-                                    </Row>
-                                </>
-                            ) : (
-                                <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
-                                    {
-                                        //sort by decreasing probability
-                                        Object.keys(experimentResults.probability)
-                                            .sort(
-                                                (a, b) =>
-                                                    experimentResults.probability[b] - experimentResults.probability[a]
-                                            )
-                                            .map((variant, idx) => (
-                                                <Col key={idx} className="pr-4">
-                                                    <div>
-                                                        <b>{capitalizeFirstLetter(variant)}</b>
-                                                    </div>
-                                                    {experimentInsightType === InsightType.TRENDS ? (
-                                                        <>
-                                                            <Row>
-                                                                <b className="pr-1">
-                                                                    <Row>
-                                                                        {'action' in experimentResults.insight[0] && (
-                                                                            <EntityFilterInfo
-                                                                                filter={
-                                                                                    experimentResults.insight[0].action
-                                                                                }
-                                                                            />
-                                                                        )}
-                                                                        <span className="pl-1">
-                                                                            {experimentCountPerUserMath
-                                                                                ? 'metric'
-                                                                                : 'count'}
-                                                                            :
-                                                                        </span>
-                                                                    </Row>
-                                                                </b>{' '}
-                                                                {countDataForVariant(variant)}{' '}
-                                                                {areTrendResultsConfusing && idx === 0 && (
-                                                                    <Tooltip
-                                                                        placement="right"
-                                                                        title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
-                                                                    >
-                                                                        <InfoCircleOutlined className="py-1 px-0.5" />
-                                                                    </Tooltip>
-                                                                )}
-                                                            </Row>
-                                                            <div className="flex">
-                                                                <b className="pr-1">Exposure:</b>{' '}
-                                                                {exposureCountDataForVariant(variant)}
-                                                            </div>
-                                                        </>
-                                                    ) : (
-                                                        <Row>
-                                                            <b className="pr-1">Conversion rate:</b>{' '}
-                                                            {conversionRateForVariant(variant)}%
-                                                        </Row>
-                                                    )}
-                                                    <Progress
-                                                        percent={Number(
-                                                            (experimentResults.probability[variant] * 100).toFixed(1)
-                                                        )}
-                                                        size="small"
-                                                        showInfo={false}
-                                                        strokeColor={getSeriesColor(
-                                                            getIndexForVariant(variant, experimentInsightType)
-                                                        )}
-                                                    />
-                                                    <div>
-                                                        Probability that this variant is the best:{' '}
-                                                        <b>
-                                                            {(experimentResults.probability[variant] * 100).toFixed(1)}%
-                                                        </b>
-                                                    </div>
-                                                </Col>
-                                            ))
-                                    }
-                                </Row>
-                            )
-                        ) : (
-                            experimentResultsLoading && (
-                                <div className="text-center">
-                                    <Skeleton active />
-                                </div>
-                            )
-                        )}
-                        {experimentResults ? (
-                            // :KLUDGE: using `insights-page` for proper styling, should rather adapt styles
-                            <div className="mt-4 insights-page">
-                                <Query
-                                    query={{
-                                        kind: NodeKind.InsightVizNode,
-                                        source: filtersToQueryNode(transformResultFilters(experimentResults.filters)),
-                                        showTable: true,
-                                        showLastComputation: true,
-                                        showLastComputationRefresh: false,
-                                    }}
-                                    context={{
-                                        insightProps: {
-                                            dashboardItemId: experimentResults.fakeInsightId as InsightShortId,
-                                            cachedInsight: {
-                                                short_id: experimentResults.fakeInsightId as InsightShortId,
-                                                filters: transformResultFilters(experimentResults.filters),
-                                                result: experimentResults.insight,
-                                                disable_baseline: true,
-                                                last_refresh: experimentResults.last_refresh,
-                                            },
-                                            doNotLoad: true,
-                                        },
-                                    }}
-                                    readOnly
-                                />
-                            </div>
-                        ) : (
-                            experiment.start_date && (
-                                <>
-                                    <div className="no-experiment-results">
-                                        {!experimentResultsLoading && (
-                                            <div className="text-center">
-                                                <b>There are no results for this experiment yet.</b>
-                                                <div className="text-sm ">
-                                                    {!!experimentResultCalculationError &&
-                                                        `${experimentResultCalculationError}. `}{' '}
-                                                    Wait a bit longer for your users to be exposed to the experiment.
-                                                    Double check your feature flag implementation if you're still not
-                                                    seeing results.
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
-                            )
-                        )}
-                    </div>
+                    <ExperimentResult />
                 </div>
             ) : (
                 <Skeleton active />
@@ -1068,13 +826,34 @@ export function Experiment(): JSX.Element {
     )
 }
 
-const transformResultFilters = (filters: Partial<FilterType>): Partial<FilterType> => ({
-    ...filters,
-    ...(filters.insight === InsightType.FUNNELS && {
-        layout: FunnelLayout.vertical,
-        funnel_viz_type: FunnelVizType.Steps,
-    }),
-    ...(filters.insight === InsightType.TRENDS && {
-        display: ChartDisplayType.ActionsLineGraphCumulative,
-    }),
-})
+export function StatusTag(): JSX.Element {
+    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
+    const status = (): string => {
+        if (!isExperimentRunning) {
+            return 'draft'
+        } else if (!experiment?.end_date) {
+            return 'running'
+        }
+        return 'complete'
+    }
+
+    return (
+        <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+            <b className="uppercase">{status()}</b>
+        </Tag>
+    )
+}
+
+export function ResultsTag(): JSX.Element {
+    const { experiment, experimentResults, areResultsSignificant } = useValues(experimentLogic)
+    if (experimentResults && experiment.end_date) {
+        return (
+            <Tag style={{ alignSelf: 'center' }} color={areResultsSignificant ? 'green' : 'geekblue'}>
+                <b className="uppercase">{areResultsSignificant ? 'Significant Results' : 'Results not significant'}</b>
+            </Tag>
+        )
+    }
+
+    return <></>
+}

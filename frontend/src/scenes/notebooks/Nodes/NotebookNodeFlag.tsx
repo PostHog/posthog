@@ -8,7 +8,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -23,7 +23,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
     return (
         <div>
             <BindLogic logic={featureFlagLogic} props={{ id }}>
-                <div className="flex items-center gap-2 p-4">
+                <div className="flex items-center gap-2 p-3">
                     <IconFlag className="text-lg" />
                     {featureFlagLoading ? (
                         <LemonSkeleton className="h-6 flex-1" />
@@ -48,31 +48,32 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
                         <div className="p-2">
                             <FeatureFlagReleaseConditions readOnly />
                         </div>
-                        <LemonDivider className="my-0" />
-                        <div className="p-2 mr-1 flex justify-end gap-2">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconFlag />}
-                                onClick={() => {
-                                    insertAfter(buildCodeExampleContent(id))
-                                }}
-                            >
-                                Show implementation
-                            </LemonButton>
-                            <LemonButton
-                                onClick={() => {
-                                    insertAfter(buildPlaylistContent(recordingFilterForFlag))
-                                }}
-                                type="secondary"
-                                size="small"
-                                icon={<IconRecording />}
-                            >
-                                View Replays
-                            </LemonButton>
-                        </div>
                     </>
                 ) : null}
+
+                <LemonDivider className="my-0" />
+                <div className="p-2 mr-1 flex justify-end gap-2">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconFlag />}
+                        onClick={() => {
+                            insertAfter(buildCodeExampleContent(id))
+                        }}
+                    >
+                        Show implementation
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => {
+                            insertAfter(buildPlaylistContent(recordingFilterForFlag))
+                        }}
+                        type="secondary"
+                        size="small"
+                        icon={<IconRecording />}
+                    >
+                        View Replays
+                    </LemonButton>
+                </div>
             </BindLogic>
         </div>
     )
@@ -114,3 +115,10 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
         },
     },
 })
+
+export function buildFlagContent(id: FeatureFlagLogicProps['id']): JSONContent {
+    return {
+        type: NotebookNodeType.FeatureFlag,
+        attrs: { id },
+    }
+}

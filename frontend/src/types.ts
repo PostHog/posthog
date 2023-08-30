@@ -346,6 +346,8 @@ export interface TeamType extends TeamBasicType {
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
+    /** 0 or unset for Sunday, 1 for Monday. */
+    week_start_day?: number
     path_cleaning_filters: PathCleaningFilter[]
     data_attributes: string[]
     person_display_name_properties: string[]
@@ -1480,6 +1482,7 @@ export interface PluginConfigType {
     team_id: number
     enabled: boolean
     order: number
+
     config: Record<string, any>
     error?: PluginErrorType
     delivery_rate_24h?: number | null
@@ -3029,6 +3032,7 @@ export enum NotebookNodeType {
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
     FeatureFlagCodeExample = 'ph-feature-flag-code-example',
+    Experiment = 'ph-experiment',
     Person = 'ph-person',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
