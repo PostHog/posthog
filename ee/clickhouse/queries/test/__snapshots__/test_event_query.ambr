@@ -74,18 +74,24 @@
     (SELECT id
      FROM person
      WHERE team_id = 2
-       AND id IN
-         (SELECT id
-          FROM person
-          WHERE team_id = 2
-            AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
      GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'viewed'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+    AND (pdi.person_id IN
+           (SELECT id
+            FROM person
+            WHERE team_id = 2
+              AND id IN
+                (SELECT id
+                 FROM person
+                 WHERE team_id = 2
+                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
   '
 ---
 # name: TestEventQuery.test_denormalised_props
@@ -139,18 +145,24 @@
     (SELECT id
      FROM person
      WHERE team_id = 2
-       AND id IN
-         (SELECT id
-          FROM person
-          WHERE team_id = 2
-            AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
      GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+    AND (pdi.person_id IN
+           (SELECT id
+            FROM person
+            WHERE team_id = 2
+              AND id IN
+                (SELECT id
+                 FROM person
+                 WHERE team_id = 2
+                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
   '
 ---
 # name: TestEventQuery.test_entity_filtered_by_multiple_session_duration_filters
