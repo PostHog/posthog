@@ -19,6 +19,8 @@ export const onboardingLogic = kea<onboardingLogicType>({
     actions: {
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
+        setOnboaringStep: (onboardingStep: number) => ({ onboardingStep }),
+        incrementOnboardingStep: true,
     },
     reducers: () => ({
         productKey: [
@@ -31,6 +33,13 @@ export const onboardingLogic = kea<onboardingLogicType>({
             null as BillingProductV2Type | null,
             {
                 setProduct: (_, { product }) => product,
+            },
+        ],
+        onboardingStep: [
+            0,
+            {
+                setOnboaringStep: (_, { onboardingStep }) => onboardingStep,
+                incrementOnboardingStep: (state) => state + 1,
             },
         ],
     }),
@@ -61,6 +70,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 return
             }
             actions.setProductKey(productKey)
+            actions.setOnboaringStep(0)
         },
     }),
 })
