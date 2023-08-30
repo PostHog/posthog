@@ -190,7 +190,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 
     selectors(({ values, actions }) => ({
         breadcrumbs: [
-            (s) => [s.pluginConfig, (_, props) => props.pluginConfigId],
+            (s, p) => [s.pluginConfig, p.pluginConfigId],
             (pluginConfig, pluginConfigId: number): Breadcrumb[] => [
                 {
                     name: 'Apps',
