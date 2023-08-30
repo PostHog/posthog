@@ -78,4 +78,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Notebook]: () => import('./notebooks/NotebookScene'),
     [Scene.Products]: () => import('./products/Products'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
+    [Scene.OnboardingSDKs]: () => import('./onboarding/sdks/SDKs'),
 }

@@ -145,6 +145,7 @@ export const urls = {
     ingestion: (): string => '/ingestion',
     products: (): string => '/products',
     onboarding: (productKey: string): string => `/onboarding/${productKey}`,
+    onboardingSDKs: (productKey: string): string => `/onboarding/${productKey}/sdks`,
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only

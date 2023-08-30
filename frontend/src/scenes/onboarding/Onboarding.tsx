@@ -60,7 +60,7 @@ const OnboardingProductIntro = ({ product }: { product: BillingProductV2Type }):
                 <div className="flex flex-col">
                     <h2 className="text-3xl">Features</h2>
                     <div className="flex flex-wrap gap-y-4 my-6 max-w-lg">
-                        {upgradePlan.features.map((feature, i) => (
+                        {upgradePlan?.features?.map((feature, i) => (
                             <li className="flex mb-2" key={`product-features-${i}`}>
                                 <div>
                                     <IconCheckCircleOutline className="text-success mr-2 mt-1 w-6" />
@@ -133,7 +133,7 @@ const OnboardingProductIntro = ({ product }: { product: BillingProductV2Type }):
                 modalOpen={isPricingModalOpen}
                 onClose={toggleIsPricingModalOpen}
                 product={product}
-                planKey={upgradePlan.plan_key}
+                planKey={upgradePlan?.plan_key}
             />
         </div>
     )
