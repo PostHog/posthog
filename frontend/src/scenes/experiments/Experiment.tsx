@@ -1,4 +1,4 @@
-import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tooltip } from 'antd'
+import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
@@ -59,8 +59,6 @@ export function Experiment(): JSX.Element {
         experimentLoading,
         areResultsSignificant,
         significanceBannerDetails,
-        statusTag,
-        resultsTag,
         isExperimentRunning,
         flagImplementationWarning,
         props,
@@ -527,8 +525,8 @@ export function Experiment(): JSX.Element {
                                             >
                                                 <span className="text-muted">{experiment.feature_flag?.key}</span>
                                             </CopyToClipboardInline>
-                                            {statusTag}
-                                            {resultsTag}
+                                            <StatusTag />
+                                            <ResultsTag />
                                         </>
                                     }
                                 />
@@ -825,4 +823,36 @@ export function Experiment(): JSX.Element {
             )}
         </>
     )
+}
+
+export function StatusTag(): JSX.Element {
+    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
+    const status = (): string => {
+        if (!isExperimentRunning) {
+            return 'draft'
+        } else if (!experiment?.end_date) {
+            return 'running'
+        }
+        return 'complete'
+    }
+
+    return (
+        <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+            <b className="uppercase">{status()}</b>
+        </Tag>
+    )
+}
+
+export function ResultsTag(): JSX.Element {
+    const { experiment, experimentResults, areResultsSignificant } = useValues(experimentLogic)
+    if (experimentResults && experiment.end_date) {
+        return (
+            <Tag style={{ alignSelf: 'center' }} color={areResultsSignificant ? 'green' : 'geekblue'}>
+                <b className="uppercase">{areResultsSignificant ? 'Significant Results' : 'Results not significant'}</b>
+            </Tag>
+        )
+    }
+
+    return <></>
 }

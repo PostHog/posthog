@@ -15,7 +15,7 @@ import { Query } from '~/queries/Query/Query'
 export function ExperimentResult(): JSX.Element {
     const {
         experiment,
-        variants,
+        secondaryColumnSpan,
         experimentResults,
         countDataForVariant,
         exposureCountDataForVariant,
@@ -28,8 +28,6 @@ export function ExperimentResult(): JSX.Element {
         sortedExperimentResultVariants,
         experimentCountPerUserMath,
     } = useValues(experimentLogic)
-
-    const secondaryColumnSpan = Math.floor(24 / (variants.length + 2)) // +2 for the names column
 
     return (
         <div className="experiment-result">

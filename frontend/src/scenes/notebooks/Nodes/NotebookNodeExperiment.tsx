@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
-import { ExperimentLogicProps, experimentLogic } from 'scenes/experiments/experimentLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
 import { ExperimentPreview } from 'scenes/experiments/ExperimentPreview'
@@ -16,12 +16,11 @@ import { EXPERIMENT_INSIGHT_ID } from 'scenes/experiments/constants'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
+import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = props.node.attrs
-    const { experiment, experimentLoading, statusTag, resultsTag, isExperimentRunning } = useValues(
-        experimentLogic({ experimentId: id })
-    )
+    const { experiment, experimentLoading, isExperimentRunning } = useValues(experimentLogic({ experimentId: id }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
@@ -51,8 +50,8 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            {statusTag}
-                            {resultsTag}
+                            <StatusTag />
+                            <ResultsTag />
                         </>
                     )}
                 </div>
@@ -65,7 +64,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
                                 <span className="p-2">{experiment.description}</span>
                             </>
                         )}
-                        {id && !experiment.start_date && (
+                        {!experiment.start_date && (
                             <>
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">
@@ -82,7 +81,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
                                 </div>
                             </>
                         )}
-                        {id && isExperimentRunning && (
+                        {isExperimentRunning && (
                             <>
                                 {/* show results when the experiment is running */}
                                 <LemonDivider className="my-0" />
@@ -106,16 +105,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
                     >
                         View Feature Flag
                     </LemonButton>
-                    {/* <LemonButton
-                        onClick={() => {
-                            insertAfter(buildPlaylistContent(recordingFilterForFlag))
-                        }}
-                        type="secondary"
-                        size="small"
-                        icon={<IconRecording />}
-                    >
-                        View Replays
-                    </LemonButton> */}
                 </div>
             </BindLogic>
         </div>
@@ -123,7 +112,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
 }
 
 type NotebookNodeExperimentAttributes = {
-    id: ExperimentLogicProps['experimentId']
+    id: number
 }
 
 export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperimentAttributes>({
@@ -131,7 +120,7 @@ export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperi
     title: 'Experiment',
     Component,
     heightEstimate: '3rem',
-    href: (attrs) => urls.experiment(attrs.id ?? 'new'),
+    href: (attrs) => urls.experiment(attrs.id),
     resizeable: false,
     attributes: {
         id: {},
@@ -139,7 +128,7 @@ export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperi
     pasteOptions: {
         find: urls.experiment('') + '(.+)',
         getAttributes: async (match) => {
-            return { id: match[1] as ExperimentLogicProps['experimentId'] }
+            return { id: match[1] as unknown as number }
         },
     },
 })
