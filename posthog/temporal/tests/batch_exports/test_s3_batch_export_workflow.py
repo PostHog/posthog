@@ -8,6 +8,7 @@ from unittest import mock
 from uuid import uuid4
 
 import boto3
+import brotli
 import pytest
 from django.conf import settings
 from django.test import Client as HttpClient
@@ -90,8 +91,13 @@ def assert_events_in_s3(s3_client, bucket_name, key_prefix, events, compression:
     data = object["Body"].read()
 
     # Check that the data is correct.
-    if compression is not None and compression == "gzip":
-        data = gzip.decompress(data)
+    match compression:
+        case "gzip":
+            data = gzip.decompress(data)
+        case "brotli":
+            data = brotli.decompress(data)
+        case _:
+            pass
 
     json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
     # Pull out the fields we inserted only
@@ -110,7 +116,7 @@ def assert_events_in_s3(s3_client, bucket_name, key_prefix, events, compression:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip"])
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
 async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client, activity_environment, compression):
     """Test that the insert_into_s3_activity function puts data into S3."""
 
@@ -260,7 +266,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("interval,compression", itertools.product(["hour", "day"], [None, "gzip"]))
+@pytest.mark.parametrize("interval,compression", itertools.product(["hour", "day"], [None, "gzip", "brotli"]))
 async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name, interval, compression):
     """Test S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
@@ -397,7 +403,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip"])
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
 async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     client: HttpClient, s3_client, bucket_name, compression
 ):
@@ -502,7 +508,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip"])
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
 async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     client: HttpClient, s3_client, bucket_name, compression
 ):
@@ -620,7 +626,7 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip"])
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
 async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     client: HttpClient, s3_client, bucket_name, compression
 ):
@@ -731,7 +737,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip"])
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
 async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(
     client: HttpClient, s3_client, bucket_name, compression
 ):
@@ -905,6 +911,16 @@ base_inputs = {
         ),
         (
             S3InsertInputs(
+                prefix="",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                compression="brotli",
+                **base_inputs,
+            ),
+            "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.br",
+        ),
+        (
+            S3InsertInputs(
                 prefix="my-fancy-prefix",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
@@ -930,6 +946,16 @@ base_inputs = {
                 **base_inputs,
             ),
             "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.gz",
+        ),
+        (
+            S3InsertInputs(
+                prefix="my-fancy-prefix",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                compression="brotli",
+                **base_inputs,
+            ),
+            "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.br",
         ),
         (
             S3InsertInputs(
@@ -976,6 +1002,16 @@ base_inputs = {
                 **base_inputs,
             ),
             "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.gz",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                compression="gzip",
+                **base_inputs,
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.br",
         ),
     ],
 )

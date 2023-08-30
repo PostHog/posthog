@@ -7,6 +7,7 @@ import tempfile
 import typing
 from string import Template
 
+import brotli
 from temporalio import workflow
 
 SELECT_QUERY_TEMPLATE = Template(
@@ -229,6 +230,7 @@ class BatchExportTemporaryFile:
         self.records_total = 0
         self.bytes_since_last_reset = 0
         self.records_since_last_reset = 0
+        self._brotli_compressor = None
 
     def __getattr__(self, name):
         """Pass get attr to underlying tempfile.NamedTemporaryFile."""
@@ -243,6 +245,12 @@ class BatchExportTemporaryFile:
         """Context-manager protocol exit method."""
         return self._file.__exit__(exc, value, tb)
 
+    @property
+    def brotli_compressor(self):
+        if self._brotli_compressor is None:
+            self._brotli_compressor = brotli.Compressor()
+        return self._brotli_compressor
+
     def compress(self, content: bytes | str) -> bytes:
         if isinstance(content, str):
             encoded = content.encode("utf-8")
@@ -252,6 +260,9 @@ class BatchExportTemporaryFile:
         match self.compression:
             case "gzip":
                 return gzip.compress(encoded)
+            case "brotli":
+                self.brotli_compressor.process(encoded)
+                return self.brotli_compressor.flush()
             case None:
                 return encoded
             case _:
@@ -335,6 +346,18 @@ class BatchExportTemporaryFile:
             escapechar=escapechar,
             quoting=quoting,
         )
+
+    def rewind(self):
+        """Rewind the file before reading it."""
+        if self.compression == "brotli":
+            result = self._file.write(self.brotli_compressor.finish())
+
+            self.bytes_total += result
+            self.bytes_since_last_reset += result
+
+            self._brotli_compressor = None
+
+        self._file.seek(0)
 
     def reset(self):
         """Reset underlying file by truncating it.

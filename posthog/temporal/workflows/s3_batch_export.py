@@ -52,6 +52,8 @@ def get_s3_key(inputs) -> str:
     match inputs.compression:
         case "gzip":
             file_name = base_file_name + ".jsonl.gz"
+        case "brotli":
+            file_name = base_file_name + ".jsonl.br"
         case _:
             file_name = base_file_name + ".jsonl"
 
@@ -65,11 +67,15 @@ def get_s3_key(inputs) -> str:
 
 
 class UploadAlreadyInProgressError(Exception):
+    """Exception raised when an S3MultiPartUpload is already in progress."""
+
     def __init__(self, upload_id):
         super().__init__(f"This upload is already in progress with ID: {upload_id}. Instantiate a new object.")
 
 
 class NoUploadInProgressError(Exception):
+    """Exception raised when there is no S3MultiPartUpload in progress."""
+
     def __init__(self):
         super().__init__("No multi-part upload is in progress. Call 'create' to start one.")
 
@@ -80,7 +86,7 @@ class S3MultiPartUploadState(typing.NamedTuple):
 
 
 class S3MultiPartUpload:
-    """Manage an S3MultiPartUpload."""
+    """An S3 multi-part upload."""
 
     def __init__(self, s3_client, bucket_name, key):
         self.s3_client = s3_client
@@ -90,6 +96,8 @@ class S3MultiPartUpload:
         self.parts = []
 
     def to_state(self) -> S3MultiPartUploadState:
+        """Produce state tuple that can be used to resume this S3MultiPartUpload."""
+        # The second predicate is trivial but required by type-checking.
         if self.is_upload_in_progress() is False or self.upload_id is None:
             raise NoUploadInProgressError()
 
@@ -97,14 +105,17 @@ class S3MultiPartUpload:
 
     @property
     def part_number(self):
+        """Return the current part number."""
         return len(self.parts)
 
     def is_upload_in_progress(self) -> bool:
+        """Whether this S3MultiPartUpload is in progress or not."""
         if self.upload_id is None:
             return False
         return True
 
-    def create(self) -> str:
+    def start(self) -> str:
+        """Start this S3MultiPartUpload."""
         if self.is_upload_in_progress() is True:
             raise UploadAlreadyInProgressError(self.upload_id)
 
@@ -114,6 +125,7 @@ class S3MultiPartUpload:
         return self.upload_id
 
     def continue_from_state(self, state: S3MultiPartUploadState):
+        """Continue this S3MultiPartUpload from a previous state."""
         self.upload_id = state.upload_id
         self.parts = state.parts
 
@@ -145,11 +157,14 @@ class S3MultiPartUpload:
             UploadId=self.upload_id,
         )
 
-    def upload_part(self, body: bytes | typing.BinaryIO | BatchExportTemporaryFile, rewind: bool = True):
+        self.upload_id = None
+        self.parts = []
+
+    def upload_part(self, body: BatchExportTemporaryFile, rewind: bool = True):
         next_part_number = self.part_number + 1
 
-        if rewind is True and not isinstance(body, bytes):
-            body.seek(0)
+        if rewind is True:
+            body.rewind()
 
         response = self.s3_client.upload_part(
             Bucket=self.bucket_name,
@@ -163,7 +178,7 @@ class S3MultiPartUpload:
 
     def __enter__(self):
         if not self.is_upload_in_progress():
-            self.create()
+            self.start()
 
         return self
 
@@ -216,7 +231,8 @@ class S3InsertInputs:
     compression: str | None = None
 
 
-def create_or_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
+def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
+    """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
     key = get_s3_key(inputs)
     s3_client = boto3.client(
         "s3",
@@ -245,8 +261,19 @@ def create_or_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPa
             exc_info=e,
         )
     else:
-        activity.logger.info(f"Received details from previous activity. Export will resume from: {interval_start}")
+        activity.logger.info(
+            f"Received details from previous activity. Export will attempt to resume from: {interval_start}"
+        )
         s3_upload.continue_from_state(upload_state)
+
+        if inputs.compression == "brotli":
+            # Even if we receive details we cannot resume a brotli compressed upload as we have lost the compressor state.
+            interval_start = inputs.data_interval_start
+
+            activity.logger.info(
+                f"Export will start from the beginning as we are using brotli compression: {interval_start}"
+            )
+            s3_upload.abort()
 
     return s3_upload, interval_start
 
@@ -285,7 +312,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
-        s3_upload, interval_start = create_or_resume_multipart_upload(inputs)
+        s3_upload, interval_start = initialize_and_resume_multipart_upload(inputs)
 
         # Iterate through chunks of results from ClickHouse and push them to S3
         # as a multipart upload. The intention here is to keep memory usage low,
