@@ -8,6 +8,7 @@ import { onboardingLogic } from './onboardingLogic'
 import { SDKs } from './sdks/SDKs'
 import { OnboardingProductIntro } from './OnboardingProductIntro'
 import { OnboardingStep } from './OnboardingStep'
+import { ProductKey } from '~/types'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -69,14 +70,13 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
 }
 
 const getOnboarding = (productKey: string): JSX.Element => {
-    if (productKey === 'product_analytics') {
-        return <ProductAnalyticsOnboarding />
-    } else if (productKey === 'session_replay') {
-        return <SessionReplayOnboarding />
-    } else if (productKey === 'feature_flags') {
-        return <FeatureFlagsOnboarding />
+    const onboardingViews = {
+        [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
+        [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
+        [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
     }
-    return <></>
+    const OnboardingView = onboardingViews[productKey]
+    return OnboardingView ? <OnboardingView /> : <></>
 }
 
 export function Onboarding(): JSX.Element | null {
