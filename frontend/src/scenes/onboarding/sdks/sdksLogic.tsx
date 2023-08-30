@@ -1,4 +1,16 @@
-export const allSDKs = [
+import { kea } from 'kea'
+
+import type { sdksLogicType } from './sdksLogicType'
+
+type SDK = {
+    name: string
+    key: string
+    recommended?: boolean
+    tags: string[]
+    image: string
+}
+
+export const allSDKs: SDK[] = [
     // Web
     {
         name: 'JavaScript web',
@@ -72,3 +84,33 @@ export const allSDKs = [
         image: require('./logos/ruby.svg'),
     },
 ]
+
+export const sdksLogic = kea<sdksLogicType>({
+    path: ['scenes', 'onboarding', 'sdks', 'sdksLogic'],
+
+    actions: {
+        setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
+        setSDKs: (sdks: SDK[]) => ({ sdks }),
+    },
+
+    reducers: {
+        sourceFilter: [
+            null as string | null,
+            {
+                setSourceFilter: (_, { sourceFilter }) => sourceFilter,
+            },
+        ],
+        sdks: [
+            allSDKs,
+            {
+                setSDKs: (_, { sdks }) => sdks,
+                setSourceFilter: (state, { sourceFilter }) => {
+                    if (!sourceFilter) {
+                        return allSDKs
+                    }
+                    return allSDKs.filter((sdk) => sdk.tags.includes(sourceFilter))
+                },
+            },
+        ],
+    },
+})
