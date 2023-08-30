@@ -5,6 +5,7 @@ import { ProductKey, SDK } from '~/types'
 import { onboardingLogic } from '../onboardingLogic'
 import { ProductAnalyticsSDKInstructions } from './ProductAnalyticsSDKInstructions'
 import { allSDKs } from './allSDKs'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 
 export const productAvailableSDKs = {
     [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsSDKInstructions,
@@ -21,6 +22,7 @@ export const sdksLogic = kea<sdksLogicType>({
         filterSDKs: true,
         setSDKs: (sdks: SDK[]) => ({ sdks }),
         setSelectedSDK: (sdk: SDK) => ({ sdk }),
+        setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
     },
 
     reducers: {
@@ -48,6 +50,12 @@ export const sdksLogic = kea<sdksLogicType>({
                 setSelectedSDK: (_, { sdk }) => sdk,
             },
         ],
+        sourceOptions: [
+            [] as LemonSelectOptions<string>,
+            {
+                setSourceOptions: (_, { sourceOptions }) => sourceOptions,
+            },
+        ],
     },
     listeners: ({ actions, values }) => ({
         filterSDKs: () => {
@@ -66,6 +74,17 @@ export const sdksLogic = kea<sdksLogicType>({
         },
         setProductKey: () => {
             actions.filterSDKs()
+        },
+        setSDKs: () => {
+            values.sdks &&
+                actions.setSourceOptions(
+                    values.sdks
+                        ?.flatMap((sdk) => sdk.tags)
+                        .map((tag) => ({
+                            label: tag.charAt(0).toUpperCase() + tag.slice(1),
+                            value: tag,
+                        }))
+                )
         },
     }),
     events: ({ actions }) => ({
