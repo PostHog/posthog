@@ -1,5 +1,4 @@
-// import global directly to avoid importing antd
-import '../../src/styles/global.scss'
+import '~/styles'
 import './styles.scss'
 
 import ReactDOM from 'react-dom'
