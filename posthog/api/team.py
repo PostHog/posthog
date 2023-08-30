@@ -203,13 +203,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
 
-        geoip_properties = get_geoip_properties(get_ip_address(request))
-        country_code = geoip_properties.get("$geoip_country_code", None)
-        if country_code:
-            week_start_day_for_user_ip_location = get_week_start_for_country_code(country_code)
-            # get_week_start_for_country_code() also returns 6 for countries where the week starts on Saturday,
-            # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
-            validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
+        if "week_start_day" not in validated_data:
+            country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
+            if country_code:
+                week_start_day_for_user_ip_location = get_week_start_for_country_code(country_code)
+                # get_week_start_for_country_code() also returns 6 for countries where the week starts on Saturday,
+                # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
+                validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
 
         if validated_data.get("is_demo", False):
             team = Team.objects.create(**validated_data, organization=organization)
