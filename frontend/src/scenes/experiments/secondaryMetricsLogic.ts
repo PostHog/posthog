@@ -53,7 +53,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     props({} as SecondaryMetricsProps),
     key((props) => `${props.experimentId || 'new'}-${props.defaultAggregationType}`),
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
-    connect({
+    connect(() => ({
         logic: [insightLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })],
         values: [teamLogic, ['currentTeamId']],
         actions: [
@@ -62,7 +62,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             insightVizDataLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID }),
             ['updateQuerySource'],
         ],
-    }),
+    })),
     actions({
         // modal
         openModalToCreateSecondaryMetric: true,
