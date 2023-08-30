@@ -1,12 +1,15 @@
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { sdksLogic } from './sdksLogic'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { useActions, useValues } from 'kea'
 import { OnboardingStep } from '../OnboardingStep'
+import { SDKSnippet } from './SDKSnippet'
+import { onboardingLogic } from '../onboardingLogic'
 
 export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
-    const { setSourceFilter } = useActions(sdksLogic)
-    const { sourceFilter, sdks } = useValues(sdksLogic)
+    const { setSourceFilter, setSelectedSDK } = useActions(sdksLogic)
+    const { sourceFilter, sdks, selectedSDK } = useValues(sdksLogic)
+    const { productKey } = useValues(onboardingLogic)
     return (
         <OnboardingStep
             title={`Where are you ${usersAction || 'collecting data'} from?`}
@@ -36,8 +39,13 @@ export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
                 />
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-4 mt-8 justify-center">
-                {sdks.map((sdk) => (
-                    <LemonCard className="w-32 flex flex-col items-center text-center" key={'sdk-option-' + sdk.key}>
+                {sdks?.map((sdk) => (
+                    <LemonCard
+                        className="w-32 flex flex-col items-center text-center"
+                        key={'sdk-option-' + sdk.key}
+                        onClick={() => setSelectedSDK(sdk)}
+                        focused={selectedSDK?.key == sdk.key}
+                    >
                         <div className="h-8 mb-4">
                             <img src={sdk.image} className="w-8" />
                         </div>
@@ -45,6 +53,12 @@ export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
                     </LemonCard>
                 ))}
             </div>
+            {selectedSDK && productKey && (
+                <>
+                    <LemonDivider className="my-8" />
+                    <SDKSnippet sdk={selectedSDK} productKey={productKey} />
+                </>
+            )}
         </OnboardingStep>
     )
 }

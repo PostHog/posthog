@@ -3163,3 +3163,17 @@ export type SDK = {
     tags: string[]
     image: string
 }
+
+export enum SDKKey {
+    JS_WEB = 'javascript_web',
+    REACT = 'react',
+    NEXT_JS = 'nextjs',
+    GATSBY = 'gatsby',
+    IOS = 'ios',
+    ANDROID = 'android',
+    FLUTTER = 'flutter',
+    REACT_NATIVE = 'react_native',
+    NODE_JS = 'nodejs',
+    RUBY = 'ruby',
+    PYTHON = 'python',
+}

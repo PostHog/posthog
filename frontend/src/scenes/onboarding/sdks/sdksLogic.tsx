@@ -1,89 +1,26 @@
 import { kea } from 'kea'
 
 import type { sdksLogicType } from './sdksLogicType'
-import { SDK } from '~/types'
+import { ProductKey, SDK } from '~/types'
+import { onboardingLogic } from '../onboardingLogic'
+import { ProductAnalyticsSDKInstructions } from './ProductAnalyticsSDKInstructions'
+import { allSDKs } from './allSDKs'
 
-export const allSDKs: SDK[] = [
-    // Web
-    {
-        name: 'JavaScript web',
-        key: 'javascript_web',
-        recommended: true,
-        tags: ['web'],
-        image: require('./logos/javascript_web.svg'),
-    },
-    {
-        name: 'React',
-        key: 'react',
-        tags: ['web'],
-        image: require('./logos/react.svg'),
-    },
-    {
-        name: 'Next.js',
-        key: 'nextjs',
-        tags: ['web'],
-        image: require('./logos/nextjs.svg'),
-    },
-    {
-        name: 'Gatsby',
-        key: 'gatsby',
-        tags: ['web'],
-        image: require('./logos/gatsby.svg'),
-    },
-    // ...other web frameworks
-    // Mobile
-    {
-        name: 'iOS',
-        key: 'ios',
-        tags: ['mobile'],
-        image: require('./logos/ios.svg'),
-    },
-    {
-        name: 'Android',
-        key: 'android',
-        tags: ['mobile'],
-        image: require('./logos/android.svg'),
-    },
-    {
-        name: 'React Native',
-        key: 'react',
-        tags: ['mobile'],
-        image: require('./logos/react.svg'),
-    },
-    {
-        name: 'Flutter',
-        key: 'flutter',
-        tags: ['mobile'],
-        image: require('./logos/flutter.svg'),
-    },
-    // ...other mobile frameworks
-    // Server
-    {
-        name: 'Node.js',
-        key: 'nodejs',
-        tags: ['server'],
-        image: require('./logos/nodejs.svg'),
-    },
-    {
-        name: 'Python',
-        key: 'python',
-        tags: ['server'],
-        image: require('./logos/python.svg'),
-    },
-    {
-        name: 'Ruby',
-        key: 'ruby',
-        tags: ['server'],
-        image: require('./logos/ruby.svg'),
-    },
-]
+export const productAvailableSDKs = {
+    [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsSDKInstructions,
+}
 
 export const sdksLogic = kea<sdksLogicType>({
     path: ['scenes', 'onboarding', 'sdks', 'sdksLogic'],
-
+    connect: {
+        values: [onboardingLogic, ['productKey']],
+        actions: [onboardingLogic, ['setProductKey']],
+    },
     actions: {
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
+        filterSDKs: true,
         setSDKs: (sdks: SDK[]) => ({ sdks }),
+        setSelectedSDK: (sdk: SDK) => ({ sdk }),
     },
 
     reducers: {
@@ -94,7 +31,7 @@ export const sdksLogic = kea<sdksLogicType>({
             },
         ],
         sdks: [
-            allSDKs,
+            null as SDK[] | null,
             {
                 setSDKs: (_, { sdks }) => sdks,
                 setSourceFilter: (_, { sourceFilter }) => {
@@ -105,5 +42,35 @@ export const sdksLogic = kea<sdksLogicType>({
                 },
             },
         ],
+        selectedSDK: [
+            null as SDK | null,
+            {
+                setSelectedSDK: (_, { sdk }) => sdk,
+            },
+        ],
     },
+    listeners: ({ actions, values }) => ({
+        filterSDKs: () => {
+            const filteredSDks: SDK[] = allSDKs
+                .filter((sdk) => Object.keys(productAvailableSDKs[values.productKey || '']).includes(sdk.key))
+                .filter((sdk) => {
+                    if (!values.sourceFilter) {
+                        return true
+                    }
+                    return sdk.tags.includes(values.sourceFilter)
+                })
+            actions.setSDKs(filteredSDks)
+        },
+        setSourceFilter: () => {
+            actions.filterSDKs()
+        },
+        setProductKey: () => {
+            actions.filterSDKs()
+        },
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.filterSDKs()
+        },
+    }),
 })
