@@ -14,7 +14,6 @@ import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
-import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import {
     IconArrowDown,
     IconArrowUp,
@@ -34,6 +33,7 @@ import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconHelpOutline, IconTarget } from 'lib/lemon-ui/icons'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -324,7 +324,7 @@ export function ToolbarButton(): JSX.Element {
                         extensionPercentage={extensionPercentage}
                         distance={helpButtonOnTop ? 75 : 55}
                         rotation={helpButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
-                        content={<QuestionOutlined style={{ fontSize: 22 }} />}
+                        content={<IconHelpOutline style={{ fontSize: 22 }} />}
                         label="Help"
                         zIndex={2}
                         onClick={() => window.open(HELP_URL, '_blank')?.focus()}
@@ -443,7 +443,7 @@ export function ToolbarButton(): JSX.Element {
                             opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,
                         }}
                         content={
-                            <AimOutlined
+                            <IconTarget
                                 style={{ fontSize: '28px', color: buttonActionsVisible ? '#fef5e2' : '#f1aa04' }}
                             />
                         }

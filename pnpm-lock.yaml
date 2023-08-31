@@ -8,6 +8,18 @@ dependencies:
   '@ant-design/icons':
     specifier: ^4.7.0
     version: 4.7.0(react-dom@16.14.0)(react@16.14.0)
+  '@dnd-kit/core':
+    specifier: ^6.0.8
+    version: 6.0.8(react-dom@16.14.0)(react@16.14.0)
+  '@dnd-kit/modifiers':
+    specifier: ^6.0.1
+    version: 6.0.1(@dnd-kit/core@6.0.8)(react@16.14.0)
+  '@dnd-kit/sortable':
+    specifier: ^7.0.2
+    version: 7.0.2(@dnd-kit/core@6.0.8)(react@16.14.0)
+  '@dnd-kit/utilities':
+    specifier: ^3.2.1
+    version: 3.2.1(react@16.14.0)
   '@floating-ui/react':
     specifier: ^0.16.0
     version: 0.16.0(@types/react@16.14.34)(react-dom@16.14.0)(react@16.14.0)
@@ -62,9 +74,6 @@ dependencies:
   '@types/md5':
     specifier: ^2.3.0
     version: 2.3.2
-  '@types/react-input-autosize':
-    specifier: ^2.2.1
-    version: 2.2.1
   '@types/react-textfit':
     specifier: ^1.1.0
     version: 1.1.0
@@ -369,6 +378,9 @@ devDependencies:
   '@storybook/core-events':
     specifier: ^7.3.1
     version: 7.3.1
+  '@storybook/csf':
+    specifier: ^0.1.1
+    version: 0.1.1
   '@storybook/react':
     specifier: ^7.3.1
     version: 7.3.1(react-dom@16.14.0)(react@16.14.0)(typescript@4.9.5)
@@ -2146,6 +2158,61 @@ packages:
     resolution: {integrity: sha512-dBVuXR082gk3jsFp7Rd/JI4kytwGHecnCoTtXFb7DB6CNHp4rg5k1bhg0nWdLGLnOV71lmDzGQaLMy8iPLY0pw==}
     engines: {node: '>=10.0.0'}
     dev: true
+
+  /@dnd-kit/accessibility@3.0.1(react@16.14.0):
+    resolution: {integrity: sha512-HXRrwS9YUYQO9lFRc/49uO/VICbM+O+ZRpFDe9Pd1rwVv2PCNkRiTZRdxrDgng/UkvdC3Re9r2vwPpXXrWeFzg==}
+    peerDependencies:
+      react: '>=16.8.0'
+    dependencies:
+      react: 16.14.0
+      tslib: 2.4.1
+    dev: false
+
+  /@dnd-kit/core@6.0.8(react-dom@16.14.0)(react@16.14.0):
+    resolution: {integrity: sha512-lYaoP8yHTQSLlZe6Rr9qogouGUz9oRUj4AHhDQGQzq/hqaJRpFo65X+JKsdHf8oUFBzx5A+SJPUvxAwTF2OabA==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+    dependencies:
+      '@dnd-kit/accessibility': 3.0.1(react@16.14.0)
+      '@dnd-kit/utilities': 3.2.1(react@16.14.0)
+      react: 16.14.0
+      react-dom: 16.14.0(react@16.14.0)
+      tslib: 2.4.1
+    dev: false
+
+  /@dnd-kit/modifiers@6.0.1(@dnd-kit/core@6.0.8)(react@16.14.0):
+    resolution: {integrity: sha512-rbxcsg3HhzlcMHVHWDuh9LCjpOVAgqbV78wLGI8tziXY3+qcMQ61qVXIvNKQFuhj75dSfD+o+PYZQ/NUk2A23A==}
+    peerDependencies:
+      '@dnd-kit/core': ^6.0.6
+      react: '>=16.8.0'
+    dependencies:
+      '@dnd-kit/core': 6.0.8(react-dom@16.14.0)(react@16.14.0)
+      '@dnd-kit/utilities': 3.2.1(react@16.14.0)
+      react: 16.14.0
+      tslib: 2.4.1
+    dev: false
+
+  /@dnd-kit/sortable@7.0.2(@dnd-kit/core@6.0.8)(react@16.14.0):
+    resolution: {integrity: sha512-wDkBHHf9iCi1veM834Gbk1429bd4lHX4RpAwT0y2cHLf246GAvU2sVw/oxWNpPKQNQRQaeGXhAVgrOl1IT+iyA==}
+    peerDependencies:
+      '@dnd-kit/core': ^6.0.7
+      react: '>=16.8.0'
+    dependencies:
+      '@dnd-kit/core': 6.0.8(react-dom@16.14.0)(react@16.14.0)
+      '@dnd-kit/utilities': 3.2.1(react@16.14.0)
+      react: 16.14.0
+      tslib: 2.4.1
+    dev: false
+
+  /@dnd-kit/utilities@3.2.1(react@16.14.0):
+    resolution: {integrity: sha512-OOXqISfvBw/1REtkSK2N3Fi2EQiLMlWUlqnOK/UpOISqBZPWpE6TqL+jcPtMOkE8TqYGiURvRdPSI9hltNUjEA==}
+    peerDependencies:
+      react: '>=16.8.0'
+    dependencies:
+      react: 16.14.0
+      tslib: 2.4.1
+    dev: false
 
   /@emotion/use-insertion-effect-with-fallbacks@1.0.1(react@16.14.0):
     resolution: {integrity: sha512-jT/qyKZ9rzLErtrjGgdkMBn2OP8wl0G3sQlBb3YPryvKHsjvINUhVaPFfP+fpBcOkmrVOVEEHQFJ7nbj2TH2gw==}
@@ -6179,12 +6246,6 @@ packages:
     dependencies:
       '@types/react': 16.14.34
     dev: true
-
-  /@types/react-input-autosize@2.2.1:
-    resolution: {integrity: sha512-RxzEjd4gbLAAdLQ92Q68/AC+TfsAKTc4evsArUH1aIShIMqQMIMjsxoSnwyjtbFTO/AGIW/RQI94XSdvOxCz/w==}
-    dependencies:
-      '@types/react': 16.14.34
-    dev: false
 
   /@types/react-modal@3.13.1:
     resolution: {integrity: sha512-iY/gPvTDIy6Z+37l+ibmrY+GTV4KQTHcCyR5FIytm182RQS69G5ps4PH2FxtC7bAQ2QRHXMevsBgck7IQruHNg==}
@@ -12904,7 +12965,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}

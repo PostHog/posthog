@@ -6,6 +6,7 @@ export const createExportServiceHandlers = (
 ): { exports: { [id: number]: BatchExportConfiguration }; handlers: any } => {
     const handlers = {
         get: {
+            '/api/projects/:team_id/groups_types/': [],
             '/api/projects/:team_id/batch_exports/': (_req: any, res: any, ctx: any) => {
                 return res(
                     ctx.delay(1000),

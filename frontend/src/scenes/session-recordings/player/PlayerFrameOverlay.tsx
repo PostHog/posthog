@@ -60,7 +60,11 @@ const PlayerFrameOverlayContent = ({
     if (currentPlayerState === SessionPlayerState.SKIP) {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
-    return content ? <div className="PlayerFrameOverlay__content">{content}</div> : null
+    return content ? (
+        <div className="PlayerFrameOverlay__content" aria-busy={currentPlayerState === SessionPlayerState.BUFFER}>
+            {content}
+        </div>
+    ) : null
 }
 
 export function PlayerFrameOverlay(): JSX.Element {

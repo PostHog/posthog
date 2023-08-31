@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { PlusOutlined } from '@ant-design/icons'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, IconPlus } from '@posthog/lemon-ui'
 
 export function ActionsList(): JSX.Element {
     const { allActions, sortedActions, allActionsLoading, searchTerm } = useValues(actionsLogic)
@@ -16,15 +14,16 @@ export function ActionsList(): JSX.Element {
         <>
             <LemonInput
                 autoFocus
+                fullWidth
                 placeholder="Search"
                 type={'search'}
-                fullWidth
                 value={searchTerm}
+                className={'mb-1'}
                 onChange={(s) => setSearchTerm(s)}
             />
             <div className="actions-list">
-                <div className="actions-list-header flex-flex-row">
-                    <LemonButton type="primary" size="small" icon={<PlusOutlined />} onClick={() => newAction()}>
+                <div className="actions-list-header pt-2 pb-4">
+                    <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>
                         New action
                     </LemonButton>
                 </div>
