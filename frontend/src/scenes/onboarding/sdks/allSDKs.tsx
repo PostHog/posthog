@@ -1,3 +1,4 @@
+import { Logomark } from '~/toolbar/assets/Logomark'
 import { SDK, SDKKey } from '~/types'
 
 export const allSDKs: SDK[] = [
@@ -95,6 +96,6 @@ export const allSDKs: SDK[] = [
         name: 'API',
         key: SDKKey.API,
         tags: ['server'],
-        image: require('./logos/react.svg'),
+        image: <Logomark />,
     },
 ]
