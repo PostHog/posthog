@@ -3166,7 +3166,8 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: string[]
-    image: string
+    image: string | JSX.Element
+    docsLink: string
 }
 
 export enum SDKKey {

@@ -2,7 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
-import { IconArrowRight } from 'lib/lemon-ui/icons'
+import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 
 export const OnboardingStep = ({
     title,
@@ -14,11 +14,25 @@ export const OnboardingStep = ({
     children: React.ReactNode
 }): JSX.Element => {
     const { onboardingStep, totalOnboardingSteps } = useValues(onboardingLogic)
-    const { incrementOnboardingStep, completeOnboarding } = useActions(onboardingLogic)
+    const { incrementOnboardingStep, decrementOnboardingStep, completeOnboarding } = useActions(onboardingLogic)
     return (
-        <BridgePage view="onboarding-step" noLogo hedgehog={false} fixedWidth={false}>
+        <BridgePage
+            view="onboarding-step"
+            noLogo
+            hedgehog={false}
+            fixedWidth={false}
+            header={
+                onboardingStep > 1 && (
+                    <div className="mb-4">
+                        <LemonButton icon={<IconArrowLeft />} onClick={decrementOnboardingStep}>
+                            Back
+                        </LemonButton>
+                    </div>
+                )
+            }
+        >
             <div className="max-w-md">
-                <h1>{title}</h1>
+                <h1 className="font-bold">{title}</h1>
                 <p>{subtitle}</p>
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">

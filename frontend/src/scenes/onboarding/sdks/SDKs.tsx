@@ -1,4 +1,4 @@
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 import { sdksLogic } from './sdksLogic'
 import { useActions, useValues } from 'kea'
 import { OnboardingStep } from '../OnboardingStep'
@@ -13,22 +13,21 @@ export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
     return (
         <OnboardingStep
             title={`Where are you ${usersAction || 'collecting data'} from?`}
-            subtitle="Pick one to start and add more sources later."
+            subtitle="Pick one or two to start and add more sources later."
         >
-            <div className="flex gap-x-4">
-                <LemonInput placeholder="Search for a source" type="search" />
-                {sourceOptions.length > 1 && (
-                    <LemonSelect
-                        allowClear
-                        onChange={(v) => setSourceFilter(v)}
-                        options={sourceOptions}
-                        placeholder="Select a source type"
-                        value={sourceFilter}
-                    />
-                )}
-            </div>
+            <LemonDivider className="my-8" />
             <div className="flex gap-x-8 mt-8">
-                <div className={`flex flex-col gap-y-2 flex-wrap gap-x-4 min-w-40`}>
+                <div className={`flex flex-col gap-y-2 flex-wrap gap-x-4 min-w-50`}>
+                    {sourceOptions.length > 1 && (
+                        <LemonSelect
+                            allowClear
+                            onChange={(v) => setSourceFilter(v)}
+                            options={sourceOptions}
+                            placeholder="Select a source type"
+                            value={sourceFilter}
+                            className="w-full"
+                        />
+                    )}
                     {sdks?.map((sdk) => (
                         <>
                             {selectedSDK?.key == sdk.key ? (
