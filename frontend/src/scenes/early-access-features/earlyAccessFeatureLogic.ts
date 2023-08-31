@@ -16,7 +16,7 @@ import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from '@posthog/lemon-ui'
 
-const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
+export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
     stage: EarlyAccessFeatureStage.Draft,
@@ -54,7 +54,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 }
                 return NEW_EARLY_ACCESS_FEATURE
             },
-            saveEarlyAccessFeature: async (updatedEarlyAccessFeature: Partial<EarlyAccessFeatureType>) => {
+            saveEarlyAccessFeature: async (
+                updatedEarlyAccessFeature: Partial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>
+            ) => {
                 let result: EarlyAccessFeatureType
                 if (props.id === 'new') {
                     result = await api.earlyAccessFeatures.create(
