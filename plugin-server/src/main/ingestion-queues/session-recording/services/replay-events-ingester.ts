@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node'
 import { captureException, captureMessage } from '@sentry/node'
 import Ajv, { ValidateFunction } from 'ajv'
 import { randomUUID } from 'crypto'
@@ -134,6 +135,7 @@ export class ReplayEventsIngester {
             return drop('high_water_mark')
         }
 
+        const transaction = Sentry.startTransaction({ name: `replayIngestion_consume` }, {})
         try {
             const replayRecord = createSessionReplayEvent(
                 randomUUID(),
@@ -212,6 +214,8 @@ export class ReplayEventsIngester {
             status.error('⚠️', '[replay-events] processing_error', {
                 error: error,
             })
+        } finally {
+            transaction.finish()
         }
     }
     public async start(): Promise<void> {
