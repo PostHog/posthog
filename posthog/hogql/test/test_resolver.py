@@ -7,6 +7,7 @@ from uuid import UUID
 from freezegun import freeze_time
 
 from posthog.hogql import ast
+from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import LazyJoin
@@ -280,11 +281,11 @@ class TestResolver(BaseTest):
                     ast.Constant(value="boo", type=ast.StringType()),
                     ast.Constant(value=True, type=ast.BooleanType()),
                     ast.Constant(value=1.1232, type=ast.FloatType()),
-                    ast.Constant(value=None, type=ast.UnknownType()),
+                    ast.Constant(value=None, type=UnknownType()),
                     ast.Constant(value=date(2020, 1, 10), type=ast.DateType()),
                     ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc), type=ast.DateTimeType()),
                     ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000"), type=ast.UUIDType()),
-                    ast.Constant(value=[], type=ast.ArrayType(item_type=ast.UnknownType())),
+                    ast.Constant(value=[], type=ast.ArrayType(item_type=UnknownType())),
                     ast.Constant(value=[1, 2], type=ast.ArrayType(item_type=ast.IntegerType())),
                     ast.Constant(
                         value=(1, 2, 3),
@@ -687,7 +688,7 @@ class TestResolver(BaseTest):
             ast.Call(
                 name="max",
                 # NB! timestamp was resolved to a DateTimeType for the Call's arg type.
-                type=ast.CallType(name="max", arg_types=[ast.DateTimeType()], return_type=ast.UnknownType()),
+                type=ast.CallType(name="max", arg_types=[ast.DateTimeType(nullable=False)], return_type=UnknownType()),
                 args=[
                     ast.Field(
                         chain=["timestamp"],
@@ -958,10 +959,13 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context))
 
         # found a type
-        lambda_type: ast.SelectQueryType = cast(ast.SelectQueryType, cast(ast.Call, node.select[1]).args[0].type)
-        self.assertEqual(lambda_type.parent, node.type)
-        self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
-        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
+        lambda_type: ast.LambdaType = cast(ast.LambdaType, cast(ast.Call, node.select[1]).args[0].type)
+        self.assertTrue(isinstance(node.select[1].args[0].type, ast.LambdaType))
+        self.assertEqual(lambda_type.arg_types, [ast.UnknownType()])
+        self.assertEqual(lambda_type.return_type, ast.UnknownType())
+        self.assertEqual(lambda_type.scope.parent, node.type)
+        self.assertEqual(list(lambda_type.scope.aliases.keys()), ["x"])
+        self.assertEqual(list(lambda_type.scope.parent.columns.keys()), ["timestamp"])
 
     def test_types_pass_outside_subqueries_two_levels(self):
         node: ast.SelectQuery = self._select("select event from (select event from events)")

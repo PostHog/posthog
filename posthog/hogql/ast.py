@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 from dataclasses import dataclass, field
 
-from posthog.hogql.base import Type, Expr, CTE, ConstantType
+from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database.models import (
     FieldTraverser,
@@ -31,6 +31,9 @@ class FieldAliasType(Type):
 
     def has_child(self, name: str) -> bool:
         return self.type.has_child(name)
+
+    def resolve_constant_type(self) -> "ConstantType":
+        return self.type.resolve_constant_type()
 
 
 @dataclass(kw_only=True)
@@ -140,6 +143,14 @@ class SelectQueryType(Type):
 
     def has_child(self, name: str) -> bool:
         return name in self.columns
+
+    def resolve_constant_type(self) -> "ConstantType":
+        columns = self.columns.values()
+        if len(columns) == 1:
+            return columns[0].resolve_constant_type()
+        return TupleType(
+            item_types=[column.resolve_constant_type() for column in self.columns.values()],
+        )
 
 
 @dataclass(kw_only=True)
@@ -258,8 +269,21 @@ class CallType(Type):
 
 
 @dataclass(kw_only=True)
+class LambdaType(Type):
+    arg_types: List[ConstantType]
+    return_type: ConstantType
+    scope: SelectQueryType
+
+    def resolve_constant_type(self) -> ConstantType:
+        return self.return_type
+
+
+@dataclass(kw_only=True)
 class AsteriskType(Type):
     table_type: TableOrSelectType
+
+    def resolve_constant_type(self) -> ConstantType:
+        return UnknownType()
 
 
 @dataclass(kw_only=True)
@@ -350,6 +374,9 @@ class PropertyType(Type):
 
     def has_child(self, name: str | int) -> bool:
         return True
+
+    def resolve_constant_type(self) -> ConstantType:
+        return StringType()
 
 
 @dataclass(kw_only=True)

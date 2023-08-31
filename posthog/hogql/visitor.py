@@ -1,7 +1,7 @@
 from typing import Optional
 
 from posthog.hogql import ast
-from posthog.hogql.base import AST, Expr
+from posthog.hogql.base import AST, Expr, UnknownType
 from posthog.hogql.errors import HogQLException
 
 
@@ -203,7 +203,7 @@ class TraversingVisitor(Visitor):
     def visit_boolean_type(self, node: ast.BooleanType):
         pass
 
-    def visit_unknown_type(self, node: ast.UnknownType):
+    def visit_unknown_type(self, node: UnknownType):
         pass
 
     def visit_array_type(self, node: ast.ArrayType):

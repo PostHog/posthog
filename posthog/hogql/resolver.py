@@ -4,6 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
+from posthog.hogql.base import UnknownType
 from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
@@ -22,7 +23,7 @@ from posthog.hogql.database.s3_table import S3Table
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
-        return ast.UnknownType()
+        return UnknownType()
     if isinstance(constant, bool):
         return ast.BooleanType()
     if isinstance(constant, int):
@@ -34,7 +35,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     if isinstance(constant, list):
         unique_types = set(str(resolve_constant_data_type(item)) for item in constant)
         return ast.ArrayType(
-            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType()
+            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else UnknownType()
         )
     if isinstance(constant, tuple):
         return ast.TupleType(item_types=[resolve_constant_data_type(item) for item in constant])
@@ -295,7 +296,7 @@ class Resolver(CloningVisitor):
             raise ResolverException("Alias cannot be empty")
 
         node = super().visit_alias(node)
-        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
+        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or UnknownType())
         scope.aliases[node.alias] = node.type
         return node
 
@@ -311,19 +312,20 @@ class Resolver(CloningVisitor):
         arg_types: List[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
-                arg_types.append(arg.type.resolve_constant_type() or ast.UnknownType())
+                arg_types.append(arg.type.resolve_constant_type() or UnknownType())
             else:
-                arg_types.append(ast.UnknownType())
+                arg_types.append(UnknownType())
         param_types: Optional[List[ast.ConstantType]] = None
         if node.params is not None:
             param_types = []
             for param in node.params:
                 if param.type:
-                    param_types.append(param.type.resolve_constant_type() or ast.UnknownType())
+                    param_types.append(param.type.resolve_constant_type() or UnknownType())
                 else:
-                    param_types.append(ast.UnknownType())
+                    param_types.append(UnknownType())
+        # TODO: calculate return type
         node.type = ast.CallType(
-            name=node.name, arg_types=arg_types, param_types=param_types, return_type=ast.UnknownType()
+            name=node.name, arg_types=arg_types, param_types=param_types, return_type=UnknownType()
         )
         return node
 
@@ -332,16 +334,20 @@ class Resolver(CloningVisitor):
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None)
+        scope = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None)
 
         for arg in node.args:
-            node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
+            scope.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
 
-        self.scopes.append(node_type)
+        self.scopes.append(scope)
 
         new_node = cast(ast.Lambda, clone_expr(node))
-        new_node.type = node_type
+        new_node.type = ast.LambdaType(
+            scope=scope, arg_types=[ast.UnknownType() for _ in new_node.args], return_type=ast.UnknownType()
+        )
         new_node.expr = self.visit(new_node.expr)
+        if new_node.expr.type:
+            new_node.type.return_type = new_node.expr.type.resolve_constant_type()
 
         self.scopes.pop()
 

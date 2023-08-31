@@ -35,8 +35,8 @@ class Type(AST):
     def has_child(self, name: str) -> bool:
         return self.get_child(name) is not None
 
-    def resolve_constant_type(self) -> Optional["ConstantType"]:
-        raise NotImplementedException("Type.resolve_constant_type not overridden")
+    def resolve_constant_type(self) -> "ConstantType":
+        raise NotImplementedException(f"{self.__class__.__name__}.resolve_constant_type not overridden")
 
 
 @dataclass(kw_only=True)
