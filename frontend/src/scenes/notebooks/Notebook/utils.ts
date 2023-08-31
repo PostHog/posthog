@@ -11,10 +11,8 @@ import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
 
-/* eslint-disable @typescript-eslint/no-empty-interface */
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
-/* eslint-enable @typescript-eslint/no-empty-interface */
 
 export {
     ChainedCommands as EditorCommands,
@@ -22,11 +20,13 @@ export {
     FocusPosition as EditorFocusPosition,
 } from '@tiptap/core'
 
-export type CustomNotebookNodeAttributes = Record<string, any>
-
-export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
-    nodeId: string
-    height?: string | number
+export type NotebookNodeAttributes = Record<string, any>
+export type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
+    attrs: T & {
+        nodeId: string
+        height?: string | number
+        title?: string | ((attributes: T) => Promise<string>)
+    }
 }
 
 type NotebookNode<T extends CustomNotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
@@ -53,6 +53,8 @@ export type NotebookNodeWidget = {
 export interface NotebookEditor {
     getJSON: () => JSONContent
     getSelectedNode: () => Node | null
+    getPreviousNode: () => Node | null
+    getNextNode: () => Node | null
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     setSelection: (position: number) => void

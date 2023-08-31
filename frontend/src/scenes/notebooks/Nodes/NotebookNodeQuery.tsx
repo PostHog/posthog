@@ -1,11 +1,11 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { InsightShortId, NotebookNodeType } from '~/types'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { NotebookNodeType } from '~/types'
+import { BindLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 import clsx from 'clsx'
@@ -24,25 +24,10 @@ const DEFAULT_QUERY: QuerySchema = {
 }
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const [query] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
-    const { setTitle } = useActions(notebookNodeLogic)
-    const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded } = useValues(nodeLogic)
-
-    const title = useMemo(() => {
-        if (NodeKind.DataTableNode === query.kind) {
-            if (query.source.kind) {
-                return query.source.kind.replace('Node', '')
-            }
-            return 'Data Exploration'
-        }
-        return 'Query'
-    }, [query])
-
-    useEffect(() => {
-        setTitle(title)
-        // TODO: Set title on parent props
-    }, [title])
+    const [query, setQuery] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
+    const logic = insightLogic({ dashboardItemId: 'new' })
+    const { insightProps } = useValues(logic)
+    const { expanded } = useValues(notebookNodeLogic)
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query }
@@ -125,7 +110,18 @@ export const Settings = ({
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: 'Query', // TODO: allow this to be updated from the component
+    title: (attributes) => {
+        const query = attributes.query
+        let title = 'HogQL'
+        if (NodeKind.DataTableNode === query.kind) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Data exploration'
+            }
+        }
+        return Promise.resolve(title)
+    },
     Component,
     heightEstimate: 500,
     minHeight: 200,

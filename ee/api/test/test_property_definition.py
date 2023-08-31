@@ -232,6 +232,23 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["property_type"], "DateTime")
 
+    def test_can_update_property_type_and_unchanged_keys_without_license(self):
+        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            data={
+                "id": property.id,
+                "name": "enterprise property",
+                "is_numerical": False,
+                "property_type": "DateTime",
+                "is_seen_on_filtered_events": None,
+                "tags": [],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["property_type"], "DateTime")
+
     def test_cannot_update_more_than_property_type_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(

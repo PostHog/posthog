@@ -6,6 +6,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 const meta: Meta<typeof Spinner> = {
     title: 'Lemon UI/Spinner',
     component: Spinner,
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
     tags: ['autodocs'],
 }
 export default meta

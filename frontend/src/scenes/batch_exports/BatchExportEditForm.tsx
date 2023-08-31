@@ -132,6 +132,7 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                     options={[
                                         { value: 'S3', label: 'S3' },
                                         { value: 'Snowflake', label: 'Snowflake' },
+                                        { value: 'Postgres', label: 'Postgres' },
                                     ]}
                                 />
                             </Field>
@@ -230,6 +231,52 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
 
                                     <Field name="role" label="Role" showOptional>
                                         <LemonInput placeholder="my-role" />
+                                    </Field>
+                                </>
+                            ) : batchExportConfigForm.destination === 'Postgres' ? (
+                                <>
+                                    <Field name="user" label="User">
+                                        <LemonInput placeholder="my-user" />
+                                    </Field>
+
+                                    <Field name="password" label="Password">
+                                        <LemonInput placeholder="my-password" type="password" />
+                                    </Field>
+
+                                    <Field name="host" label="Host">
+                                        <LemonInput placeholder="my-host" />
+                                    </Field>
+
+                                    <Field name="port" label="Port">
+                                        <LemonInput placeholder="5432" type="number" min="0" max="65535" />
+                                    </Field>
+
+                                    <Field name="database" label="Database">
+                                        <LemonInput placeholder="my-database" />
+                                    </Field>
+
+                                    <Field name="schema" label="Schema">
+                                        <LemonInput placeholder="public" />
+                                    </Field>
+
+                                    <Field name="table_name" label="Table name">
+                                        <LemonInput placeholder="events" />
+                                    </Field>
+
+                                    <Field name="has_self_signed_cert">
+                                        <LemonCheckbox
+                                            bordered
+                                            label={
+                                                <span className="flex items-center gap-2">
+                                                    Does your Postgres instance have a self-signed SSL certificate?
+                                                    <Tooltip
+                                                        title={'In most cases, Heroku and RDS users should check this.'}
+                                                    >
+                                                        <IconInfo className=" text-lg text-muted-alt" />
+                                                    </Tooltip>
+                                                </span>
+                                            }
+                                        />
                                     </Field>
                                 </>
                             ) : null}

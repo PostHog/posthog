@@ -6,7 +6,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
-import { QueryContext, StickinessFilter, TrendsFilter } from '~/queries/schema'
+import { QueryContext } from '~/queries/schema'
 import { ChartDisplayType, FunnelVizType, ExporterFormat, InsightType, ItemMode } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -75,11 +75,11 @@ export function InsightContainer({
         isFunnels,
         isPaths,
         display,
+        showLegend,
         trendsFilter,
         funnelsFilter,
         supportsDisplay,
         isUsingSessionAnalysis,
-        insightFilter,
         samplingFactor,
         insightDataLoading,
         erroredQueryId,
@@ -249,7 +249,7 @@ export function InsightContainer({
 
                     {BlockingEmptyState ? (
                         BlockingEmptyState
-                    ) : supportsDisplay && (insightFilter as TrendsFilter | StickinessFilter)?.show_legend ? (
+                    ) : supportsDisplay && showLegend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

@@ -24,14 +24,14 @@ const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     feature_flag_id: undefined,
 }
 
-export interface FeatureLogicProps {
+export interface EarlyAccessFeatureLogicProps {
     /** Either a UUID or "new". */
     id: string
 }
 
 export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     path(['scenes', 'features', 'featureLogic']),
-    props({} as FeatureLogicProps),
+    props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],

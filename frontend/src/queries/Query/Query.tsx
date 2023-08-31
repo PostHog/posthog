@@ -17,6 +17,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
+    /** An optional key to identify the query */
     uniqueKey?: string | number
     /** The query to render */
     query: T | string | null

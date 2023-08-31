@@ -901,7 +901,7 @@ class DataTableNode(BaseModel):
     )
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
-    showResults: Optional[bool] = Field(None, description="Show a results table")
+    showResultsTable: Optional[bool] = Field(None, description="Show a results table")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
     source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
