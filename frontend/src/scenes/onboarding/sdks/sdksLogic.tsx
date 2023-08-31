@@ -92,9 +92,14 @@ export const sdksLogic = kea<sdksLogicType>({
             actions.setSDKs(filteredSDks)
             actions.setSourceOptions(getSourceOptions(values.productKey || ''))
         },
+        setSDKs: () => {
+            if (!values.selectedSDK) {
+                actions.setSelectedSDK(values.sdks?.[0] || null)
+            }
+        },
         setSourceFilter: () => {
-            actions.filterSDKs()
             actions.setSelectedSDK(null)
+            actions.filterSDKs()
         },
         [onboardingLogic.actionTypes.setProductKey]: () => {
             // TODO: This doesn't seem to run when the setProductKey action is called in onboardingLogic...

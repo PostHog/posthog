@@ -1,11 +1,9 @@
-import { LemonButton, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { sdksLogic } from './sdksLogic'
-import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { useActions, useValues } from 'kea'
 import { OnboardingStep } from '../OnboardingStep'
 import { SDKSnippet } from './SDKSnippet'
 import { onboardingLogic } from '../onboardingLogic'
-import { IconClose } from 'lib/lemon-ui/icons'
 
 export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
     const { setSourceFilter, setSelectedSDK } = useActions(sdksLogic)
@@ -29,42 +27,54 @@ export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
                     />
                 )}
             </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-4 mt-8 justify-center">
-                {sdks?.map((sdk) => (
-                    <LemonCard
-                        className="w-32 flex flex-col items-center text-center"
-                        key={'sdk-option-' + sdk.key}
-                        onClick={() => setSelectedSDK(sdk)}
-                        focused={selectedSDK?.key == sdk.key}
-                    >
-                        {selectedSDK?.key == sdk.key && (
-                            <div className="flex justify-end w-full">
+            <div className="flex gap-x-8 mt-8">
+                <div className={`flex flex-col gap-y-2 flex-wrap gap-x-4 min-w-40`}>
+                    {sdks?.map((sdk) => (
+                        <>
+                            {selectedSDK?.key == sdk.key ? (
                                 <LemonButton
-                                    icon={<IconClose className="text-xs" />}
+                                    type="secondary"
+                                    className="flex"
+                                    icon={
+                                        <div className="w-4">
+                                            {typeof sdk.image === 'string' ? (
+                                                <img src={sdk.image} className="w-4" />
+                                            ) : (
+                                                sdk.image
+                                            )}
+                                        </div>
+                                    }
+                                >
+                                    {sdk.name}
+                                </LemonButton>
+                            ) : (
+                                <LemonButton
                                     type="tertiary"
-                                    size="small"
-                                    className="-mt-4 -mr-4"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        setSelectedSDK(null)
-                                    }}
                                     status="muted"
-                                />
-                            </div>
-                        )}
-                        <div className="h-8 mb-4">
-                            {typeof sdk.image === 'string' ? <img src={sdk.image} className="w-8" /> : sdk.image}
-                        </div>
-                        <h4 className="mb-0 leading-4">{sdk.name}</h4>
-                    </LemonCard>
-                ))}
+                                    className="flex"
+                                    onClick={() => setSelectedSDK(sdk)}
+                                    icon={
+                                        <div className="w-4">
+                                            {typeof sdk.image === 'string' ? (
+                                                <img src={sdk.image} className="w-4" />
+                                            ) : (
+                                                sdk.image
+                                            )}
+                                        </div>
+                                    }
+                                >
+                                    {sdk.name}
+                                </LemonButton>
+                            )}
+                        </>
+                    ))}
+                </div>
+                {selectedSDK && productKey && (
+                    <div className="shrink min-w-8">
+                        <SDKSnippet sdk={selectedSDK} productKey={productKey} />
+                    </div>
+                )}
             </div>
-            {selectedSDK && productKey && (
-                <>
-                    <LemonDivider className="my-8" />
-                    <SDKSnippet sdk={selectedSDK} productKey={productKey} />
-                </>
-            )}
         </OnboardingStep>
     )
 }
