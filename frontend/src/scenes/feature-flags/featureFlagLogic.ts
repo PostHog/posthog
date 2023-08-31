@@ -39,7 +39,7 @@ import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { NEW_EARLY_ACCESS_FEATURE, earlyAccessFeatureLogic } from 'scenes/early-access-features/earlyAccessFeatureLogic'
+import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -177,8 +177,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
             ['submitNewDashboardSuccessWithResult'],
-            earlyAccessFeatureLogic({ id: 'new' }),
-            ['saveEarlyAccessFeature', 'saveEarlyAccessFeatureSuccess'],
         ],
     })),
     actions({
