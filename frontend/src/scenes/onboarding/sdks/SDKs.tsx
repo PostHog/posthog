@@ -37,7 +37,7 @@ export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
                         focused={selectedSDK?.key == sdk.key}
                     >
                         <div className="h-8 mb-4">
-                            <img src={sdk.image} className="w-8" />
+                            {typeof sdk.image === 'string' ? <img src={sdk.image} className="w-8" /> : sdk.image}
                         </div>
                         <h4 className="mb-0 leading-4">{sdk.name}</h4>
                     </LemonCard>

@@ -7,6 +7,16 @@ import { ProductAnalyticsSDKInstructions } from './product-analytics/ProductAnal
 import { allSDKs } from './allSDKs'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 
+/* 
+To add SDK instructions for your product:
+    1. If needed, add a new ProductKey enum value in ~/types.ts
+    2. Create a folder in this directory for your product
+    3. Create and export the instruction components
+    4. Create a file like ProductAnalyticsSDKInstructions.tsx and export the instructions object with the SDKKey:Component mapping
+    5. Add the instructions object to the productAvailableSDKs object below
+    6. Add the SDK component to your product onboarding component
+*/
+
 export const productAvailableSDKs = {
     [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsSDKInstructions,
 }
