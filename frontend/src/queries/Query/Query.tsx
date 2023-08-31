@@ -17,6 +17,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
+    /** An optional key to identify the query */
     uniqueKey?: string | number
     /** The query to render */
     query: T | string | null
@@ -75,7 +76,15 @@ export function Query(props: QueryProps): JSX.Element | null {
     } else if (isSavedInsightNode(query)) {
         component = <SavedInsight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
-        component = <InsightViz query={query} setQuery={setQuery} context={queryContext} readOnly={readOnly} />
+        component = (
+            <InsightViz
+                query={query}
+                setQuery={setQuery}
+                context={queryContext}
+                readOnly={readOnly}
+                uniqueKey={props.uniqueKey}
+            />
+        )
     } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     }

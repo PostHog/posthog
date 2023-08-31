@@ -357,7 +357,7 @@
                     "description": "Show a reload button",
                     "type": "boolean"
                 },
-                "showResults": {
+                "showResultsTable": {
                     "description": "Show a results table",
                     "type": "boolean"
                 },

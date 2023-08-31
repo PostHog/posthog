@@ -4,6 +4,10 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { signupLogicType } from './signupLogicType'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
 export interface AccountResponse {
     success: boolean
@@ -29,7 +33,7 @@ export const emailRegex: RegExp =
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'signupLogic']),
     connect({
-        values: [preflightLogic, ['preflight']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     }),
     actions({
         setPanel: (panel: number) => ({ panel }),
@@ -99,7 +103,22 @@ export const signupLogic = kea<signupLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/signup': (_, { email }) => {
+        '/signup': (_, { email, maintenanceRedirect }) => {
+            if (values.preflight?.cloud) {
+                // Redirect to a different region if we are doing maintenance on one of them
+                const regionOverrideFlag = values.featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
+                const isRegionOverrideValid = regionOverrideFlag === 'eu' || regionOverrideFlag === 'us'
+                if (isRegionOverrideValid && regionOverrideFlag !== values.preflight?.region.toLowerCase()) {
+                    window.location.href = `https://${
+                        CLOUD_HOSTNAMES[regionOverrideFlag.toUpperCase()]
+                    }${urls.signup()}?maintenanceRedirect=true`
+                }
+                if (maintenanceRedirect && isRegionOverrideValid) {
+                    lemonToast.info(
+                        `You've been redirected to signup on our ${regionOverrideFlag.toUpperCase()} instance while we perform maintenance on our other instance.`
+                    )
+                }
+            }
             if (email) {
                 if (values.preflight?.demo) {
                     // In demo mode no password is needed, so we can log in right away

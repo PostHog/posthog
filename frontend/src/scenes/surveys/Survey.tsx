@@ -28,11 +28,11 @@ import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
 import { SurveyAppearance } from './SurveyAppearance'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -97,7 +97,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             />
             <LemonDivider />
             <div className="flex flex-row gap-4">
-                <div className="flex flex-col gap-2 min-w-180">
+                <div className="flex flex-col gap-2">
                     <Field name="name" label="Name">
                         <LemonInput data-attr="survey-name" />
                     </Field>

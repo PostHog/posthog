@@ -9,7 +9,7 @@ import {
     QueryContext,
 } from '~/queries/schema'
 import { useCallback, useState } from 'react'
-import { BindLogic, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -65,27 +65,35 @@ let uniqueNode = 0
 
 export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const uniqueNodeKey = useState(() => uniqueNode++)
-    const [nodeLogicKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    const [tableLogicKey] = useState(() => `DataTable.${uniqueNodeKey}`)
+    const [vizKey] = useState(() => `DataTable.${uniqueKey || uniqueNodeKey}`)
+    const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: nodeLogicKey,
+        key: dataKey,
         cachedResults: cachedResults,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
-    const { canLoadNewData } = useValues(builtDataNodeLogic)
+    const {
+        response,
+        responseLoading,
+        responseError,
+        queryCancelled,
+        canLoadNextData,
+        canLoadNewData,
+        nextDataLoading,
+        newDataLoading,
+        highlightedRows,
+    } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = {
-        query,
-        key: tableLogicKey,
-        nodeKey: nodeLogicKey,
-        context,
-    }
-    const { queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
+    const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
+    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
+        dataTableLogic(dataTableLogicProps)
+    )
 
     const {
+        showActions,
         showDateRange,
         showSearch,
         showEventFilter,
@@ -97,123 +105,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showColumnConfigurator,
         showPersistentColumnConfigurator,
         showSavedQueries,
+        expandable,
+        embedded,
         showOpenEditorButton,
-        showResults,
+        showResultsTable,
     } = queryWithDefaults
 
     const isReadOnly = setQuery === undefined
-
-    const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery) => setQuery?.({ ...query, source }),
-        [setQuery]
-    )
-
-    const firstRowLeft = [
-        showDateRange && isEventsQuery(query.source) ? (
-            <DateRange query={query.source} setQuery={setQuerySource} />
-        ) : null,
-        showEventFilter && isEventsQuery(query.source) ? (
-            <EventName query={query.source} setQuery={setQuerySource} />
-        ) : null,
-        showSearch && isPersonsNode(query.source) ? (
-            <PersonsSearch query={query.source} setQuery={setQuerySource} />
-        ) : null,
-        showPropertyFilter && isEventsQuery(query.source) ? (
-            <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
-        ) : null,
-        showPropertyFilter && isPersonsNode(query.source) ? (
-            <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
-        ) : null,
-    ].filter((x) => !!x)
-
-    const firstRowRight = [
-        showSavedQueries && isEventsQuery(query.source) ? <SavedQueries query={query} setQuery={setQuery} /> : null,
-    ].filter((x) => !!x)
-
-    const secondRowLeft = [
-        showReload ? <Reload key="reload" /> : null,
-        showReload && canLoadNewData ? <AutoLoad key="auto-load" /> : null,
-        showElapsedTime ? <ElapsedTime key="elapsed-time" /> : null,
-    ].filter((x) => !!x)
-
-    const secondRowRight = [
-        (showColumnConfigurator || showPersistentColumnConfigurator) && isEventsQuery(query.source) ? (
-            <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
-        ) : null,
-        showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
-    ].filter((x) => !!x)
-
-    const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
-    const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
-    const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
-
-    return (
-        <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
-            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                    {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
-                        <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
-                    ) : null}
-                    {showFirstRow && (
-                        <div className="flex gap-4 items-center">
-                            {firstRowLeft}
-                            <div className="flex-1" />
-                            {firstRowRight}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
-                            ) : null}
-                        </div>
-                    )}
-                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
-                    {showSecondRow && (
-                        <div className="flex gap-4 items-center">
-                            {secondRowLeft}
-                            <div className="flex-1" />
-                            {secondRowRight}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
-                            ) : null}
-                        </div>
-                    )}
-                    {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
-                        <div className="absolute right-0 z-10 p-1">
-                            <OpenEditorButton query={query} />
-                        </div>
-                    ) : null}
-                    {showResults && <ResultsTable query={query} setQuery={setQuery} isReadOnly={isReadOnly} />}
-                    {/* TODO: this doesn't seem like the right solution... */}
-                    <SessionPlayerModal />
-                    <PersonDeleteModal />
-                </div>
-            </BindLogic>
-        </BindLogic>
-    )
-}
-
-const ResultsTable = ({
-    query,
-    setQuery,
-    isReadOnly,
-}: {
-    query: DataTableNode
-    setQuery?: (query: DataTableNode) => void
-    isReadOnly: boolean
-}): JSX.Element => {
-    const {
-        response,
-        responseLoading,
-        responseError,
-        queryCancelled,
-        canLoadNextData,
-        nextDataLoading,
-        newDataLoading,
-        highlightedRows,
-    } = useValues(dataNodeLogic)
-    const logic = useMountedLogic(dataTableLogic)
-    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(logic)
-
-    const { showActions, expandable, embedded } = queryWithDefaults
-    const { context } = logic.props
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
     const columnsInLemonTable = isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery
@@ -423,98 +321,187 @@ const ResultsTable = ({
             : []),
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
+    const setQuerySource = useCallback(
+        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery) => setQuery?.({ ...query, source }),
+        [setQuery]
+    )
+
+    const firstRowLeft = [
+        showDateRange && isEventsQuery(query.source) ? (
+            <DateRange query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showEventFilter && isEventsQuery(query.source) ? (
+            <EventName query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showSearch && isPersonsNode(query.source) ? (
+            <PersonsSearch query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showPropertyFilter && isEventsQuery(query.source) ? (
+            <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showPropertyFilter && isPersonsNode(query.source) ? (
+            <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
+        ) : null,
+    ].filter((x) => !!x)
+
+    const firstRowRight = [
+        showSavedQueries && isEventsQuery(query.source) ? <SavedQueries query={query} setQuery={setQuery} /> : null,
+    ].filter((x) => !!x)
+
+    const secondRowLeft = [
+        showReload ? <Reload /> : null,
+        showReload && canLoadNewData ? <AutoLoad /> : null,
+        showElapsedTime ? <ElapsedTime /> : null,
+    ].filter((x) => !!x)
+
+    const secondRowRight = [
+        (showColumnConfigurator || showPersistentColumnConfigurator) && isEventsQuery(query.source) ? (
+            <ColumnConfigurator query={query} setQuery={setQuery} />
+        ) : null,
+        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
+    ].filter((x) => !!x)
+
+    const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
+    const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
+    const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
+
     return (
-        <LemonTable
-            className="DataTable"
-            loading={responseLoading && !nextDataLoading && !newDataLoading}
-            columns={lemonColumns}
-            key={
-                [...(columnsInResponse ?? []), ...columnsInQuery].join(
-                    '::'
-                ) /* Bust the LemonTable cache when columns change */
-            }
-            embedded={embedded}
-            dataSource={(dataTableRows ?? []) as DataTableRow[]}
-            rowKey={({ result }: DataTableRow, rowIndex) => {
-                if (result) {
-                    if (isEventsQuery(query.source)) {
-                        if (columnsInResponse?.includes('*')) {
-                            return result[columnsInResponse.indexOf('*')].uuid
-                        } else if (columnsInResponse?.includes('uuid')) {
-                            return result[columnsInResponse.indexOf('uuid')]
-                        } else if (columnsInResponse?.includes('id')) {
-                            return result[columnsInResponse.indexOf('id')]
-                        }
-                    }
-                    return (
-                        (result && 'uuid' in result ? (result as any).uuid : null) ??
-                        (result && 'id' in result ? (result as any).id : null) ??
-                        JSON.stringify(result ?? rowIndex)
-                    )
-                }
-                return rowIndex
-            }}
-            sorting={null}
-            useURLForSorting={false}
-            emptyState={
-                responseError ? (
-                    isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
-                        <InsightErrorState
-                            excludeDetail
-                            title={
-                                queryCancelled
-                                    ? 'The query was cancelled'
-                                    : response && 'error' in response
-                                    ? (response as any).error
-                                    : responseError
+        <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                <div className="relative w-full flex flex-col gap-4 flex-1">
+                    {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
+                        <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
+                    ) : null}
+                    {showFirstRow && (
+                        <div className="flex gap-4 items-center">
+                            {firstRowLeft}
+                            <div className="flex-1" />
+                            {firstRowRight}
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
+                                <OpenEditorButton query={query} />
+                            ) : null}
+                        </div>
+                    )}
+                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
+                    {showSecondRow && (
+                        <div className="flex gap-4 items-center">
+                            {secondRowLeft}
+                            <div className="flex-1" />
+                            {secondRowRight}
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
+                                <OpenEditorButton query={query} />
+                            ) : null}
+                        </div>
+                    )}
+                    {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
+                        <div className="absolute right-0 z-10 p-1">
+                            <OpenEditorButton query={query} />
+                        </div>
+                    ) : null}
+                    {showResultsTable && (
+                        <LemonTable
+                            className="DataTable"
+                            loading={responseLoading && !nextDataLoading && !newDataLoading}
+                            columns={lemonColumns}
+                            embedded={embedded}
+                            key={
+                                [...(columnsInResponse ?? []), ...columnsInQuery].join(
+                                    '::'
+                                ) /* Bust the LemonTable cache when columns change */
+                            }
+                            dataSource={(dataTableRows ?? []) as DataTableRow[]}
+                            rowKey={({ result }: DataTableRow, rowIndex) => {
+                                if (result) {
+                                    if (isEventsQuery(query.source)) {
+                                        if (columnsInResponse?.includes('*')) {
+                                            return result[columnsInResponse.indexOf('*')].uuid
+                                        } else if (columnsInResponse?.includes('uuid')) {
+                                            return result[columnsInResponse.indexOf('uuid')]
+                                        } else if (columnsInResponse?.includes('id')) {
+                                            return result[columnsInResponse.indexOf('id')]
+                                        }
+                                    }
+                                    return (
+                                        (result && 'uuid' in result ? (result as any).uuid : null) ??
+                                        (result && 'id' in result ? (result as any).id : null) ??
+                                        JSON.stringify(result ?? rowIndex)
+                                    )
+                                }
+                                return rowIndex
+                            }}
+                            sorting={null}
+                            useURLForSorting={false}
+                            emptyState={
+                                responseError ? (
+                                    isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
+                                        <InsightErrorState
+                                            excludeDetail
+                                            title={
+                                                queryCancelled
+                                                    ? 'The query was cancelled'
+                                                    : response && 'error' in response
+                                                    ? (response as any).error
+                                                    : responseError
+                                            }
+                                        />
+                                    ) : (
+                                        <InsightErrorState />
+                                    )
+                                ) : (
+                                    <InsightEmptyState
+                                        heading={context?.emptyStateHeading}
+                                        detail={context?.emptyStateDetail}
+                                    />
+                                )
+                            }
+                            expandable={
+                                expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
+                                    ? {
+                                          expandedRowRender: function renderExpand({ result }) {
+                                              if (isEventsQuery(query.source) && Array.isArray(result)) {
+                                                  return (
+                                                      <EventDetails
+                                                          event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                                          useReactJsonView
+                                                      />
+                                                  )
+                                              }
+                                              if (result && !Array.isArray(result)) {
+                                                  return <EventDetails event={result as EventType} useReactJsonView />
+                                              }
+                                          },
+                                          rowExpandable: ({ result }) => !!result,
+                                          noIndent: true,
+                                          expandedRowClassName: ({ result }) => {
+                                              const record = Array.isArray(result) ? result[0] : result
+                                              return record && record['event'] === '$exception'
+                                                  ? 'border border-x-danger-dark bg-danger-highlight'
+                                                  : null
+                                          },
+                                      }
+                                    : undefined
+                            }
+                            rowClassName={({ result, label }) =>
+                                clsx('DataTable__row', {
+                                    'DataTable__row--highlight_once': result && highlightedRows.has(result),
+                                    'DataTable__row--category_row': !!label,
+                                    'border border-x-danger-dark bg-danger-highlight':
+                                        result && result[0] && result[0]['event'] === '$exception',
+                                })
+                            }
+                            footer={
+                                canLoadNextData &&
+                                ((response as any).results.length > 0 || !responseLoading) && (
+                                    <LoadNext query={query.source} />
+                                )
                             }
                         />
-                    ) : (
-                        <InsightErrorState />
-                    )
-                ) : (
-                    <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
-                )
-            }
-            expandable={
-                expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
-                    ? {
-                          expandedRowRender: function renderExpand({ result }) {
-                              if (isEventsQuery(query.source) && Array.isArray(result)) {
-                                  return (
-                                      <EventDetails
-                                          event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                          useReactJsonView
-                                      />
-                                  )
-                              }
-                              if (result && !Array.isArray(result)) {
-                                  return <EventDetails event={result as EventType} useReactJsonView />
-                              }
-                          },
-                          rowExpandable: ({ result }) => !!result,
-                          noIndent: true,
-                          expandedRowClassName: ({ result }) => {
-                              const record = Array.isArray(result) ? result[0] : result
-                              return record && record['event'] === '$exception'
-                                  ? 'border border-x-danger-dark bg-danger-highlight'
-                                  : null
-                          },
-                      }
-                    : undefined
-            }
-            rowClassName={({ result, label }) =>
-                clsx('DataTable__row', {
-                    'DataTable__row--highlight_once': result && highlightedRows.has(result),
-                    'DataTable__row--category_row': !!label,
-                    'border border-x-danger-dark bg-danger-highlight':
-                        result && result[0] && result[0]['event'] === '$exception',
-                })
-            }
-            footer={
-                canLoadNextData &&
-                ((response as any).results.length > 0 || !responseLoading) && <LoadNext query={query.source} />
-            }
-        />
+                    )}
+                    {/* TODO: this doesn't seem like the right solution... */}
+                    <SessionPlayerModal />
+                    <PersonDeleteModal />
+                </div>
+            </BindLogic>
+        </BindLogic>
     )
 }

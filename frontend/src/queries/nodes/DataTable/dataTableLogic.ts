@@ -19,8 +19,8 @@ import { dayjs } from 'lib/dayjs'
 import equal from 'fast-deep-equal'
 
 export interface DataTableLogicProps {
-    key: string
-    nodeKey?: string
+    vizKey: string
+    dataKey: string
     query: DataTableNode
     context?: QueryContext
 }
@@ -38,13 +38,13 @@ export const errorColumn = Symbol('Error!')
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
     key((props) => {
-        if (!props.key) {
-            throw new Error('dataTableLogic must contain a key in props')
+        if (!props.vizKey) {
+            throw new Error('dataTableLogic must contain a vizKey in props')
         }
         if (!isDataTableNode(props.query)) {
             throw new Error('dataTableLogic only accepts queries of type DataTableNode')
         }
-        return props.key
+        return props.vizKey
     }),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({ setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }) }),
@@ -55,7 +55,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            dataNodeLogic({ key: props.nodeKey || props.key, query: props.query.source }),
+            dataNodeLogic({ key: props.dataKey, query: props.query.source }),
             ['response', 'responseLoading', 'responseError'],
         ],
     })),
@@ -171,7 +171,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                             context?.showOpenEditorButton !== undefined
                                 ? context.showOpenEditorButton
                                 : query.showOpenEditorButton ?? true,
-                        showResults: query.showResults ?? true,
+                        showResultsTable: query.showResultsTable ?? true,
                     }),
                 }
             },

@@ -22,7 +22,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from typing import Any
 
-from posthog.utils import cors_response
+from posthog.utils_cors import cors_response
 
 
 class SurveySerializer(serializers.ModelSerializer):

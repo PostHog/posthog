@@ -5,6 +5,7 @@ import LRUCache from 'lru-cache'
 import { ONE_HOUR } from '../../config/constants'
 import { GroupTypeIndex, PluginsServerConfig, PropertyDefinitionTypeEnum, PropertyType, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
+import { PostgresUse } from '../../utils/db/postgres'
 
 export const NULL_IN_DATABASE = Symbol('NULL_IN_DATABASE')
 export const NULL_AFTER_PROPERTY_TYPE_DETECTION = Symbol('NULL_AFTER_PROPERTY_TYPE_DETECTION')
@@ -36,7 +37,8 @@ export class PropertyDefinitionsCache {
     }
 
     async initialize(teamId: number, db: DB): Promise<void> {
-        const properties = await db.postgresQuery(
+        const properties = await db.postgres.query(
+            PostgresUse.COMMON_WRITE,
             'SELECT name, property_type, type, group_type_index FROM posthog_propertydefinition WHERE team_id = $1',
             [teamId],
             'fetchPropertyDefinitions'
