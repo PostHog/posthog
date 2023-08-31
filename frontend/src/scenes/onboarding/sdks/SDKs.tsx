@@ -5,24 +5,11 @@ import { useActions, useValues } from 'kea'
 import { OnboardingStep } from '../OnboardingStep'
 import { SDKSnippet } from './SDKSnippet'
 import { onboardingLogic } from '../onboardingLogic'
-import { useEffect } from 'react'
 
 export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
-    const { setSourceFilter, setSelectedSDK, setSourceOptions } = useActions(sdksLogic)
+    const { setSourceFilter, setSelectedSDK } = useActions(sdksLogic)
     const { sourceFilter, sdks, selectedSDK, sourceOptions } = useValues(sdksLogic)
     const { productKey } = useValues(onboardingLogic)
-    useEffect(() => {
-        // get the unique tags from the sdks and put them in an array of objects with label (capitalized value) and value
-        sdks &&
-            setSourceOptions(
-                sdks
-                    ?.flatMap((sdk) => sdk.tags)
-                    .map((tag) => ({
-                        label: tag.charAt(0).toUpperCase() + tag.slice(1),
-                        value: tag,
-                    }))
-            )
-    }, [sdks])
 
     return (
         <OnboardingStep

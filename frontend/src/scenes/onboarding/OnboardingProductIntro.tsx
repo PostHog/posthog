@@ -69,28 +69,25 @@ export const OnboardingProductIntro = ({ product }: { product: BillingProductV2T
                 <div>
                     <LemonCard hoverEffect={false}>
                         <h2 className="text-3xl">Pricing</h2>
-                        <p>
-                            {upgradePlan?.tiers?.[0].unit_amount_usd &&
-                                parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
-                                    <p className="ml-0 mb-0 mt-4">
-                                        <span className="font-bold">
-                                            First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
-                                            {product.unit}s free
-                                        </span>
-                                        , then{' '}
-                                        <span className="font-bold">${upgradePlan?.tiers?.[1].unit_amount_usd}</span>
-                                        <span className="text-muted">/{product.unit}</span>.{' '}
-                                        <Link
-                                            onClick={() => {
-                                                toggleIsPricingModalOpen()
-                                            }}
-                                        >
-                                            <span className="font-bold text-brand-red">Volume discounts</span>
-                                        </Link>{' '}
-                                        after {convertLargeNumberToWords(upgradePlan?.tiers?.[1].up_to, null)}/mo.
-                                    </p>
-                                )}
-                        </p>
+                        {upgradePlan?.tiers?.[0].unit_amount_usd &&
+                            parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
+                                <p className="ml-0 mb-0 mt-4">
+                                    <span className="font-bold">
+                                        First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
+                                        {product.unit}s free
+                                    </span>
+                                    , then <span className="font-bold">${upgradePlan?.tiers?.[1].unit_amount_usd}</span>
+                                    <span className="text-muted">/{product.unit}</span>.{' '}
+                                    <Link
+                                        onClick={() => {
+                                            toggleIsPricingModalOpen()
+                                        }}
+                                    >
+                                        <span className="font-bold text-brand-red">Volume discounts</span>
+                                    </Link>{' '}
+                                    after {convertLargeNumberToWords(upgradePlan?.tiers?.[1].up_to, null)}/mo.
+                                </p>
+                            )}
                         <ul>
                             {pricingBenefits.map((benefit, i) => (
                                 <li className="flex mb-2 ml-6" key={`pricing-benefits-${i}`}>

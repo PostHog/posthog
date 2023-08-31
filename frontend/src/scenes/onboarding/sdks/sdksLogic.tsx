@@ -11,17 +11,28 @@ export const productAvailableSDKs = {
     [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsSDKInstructions,
 }
 
+const getSourceOptions = (productKey: string): LemonSelectOptions<string> => {
+    const filteredSDKsTags = allSDKs
+        .filter((sdk) => Object.keys(productAvailableSDKs[productKey || '']).includes(sdk.key))
+        .flatMap((sdk) => sdk.tags)
+    const uniqueTags = filteredSDKsTags.filter((item, index) => filteredSDKsTags.indexOf(item) === index)
+    const selectOptions = uniqueTags.map((tag) => ({
+        label: tag.charAt(0).toUpperCase() + tag.slice(1),
+        value: tag,
+    }))
+    return selectOptions
+}
+
 export const sdksLogic = kea<sdksLogicType>({
     path: ['scenes', 'onboarding', 'sdks', 'sdksLogic'],
     connect: {
         values: [onboardingLogic, ['productKey']],
-        actions: [onboardingLogic, ['setProduct']],
     },
     actions: {
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
         filterSDKs: true,
         setSDKs: (sdks: SDK[]) => ({ sdks }),
-        setSelectedSDK: (sdk: SDK) => ({ sdk }),
+        setSelectedSDK: (sdk: SDK | null) => ({ sdk }),
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
     },
 
@@ -68,23 +79,11 @@ export const sdksLogic = kea<sdksLogicType>({
                 })
                 .filter((sdk) => Object.keys(productAvailableSDKs[values.productKey || '']).includes(sdk.key))
             actions.setSDKs(filteredSDks)
+            actions.setSourceOptions(getSourceOptions(values.productKey || ''))
         },
         setSourceFilter: () => {
             actions.filterSDKs()
-        },
-        setProduct: () => {
-            actions.filterSDKs()
-        },
-        setSDKs: () => {
-            values.sdks &&
-                actions.setSourceOptions(
-                    values.sdks
-                        ?.flatMap((sdk) => sdk.tags)
-                        .map((tag) => ({
-                            label: tag.charAt(0).toUpperCase() + tag.slice(1),
-                            value: tag,
-                        }))
-                )
+            actions.setSelectedSDK(null)
         },
     }),
     events: ({ actions }) => ({
