@@ -5339,10 +5339,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         delta = timedelta(days=1)
         while start_date <= end_date:
             with freeze_time(start_date):
+                distinct_id = f"user_on_day_{start_date.strftime('%d.%m')}"
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={})
                 _create_event(
                     team=self.team,
                     event="sign up",
-                    distinct_id=f"user_on_day_{start_date.strftime('%d.%m')}",
+                    distinct_id=distinct_id,
                 )
             start_date += delta
 
