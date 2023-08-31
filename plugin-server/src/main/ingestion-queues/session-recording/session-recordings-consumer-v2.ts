@@ -208,7 +208,10 @@ export class SessionRecordingIngesterV2 {
         // If it is recoverable, we probably want to retry?
     }
 
-    public async parseKafkaMessage(message: Message): Promise<IncomingRecordingMessage | void> {
+    public async parseKafkaMessage(
+        message: Message,
+        getTeamFn: (s: string) => Promise<TeamId | null>
+    ): Promise<IncomingRecordingMessage | void> {
         const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
@@ -246,7 +249,7 @@ export class SessionRecordingIngesterV2 {
         const token = messagePayload.token
 
         if (token) {
-            teamId = await this.teamsRefresher.get().then((teams) => teams[token] || null)
+            teamId = await getTeamFn(token)
         }
 
         if (teamId == null) {
@@ -272,7 +275,7 @@ export class SessionRecordingIngesterV2 {
             },
 
             team_id: teamId,
-            distinct_id: event.properties.distinct_id,
+            distinct_id: messagePayload.distinct_id,
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
             events: event.properties.$snapshot_items,
@@ -321,7 +324,9 @@ export class SessionRecordingIngesterV2 {
                         }
                     }
 
-                    const recordingMessage = await this.parseKafkaMessage(message)
+                    const recordingMessage = await this.parseKafkaMessage(message, (token) =>
+                        this.teamsRefresher.get().then((teams) => teams[token] || null)
+                    )
                     if (recordingMessage) {
                         recordingMessages.push(recordingMessage)
                     }

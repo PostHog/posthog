@@ -1,8 +1,8 @@
 from datetime import timedelta
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from freezegun import freeze_time
-from freezegun.api import StepTickTimeFactory, FrozenDateTimeFactory
+from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
 from rest_framework import status
 
 from posthog.models import User
@@ -27,7 +27,6 @@ def _feature_flag_json_payload(key: str) -> Dict:
 class TestActivityLog(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
-
         self.other_user = User.objects.create_and_join(
             organization=self.organization,
             email="other_user@posthog.com",
@@ -51,7 +50,6 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         self.client.force_login(self.user)
 
     def _create_and_edit_things(self):
-
         with freeze_time("2023-08-17") as frozen_time:
             # almost every change below will be more than 5 minutes apart
             created_insights = []
@@ -156,6 +154,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
     def test_can_get_top_ten_important_changes(self) -> None:
         # user one is shown the most recent 10 of those changes
+        self.client.force_login(self.user)
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
         results = changes.json()["results"]
@@ -179,7 +178,6 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         # because they edited those things
         # and they were then changed
         self.client.force_login(self.other_user)
-
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
         results = changes.json()["results"]
@@ -228,6 +226,8 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert [c["unread"] for c in results] == [True] * 10
 
     def test_reading_notifications_marks_them_unread(self):
+        self.client.force_login(self.user)
+
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
         assert len(changes.json()["results"]) == 10

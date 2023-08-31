@@ -1,5 +1,5 @@
 import datetime as dt
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
 from asgiref.sync import async_to_sync
@@ -277,6 +277,9 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         paused=batch_export.paused,
     )
 
+    destination_config_fields = set(field.name for field in fields(workflow_inputs))
+    destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
+
     temporal = sync_connect()
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -286,7 +289,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     team_id=batch_export.team.id,
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
-                    **batch_export.destination.config,
+                    **destination_config,
                 )
             ),
             id=str(batch_export.id),
