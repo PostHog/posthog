@@ -192,3 +192,53 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
         )
+
+    def test_valid_view(self):
+        # response = self.client.post(
+        #     f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+        #     {
+        #         "name": "event_view",
+        #         "query": {
+        #             "kind": "HogQLQuery",
+        #             "query": f"select event as event from events LIMIT 100",
+        #         },
+        #     },
+        # )
+
+        metadata = self._select("select event AS event FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "inputExpr": None,
+                "inputSelect": "select event AS event FROM events",
+                "errors": [],
+            },
+        )
+
+    def test_valid_view_nested_view(self):
+        self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event as event from events LIMIT 100",
+                },
+            },
+        )
+
+        metadata = self._select("select event AS event FROM event_view")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": False,
+                "inputExpr": None,
+                "inputSelect": "select event AS event FROM event_view",
+                "errors": [],
+            },
+        )
