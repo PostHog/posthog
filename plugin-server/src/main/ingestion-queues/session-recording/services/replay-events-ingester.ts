@@ -12,8 +12,10 @@ import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handl
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import schema from '../../../../schema.json'
 import { PluginsServerConfig } from '../../../../types'
+import { DB } from '../../../../utils/db/db'
 import { status } from '../../../../utils/status'
 import { createSessionReplayEvent } from '../../../../worker/ingestion/process-event'
+import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
@@ -31,7 +33,8 @@ export class ReplayEventsIngester {
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,
-        private readonly offsetHighWaterMarker: OffsetHighWaterMarker
+        private readonly offsetHighWaterMarker: OffsetHighWaterMarker,
+        private readonly db: DB
     ) {
         const ajv = new Ajv()
         this.schemaValidate = ajv.compile(schema)
@@ -150,6 +153,12 @@ export class ReplayEventsIngester {
                         team: event.team_id,
                         session_id: event.session_id,
                     },
+                })
+
+                captureIngestionWarning(this.db, event.team_id, 'invalid_replay_record', {
+                    sessionId: event.session_id,
+                    replayRecord,
+                    validationErrors: this.schemaValidate.errors,
                 })
 
                 return drop('invalid_schema')

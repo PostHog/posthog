@@ -43,7 +43,8 @@ describe('replayEventsIngester', () => {
 
         ingester = new ReplayEventsIngester(
             config,
-            new OffsetHighWaterMarker(hub.redisPool, 'test-session_replay_events_ingester')
+            new OffsetHighWaterMarker(hub.redisPool, 'test-session_replay_events_ingester'),
+            hub.db
         )
         await ingester.start()
     })
