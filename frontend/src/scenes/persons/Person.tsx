@@ -272,7 +272,7 @@ export function Person(): JSX.Element | null {
                                               </Tooltip>
                                           </div>
                                           <LemonSelect
-                                              value={person.distinct_ids[0]}
+                                              value={distinctId || person.distinct_ids[0]}
                                               onChange={(value) => value && setDistinctId(value)}
                                               options={person.distinct_ids.map((distinct_id) => ({
                                                   label: distinct_id,
