@@ -27,7 +27,7 @@ const getSourceOptions = (productKey: string): LemonSelectOptions<string> => {
         .flatMap((sdk) => sdk.tags)
     const uniqueTags = filteredSDKsTags.filter((item, index) => filteredSDKsTags.indexOf(item) === index)
     const selectOptions = uniqueTags.map((tag) => ({
-        label: tag.charAt(0).toUpperCase() + tag.slice(1),
+        label: tag,
         value: tag,
     }))
     return selectOptions
