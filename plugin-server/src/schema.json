@@ -1,0 +1,74 @@
+{
+    "$ref": "#/definitions/SummarizedSessionRecordingEvent",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+        "SummarizedSessionRecordingEvent": {
+            "additionalProperties": false,
+            "description": "written to kafka topic: clickhouse_session_replay_events and from there to clickhouse table: session_replay_events",
+            "properties": {
+                "active_milliseconds": {
+                    "type": "number"
+                },
+                "click_count": {
+                    "type": "number"
+                },
+                "console_error_count": {
+                    "type": "number"
+                },
+                "console_log_count": {
+                    "type": "number"
+                },
+                "console_warn_count": {
+                    "type": "number"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "first_timestamp": {
+                    "type": "string"
+                },
+                "first_url": {
+                    "type": "string"
+                },
+                "keypress_count": {
+                    "type": "number"
+                },
+                "last_timestamp": {
+                    "type": "string"
+                },
+                "mouse_activity_count": {
+                    "type": "number"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "number"
+                },
+                "team_id": {
+                    "type": "number"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "uuid",
+                "first_timestamp",
+                "last_timestamp",
+                "team_id",
+                "distinct_id",
+                "session_id",
+                "click_count",
+                "keypress_count",
+                "mouse_activity_count",
+                "active_milliseconds",
+                "console_log_count",
+                "console_warn_count",
+                "console_error_count",
+                "size"
+            ],
+            "type": "object"
+        }
+    }
+}

@@ -27,6 +27,7 @@ def _feature_flag_json_payload(key: str) -> Dict:
 class TestActivityLog(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
+
         self.other_user = User.objects.create_and_join(
             organization=self.organization,
             email="other_user@posthog.com",
@@ -42,6 +43,12 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         # user two has edited them all
         # user three has edited most of them after that
         self._create_and_edit_things()
+
+        self.client.force_login(self.user)
+
+    def tearDown(self):
+        super().tearDown()
+        self.client.force_login(self.user)
 
     def _create_and_edit_things(self):
 
@@ -90,8 +97,6 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
                 self.third_user,
                 frozen_time,
             )
-
-            self.client.force_login(self.user)
 
     def _edit_them_all(
         self,
@@ -151,7 +156,6 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
     def test_can_get_top_ten_important_changes(self) -> None:
         # user one is shown the most recent 10 of those changes
-        self.client.force_login(self.user)
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
         results = changes.json()["results"]
@@ -175,6 +179,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         # because they edited those things
         # and they were then changed
         self.client.force_login(self.other_user)
+
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
         results = changes.json()["results"]

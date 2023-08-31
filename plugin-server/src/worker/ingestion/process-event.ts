@@ -3,6 +3,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
+import { SummarizedSessionRecordingEvent } from '../../ingestion-schema'
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
     Element,
@@ -258,24 +259,6 @@ export const createSessionRecordingEvent = (
     }
 
     return data
-}
-
-export interface SummarizedSessionRecordingEvent {
-    uuid: string
-    first_timestamp: string
-    last_timestamp: string
-    team_id: number
-    distinct_id: string
-    session_id: string
-    first_url: string | undefined
-    click_count: number
-    keypress_count: number
-    mouse_activity_count: number
-    active_milliseconds: number
-    console_log_count: number
-    console_warn_count: number
-    console_error_count: number
-    size: number
 }
 
 export const createSessionReplayEvent = (

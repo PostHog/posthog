@@ -1,4 +1,5 @@
 import { captureException, captureMessage } from '@sentry/node'
+import Ajv, { ValidateFunction } from 'ajv'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
@@ -9,6 +10,7 @@ import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
+import schema from '../../../../schema.json'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { createSessionReplayEvent } from '../../../../worker/ingestion/process-event'
@@ -25,11 +27,15 @@ const replayEventsCounter = new Counter({
 
 export class ReplayEventsIngester {
     producer?: RdKafkaProducer
+    private schemaValidate: ValidateFunction<unknown>
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,
         private readonly offsetHighWaterMarker: OffsetHighWaterMarker
-    ) {}
+    ) {
+        const ajv = new Ajv()
+        this.schemaValidate = ajv.compile(schema)
+    }
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
         const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
@@ -133,6 +139,21 @@ export class ReplayEventsIngester {
                 event.session_id,
                 event.events
             )
+            const isValid = this.schemaValidate(replayRecord)
+            if (!isValid) {
+                captureMessage(`Invalid replay record for session ${event.session_id}`, {
+                    extra: {
+                        replayRecord,
+                        validationErrors: this.schemaValidate.errors,
+                    },
+                    tags: {
+                        team: event.team_id,
+                        session_id: event.session_id,
+                    },
+                })
+
+                return drop('invalid_schema')
+            }
 
             try {
                 // the replay record timestamp has to be valid and be within a reasonable diff from now
