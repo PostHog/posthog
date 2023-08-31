@@ -4,7 +4,8 @@ from freezegun import freeze_time
 
 from posthog.models.utils import UUIDT
 from posthog.nodes.lifecycle_hogql_query import run_lifecycle_query, create_events_query, create_time_filter
-from posthog.schema import LifecycleQuery, DateRange
+from posthog.nodes.query_date_range import QueryDateRange
+from posthog.schema import LifecycleQuery, DateRange, IntervalType
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from posthog.hogql.query import execute_hogql_query
 
@@ -193,10 +194,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        date_from = "2020-01-09T00:00:00Z"
-        date_to = "2020-01-19T00:00:00Z"
-        date_range = DateRange(date_from=date_from, date_to=date_to)
-        (time_filter, _, _) = create_time_filter(date_range, now_iso=date_to)
+        date_from = "2020-01-09"
+        date_to = "2020-01-19"
+        date_range = QueryDateRange(
+            date_range=DateRange(date_from=date_from, date_to=date_to),
+            team=self.team,
+            interval=IntervalType.day,
+            now=datetime.strptime("2020-01-30T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ"),
+        )
+        (time_filter, _, _) = create_time_filter(date_range, interval="day")
 
         self._create_random_events()
         events_query = create_events_query("day", event_filter=time_filter)
@@ -213,7 +219,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(
-            set(response.results),
             {
                 (datetime(2020, 1, 9, 0, 0), 1, "new"),  # p2
                 (datetime(2020, 1, 10, 0, 0), 1, "dormant"),  # p2
@@ -230,4 +235,5 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 (datetime(2020, 1, 17, 0, 0), 1, "resurrecting"),  # p1
                 (datetime(2020, 1, 18, 0, 0), 1, "dormant"),  # p1
             },
+            set(response.results),
         )

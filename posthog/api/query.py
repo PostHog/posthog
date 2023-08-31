@@ -28,6 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.nodes.events_query import run_events_query
+
 from posthog.nodes.lifecycle_hogql_query import run_lifecycle_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
