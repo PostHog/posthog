@@ -154,6 +154,8 @@ export class ReplayEventsIngester {
                     },
                 })
 
+                // if this hits kafka and blocks CH ingestion we'd only drop it anyway
+                // so, let's drop it once we know its invalid
                 return drop('invalid_schema')
             }
 
