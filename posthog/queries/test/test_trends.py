@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch, ANY
 from urllib.parse import parse_qsl, urlparse
@@ -5325,6 +5325,42 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["aggregated_value"], 2)
         self.assertEqual(result[1]["breakdown_value"], "val")
         self.assertEqual(result[1]["aggregated_value"], 2)
+
+    @snapshot_clickhouse_queries
+    def test_weekly_active_users_event_query_base_regression(self):
+        # we had a regression, where users would not count towards the first weekly
+        # bucket, since the inner event query base would already filter out the
+        # events with a too narrow time range
+        _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+
+        # create a user every day for a sufficiently large date range
+        start_date = datetime(2023, 8, 13)
+        end_date = datetime(2023, 9, 5)
+        delta = timedelta(days=1)
+        while start_date <= end_date:
+            with freeze_time(start_date):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=f"user_on_day_{start_date.strftime('%d.%m')}",
+                )
+            start_date += delta
+
+        with freeze_time(datetime(2023, 8, 30, 13, 37)):
+            response = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "events": [{"id": "sign up", "name": "sign up", "math": "weekly_active"}],
+                        "interval": "week",
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+        # we should have 7 users in each bucket, since there is a user for every day
+        self.assertEqual(response[0]["data"], [7.0, 7.0])
 
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
     def test_filter_test_accounts(self):
