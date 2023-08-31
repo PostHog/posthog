@@ -24,7 +24,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
         featureFlagLoading,
         recordingFilterForFlag,
         hasEarlyAccessFeatures,
-        creatingEarlyAccessFeature,
+        newEarlyAccessFeatureLoading,
     } = useValues(featureFlagLogic({ id }))
     const { createEarlyAccessFeature } = useActions(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
@@ -71,8 +71,10 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
                         type="secondary"
                         size="small"
                         icon={<IconRocketLaunch />}
-                        loading={creatingEarlyAccessFeature}
-                        onClick={() => {
+                        loading={newEarlyAccessFeatureLoading}
+                        onClick={(e) => {
+                            // prevent expanding the node if it isn't expanded
+                            e.stopPropagation()
                             if (!hasEarlyAccessFeatures) {
                                 createEarlyAccessFeature()
                             } else {

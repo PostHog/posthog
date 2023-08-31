@@ -21,8 +21,8 @@ export const notebookNodeFlagLogic = kea<notebookNodeFlagLogicType>([
         values: [featureFlagLogic({ id: props.id }), ['featureFlag', 'hasEarlyAccessFeatures']],
     })),
     listeners(({ props }) => ({
-        createEarlyAccessFeatureSuccess: async ({ earlyAccessFeature }) => {
-            props.insertAfter(buildEarlyAccessFeatureContent(earlyAccessFeature.id))
+        createEarlyAccessFeatureSuccess: async ({ newEarlyAccessFeature }) => {
+            props.insertAfter(buildEarlyAccessFeatureContent(newEarlyAccessFeature.id))
         },
     })),
     selectors({

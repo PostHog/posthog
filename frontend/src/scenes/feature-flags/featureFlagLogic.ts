@@ -217,8 +217,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
-        createEarlyAccessFeature: true,
-        createEarlyAccessFeatureSuccess: (earlyAccessFeature: EarlyAccessFeatureType) => ({ earlyAccessFeature }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -409,22 +407,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         },
                     }
                 },
-                createEarlyAccessFeatureSuccess: (state, { earlyAccessFeature }) => {
+                createEarlyAccessFeatureSuccess: (state, { newEarlyAccessFeature }) => {
                     if (!state) {
                         return state
                     }
                     return {
                         ...state,
-                        features: [...(state.features || []), earlyAccessFeature],
+                        features: [...(state.features || []), newEarlyAccessFeature],
                     }
                 },
-            },
-        ],
-        creatingEarlyAccessFeature: [
-            false,
-            {
-                createEarlyAccessFeature: () => true,
-                createEarlyAccessFeatureSuccess: () => false,
             },
         ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
@@ -525,6 +516,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        // used to generate a new early access feature
+        // but all subsequent operations after generation should occur via the earlyAccessFeatureLogic
+        newEarlyAccessFeature: [
+            null as EarlyAccessFeatureType | null,
+            {
+                createEarlyAccessFeature: async () => {
+                    const updatedEarlyAccessFeature = {
+                        ...NEW_EARLY_ACCESS_FEATURE,
+                        name: `Early access: ${values.featureFlag.key}`,
+                        feature_flag_id: values.featureFlag.id,
+                    }
+                    return await api.earlyAccessFeatures.create(updatedEarlyAccessFeature as NewEarlyAccessFeatureType)
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -544,23 +550,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 await api.create(
                     `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
                 )
-            }
-        },
-        createEarlyAccessFeature: async (_, breakpoint) => {
-            await breakpoint(300) // in ms
-
-            const updatedEarlyAccessFeature = {
-                ...NEW_EARLY_ACCESS_FEATURE,
-                name: `Early access: ${values.featureFlag.key}`,
-                feature_flag_id: values.featureFlag.id,
-            }
-            try {
-                const earlyAccessFeature = await api.earlyAccessFeatures.create(
-                    updatedEarlyAccessFeature as NewEarlyAccessFeatureType
-                )
-                actions.createEarlyAccessFeatureSuccess(earlyAccessFeature)
-            } catch (err: any) {
-                lemonToast.error(`Error creating Early Access Feature: ${err.detail}`)
             }
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
