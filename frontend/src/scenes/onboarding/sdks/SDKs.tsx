@@ -1,10 +1,11 @@
-import { LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { sdksLogic } from './sdksLogic'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { useActions, useValues } from 'kea'
 import { OnboardingStep } from '../OnboardingStep'
 import { SDKSnippet } from './SDKSnippet'
 import { onboardingLogic } from '../onboardingLogic'
+import { IconClose } from 'lib/lemon-ui/icons'
 
 export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
     const { setSourceFilter, setSelectedSDK } = useActions(sdksLogic)
@@ -36,6 +37,21 @@ export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
                         onClick={() => setSelectedSDK(sdk)}
                         focused={selectedSDK?.key == sdk.key}
                     >
+                        {selectedSDK?.key == sdk.key && (
+                            <div className="flex justify-end w-full">
+                                <LemonButton
+                                    icon={<IconClose className="text-xs" />}
+                                    type="tertiary"
+                                    size="small"
+                                    className="-mt-4 -mr-4"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setSelectedSDK(null)
+                                    }}
+                                    status="muted"
+                                />
+                            </div>
+                        )}
                         <div className="h-8 mb-4">
                             {typeof sdk.image === 'string' ? <img src={sdk.image} className="w-8" /> : sdk.image}
                         </div>
