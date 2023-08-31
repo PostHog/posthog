@@ -1,8 +1,8 @@
 from datetime import timedelta
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from freezegun import freeze_time
-from freezegun.api import StepTickTimeFactory, FrozenDateTimeFactory
+from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
 from rest_framework import status
 
 from posthog.models import User
@@ -44,7 +44,6 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         self._create_and_edit_things()
 
     def _create_and_edit_things(self):
-
         with freeze_time("2023-08-17") as frozen_time:
             # almost every change below will be more than 5 minutes apart
             created_insights = []
@@ -223,6 +222,8 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert [c["unread"] for c in results] == [True] * 10
 
     def test_reading_notifications_marks_them_unread(self):
+        self.client.force_login(self.user)
+
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
         assert len(changes.json()["results"]) == 10
