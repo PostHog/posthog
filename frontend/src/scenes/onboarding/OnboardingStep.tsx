@@ -2,6 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
+import { IconArrowRight } from 'lib/lemon-ui/icons'
 
 export const OnboardingStep = ({
     title,
@@ -20,14 +21,17 @@ export const OnboardingStep = ({
                 <h1>{title}</h1>
                 <p>{subtitle}</p>
                 {children}
-                <LemonButton
-                    type="primary"
-                    onClick={() =>
-                        onboardingStep == totalOnboardingSteps ? completeOnboarding() : incrementOnboardingStep()
-                    }
-                >
-                    {onboardingStep == totalOnboardingSteps ? 'Finish' : 'Continue'}
-                </LemonButton>
+                <div className="mt-8 flex justify-end gap-x-2">
+                    <LemonButton
+                        type="primary"
+                        onClick={() =>
+                            onboardingStep == totalOnboardingSteps ? completeOnboarding() : incrementOnboardingStep()
+                        }
+                        sideIcon={onboardingStep !== totalOnboardingSteps ? <IconArrowRight /> : null}
+                    >
+                        {onboardingStep == totalOnboardingSteps ? 'Finish' : 'Continue'}
+                    </LemonButton>
+                </div>
             </div>
         </BridgePage>
     )
