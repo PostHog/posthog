@@ -69,7 +69,7 @@ SELECT counts AS total, timestamp AS day_start FROM (
     ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
-) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
+)
 """
 
 ACTIVE_USERS_AGGREGATE_SQL = """
