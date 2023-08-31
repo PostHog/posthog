@@ -71,11 +71,21 @@ WithSlowNetworkResponse.args = {
     resource: { type: NotebookNodeType.Recording, attrs: { id: 'very_slow' } },
     visible: true,
 }
+WithSlowNetworkResponse.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const WithSlowNetworkResponseClosedPopover = Template.bind({})
 WithSlowNetworkResponseClosedPopover.args = {
     resource: { type: NotebookNodeType.Recording, attrs: { id: 'very_slow' } },
     visible: false,
+}
+WithSlowNetworkResponseClosedPopover.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const WithNoExistingContainingNotebooks = Template.bind({})
