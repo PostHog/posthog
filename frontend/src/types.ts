@@ -3040,11 +3040,6 @@ export enum NotebookNodeType {
     Image = 'ph-image',
 }
 
-export type NotebookNodeWidgetSettings = {
-    attributes: Record<string, any>
-    updateAttributes: (attributes: Record<string, any>) => void
-}
-
 export enum NotebookTarget {
     Popover = 'popover',
     Auto = 'auto',
