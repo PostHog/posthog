@@ -11,6 +11,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
+import { SummarizedSessionRecordingEvent } from '../../src/ingestion-schema'
 import {
     ClickHouseEvent,
     Database,
@@ -33,7 +34,6 @@ import {
     createSessionRecordingEvent,
     createSessionReplayEvent,
     EventsProcessor,
-    SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'

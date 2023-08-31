@@ -10,6 +10,7 @@ import {
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
 } from '../../../config/kafka-topics'
+import { SummarizedSessionRecordingEvent } from '../../../ingestion-schema'
 import { startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { retryOnDependencyUnavailableError } from '../../../kafka/error-handling'
@@ -21,7 +22,6 @@ import {
     createPerformanceEvent,
     createSessionRecordingEvent,
     createSessionReplayEvent,
-    SummarizedSessionRecordingEvent,
 } from '../../../worker/ingestion/process-event'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { parseEventTimestamp } from '../../../worker/ingestion/timestamps'
