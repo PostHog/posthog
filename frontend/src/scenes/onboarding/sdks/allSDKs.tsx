@@ -1,29 +1,29 @@
-import { SDK } from '~/types'
+import { SDK, SDKKey } from '~/types'
 
 export const allSDKs: SDK[] = [
     // Web
     {
         name: 'JavaScript web',
-        key: 'javascript_web',
+        key: SDKKey.JS_WEB,
         recommended: true,
         tags: ['web'],
         image: require('./logos/javascript_web.svg'),
     },
     {
         name: 'React',
-        key: 'react',
+        key: SDKKey.REACT,
         tags: ['web'],
         image: require('./logos/react.svg'),
     },
     {
         name: 'Next.js',
-        key: 'nextjs',
+        key: SDKKey.NEXT_JS,
         tags: ['web'],
         image: require('./logos/nextjs.svg'),
     },
     {
         name: 'Gatsby',
-        key: 'gatsby',
+        key: SDKKey.GATSBY,
         tags: ['web'],
         image: require('./logos/gatsby.svg'),
     },
@@ -31,25 +31,25 @@ export const allSDKs: SDK[] = [
     // Mobile
     {
         name: 'iOS',
-        key: 'ios',
+        key: SDKKey.IOS,
         tags: ['mobile'],
         image: require('./logos/ios.svg'),
     },
     {
         name: 'Android',
-        key: 'android',
+        key: SDKKey.ANDROID,
         tags: ['mobile'],
         image: require('./logos/android.svg'),
     },
     {
         name: 'React Native',
-        key: 'react_native',
+        key: SDKKey.REACT_NATIVE,
         tags: ['mobile'],
         image: require('./logos/react.svg'),
     },
     {
         name: 'Flutter',
-        key: 'flutter',
+        key: SDKKey.FLUTTER,
         tags: ['mobile'],
         image: require('./logos/flutter.svg'),
     },
@@ -57,20 +57,44 @@ export const allSDKs: SDK[] = [
     // Server
     {
         name: 'Node.js',
-        key: 'nodejs',
+        key: SDKKey.NODE_JS,
         tags: ['server'],
         image: require('./logos/nodejs.svg'),
     },
     {
         name: 'Python',
-        key: 'python',
+        key: SDKKey.PYTHON,
         tags: ['server'],
         image: require('./logos/python.svg'),
     },
     {
         name: 'Ruby',
-        key: 'ruby',
+        key: SDKKey.RUBY,
         tags: ['server'],
         image: require('./logos/ruby.svg'),
+    },
+    {
+        name: 'PHP',
+        key: SDKKey.PHP,
+        tags: ['server'],
+        image: require('./logos/php.svg'),
+    },
+    {
+        name: 'Go',
+        key: SDKKey.GO,
+        tags: ['server'],
+        image: require('./logos/go.svg'),
+    },
+    {
+        name: 'Elixir',
+        key: SDKKey.ELIXIR,
+        tags: ['server'],
+        image: require('./logos/elixir.svg'),
+    },
+    {
+        name: 'API',
+        key: SDKKey.API,
+        tags: ['server'],
+        image: require('./logos/react.svg'),
     },
 ]

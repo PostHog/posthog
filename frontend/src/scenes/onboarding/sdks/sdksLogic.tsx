@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import type { sdksLogicType } from './sdksLogicType'
 import { ProductKey, SDK } from '~/types'
 import { onboardingLogic } from '../onboardingLogic'
-import { ProductAnalyticsSDKInstructions } from './ProductAnalyticsSDKInstructions'
+import { ProductAnalyticsSDKInstructions } from './product-analytics/ProductAnalyticsSDKInstructions'
 import { allSDKs } from './allSDKs'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 

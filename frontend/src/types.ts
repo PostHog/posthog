@@ -3176,4 +3176,8 @@ export enum SDKKey {
     NODE_JS = 'nodejs',
     RUBY = 'ruby',
     PYTHON = 'python',
+    PHP = 'php',
+    GO = 'go',
+    ELIXIR = 'elixir',
+    API = 'api',
 }

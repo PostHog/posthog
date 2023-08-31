@@ -4,7 +4,6 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { SDKKey } from '~/types'
 
 function JSInstallSnippet(): JSX.Element {
     return (
@@ -34,7 +33,7 @@ function JSEventSnippet(): JSX.Element {
     )
 }
 
-function WebInstructions(): JSX.Element {
+export function JSWebInstructions(): JSX.Element {
     return (
         <>
             <h1>Connect your web app or product</h1>
@@ -103,8 +102,4 @@ function WebInstructions(): JSX.Element {
             <JSEventSnippet />
         </>
     )
-}
-
-export const ProductAnalyticsSDKInstructions = {
-    [SDKKey.JS_WEB]: WebInstructions,
 }
