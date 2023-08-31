@@ -8,6 +8,8 @@ import { databaseSceneLogic } from 'scenes/data-management/database/databaseScen
 import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import type { viewLinkLogicType } from './viewLinkLogicType'
+import { LemonTag } from '@posthog/lemon-ui'
+import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
@@ -65,8 +67,22 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             defaults: NEW_VIEW_LINK,
             errors: ({ saved_query_id, to_join_key, from_join_key }) => ({
                 saved_query_id: !saved_query_id ? 'Must select a view' : undefined,
-                to_join_key: !to_join_key ? 'Must select a join key' : undefined,
-                from_join_key: !from_join_key ? 'Must select a join key' : undefined,
+                to_join_key: !to_join_key
+                    ? 'Must select a join key'
+                    : !from_join_key
+                    ? undefined
+                    : values.mappedToJoinKeyOptions[to_join_key]?.type ===
+                      values.mappedToJoinKeyOptions[from_join_key]?.type
+                    ? 'Join key types must match'
+                    : undefined,
+                from_join_key: !from_join_key
+                    ? 'Must select a join key'
+                    : !to_join_key
+                    ? undefined
+                    : values.mappedToJoinKeyOptions[to_join_key]?.type ===
+                      values.mappedToJoinKeyOptions[from_join_key]?.type
+                    ? 'Join key types must match'
+                    : undefined,
             }),
             submit: async ({ saved_query_id, to_join_key, from_join_key }) => {
                 if (values.selectedTable) {
@@ -126,8 +142,20 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 }
                 return selectedView.columns.map((column) => ({
                     value: column.key,
-                    label: column.key,
+                    label: <KeyLabel column={column} />,
                 }))
+            },
+        ],
+        mappedToJoinKeyOptions: [
+            (s) => [s.selectedView],
+            (selectedView: DataWarehouseSceneRow | null) => {
+                if (!selectedView) {
+                    return []
+                }
+                return selectedView.columns.reduce((acc, column) => {
+                    acc[column.key] = column
+                    return acc
+                })
             },
         ],
         fromJoinKeyOptions: [
@@ -138,8 +166,20 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 }
                 return selectedTable.columns.map((column) => ({
                     value: column.key,
-                    label: column.key,
+                    label: <KeyLabel column={column} />,
                 }))
+            },
+        ],
+        mappedFromJoinKeyOptions: [
+            (s) => [s.selectedTable],
+            (selectedTable: DataWarehouseSceneRow | null) => {
+                if (!selectedTable) {
+                    return []
+                }
+                return selectedTable.columns.reduce((acc, column) => {
+                    acc[column.key] = column
+                    return acc
+                })
             },
         ],
     }),
@@ -147,3 +187,18 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         actions.loadViewLinks()
     }),
 ])
+
+interface KeyLabelProps {
+    column: DatabaseSchemaQueryResponseField
+}
+
+function KeyLabel({ column }: KeyLabelProps): JSX.Element {
+    return (
+        <span>
+            {column.key}{' '}
+            <LemonTag type="success" className="uppercase">
+                {column.type}
+            </LemonTag>
+        </span>
+    )
+}
