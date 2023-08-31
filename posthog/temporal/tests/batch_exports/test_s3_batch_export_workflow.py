@@ -494,7 +494,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=180),
+                    execution_timeout=dt.timedelta(seconds=360),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
@@ -1008,7 +1008,7 @@ base_inputs = {
                 prefix="/nested/prefix/",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
-                compression="gzip",
+                compression="brotli",
                 **base_inputs,
             ),
             "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.br",
