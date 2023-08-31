@@ -1049,4 +1049,13 @@ class TestResolver(BaseTest):
 
         node: ast.SelectQuery = self._select("select key from (select 3 = null as key from events)")
         node = cast(ast.SelectQuery, resolve_types(node, self.context))
-        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.BooleanType(nullable=True))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.BooleanType(nullable=False))
+
+    def test_function_types(self):
+        node: ast.SelectQuery = self._select("select 'a' || 'b' from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.StringType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select plus(1, 2) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.IntegerType(nullable=False))

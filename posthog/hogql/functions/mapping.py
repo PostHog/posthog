@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Tuple, Type
 from posthog.hogql import ast
+from posthog.hogql.ast import IntegerType, FloatType, StringType
 from posthog.hogql.base import ConstantType
 from posthog.hogql.errors import HogQLException
 
@@ -32,6 +33,18 @@ def validate_function_args(
 
 Overload = Tuple[Tuple[Type[ConstantType], ...] | Type[ConstantType], str]
 
+single_numeric_signatures = [
+    ((IntegerType), IntegerType),
+    ((FloatType), FloatType),
+]
+
+binary_numeric_signatures = [
+    ((IntegerType, IntegerType), IntegerType),
+    ((FloatType, FloatType), FloatType),
+    ((IntegerType, FloatType), FloatType),
+    ((FloatType, IntegerType), FloatType),
+]
+
 
 @dataclass()
 class HogQLFunctionMeta:
@@ -45,25 +58,27 @@ class HogQLFunctionMeta:
     """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
     tz_aware: bool = False
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
+    signatures: Optional[List[Tuple[Tuple[Type[ConstantType]], Type[ConstantType]]]] = None
+    """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
 
 
 HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     # arithmetic
-    "plus": HogQLFunctionMeta("plus", 2, 2),
-    "minus": HogQLFunctionMeta("minus", 2, 2),
-    "multiply": HogQLFunctionMeta("multiply", 2, 2),
-    "divide": HogQLFunctionMeta("divide", 2, 2),
-    "intDiv": HogQLFunctionMeta("intDiv", 2, 2),
-    "intDivOrZero": HogQLFunctionMeta("intDivOrZero", 2, 2),
-    "modulo": HogQLFunctionMeta("modulo", 2, 2),
-    "moduloOrZero": HogQLFunctionMeta("moduloOrZero", 2, 2),
-    "positiveModulo": HogQLFunctionMeta("positiveModulo", 2, 2),
-    "negate": HogQLFunctionMeta("negate", 1, 1),
-    "abs": HogQLFunctionMeta("abs", 1, 1),
-    "gcd": HogQLFunctionMeta("gcd", 2, 2),
-    "lcm": HogQLFunctionMeta("lcm", 2, 2),
-    "max2": HogQLFunctionMeta("max2", 2, 2),
-    "min2": HogQLFunctionMeta("min2", 2, 2),
+    "plus": HogQLFunctionMeta("plus", 2, 2, signatures=binary_numeric_signatures),
+    "minus": HogQLFunctionMeta("minus", 2, 2, signatures=binary_numeric_signatures),
+    "multiply": HogQLFunctionMeta("multiply", 2, 2, signatures=binary_numeric_signatures),
+    "divide": HogQLFunctionMeta("divide", 2, 2, signatures=binary_numeric_signatures),
+    "intDiv": HogQLFunctionMeta("intDiv", 2, 2, signatures=binary_numeric_signatures),
+    "intDivOrZero": HogQLFunctionMeta("intDivOrZero", 2, 2, signatures=binary_numeric_signatures),
+    "modulo": HogQLFunctionMeta("modulo", 2, 2, signatures=binary_numeric_signatures),
+    "moduloOrZero": HogQLFunctionMeta("moduloOrZero", 2, 2, signatures=binary_numeric_signatures),
+    "positiveModulo": HogQLFunctionMeta("positiveModulo", 2, 2, signatures=binary_numeric_signatures),
+    "negate": HogQLFunctionMeta("negate", 1, 1, signatures=single_numeric_signatures),
+    "abs": HogQLFunctionMeta("abs", 1, 1, signatures=single_numeric_signatures),
+    "gcd": HogQLFunctionMeta("gcd", 2, 2, signatures=binary_numeric_signatures),
+    "lcm": HogQLFunctionMeta("lcm", 2, 2, signatures=binary_numeric_signatures),
+    "max2": HogQLFunctionMeta("max2", 2, 2, signatures=binary_numeric_signatures),
+    "min2": HogQLFunctionMeta("min2", 2, 2, signatures=binary_numeric_signatures),
     "multiplyDecimal": HogQLFunctionMeta("multiplyDecimal", 2, 3),
     "divideDecimal": HogQLFunctionMeta("divideDecimal", 2, 3),
     # arrays and strings common
@@ -252,7 +267,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "repeat": HogQLFunctionMeta("repeat", 2, 2),
     "format": HogQLFunctionMeta("format", 2, None),
     "reverseUTF8": HogQLFunctionMeta("reverseUTF8", 1, 1),
-    "concat": HogQLFunctionMeta("concat", 2, None),
+    "concat": HogQLFunctionMeta("concat", 2, None, signatures=[(None, StringType)]),
     "substring": HogQLFunctionMeta("substring", 3, 3),
     "substringUTF8": HogQLFunctionMeta("substringUTF8", 3, 3),
     "appendTrailingCharIfAbsent": HogQLFunctionMeta("appendTrailingCharIfAbsent", 2, 2),

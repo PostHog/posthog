@@ -10,7 +10,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
 from posthog.hogql.errors import ResolverException, HogQLException
 from posthog.hogql.functions.cohort import cohort
-from posthog.hogql.functions.mapping import validate_function_args
+from posthog.hogql.functions.mapping import validate_function_args, HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
@@ -331,23 +331,41 @@ class Resolver(CloningVisitor):
 
         node = super().visit_call(node)
         arg_types: List[ast.ConstantType] = []
-        for arg in node.args:
+        for i, arg in enumerate(node.args):
             if arg.type:
-                arg_types.append(arg.type.resolve_constant_type() or UnknownType())
+                arg_types.append(arg.type.resolve_constant_type())
             else:
-                arg_types.append(UnknownType())
+                raise ResolverException(f"Unknown type for function '{node.name}', argument {i}")
         param_types: Optional[List[ast.ConstantType]] = None
         if node.params is not None:
             param_types = []
-            for param in node.params:
+            for i, param in enumerate(node.params):
                 if param.type:
-                    param_types.append(param.type.resolve_constant_type() or UnknownType())
+                    param_types.append(param.type.resolve_constant_type())
                 else:
-                    param_types.append(UnknownType())
-        # TODO: calculate return type
-        node.type = ast.CallType(
-            name=node.name, arg_types=arg_types, param_types=param_types, return_type=UnknownType()
-        )
+                    raise ResolverException(f"Unknown type for function '{node.name}', parameter {i}")
+
+        return_type = UnknownType()
+
+        if node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
+            signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
+            if signatures:
+                arg_type_classes = [arg_type.__class__.__name__ for arg_type in arg_types]
+                for sig_arg_types, sig_return_type in signatures:
+                    if sig_arg_types is None:
+                        return_type = sig_return_type()
+                        break
+                    sig_arg_type_classes = [arg_type.__name__ for arg_type in sig_arg_types]
+                    if sig_arg_type_classes == arg_type_classes:
+                        return_type = sig_return_type()
+                        break
+
+        if node.name == "concat":
+            return_type.nullable = False
+        elif not isinstance(return_type, UnknownType):
+            return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
+
+        node.type = ast.CallType(name=node.name, arg_types=arg_types, param_types=param_types, return_type=return_type)
         return node
 
     def visit_lambda(self, node: ast.Lambda):
@@ -544,9 +562,7 @@ class Resolver(CloningVisitor):
             )
 
         node = super().visit_compare_operation(node)
-        left_constant_type = node.left.type.resolve_constant_type()
-        right_constant_type = node.right.type.resolve_constant_type()
-        node.type = ast.BooleanType(nullable=left_constant_type.nullable or right_constant_type.nullable)
+        node.type = ast.BooleanType(nullable=False)
         return node
 
     def _is_events_table(self, node: ast.Expr) -> bool:
