@@ -145,7 +145,7 @@ class SelectQueryType(Type):
         return name in self.columns
 
     def resolve_constant_type(self) -> "ConstantType":
-        columns = self.columns.values()
+        columns = list(self.columns.values())
         if len(columns) == 1:
             return columns[0].resolve_constant_type()
         return TupleType(
@@ -382,6 +382,9 @@ class PropertyType(Type):
 @dataclass(kw_only=True)
 class LambdaArgumentType(Type):
     name: str
+
+    def resolve_constant_type(self) -> "ConstantType":
+        return UnknownType()
 
 
 @dataclass(kw_only=True)

@@ -56,8 +56,8 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"], type=event_field_type),
                 op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="test", type=ast.StringType()),
-                type=ast.BooleanType(),
+                right=ast.Constant(value="test", type=ast.StringType(nullable=False)),
+                type=ast.BooleanType(nullable=False),
             ),
             type=select_query_type,
         )
@@ -104,8 +104,8 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="test", type=ast.StringType()),
-                type=ast.BooleanType(),
+                right=ast.Constant(value="test", type=ast.StringType(nullable=False)),
+                type=ast.BooleanType(nullable=False),
             ),
             type=select_query_type,
         )
@@ -162,8 +162,8 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="test", type=ast.StringType()),
-                type=ast.BooleanType(),
+                right=ast.Constant(value="test", type=ast.StringType(nullable=False)),
+                type=ast.BooleanType(nullable=False),
             ),
             type=select_query_type,
         )
@@ -236,8 +236,8 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(name="b", table_type=select_alias_type),
                 ),
                 op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="test", type=ast.StringType()),
-                type=ast.BooleanType(),
+                right=ast.Constant(value="test", type=ast.StringType(nullable=False)),
+                type=ast.BooleanType(nullable=False),
             ),
             type=ast.SelectQueryType(
                 aliases={},
@@ -277,19 +277,30 @@ class TestResolver(BaseTest):
             expr = resolve_types(expr, self.context)
             expected = ast.SelectQuery(
                 select=[
-                    ast.Constant(value=1, type=ast.IntegerType()),
-                    ast.Constant(value="boo", type=ast.StringType()),
-                    ast.Constant(value=True, type=ast.BooleanType()),
-                    ast.Constant(value=1.1232, type=ast.FloatType()),
+                    ast.Constant(value=1, type=ast.IntegerType(nullable=False)),
+                    ast.Constant(value="boo", type=ast.StringType(nullable=False)),
+                    ast.Constant(value=True, type=ast.BooleanType(nullable=False)),
+                    ast.Constant(value=1.1232, type=ast.FloatType(nullable=False)),
                     ast.Constant(value=None, type=UnknownType()),
-                    ast.Constant(value=date(2020, 1, 10), type=ast.DateType()),
-                    ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc), type=ast.DateTimeType()),
-                    ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000"), type=ast.UUIDType()),
-                    ast.Constant(value=[], type=ast.ArrayType(item_type=UnknownType())),
-                    ast.Constant(value=[1, 2], type=ast.ArrayType(item_type=ast.IntegerType())),
+                    ast.Constant(value=date(2020, 1, 10), type=ast.DateType(nullable=False)),
+                    ast.Constant(
+                        value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc), type=ast.DateTimeType(nullable=False)
+                    ),
+                    ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000"), type=ast.UUIDType(nullable=False)),
+                    ast.Constant(value=[], type=ast.ArrayType(nullable=False, item_type=UnknownType())),
+                    ast.Constant(
+                        value=[1, 2], type=ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))
+                    ),
                     ast.Constant(
                         value=(1, 2, 3),
-                        type=ast.TupleType(item_types=[ast.IntegerType(), ast.IntegerType(), ast.IntegerType()]),
+                        type=ast.TupleType(
+                            nullable=False,
+                            item_types=[
+                                ast.IntegerType(nullable=False),
+                                ast.IntegerType(nullable=False),
+                                ast.IntegerType(nullable=False),
+                            ],
+                        ),
                     ),
                 ],
                 type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
@@ -303,21 +314,21 @@ class TestResolver(BaseTest):
             select=[
                 ast.And(
                     exprs=[
-                        ast.Constant(value=1, type=ast.IntegerType()),
-                        ast.Constant(value=1, type=ast.IntegerType()),
+                        ast.Constant(value=1, type=ast.IntegerType(nullable=False)),
+                        ast.Constant(value=1, type=ast.IntegerType(nullable=False)),
                     ],
-                    type=ast.BooleanType(),
+                    type=ast.BooleanType(nullable=False),
                 ),
                 ast.Or(
                     exprs=[
-                        ast.Constant(value=1, type=ast.IntegerType()),
-                        ast.Constant(value=1, type=ast.IntegerType()),
+                        ast.Constant(value=1, type=ast.IntegerType(nullable=False)),
+                        ast.Constant(value=1, type=ast.IntegerType(nullable=False)),
                     ],
-                    type=ast.BooleanType(),
+                    type=ast.BooleanType(nullable=False),
                 ),
                 ast.Not(
-                    expr=ast.Constant(value=True, type=ast.BooleanType()),
-                    type=ast.BooleanType(),
+                    expr=ast.Constant(value=True, type=ast.BooleanType(nullable=False)),
+                    type=ast.BooleanType(nullable=False),
                 ),
             ],
             type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
@@ -820,12 +831,12 @@ class TestResolver(BaseTest):
         node = resolve_types(node, self.context)
         select_subquery_type = ast.SelectQueryType(
             aliases={
-                "a": ast.FieldAliasType(alias="a", type=ast.IntegerType()),
-                "b": ast.FieldAliasType(alias="b", type=ast.IntegerType()),
+                "a": ast.FieldAliasType(alias="a", type=ast.IntegerType(nullable=False)),
+                "b": ast.FieldAliasType(alias="b", type=ast.IntegerType(nullable=False)),
             },
             columns={
-                "a": ast.FieldAliasType(alias="a", type=ast.IntegerType()),
-                "b": ast.FieldAliasType(alias="b", type=ast.IntegerType()),
+                "a": ast.FieldAliasType(alias="a", type=ast.IntegerType(nullable=False)),
+                "b": ast.FieldAliasType(alias="b", type=ast.IntegerType(nullable=False)),
             },
             tables={},
             anonymous_tables=[],
@@ -845,12 +856,12 @@ class TestResolver(BaseTest):
             alias="x",
             select_query_type=ast.SelectQueryType(
                 aliases={
-                    "a": ast.FieldAliasType(alias="a", type=ast.IntegerType()),
-                    "b": ast.FieldAliasType(alias="b", type=ast.IntegerType()),
+                    "a": ast.FieldAliasType(alias="a", type=ast.IntegerType(nullable=False)),
+                    "b": ast.FieldAliasType(alias="b", type=ast.IntegerType(nullable=False)),
                 },
                 columns={
-                    "a": ast.FieldAliasType(alias="a", type=ast.IntegerType()),
-                    "b": ast.FieldAliasType(alias="b", type=ast.IntegerType()),
+                    "a": ast.FieldAliasType(alias="a", type=ast.IntegerType(nullable=False)),
+                    "b": ast.FieldAliasType(alias="b", type=ast.IntegerType(nullable=False)),
                 },
                 tables={},
                 anonymous_tables=[],
@@ -996,3 +1007,46 @@ class TestResolver(BaseTest):
         )
         self.assertEqual(node.select_from.table.select[0].type.resolve_constant_type(), ast.StringType(nullable=False))
         self.assertEqual(node.select[0].type.resolve_constant_type(), ast.StringType(nullable=False))
+
+    def test_arithmetic_types(self):
+        node: ast.SelectQuery = self._select("select 1 + 2 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.IntegerType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select key from (select 1 + 2 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.IntegerType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select 1.0 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.FloatType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select 100 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.FloatType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select 1.0 + 200 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.FloatType(nullable=False))
+
+    def test_boolean_types(self):
+        node: ast.SelectQuery = self._select("select true and false as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.BooleanType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select key from (select true or false as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.BooleanType(nullable=False))
+
+    def test_compare_types(self):
+        node: ast.SelectQuery = self._select("select 1 < 2 from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.BooleanType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select key from (select 3 = 4 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.BooleanType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select key from (select 3 = null as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        self.assertEqual(node.select[0].type.resolve_constant_type(), ast.BooleanType(nullable=True))

@@ -8,7 +8,7 @@ from posthog.hogql.base import UnknownType
 from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
-from posthog.hogql.errors import ResolverException
+from posthog.hogql.errors import ResolverException, HogQLException
 from posthog.hogql.functions.cohort import cohort
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
@@ -25,26 +25,27 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
         return UnknownType()
     if isinstance(constant, bool):
-        return ast.BooleanType()
+        return ast.BooleanType(nullable=False)
     if isinstance(constant, int):
-        return ast.IntegerType()
+        return ast.IntegerType(nullable=False)
     if isinstance(constant, float):
-        return ast.FloatType()
+        return ast.FloatType(nullable=False)
     if isinstance(constant, str):
-        return ast.StringType()
+        return ast.StringType(nullable=False)
     if isinstance(constant, list):
         unique_types = set(str(resolve_constant_data_type(item)) for item in constant)
         return ast.ArrayType(
-            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else UnknownType()
+            nullable=False,
+            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else UnknownType(),
         )
     if isinstance(constant, tuple):
-        return ast.TupleType(item_types=[resolve_constant_data_type(item) for item in constant])
+        return ast.TupleType(nullable=False, item_types=[resolve_constant_data_type(item) for item in constant])
     if isinstance(constant, datetime) or type(constant).__name__ == "FakeDatetime":
-        return ast.DateTimeType()
+        return ast.DateTimeType(nullable=False)
     if isinstance(constant, date) or type(constant).__name__ == "FakeDate":
-        return ast.DateType()
+        return ast.DateType(nullable=False)
     if isinstance(constant, UUID) or isinstance(constant, UUIDT):
-        return ast.UUIDType()
+        return ast.UUIDType(nullable=False)
     raise ResolverException(f"Unsupported constant type: {type(constant)}")
 
 
@@ -300,6 +301,26 @@ class Resolver(CloningVisitor):
         scope.aliases[node.alias] = node.type
         return node
 
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        node = super().visit_arithmetic_operation(node)
+        left_type = node.left.type.resolve_constant_type()
+        right_type = node.right.type.resolve_constant_type()
+
+        if isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.IntegerType):
+            node.type = ast.IntegerType()
+        elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.FloatType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.FloatType):
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.IntegerType):
+            node.type = ast.FloatType()
+        else:
+            raise HogQLException(
+                f"Arithmetic operations can only be performed on numeric types, not on '{left_type.__class__.__name__}' and '{right_type.__class__.__name__}'"
+            )
+        node.type.nullable = left_type.nullable or right_type.nullable
+        return node
+
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
@@ -476,17 +497,17 @@ class Resolver(CloningVisitor):
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(nullable=any(expr.type.resolve_constant_type().nullable for expr in node.exprs))
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(nullable=any(expr.type.resolve_constant_type().nullable for expr in node.exprs))
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType()
+        node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type().nullable)
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
@@ -523,7 +544,9 @@ class Resolver(CloningVisitor):
             )
 
         node = super().visit_compare_operation(node)
-        node.type = ast.BooleanType()
+        left_constant_type = node.left.type.resolve_constant_type()
+        right_constant_type = node.right.type.resolve_constant_type()
+        node.type = ast.BooleanType(nullable=left_constant_type.nullable or right_constant_type.nullable)
         return node
 
     def _is_events_table(self, node: ast.Expr) -> bool:
