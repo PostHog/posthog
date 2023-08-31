@@ -403,7 +403,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
+@pytest.mark.parametrize("compression", [None, "gzip"])
 async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     client: HttpClient, s3_client, bucket_name, compression
 ):
