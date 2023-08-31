@@ -164,6 +164,7 @@ export const FEATURE_FLAGS = {
     NOTEBOOK_SETTINGS_WIDGETS: 'notebook-settings-widgets', // owner: #team-monitoring
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
+    APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -28,6 +28,7 @@ from posthog.hogql.database.schema.person_overrides import PersonOverridesTable,
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
+from posthog.models.team.team import WeekStartDay
 from posthog.utils import PersonOnEventsMode
 
 
@@ -69,15 +70,22 @@ class Database(BaseModel):
         "person_static_cohort",
     ]
 
-    def __init__(self, timezone: Optional[str]):
+    _timezone: Optional[str]
+    _week_start_day: Optional[WeekStartDay]
+
+    def __init__(self, timezone: Optional[str], week_start_day: Optional[WeekStartDay]):
         super().__init__()
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
             raise HogQLException(f"Unknown timezone: '{str(timezone)}'")
+        self._week_start_day = week_start_day
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
+
+    def get_week_start_day(self) -> WeekStartDay:
+        return self._week_start_day or WeekStartDay.SUNDAY
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
@@ -97,7 +105,7 @@ def create_hogql_database(team_id: int) -> Database:
     from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery, DataWarehouseViewLink
 
     team = Team.objects.get(pk=team_id)
-    database = Database(timezone=team.timezone)
+    database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
     if team.person_on_events_mode != PersonOnEventsMode.DISABLED:
         # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
         database.events.fields["person"] = FieldTraverser(chain=["poe"])

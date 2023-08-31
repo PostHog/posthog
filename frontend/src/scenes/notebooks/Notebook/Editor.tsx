@@ -9,8 +9,9 @@ import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
 
-import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
+import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
+import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
@@ -28,6 +29,7 @@ import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
+import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -88,8 +90,10 @@ export function Editor({
             NotebookNodeReplayTimestamp,
             NotebookNodePlaylist,
             NotebookNodePerson,
-            NotebookNodeFlag,
             NotebookNodeFlagCodeExample,
+            NotebookNodeFlag,
+            NotebookNodeExperiment,
+            NotebookNodeEarlyAccessFeature,
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,

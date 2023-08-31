@@ -131,7 +131,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     // connect to taxonomicFilterLogic to select their initial values. They won't be built yet and will be unknown.
     selectors: {
         taxonomicFilterLogicKey: [
-            () => [(_, props) => props.taxonomicFilterLogicKey],
+            (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
