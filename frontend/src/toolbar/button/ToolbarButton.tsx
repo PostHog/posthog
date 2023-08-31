@@ -22,6 +22,7 @@ import {
     IconFlag,
     IconMagnifier,
     IconMenu,
+    IconHelpOutline,
     IconTarget,
 } from 'lib/lemon-ui/icons'
 import { Logomark as Logomark3000 } from './icons/icons'
@@ -33,7 +34,6 @@ import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconHelpOutline, IconTarget } from 'lib/lemon-ui/icons'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 

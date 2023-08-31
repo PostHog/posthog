@@ -3,7 +3,8 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonButton, LemonInput, IconPlus } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
 export function ActionsList(): JSX.Element {
     const { allActions, sortedActions, allActionsLoading, searchTerm } = useValues(actionsLogic)
