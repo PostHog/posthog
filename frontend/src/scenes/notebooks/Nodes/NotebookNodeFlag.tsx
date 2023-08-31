@@ -13,12 +13,15 @@ import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import api from 'lib/api'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = props.node.attrs
     const { featureFlag, featureFlagLoading, recordingFilterForFlag } = useValues(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
+
+    const { nextNode } = useValues(notebookLogic)
 
     return (
         <div>
@@ -58,18 +61,30 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
                         size="small"
                         icon={<IconFlag />}
                         onClick={() => {
-                            insertAfter(buildCodeExampleContent(id))
+                            if (nextNode?.type.name !== NotebookNodeType.FeatureFlagCodeExample) {
+                                insertAfter(buildCodeExampleContent(id))
+                            }
                         }}
+                        disabledReason={
+                            nextNode?.type.name === NotebookNodeType.FeatureFlagCodeExample &&
+                            'Code example already exists below'
+                        }
                     >
                         Show implementation
                     </LemonButton>
                     <LemonButton
                         onClick={() => {
-                            insertAfter(buildPlaylistContent(recordingFilterForFlag))
+                            if (nextNode?.type.name !== NotebookNodeType.RecordingPlaylist) {
+                                insertAfter(buildPlaylistContent(recordingFilterForFlag))
+                            }
                         }}
                         type="secondary"
                         size="small"
                         icon={<IconRecording />}
+                        disabledReason={
+                            nextNode?.type.name === NotebookNodeType.RecordingPlaylist &&
+                            'Recording playlist already exists below'
+                        }
                     >
                         View Replays
                     </LemonButton>
