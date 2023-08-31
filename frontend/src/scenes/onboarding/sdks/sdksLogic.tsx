@@ -34,6 +34,7 @@ export const sdksLogic = kea<sdksLogicType>({
         setSDKs: (sdks: SDK[]) => ({ sdks }),
         setSelectedSDK: (sdk: SDK | null) => ({ sdk }),
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
+        resetSDKs: true,
     },
 
     reducers: {
@@ -84,6 +85,16 @@ export const sdksLogic = kea<sdksLogicType>({
         setSourceFilter: () => {
             actions.filterSDKs()
             actions.setSelectedSDK(null)
+        },
+        [onboardingLogic.actionTypes.setProductKey]: () => {
+            // TODO: This doesn't seem to run when the setProductKey action is called in onboardingLogic...
+            actions.resetSDKs()
+        },
+        resetSDKs: () => {
+            actions.filterSDKs()
+            actions.setSelectedSDK(null)
+            actions.setSourceFilter(null)
+            actions.setSourceOptions(getSourceOptions(values.productKey || ''))
         },
     }),
     events: ({ actions }) => ({
