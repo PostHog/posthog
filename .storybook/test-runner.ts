@@ -2,13 +2,13 @@ import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
 import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 import type { Mocks } from '~/mocks/utils'
+import { StoryContext } from '@storybook/types'
 
-type StoryContext = ReturnType<typeof getStoryContext> extends Promise<infer T> ? T : never
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
-declare module '@storybook/csf' {
+declare module '@storybook/types' {
     interface Parameters {
         options?: any
         layout?: 'padded' | 'fullscreen' | 'centered'
@@ -61,7 +61,7 @@ module.exports = {
     },
     async postRender(page, context) {
         const browserContext = page.context()
-        const storyContext = await getStoryContext(page, context)
+        const storyContext = (await getStoryContext(page, context)) as StoryContext
         const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         browserContext.setDefaultTimeout(3000) // Reduce the default timeout from 30 s to 3 s to pre-empt Jest timeouts

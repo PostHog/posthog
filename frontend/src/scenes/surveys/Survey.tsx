@@ -97,7 +97,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             />
             <LemonDivider />
             <div className="flex flex-row gap-4">
-                <div className="flex flex-col gap-2 min-w-180">
+                <div className="flex flex-col gap-2">
                     <Field name="name" label="Name">
                         <LemonInput data-attr="survey-name" />
                     </Field>

@@ -8,6 +8,12 @@ on:
             - 'package.json'
             - '.github/workflows/storybook-chromatic.yml'
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
+    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
+    cancel-in-progress: false
+
 jobs:
     storybook-chromatic:
         name: Publish to Chromatic
@@ -45,7 +51,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests
-        runs-on: buildjet-4vcpu-ubuntu-2204
+        runs-on: ubuntu-latest
         timeout-minutes: 30
         container:
             image: mcr.microsoft.com/playwright:v1.29.2 # Same as @storybook/test-runner@0.13's dependency
@@ -93,12 +99,6 @@ jobs:
             firefox-2-total: ${{ steps.diff.outputs.firefox-2-total }}
             firefox-2-commitHash: ${{ steps.commit-hash.outputs.firefox-2-commitHash }}
         steps:
-            # If this run wasn't initiated by the bot (meaning: snapshot update), cancel previous runs
-            - uses: n1hility/cancel-previous-runs@v3
-              if: github.actor != 'posthog-bot'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-
             - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
