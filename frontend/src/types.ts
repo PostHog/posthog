@@ -3033,6 +3033,7 @@ export enum NotebookNodeType {
     FeatureFlag = 'ph-feature-flag',
     FeatureFlagCodeExample = 'ph-feature-flag-code-example',
     Experiment = 'ph-experiment',
+    EarlyAccessFeature = 'ph-early-access-feature',
     Person = 'ph-person',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
