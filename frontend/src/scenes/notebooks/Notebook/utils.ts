@@ -24,6 +24,7 @@ export type CustomNotebookNodeAttributes = Record<string, any>
 
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
+    title: string | null
     height?: string | number
 }
 

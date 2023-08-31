@@ -45,7 +45,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
 }
 
 export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
-    title: defaultTitle,
+    title: titleOrGenerator,
     nodeType,
     children,
     selected,
@@ -74,7 +74,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
-        title: defaultTitle,
+        title: titleOrGenerator,
         widgets,
         startExpanded,
     }

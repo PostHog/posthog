@@ -14,7 +14,7 @@ import {
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
-import { JSONContent, Node, NotebookNodeWidget } from '../Notebook/utils'
+import { CustomNotebookNodeAttributes, JSONContent, Node, NotebookNodeWidget } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 
@@ -22,19 +22,23 @@ export type NotebookNodeLogicProps = {
     node: Node
     nodeId: string
     nodeType: NotebookNodeType
-    nodeAttributes: Record<string, any>
-    updateAttributes: (attributes: Record<string, any>) => void
+    nodeAttributes: CustomNotebookNodeAttributes
+    updateAttributes: (attributes: CustomNotebookNodeAttributes) => void
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     title: string | ((attributes: any) => Promise<string>)
     widgets: NotebookNodeWidget[]
-    startExpanded?: boolean
+    startExpanded: boolean
 }
 
 async function renderTitle(
     title: NotebookNodeLogicProps['title'],
     attrs: NotebookNodeLogicProps['nodeAttributes']
 ): Promise<string> {
+    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
+        return attrs.title
+    }
+
     return typeof title === 'function' ? await title(attrs) : title
 }
 
@@ -47,7 +51,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setTitle: (title: string) => ({ title }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
-        updateAttributes: (attributes: Record<string, any>) => ({ attributes }),
+        updateAttributes: (attributes: CustomNotebookNodeAttributes) => ({ attributes }),
         insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
             timestamp,
             sessionRecordingId,

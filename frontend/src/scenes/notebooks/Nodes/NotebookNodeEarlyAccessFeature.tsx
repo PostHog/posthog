@@ -110,10 +110,6 @@ type NotebookNodeEarlyAccessAttributes = {
 export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNodeEarlyAccessAttributes>({
     nodeType: NotebookNodeType.EarlyAccessFeature,
     title: async (attributes) => {
-        if (typeof attributes.title === 'string' && attributes.title.length > 0) {
-            return attributes.title
-        }
-
         const mountedEarlyAccessFeatureLogic = earlyAccessFeatureLogic.findMounted({ id: attributes.id })
         let title = mountedEarlyAccessFeatureLogic?.values.earlyAccessFeature.name || null
         if (title === null) {
