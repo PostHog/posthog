@@ -194,17 +194,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_valid_view(self):
-        # response = self.client.post(
-        #     f"/api/projects/{self.team.id}/warehouse_saved_queries/",
-        #     {
-        #         "name": "event_view",
-        #         "query": {
-        #             "kind": "HogQLQuery",
-        #             "query": f"select event as event from events LIMIT 100",
-        #         },
-        #     },
-        # )
-
         metadata = self._select("select event AS event FROM events")
         self.assertEqual(
             metadata.dict(),
