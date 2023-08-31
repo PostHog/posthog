@@ -17,6 +17,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = props.node.attrs
@@ -24,6 +25,8 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
+
+    const { nextNode } = useValues(notebookLogic)
 
     // experiment progress details
     const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
@@ -100,8 +103,13 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
                         size="small"
                         icon={<IconFlag />}
                         onClick={() => {
-                            insertAfter(buildFlagContent(experiment.feature_flag?.id || 'new'))
+                            if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
+                                insertAfter(buildFlagContent(experiment.feature_flag?.id || 'new'))
+                            }
                         }}
+                        disabledReason={
+                            nextNode?.type.name === NotebookNodeType.FeatureFlag && 'Feature flag already exists below'
+                        }
                     >
                         View Feature Flag
                     </LemonButton>
