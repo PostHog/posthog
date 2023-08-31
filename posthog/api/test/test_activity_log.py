@@ -43,6 +43,12 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         # user three has edited most of them after that
         self._create_and_edit_things()
 
+        self.client.force_login(self.user)
+
+    def tearDown(self):
+        super().tearDown()
+        self.client.force_login(self.user)
+
     def _create_and_edit_things(self):
 
         with freeze_time("2023-08-17") as frozen_time:
@@ -90,8 +96,6 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
                 self.third_user,
                 frozen_time,
             )
-
-            self.client.force_login(self.user)
 
     def _edit_them_all(
         self,
