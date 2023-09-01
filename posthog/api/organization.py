@@ -120,7 +120,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         visible_team_ids = set(self.user_permissions.team_ids_visible_for_user)
         return [team for team in teams if team["id"] in visible_team_ids]
 
-    def get_metadata(self, _instance: Organization) -> Dict[str, Union[str, int, object]]:
+    def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:
         return {
             "instance_tag": settings.INSTANCE_TAG,
         }
