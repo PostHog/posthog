@@ -1,7 +1,7 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { InsightShortId, NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '~/types'
 import { useMountedLogic, useValues } from 'kea'
 import { useJsonNodeState } from './utils'
 import { useMemo } from 'react'
@@ -9,7 +9,6 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -35,6 +34,12 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
+            modifiedQuery.embedded = true
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = false
+            modifiedQuery.showHeader = false
+            modifiedQuery.showTable = false
+            modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
         }
 
@@ -132,15 +137,4 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             Component: Settings,
         },
     ],
-    pasteOptions: {
-        find: urls.insightView('(.+)' as InsightShortId),
-        getAttributes: async (match) => {
-            return {
-                query: {
-                    kind: NodeKind.SavedInsightNode,
-                    shortId: match[1] as InsightShortId,
-                },
-            }
-        },
-    },
 })
