@@ -6,7 +6,7 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useRef } from 'react'
+import { ReactNode, useCallback, useMemo, useRef } from 'react'
 import clsx from 'clsx'
 import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -31,7 +31,7 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     // Sizing
     expandable?: boolean
     startExpanded?: boolean
-    resizeable?: boolean
+    resizeable?: boolean | ((attributes: NotebookNode<T>['attrs']) => Promise<boolean>)
     heightEstimate?: number | string
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
@@ -48,7 +48,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     selected,
     href,
     heightEstimate = '4rem',
-    resizeable = true,
+    resizeable: resizeableOrGenerator = true,
     startExpanded = false,
     expandable = true,
     expandOnClick = true,
@@ -85,6 +85,14 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
 
     // If resizeable is true then the node attr "height" is required
     const height = node.attrs.height ?? heightEstimate
+
+    const resizeable = useMemo(
+        async () =>
+            typeof resizeableOrGenerator === 'function'
+                ? await resizeableOrGenerator(node.attrs)
+                : resizeableOrGenerator,
+        [resizeableOrGenerator]
+    )
 
     const onResizeStart = useCallback((): void => {
         if (!resizeable) {
