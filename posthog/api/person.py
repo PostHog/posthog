@@ -277,7 +277,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             persons = []
             for p in actors:
                 person = Person(uuid=p[0], created_at=p[1], is_identified=p[2], properties=json.loads(p[3]))
-                person._distinct_ids = p[4]  # type: ignore
+                person._distinct_ids = p[4]
                 persons.append(person)
 
             serialized_actors = serialize_people(team, data=persons)

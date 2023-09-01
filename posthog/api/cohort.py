@@ -314,7 +314,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             persons = []
             for p in serialized_actors:
                 person = Person(uuid=p[0], created_at=p[1], is_identified=p[2], properties=json.loads(p[3]))
-                person._distinct_ids = p[4]  # type: ignore
+                person._distinct_ids = p[4]
                 persons.append(person)
 
             serialized_actors = serialize_people(team, data=persons)
@@ -338,10 +338,16 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             DELETE_KEYS = ["value_at_data_point", "uuid", "type", "is_identified", "matched_recordings"]
             for actor in serialized_actors:
                 if actor["properties"].get("email"):
-                    actor["email"] = actor["properties"]["email"]  # type: ignore
+                    actor["email"] = actor["properties"]["email"]
                     del actor["properties"]["email"]
             serialized_actors = [
-                {k: v for k, v in sorted(actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999) if k not in DELETE_KEYS}  # type: ignore
+                {
+                    k: v
+                    for k, v in sorted(
+                        actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999
+                    )
+                    if k not in DELETE_KEYS
+                }
                 for actor in serialized_actors
             ]
 
