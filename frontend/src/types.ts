@@ -2101,6 +2101,9 @@ export interface SurveyAppearance {
     ratingButtonColor?: string
     ratingButtonHoverColor?: string
     whiteLabel?: boolean
+    displayThankYouMessage?: boolean
+    thankYouMessageHeader?: string
+    thankYouMessageDescription?: string
 }
 
 interface SurveyQuestionBase {
