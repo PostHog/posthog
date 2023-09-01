@@ -123,7 +123,7 @@ class TrendsEventQueryBase(EventQuery):
             self.active_user_params = active_user_format_params
             query_params.update(active_user_query_params)
 
-            date_filter = "{parsed_date_from_prev_range} {parsed_date_to}".format(
+            date_filter = "{parsed_date_from_active_user_adjusted} {parsed_date_to}".format(
                 **active_user_format_params, parsed_date_to=parsed_date_to
             )
         else:

@@ -300,7 +300,7 @@ BREAKDOWN_ACTIVE_USER_INNER_SQL = """
 SELECT counts AS total, timestamp AS day_start, breakdown_value
 FROM (
     SELECT d.timestamp, COUNT(DISTINCT person_id) counts, breakdown_value FROM (
-        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_active_user_adjusted} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
         SELECT
@@ -332,7 +332,7 @@ FROM events AS e
 {sessions_join}
 {conditions}
 {null_person_filter}
-{parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
+{parsed_date_from_active_user_adjusted} - INTERVAL {prev_interval} {parsed_date_to}
 GROUP BY breakdown_value
 ORDER BY breakdown_value
 """
@@ -369,7 +369,7 @@ ORDER BY breakdown_value
 """
 
 BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """
-WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query} {null_person_filter}
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_active_user_adjusted} {parsed_date_to} {actions_query} {null_person_filter}
 """
 
 BREAKDOWN_PROP_JOIN_SQL = """
