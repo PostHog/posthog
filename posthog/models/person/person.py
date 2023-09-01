@@ -22,11 +22,13 @@ class PersonManager(models.Manager):
 
 
 class Person(models.Model):
+    _distinct_ids: Optional[List[str]]
+
     @property
     def distinct_ids(self) -> List[str]:
         if hasattr(self, "distinct_ids_cache"):
             return [id.distinct_id for id in self.distinct_ids_cache]  # type: ignore
-        if self._distinct_ids:
+        if hasattr(self, "_distinct_ids") and self._distinct_ids:
             return self._distinct_ids
         return [
             id[0]
@@ -34,8 +36,6 @@ class Person(models.Model):
             .order_by("id")
             .values_list("distinct_id")
         ]
-
-    _distinct_ids: Optional[List[str]]
 
     # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
