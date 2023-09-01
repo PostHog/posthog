@@ -245,15 +245,18 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         """
 
         event_properties = {"team_id": self.team.pk}
+
         if request.headers.get("X-POSTHOG-SESSION-ID"):
             event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
-        )
 
         recording = self.get_object()
         response_data = {}
         source = request.GET.get("source")
+        event_properties["request_source"] = source
+
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
+        )
 
         if not source:
             sources: List[dict] = []
