@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import cached_property
 from typing import Optional
 
@@ -14,13 +14,7 @@ from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_
 
 # Originally copied from posthog/queries/query_date_range.py with some changes to support the new format
 class QueryDateRange:
-    """Translation of the raw `date_from` and `date_to` filter values to datetimes.
-
-    A raw `date_from` and `date_to` value can either be:
-    - unset, in which case `date_from` takes the timestamp of the earliest event in the project and `date_to` equals now
-    - a string, which can be a datetime in any format supported by dateutil.parser.isoparse()
-    - a datetime already (only for filters constructed internally)
-    """
+    """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
     _team: Team
     _date_range: Optional[DateRange]
@@ -82,10 +76,6 @@ class QueryDateRange:
     def _now(self):
         return self._localize_to_team(self._now_nontz)
 
-    @cached_property
-    def timezone(self):
-        return self._team.timezone
-
     def _localize_to_team(self, target: datetime):
         return target.astimezone(pytz.timezone(self._team.timezone))
 
@@ -99,14 +89,6 @@ class QueryDateRange:
             raise ValidationError(f"Period {interval} is unsupported.")
         return ch_function
 
-    # @cached_property
-    # def date_to_clause(self):
-    #     return self._get_timezone_aware_date_condition("date_to")
-    #
-    # @cached_property
-    # def date_from_clause(self):
-    #     return self._get_timezone_aware_date_condition("date_from")
-
     @cached_property
     def date_to(self) -> str:
         date_to = self.date_to_param
@@ -119,54 +101,6 @@ class QueryDateRange:
 
         return date_from.strftime("%Y-%m-%d %H:%M:%S")
 
-    # def _get_timezone_aware_date_condition(self, date_param: Literal["date_from", "date_to"]) -> str:
-    #     operator = ">=" if date_param == "date_from" else "<="
-    #     event_timestamp_expr = self._normalize_datetime(column=f"{self._table}timestamp")
-    #     date_expr = self._normalize_datetime(param=date_param)
-    #     if operator == ">=" and self.should_round:  # Round date_from to start of interval if `should_round` is true
-    #         date_expr = self._truncate_normalized_datetime(date_expr, self.interval_annotation)
-    #     return f"AND {event_timestamp_expr} {operator} {date_expr}"
-
-    @staticmethod
-    def _normalize_datetime(*, column: Optional[str] = None, param: Optional[str] = None) -> str:
-        """Return expression with datetime normalized to project timezone.
-
-        If normalizing a column (such as `events.timestamp`) provide the column expression as `column`
-        (e.g. `"events.timestamp"`). Stored data is already of type `DateTime('UTC')` already, so we just
-        need to convert that to the project TZ.
-        If normalizing a parameter (such as `%(date_from)s`) provide the parameter name as `param` (e.g. `"date_from"`).
-        Such parameters are strings, so they need to be parsed. They're assumed to already be in the project TZ.
-        """
-        if column and param:
-            raise ValueError("Must provide either column or param, not both")
-        if column:
-            return f"toTimeZone({column}, %(timezone)s)"
-        elif param:
-            return f"toDateTime(%({param})s, %(timezone)s)"
-        else:
-            raise ValueError("Must provide either column or param")
-
-    @classmethod
-    def _truncate_normalized_datetime(cls, normalized_datetime_expr: str, trunc_func: str) -> str:
-        """Return expression with normalized datetime truncated to the start of the interval."""
-        extra_trunc_func_args = cls.determine_extra_trunc_func_args(trunc_func)
-        # toDateTime is important here, as otherwise we'd get a date in many cases, which breaks comparisons
-        return f"toDateTime({trunc_func}({normalized_datetime_expr}{extra_trunc_func_args}), %(timezone)s)"
-
-    @staticmethod
-    def determine_extra_trunc_func_args(trunc_func: str) -> str:
-        """
-        Returns any extra arguments to be passed to the toStartOfWeek, toStartOfMonth, and other date truncation functions.
-
-        Currently only one of those functions requires extra args: toStartOfWeek. It takes a second argument indicating
-        if weeks should be Sunday-based (mode=0) or Monday-based (mode=1). We want Sunday-based, so we set that mode to 0.
-        """
-        return ", 0" if trunc_func == "toStartOfWeek" else ""
-
-    @cached_property
-    def delta(self) -> timedelta:
-        return self.date_to_param - self.date_from_param
-
     @cached_property
     def num_intervals(self) -> int:
         if self._interval is None:
@@ -176,22 +110,6 @@ class QueryDateRange:
             return (rel_delta.years * 12) + rel_delta.months + 1
 
         return int(self.delta.total_seconds() / TIME_IN_SECONDS[self._interval]) + 1
-
-    # @cached_property
-    # def should_round(self) -> bool:
-    #     if self._should_round is not None:
-    #         return self._should_round
-    #
-    #     if not hasattr(self._filter, "interval") or self._filter.use_explicit_dates:
-    #         return False
-    #
-    #     round_interval = False
-    #     if self._filter.interval in ["week", "month"]:
-    #         round_interval = True
-    #     else:
-    #         round_interval = self.delta.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2
-    #
-    #     return round_interval
 
     def is_hourly(self):
         return self._interval and self._interval.name == "hour"
