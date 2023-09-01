@@ -34,7 +34,7 @@ class PersonQuery:
 
     PERSON_PROPERTIES_ALIAS = "person_props"
     COHORT_TABLE_ALIAS = "cohort_persons"
-    ALIASES = {"properties": "person_props", "created_at": "_created_at"}
+    ALIASES = {"properties": "person_props"}
 
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
@@ -95,7 +95,7 @@ class PersonQuery:
         multiple_cohorts_condition, multiple_cohorts_params = self._get_multiple_cohorts_clause(prepend=prepend)
         single_cohort_join, single_cohort_params = self._get_fast_single_cohort_clause()
         if paginate:
-            order = "ORDER BY argMax(created_at, version) DESC, id DESC" if paginate else ""
+            order = "ORDER BY argMax(person.created_at, version) DESC, id DESC" if paginate else ""
             limit_offset, limit_params = self._get_limit_offset_clause()
         else:
             order = ""
@@ -106,7 +106,7 @@ class PersonQuery:
         distinct_id_condition, distinct_id_params = self._get_distinct_id_clause()
         email_condition, email_params = self._get_email_clause()
         filter_future_persons_condition = (
-            "AND argMax(created_at, version) < now() + INTERVAL 1 DAY" if filter_future_persons else ""
+            "AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY" if filter_future_persons else ""
         )
         updated_after_condition, updated_after_params = self._get_updated_after_clause()
 
@@ -129,7 +129,7 @@ class PersonQuery:
         # If we're not prefiltering, the single cohort inner join needs to be at the top level.
         top_level_single_cohort_join = single_cohort_join if not prefiltering_lookup else ""
 
-        return self._add_distinct_id_join(
+        return self._add_distinct_id_join_if_needed(
             f"""
             SELECT {fields}
             FROM person
@@ -349,16 +349,16 @@ class PersonQuery:
             return distinct_id_clause, {"distinct_id_filter": self._filter.distinct_id}
         return "", {}
 
-    def _add_distinct_id_join(self, query: str, params: Dict[Any, Any]) -> Tuple[str, Dict[Any, Any]]:
+    def _add_distinct_id_join_if_needed(self, query: str, params: Dict[Any, Any]) -> Tuple[str, Dict[Any, Any]]:
         if not self._include_distinct_ids:
             return query, params
         return (
             """
         SELECT person.*, groupArray(pdi.distinct_id) as distinct_ids
         FROM ({person_query}) person
-        left join ({distinct_id_query}) as pdi ON person.id=pdi.person_id
-        group by person.*
-        order by _created_at desc, id desc
+        LEFT JOIN ({distinct_id_query}) as pdi ON person.id=pdi.person_id
+        GROUP BY person.*
+        ORDER BY created_at desc, id desc
         """.format(
                 person_query=query, distinct_id_query=get_team_distinct_ids_query(self._team_id)
             ),

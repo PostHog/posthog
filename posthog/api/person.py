@@ -1,5 +1,4 @@
 import json
-from rest_framework import exceptions
 import posthoganalytics
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
@@ -244,8 +243,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = Filter(request=request, team=self.team)
 
-        if not request.user.is_authenticated:  # for mypy
-            raise exceptions.NotAuthenticated()
+        assert request.user.is_authenticated
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
@@ -255,7 +253,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         if posthoganalytics.feature_enabled(
             "load-person-fields-from-clickhouse",
-            None if request.user.is_anonymous else request.user.distinct_id,
+            request.user.distinct_id,
             person_properties={"email": request.user.email},
         ):
             person_query = PersonQuery(
@@ -269,7 +267,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 include_distinct_ids=True,
             )
             paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-            serialized_actors = insight_sync_execute(
+            actors = insight_sync_execute(
                 paginated_query,
                 {**paginated_params, **filter.hogql_context.values},
                 filter=filter,
@@ -277,7 +275,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 team_id=team.pk,
             )
             persons = []
-            for p in serialized_actors:
+            for p in actors:
                 person = Person(uuid=p[0], created_at=p[1], is_identified=p[2], properties=json.loads(p[3]))
                 person._distinct_ids = p[4]  # type: ignore
                 persons.append(person)
@@ -287,6 +285,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         else:
             person_query = PersonQuery(filter, team.pk)
             paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+
             raw_paginated_result = insight_sync_execute(
                 paginated_query,
                 {**paginated_params, **filter.hogql_context.values},
