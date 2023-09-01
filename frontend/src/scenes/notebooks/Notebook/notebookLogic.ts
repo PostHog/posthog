@@ -18,7 +18,7 @@ import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } fr
 
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from a utils file
-import { JSONContent, NotebookEditor, Node } from './utils'
+import { JSONContent, NotebookEditor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
@@ -75,9 +75,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         exportJSON: true,
         showConflictWarning: true,
-        updatePreviousAndNextNodes: true,
-        setPreviousNode: (node: Node | null) => ({ node }),
-        setNextNode: (node: Node | null) => ({ node }),
+        onUpdateEditor: true,
         registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
@@ -155,18 +153,6 @@ export const notebookLogic = kea<notebookLogicType>([
                     }
                     return newState
                 },
-            },
-        ],
-        previousNode: [
-            null as Node | null,
-            {
-                setPreviousNode: (_, { node }) => node,
-            },
-        ],
-        nextNode: [
-            null as Node | null,
-            {
-                setNextNode: (_, { node }) => node,
             },
         ],
         isEditable: [
@@ -432,7 +418,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             const jsonContent = values.editor.getJSON()
             actions.setLocalContent(jsonContent)
-            actions.updatePreviousAndNextNodes()
+            actions.onUpdateEditor()
         },
 
         setEditable: ({ editable }) => {
@@ -466,13 +452,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     actions.scrollToSelection()
                 }
 
-                actions.updatePreviousAndNextNodes()
-            }
-        },
-        updatePreviousAndNextNodes: () => {
-            if (values.editor) {
-                actions.setPreviousNode(values.editor.getPreviousNode())
-                actions.setNextNode(values.editor.getNextNode())
+                actions.onUpdateEditor()
             }
         },
         scrollToSelection: () => {

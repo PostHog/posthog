@@ -3,6 +3,7 @@ import {
     afterMount,
     beforeUnmount,
     BuiltLogic,
+    connect,
     kea,
     key,
     listeners,
@@ -65,10 +66,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             timestamp,
             sessionRecordingId,
         }),
+        setPreviousNode: (node: Node | null) => ({ node }),
+        setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
-        // TODO: Implement this
-        // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
     }),
+
+    connect((props: NotebookNodeLogicProps) => ({
+        actions: [props.notebookLogic, ['onUpdateEditor']],
+        values: [props.notebookLogic, ['editor']],
+    })),
 
     reducers(({ props }) => ({
         expanded: [
@@ -89,6 +95,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setResizeable: (_, { resizeable }) => resizeable,
             },
         ],
+        previousNode: [
+            null as Node | null,
+            {
+                setPreviousNode: (_, { node }) => node,
+            },
+        ],
+        nextNode: [
+            null as Node | null,
+            {
+                setNextNode: (_, { node }) => node,
+            },
+        ],
     })),
 
     selectors({
@@ -97,7 +115,17 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         widgets: [(_, p) => [p.widgets], (widgets) => widgets],
     }),
 
-    listeners(({ values, props }) => ({
+    listeners(({ actions, values, props }) => ({
+        onUpdateEditor: async () => {
+            const editor = values.notebookLogic.values.editor
+            if (editor) {
+                const pos = props.getPos()
+                const { previous, next } = editor.getAdjacentNodes(pos)
+                actions.setPreviousNode(previous)
+                actions.setNextNode(next)
+            }
+        },
+
         insertAfter: ({ content }) => {
             const logic = values.notebookLogic
             logic.values.editor?.insertContentAfterNode(props.getPos(), content)
