@@ -57,6 +57,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             timestamp,
             sessionRecordingId,
         }),
+        setWidgetsVisible: (visible: boolean) => ({ visible }),
         setPreviousNode: (node: Node | null) => ({ node }),
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
@@ -92,12 +93,22 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setNextNode: (_, { node }) => node,
             },
         ],
+        widgetsVisible: [
+            false,
+            {
+                setWidgetsVisible: (_, { visible }) => visible,
+            },
+        ],
     })),
 
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.nodeAttributes], (nodeAttributes) => nodeAttributes],
         widgets: [(_, p) => [p.widgets], (widgets) => widgets],
+        isShowingWidgets: [
+            (s, p) => [s.widgetsVisible, p.widgets],
+            (widgetsVisible, widgets) => !!widgets.length && widgetsVisible,
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
