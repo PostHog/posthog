@@ -322,6 +322,9 @@ email@example.org,
             _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
 
         _create_person(team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"})
+        _create_person(
+            team=self.team, distinct_ids=[f"not_target"], properties={"$os": "Something else", "$browser": "Safari"}
+        )
 
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]

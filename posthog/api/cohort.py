@@ -279,6 +279,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         cohort: Cohort = self.get_object()
         team = self.team
         filter = Filter(request=request, team=self.team)
+        assert request.user.is_authenticated
 
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
         if is_csv_request and not filter.limit:
@@ -288,12 +289,13 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         if posthoganalytics.feature_enabled(
             "load-person-fields-from-clickhouse",
-            None if request.user.is_anonymous else request.user.distinct_id,
+            request.user.distinct_id,
             person_properties={"email": request.user.email},
         ):
             person_query = PersonQuery(
                 filter,
                 team.pk,
+                cohort=cohort,
                 extra_fields=[
                     "created_at",
                     "properties",
