@@ -184,7 +184,6 @@ export function Editor({
                 getJSON: () => editor.getJSON(),
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
-                getPreviousNode: (pos: number) => getPreviousNode(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
@@ -296,13 +295,8 @@ function getAdjacentNodes(editor: TTEditor, pos: number): { previous: Node | nul
 }
 
 function getNodeBeforeActiveNode(editor: TTEditor): Node | null {
-    const { selection } = editor.state
-    return getPreviousNode(editor, selection.$anchor.pos)
-}
-
-function getPreviousNode(editor: TTEditor, pos: number): Node | null {
-    const { doc } = editor.state
-    const currentIndex = doc.resolve(pos).index(0)
+    const { doc, selection } = editor.state
+    const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
     return doc.maybeChild(currentIndex - 1)
 }
 

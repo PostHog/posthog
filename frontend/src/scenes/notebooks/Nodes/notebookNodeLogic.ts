@@ -102,9 +102,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     listeners(({ actions, values, props }) => ({
         onUpdateEditor: async () => {
-            if (values.editor) {
+            const editor = values.notebookLogic.values.editor
+            if (editor) {
                 const pos = props.getPos()
-                const { previous, next } = values.editor.getAdjacentNodes(pos)
+                const { previous, next } = editor.getAdjacentNodes(pos)
                 actions.setPreviousNode(previous)
                 actions.setNextNode(next)
             }
