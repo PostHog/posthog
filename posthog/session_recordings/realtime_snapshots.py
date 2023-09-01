@@ -16,6 +16,12 @@ PUBLISHED_REALTIME_SUBSCRIPTIONS_COUNTER = Counter(
     labelnames=["team_id", "session_id", "attempt_count"],
 )
 
+REALTIME_SUBSCRIPTIONS_LOADED_COUNTER = Counter(
+    "realtime_snapshots_loaded_counter",
+    "When the API is serving snapshot requests successfully loads snapshots from realtime channel.",
+    labelnames=["attempt_count"],
+)
+
 SUBSCRIPTION_CHANNEL = "@posthog/replay/realtime-subscriptions"
 ATTEMPT_MAX = 10
 ATTEMPT_TIMEOUT_SECONDS = 5
@@ -53,6 +59,7 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
             for line in s[0].splitlines():
                 snapshots.append(json.loads(line))
 
+        REALTIME_SUBSCRIPTIONS_LOADED_COUNTER.labels(attempt_count=attempt_count).inc()
         return snapshots
 
     return None

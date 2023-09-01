@@ -254,7 +254,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         recording = self.get_object()
         response_data = {}
         source = request.GET.get("source")
-        # TODO: Handle the old S3 storage method for pinned recordings
 
         if not source:
             sources: List[dict] = []
