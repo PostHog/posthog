@@ -13,7 +13,6 @@ import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExampl
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
@@ -84,7 +83,6 @@ export function Editor({
             }),
             NotebookMarkLink,
             NotebookNodeBacklink,
-            NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,
             NotebookNodeReplayTimestamp,
