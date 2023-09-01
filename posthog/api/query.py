@@ -5,7 +5,7 @@ from typing import Dict, Optional, cast, Any, List
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from posthog.nodes.events_query import run_events_query
+from posthog.models.event.events_query import run_events_query
 from pydantic import BaseModel
 from rest_framework import viewsets
 from rest_framework.decorators import action

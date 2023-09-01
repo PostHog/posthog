@@ -591,7 +591,7 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         sync_execute("SYSTEM FLUSH LOGS")
         sync_execute("TRUNCATE TABLE system.query_log")
 
-        from posthog.nodes.events_query import run_events_query
+        from posthog.models.event.events_query import run_events_query
 
         execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
         run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
