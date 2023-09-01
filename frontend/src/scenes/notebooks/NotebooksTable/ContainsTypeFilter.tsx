@@ -5,6 +5,8 @@ import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksT
 export const fromNodeTypeToLabel: Omit<Record<NotebookNodeType, string>, NotebookNodeType.Backlink> = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',
+    [NotebookNodeType.Experiment]: 'Experiments',
+    [NotebookNodeType.EarlyAccessFeature]: 'Early Access Features',
     [NotebookNodeType.Image]: 'Images',
     [NotebookNodeType.Insight]: 'Insights',
     [NotebookNodeType.Person]: 'Persons',

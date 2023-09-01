@@ -1,15 +1,16 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconBarChart } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Product } from '~/types'
-import '../products/products.scss'
-import { products } from './productsLogic'
+import { BillingProductV2Type } from '~/types'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { useEffect } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 
 export const scene: SceneExport = {
     component: Products,
@@ -43,17 +44,18 @@ function OnboardingNotCompletedButton({ url }: { url: string }): JSX.Element {
     )
 }
 
-function ProductCard({ product }: { product: Product }): JSX.Element {
+function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.key]
+    const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
     return (
-        <div
-            className={`ProductCard border border-border rounded-lg p-6 max-w-80 flex flex-col bg-white`}
-            key={product.key}
-        >
+        <LemonCard className={`max-w-80 flex flex-col`} key={product.type}>
             <div className="flex mb-2">
-                <div className="bg-mid rounded p-1 flex">
-                    <IconBarChart className="w-6 h-6" />
+                <div className="bg-mid rounded p-2 flex">
+                    {product.image_url ? (
+                        <img className="w-6 h-6" alt={`Logo for PostHog ${product.name}`} src={product.image_url} />
+                    ) : (
+                        <IconBarChart className="w-6 h-6" />
+                    )}
                 </div>
             </div>
             <div className="mb-2">
@@ -62,17 +64,20 @@ function ProductCard({ product }: { product: Product }): JSX.Element {
             <p className="grow">{product.description}</p>
             <div className="flex gap-x-2">
                 {onboardingCompleted ? (
-                    <OnboardingCompletedButton productUrl={product.productUrl} onboardingUrl={product.onboardingUrl} />
+                    <OnboardingCompletedButton productUrl={''} onboardingUrl={urls.onboarding(product.type)} />
                 ) : (
-                    <OnboardingNotCompletedButton url={product.onboardingUrl} />
+                    <OnboardingNotCompletedButton url={urls.onboarding(product.type)} />
                 )}
             </div>
-        </div>
+        </LemonCard>
     )
 }
 
 export function Products(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { billing } = useValues(billingLogic)
+    const products = billing?.products || []
+
     useEffect(() => {
         if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
             location.href = urls.ingestion()
@@ -87,12 +92,17 @@ export function Products(): JSX.Element {
                     Pick your first product to get started with. You can set up any others you'd like later.
                 </p>
             </div>
-
-            <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
-                {products.map((product) => (
-                    <ProductCard product={product} key={product.key} />
-                ))}
-            </div>
+            {products.length > 0 ? (
+                <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
+                    {products
+                        .filter((product) => !product.contact_support)
+                        .map((product) => (
+                            <ProductCard product={product} key={product.type} />
+                        ))}
+                </div>
+            ) : (
+                <Spinner className="text-3xl" />
+            )}
         </div>
     )
 }

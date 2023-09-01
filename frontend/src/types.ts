@@ -114,14 +114,6 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
 }
 
-export type Product = {
-    name: string
-    key: ProductKey
-    description: string
-    productUrl: string
-    onboardingUrl: string
-}
-
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -354,6 +346,8 @@ export interface TeamType extends TeamBasicType {
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
+    /** 0 or unset for Sunday, 1 for Monday. */
+    week_start_day?: number
     path_cleaning_filters: PathCleaningFilter[]
     data_attributes: string[]
     person_display_name_properties: string[]
@@ -1488,6 +1482,7 @@ export interface PluginConfigType {
     team_id: number
     enabled: boolean
     order: number
+
     config: Record<string, any>
     error?: PluginErrorType
     delivery_rate_24h?: number | null
@@ -3037,15 +3032,12 @@ export enum NotebookNodeType {
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
     FeatureFlagCodeExample = 'ph-feature-flag-code-example',
+    Experiment = 'ph-experiment',
+    EarlyAccessFeature = 'ph-early-access-feature',
     Person = 'ph-person',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
-}
-
-export type NotebookNodeWidgetSettings = {
-    attributes: Record<string, any>
-    updateAttributes: (attributes: Record<string, any>) => void
 }
 
 export enum NotebookTarget {
@@ -3079,6 +3071,15 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaQueryResponseField[]
+}
+
+export interface DataWarehouseViewLink {
+    id: string
+    saved_query_id?: string
+    saved_query?: string
+    table?: string
+    to_join_key?: string
+    from_join_key?: string
 }
 
 export type BatchExportDestinationS3 = {
@@ -3153,4 +3154,30 @@ export type GroupedBatchExportRuns = {
     data_interval_start: Dayjs
     data_interval_end: Dayjs
     runs: BatchExportRun[]
+}
+
+export type SDK = {
+    name: string
+    key: string
+    recommended?: boolean
+    tags: string[]
+    image: string
+}
+
+export enum SDKKey {
+    JS_WEB = 'javascript_web',
+    REACT = 'react',
+    NEXT_JS = 'nextjs',
+    GATSBY = 'gatsby',
+    IOS = 'ios',
+    ANDROID = 'android',
+    FLUTTER = 'flutter',
+    REACT_NATIVE = 'react_native',
+    NODE_JS = 'nodejs',
+    RUBY = 'ruby',
+    PYTHON = 'python',
+    PHP = 'php',
+    GO = 'go',
+    ELIXIR = 'elixir',
+    API = 'api',
 }

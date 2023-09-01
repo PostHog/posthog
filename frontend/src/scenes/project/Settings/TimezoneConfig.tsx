@@ -6,50 +6,65 @@ import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelec
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
+const tzLabel = (tz: string, offset: number): string =>
+    `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${offset === 0 ? '±' : offset > 0 ? '+' : '-'}${Math.abs(
+        Math.floor(offset)
+    )}:${(Math.abs(offset % 1) * 60).toString().padStart(2, '0')})`
+
 export function TimezoneConfig(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentTeam, timezone: currentTimezone, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
     if (!preflight?.available_timezones || !currentTeam) {
         return <LemonSkeleton className="w-1/2" />
     }
-    function onChange(val: string): void {
-        LemonDialog.open({
-            title: `Do you want to change the timezone of this project?`,
-            description:
-                'This will change how every graph in this project is calculated, which means your data will look different than it did before.',
-            primaryButton: {
-                children: 'Change timezone',
-                status: 'danger',
-                onClick: () => updateCurrentTeam({ timezone: val }),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
-    }
-
-    const options = Object.entries(preflight.available_timezones).map(([tz, offset]) => {
-        const label = `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${
-            offset === 0 ? '±' : offset > 0 ? '+' : '-'
-        }${Math.abs(offset)})`
-        return {
-            key: tz,
-            label: label,
-        }
-    })
+    const options = Object.entries(preflight.available_timezones).map(([tz, offset]) => ({
+        key: tz,
+        label: tzLabel(tz, offset),
+    }))
 
     return (
-        <LemonSelectMultiple
-            mode="single"
-            placeholder="Select a timezone"
-            loading={currentTeamLoading}
-            disabled={currentTeamLoading}
-            value={[currentTeam.timezone]}
-            onChange={(val: string[]) => onChange(val as any)}
-            options={options}
-            data-attr="timezone-select"
-        />
+        <div className="max-w-80">
+            <LemonSelectMultiple
+                mode="single"
+                placeholder="Select a time zone"
+                loading={currentTeamLoading}
+                disabled={currentTeamLoading}
+                value={[currentTeam.timezone]}
+                onChange={(newTimezone: any): void => {
+                    // This is a string for a single-mode select, but typing is poor
+                    if (!preflight?.available_timezones) {
+                        throw new Error('No timezones are available')
+                    }
+                    const currentOffset = preflight.available_timezones[currentTimezone]
+                    const newOffset = preflight.available_timezones[newTimezone]
+                    if (currentOffset === newOffset) {
+                        updateCurrentTeam({ timezone: newTimezone })
+                    } else {
+                        LemonDialog.open({
+                            title: `Change time zone to ${tzLabel(newTimezone, newOffset)}?`,
+                            description: (
+                                <p className="max-w-120">
+                                    This time zone has an offset different from the current{' '}
+                                    <strong>{tzLabel(currentTimezone, currentOffset)}</strong>, so queries will need to
+                                    be recalculated. There will be a difference in date-based time ranges, and in
+                                    day/week/month buckets.
+                                </p>
+                            ),
+                            primaryButton: {
+                                children: 'Change time zone',
+                                onClick: () => updateCurrentTeam({ timezone: newTimezone }),
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                            },
+                        })
+                    }
+                }}
+                options={options}
+                data-attr="timezone-select"
+            />
+        </div>
     )
 }
