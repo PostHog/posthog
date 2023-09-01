@@ -1,54 +1,24 @@
 from typing import Dict, Any
 
+from django.utils.timezone import datetime
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.nodes.query_date_range import QueryDateRange
-from posthog.schema import LifecycleQuery, DateRange
-from django.utils.timezone import now, datetime
-from dateutil.parser import isoparse
-from posthog.utils import relative_date_parse
-
-from zoneinfo import ZoneInfo
+from posthog.schema import LifecycleQuery
 
 
 def create_time_filter(date_range: QueryDateRange, interval: str) -> (ast.Expr, ast.Expr, ast.Expr):
-    # date_from = parse_expr(f"assumeNotNull(toDateTime('{date_range.date_from}'))")
-    # date_to = parse_expr(f"assumeNotNull(toDateTime('{date_rangedate_to}'))")
-    #
-    # time_filter = parse_expr(
-    #     "timestamp >= {date_from} AND timestamp < {date_to}",
-    #     {"date_from": date_from, "date_to": date_to},
-    # )
-    #
-    # params = {**date_params, "interval": self._filter.interval}
-    # # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
-    # return (
-    #     f"""
-    #     AND timestamp >= toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_from)s, %(timezone)s))) - INTERVAL 1 {self._filter.interval}
-    #     AND timestamp < toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_to)s, %(timezone)s))) + INTERVAL 1 {self._filter.interval}
-    # """,
-    #     params,
-    # )
-    #
-    # return time_filter, date_from, date_to
-
-    # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
-
-    # date_from = date_range.date_from
-    # date_to = date_range.date_to
-    # timezone = ´ast.Constant(value=date_range.timezone)
-
     # don't need timezone here, as HogQL will use the project timezone automatically
     date_from_s = f"assumeNotNull(toDateTime('{date_range.date_from}'))"
     date_from = parse_expr(date_from_s)
     date_to_s = f"assumeNotNull(toDateTime('{date_range.date_to}'))"
     date_to = parse_expr(date_to_s)
 
-    # date_from = parse_expr(f"assumeNotNull(toDateTime('{date_range.date_from}', '{date_range.timezone}'))")
-    # date_to = parse_expr(f"assumeNotNull(toDateTime('{date_range.date_to}', '{date_range.timezone}'))")
-
+    # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
+    # TODO use placeholders, for some reason I couldn't get this to work properly
     time_filter = parse_expr(
         f"""
     (timestamp >= dateTrunc('{interval}', {date_from_s}) - INTERVAL 1 {interval})
@@ -56,45 +26,6 @@ def create_time_filter(date_range: QueryDateRange, interval: str) -> (ast.Expr, 
     (timestamp < dateTrunc('{interval}', {date_to_s}) + INTERVAL 1 {interval})
     """
     )
-    # parse_expr(
-    #     "toDateTime(dateTrunc({interval}, {date_from})) - INTERVAL 1 {interval}))",
-    #     placeholders={
-    #         "interval": ast.Constant(value=interval),
-    #         "date_from": date_from,
-    #     },
-    # )
-
-    # parse_expr(
-    #     "timestamp >= (toDateTime(dateTrunc('{interval}', {date_from})) - INTERVAL 1 {interval})",
-    #     placeholders={
-    #         "interval": ast.Constant(value=interval),
-    #         "date_from": date_from,
-    #     },
-    # )
-    # time_filter = parse_expr(
-    #     """
-    # (timestamp >= (toDateTime(dateTrunc('{interval}', {date_from})) - INTERVAL 1 {interval}))
-    # AND
-    # (timestamp < (toDateTime(dateTrunc('{interval}', {date_to})) + INTERVAL 1 {interval}))
-    # """,
-    #     placeholders={
-    #         "interval": interval,
-    #         "date_from": date_from,
-    #         "date_to": date_to,
-    #     },
-    # )
-
-    # s = f""" timestamp >= '{date_from}' AND timestamp < '{date_to}'"""
-
-    print(date_range.date_from)
-    print(date_range.date_to)
-    # print(s)
-
-    # time_filter = parse_expr(
-    #     "timestamp >= {date_from} and timestamp < {date_to}", {"date_from": date_from, "date_to": date_to}
-    # )
-
-    # time_filter = parse_expr(parse_exprs)
 
     return time_filter, date_from, date_to
 
@@ -142,12 +73,6 @@ def run_lifecycle_query(
 ) -> Dict[str, Any]:
     now_dt = datetime.now()
 
-    print(query.filterTestAccounts)
-    print(query.lifecycleFilter)
-    print(query.properties)
-    print(query.samplingFactor)
-    print(query.series)
-
     try:
         interval = query.interval.name
     except AttributeError:
@@ -170,8 +95,6 @@ def run_lifecycle_query(
         "date_from": date_from,
         "date_to": date_to,
     }
-
-    print(placeholders)
 
     events_query = create_events_query(interval=interval, event_filter=event_filter)
 
@@ -252,24 +175,5 @@ def run_lifecycle_query(
                 **additional_values,
             }
         )
-        # parsed_result = parse_response(val, filter, additional_values=additional_values, entity=entity)
-        # res.append(parsed_result)
 
     return {"result": res}
-
-    # LIFECYCLE_EVENTS_QUERY = """
-    # SELECT
-    # ...
-    # FROM events AS {event_table_alias}
-    # {sample_clause} // "sample 1,2"
-    #
-    # WHERE team_id = %(team_id)s
-    # {entity_filter}
-    # {entity_prop_query}
-    # {date_query}
-    # {prop_query}
-    #
-    # {null_person_filter}
-    # GROUP BY {person_column}
-    # """
-    # return query_result

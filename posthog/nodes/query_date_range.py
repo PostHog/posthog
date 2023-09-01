@@ -1,10 +1,9 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import pytz
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
