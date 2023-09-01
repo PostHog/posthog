@@ -1248,7 +1248,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "breakdown_type": "event",
                 },
             )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("offset=25", response.json()["next"])
 
     def test_insight_trends_breakdown_persons_with_histogram(self) -> None:

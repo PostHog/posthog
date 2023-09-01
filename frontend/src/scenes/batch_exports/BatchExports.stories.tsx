@@ -1,4 +1,4 @@
-import { Meta, Story } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { App } from 'scenes/App'
 import { useEffect } from 'react'
 import { router } from 'kea-router'
@@ -75,23 +75,33 @@ export default {
     ],
 } as Meta
 
-export const Exports: Story = () => {
+export const Exports: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.batchExports())
     })
     return <App />
 }
+Exports.parameters = {
+    testOptions: {
+        waitForSelector: '.BatchExportRunIcon',
+    },
+}
 
-export const CreateExport: Story = () => {
+export const CreateExport: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.batchExportNew())
     })
     return <App />
 }
 
-export const ViewExport: Story = () => {
+export const ViewExport: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.batchExport('1'))
     })
     return <App />
+}
+ViewExport.parameters = {
+    testOptions: {
+        waitForSelector: '.LemonTable',
+    },
 }

@@ -3,7 +3,7 @@ import {
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, NotebookNodeWidgetSettings, SessionRecordingId } from '~/types'
+import { NotebookNodeType, SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
@@ -16,7 +16,7 @@ import {
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { IconSettings } from 'lib/lemon-ui/icons'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
@@ -55,7 +55,10 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
     )
 }
 
-export const Settings = ({ attributes, updateAttributes }: NotebookNodeWidgetSettings): JSX.Element => {
+export const Settings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeWidgetSettings<NotebookNodeRecordingAttributes>): JSX.Element => {
     return (
         <LemonSwitch
             onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
