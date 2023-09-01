@@ -162,13 +162,13 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                         />
                                     )}
 
-                                    {!!widgets.length && (
+                                    {!!widgets.length && isEditable ? (
                                         <LemonButton
                                             onClick={() => setWidgetsVisible(true)}
                                             size="small"
                                             icon={<IconFilter />}
                                         />
-                                    )}
+                                    ) : null}
 
                                     {isEditable && (
                                         <LemonButton
