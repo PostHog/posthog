@@ -10,6 +10,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import clsx from 'clsx'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
 export function HeatmapStats(): JSX.Element | null {
     const {
@@ -25,14 +27,15 @@ export function HeatmapStats(): JSX.Element | null {
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
     const { wildcardHref } = useValues(currentPageLogic)
     const { setWildcardHref } = useActions(currentPageLogic)
+    const { hedgehogMode } = useValues(toolbarButtonLogic)
 
     return heatmapEnabled ? (
-        <div className="space-y-2 w-full">
+        <div className={clsx('space-y-2 w-full', hedgehogMode && 'p-2')}>
             <div>
                 <LemonInput value={wildcardHref} onChange={setWildcardHref} />
                 <div className="text-muted pl-2 pt-1">Use * as a wildcard</div>
             </div>
-            <div className={'flex flex-col space-y-2 px-2'}>
+            <div className={clsx('flex flex-col space-y-2', !hedgehogMode && 'px-2')}>
                 <div className="flex items-center gap-2">
                     <DateFilter
                         dateFrom={heatmapFilter.date_from ?? '-7d'}

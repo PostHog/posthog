@@ -19,6 +19,7 @@ export function DraggableButton(): JSX.Element {
         actionsPosition,
         flagsVisible,
         flagsPosition,
+        hedgehogMode,
     } = useValues(toolbarButtonLogic)
     const {
         saveDragPosition,
@@ -48,44 +49,48 @@ export function DraggableButton(): JSX.Element {
                     <ToolbarButton />
                 </div>
             </Draggable>
-            <HedgehogButton />
-            <ButtonWindow
-                name="heatmap"
-                label="Heatmap"
-                visible={heatmapWindowVisible}
-                close={hideHeatmapInfo}
-                position={heatmapPosition}
-                savePosition={saveHeatmapPosition}
-            >
-                <div className="toolbar-block">
-                    <HeatmapStats />
-                </div>
-            </ButtonWindow>
-            <ButtonWindow
-                name={'actions'}
-                label={'Actions'}
-                visible={actionsWindowVisible}
-                close={hideActionsInfo}
-                position={actionsPosition}
-                savePosition={saveActionsPosition}
-            >
-                <ActionsTab />
-            </ButtonWindow>
-            <ButtonWindow
-                name="flags"
-                label="Feature Flags"
-                tagComponent={
-                    countFlagsOverridden > 0 ? (
-                        <span className="overridden-tag">{`${countFlagsOverridden} overridden`}</span>
-                    ) : null
-                }
-                visible={flagsVisible}
-                close={hideFlags}
-                position={flagsPosition}
-                savePosition={saveFlagsPosition}
-            >
-                <FeatureFlags />
-            </ButtonWindow>
+            {hedgehogMode ? (
+                <>
+                    <HedgehogButton />
+                    <ButtonWindow
+                        name="heatmap"
+                        label="Heatmap"
+                        visible={heatmapWindowVisible}
+                        close={hideHeatmapInfo}
+                        position={heatmapPosition}
+                        savePosition={saveHeatmapPosition}
+                    >
+                        <div className="toolbar-block">
+                            <HeatmapStats />
+                        </div>
+                    </ButtonWindow>
+                    <ButtonWindow
+                        name={'actions'}
+                        label={'Actions'}
+                        visible={actionsWindowVisible}
+                        close={hideActionsInfo}
+                        position={actionsPosition}
+                        savePosition={saveActionsPosition}
+                    >
+                        <ActionsTab />
+                    </ButtonWindow>
+                    <ButtonWindow
+                        name="flags"
+                        label="Feature Flags"
+                        tagComponent={
+                            countFlagsOverridden > 0 ? (
+                                <span className="overridden-tag">{`${countFlagsOverridden} overridden`}</span>
+                            ) : null
+                        }
+                        visible={flagsVisible}
+                        close={hideFlags}
+                        position={flagsPosition}
+                        savePosition={saveFlagsPosition}
+                    >
+                        <FeatureFlags />
+                    </ButtonWindow>
+                </>
+            ) : null}
         </>
     )
 }

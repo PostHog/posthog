@@ -11,25 +11,38 @@ import clsx from 'clsx'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+
+function OverrideNotice(): JSX.Element {
+    return (
+        <div className="local-feature-flag-override-note rounded border p-2 my-2">
+            Note, overriding feature flags will only affect this browser.
+        </div>
+    )
+}
 
 export function FeatureFlags(): JSX.Element {
     const { searchTerm, filteredFlags, userFlagsLoading } = useValues(featureFlagsLogic)
     const { setOverriddenUserFlag, deleteOverriddenUserFlag, setSearchTerm } = useActions(featureFlagsLogic)
     const { apiURL } = useValues(toolbarLogic)
+    const { hedgehogMode } = useValues(toolbarButtonLogic)
 
     return (
-        <div className="toolbar-block ToolbarBlock w-full overflow-hidden rounded-t">
+        <div
+            className={clsx('toolbar-block ToolbarBlock w-full overflow-hidden rounded-t', hedgehogMode && 'px-2 py-1')}
+        >
             <>
+                {hedgehogMode && <OverrideNotice />}
                 <LemonInput
                     autoFocus
                     placeholder="Search"
                     fullWidth
                     type={'search'}
                     value={searchTerm}
-                    className={'feature-flag-row'}
+                    className={clsx('feature-flag-row', !hedgehogMode && 'rounded-b-0')}
                     onChange={(s) => setSearchTerm(s)}
                 />
-                <div className={'flex flex-col w-full space-y-1 py-2'}>
+                <div className={'flex flex-col w-full space-y-1 py-2 relative overflow-y-scroll'}>
                     {filteredFlags.length > 0 ? (
                         filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
                             <div className={'feature-flag-row FeatureFlagRow'} key={feature_flag.key}>
@@ -110,9 +123,7 @@ export function FeatureFlags(): JSX.Element {
                     )}
                 </div>
             </>
-            <div className="local-feature-flag-override-note rounded border p-2 my-2">
-                Note, overriding feature flags will only affect this browser.
-            </div>
+            {!hedgehogMode && <OverrideNotice />}
         </div>
     )
 }

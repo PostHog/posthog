@@ -67,7 +67,7 @@ export function ToolbarButton(): JSX.Element {
         showFlags,
         hideFlags,
         setHedgehogMode,
-        moreMenuClicked,
+        openMoreMenu,
         closeMoreMenu,
     } = useActions(toolbarButtonLogic)
 
@@ -136,10 +136,21 @@ export function ToolbarButton(): JSX.Element {
     // TODO
     // - be able to close it
     // - be able to switch to hedgehog mode
-    // - be able to launch help
     // - 3000 styling of the inspect UI
+    // - 3000 styling of lemon menu
     // - animate height when opening menu
     // - style scroll bars?
+
+    const hideAllExcept = (toShow: () => void): void => {
+        hideHeatmapInfo()
+        hideActionsInfo()
+        hideFlags()
+        hideButtonActions()
+        disableHeatmap()
+        disableInspect()
+        closeMoreMenu()
+        toShow()
+    }
 
     // hedgehog mode uses the `Circle component`
     // but 3000 mode does not
@@ -164,14 +175,7 @@ export function ToolbarButton(): JSX.Element {
                                 size={'small'}
                                 icon={heatmapInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
                                 status={'stealth'}
-                                onClick={
-                                    heatmapInfoVisible
-                                        ? () => {
-                                              hideHeatmapInfo()
-                                              disableHeatmap()
-                                          }
-                                        : showHeatmapInfo
-                                }
+                                onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
                                 active={heatmapInfoVisible}
                             />
                         </div>
@@ -216,13 +220,6 @@ export function ToolbarButton(): JSX.Element {
                                     Feature flags: {countFlagsOverridden} overridden
                                 </h5>
                             </div>
-                            <LemonButton
-                                size={'small'}
-                                icon={<IconArrowDown />}
-                                status={'stealth'}
-                                onClick={hideFlags}
-                                active={flagsVisible}
-                            />
                         </div>
                     ) : null}
                 </div>
@@ -235,28 +232,52 @@ export function ToolbarButton(): JSX.Element {
                                 title={'Inspect'}
                                 icon={<IconMagnifier />}
                                 status={'stealth'}
-                                onClick={inspectEnabled ? disableInspect : enableInspect}
+                                onClick={
+                                    inspectEnabled
+                                        ? disableInspect
+                                        : () => {
+                                              hideAllExcept(enableInspect)
+                                          }
+                                }
                                 active={inspectEnabled}
                             />
                             <LemonButton
                                 title={'Heatmap'}
                                 icon={<IconClick />}
                                 status={'stealth'}
-                                onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
+                                onClick={
+                                    heatmapEnabled
+                                        ? disableHeatmap
+                                        : () => {
+                                              hideAllExcept(enableHeatmap)
+                                          }
+                                }
                                 active={heatmapEnabled}
                             />
                             <LemonButton
                                 title={'Actions'}
                                 icon={<IconTarget />}
                                 status={'stealth'}
-                                onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
+                                onClick={
+                                    buttonActionsVisible
+                                        ? hideButtonActions
+                                        : () => {
+                                              hideAllExcept(showButtonActions)
+                                          }
+                                }
                                 active={buttonActionsVisible}
                             />
                             <LemonButton
                                 title={'Feature flags'}
                                 icon={<IconFlag />}
                                 status={'stealth'}
-                                onClick={flagsVisible ? hideFlags : showFlags}
+                                onClick={
+                                    flagsVisible
+                                        ? hideFlags
+                                        : () => {
+                                              hideAllExcept(showFlags)
+                                          }
+                                }
                                 active={flagsVisible}
                             />
                             <LemonMenu
@@ -288,14 +309,12 @@ export function ToolbarButton(): JSX.Element {
                             >
                                 <LemonButton
                                     status={'stealth'}
-                                    size="small"
-                                    noPadding
                                     icon={<IconMenu />}
                                     title={'More'}
                                     onClick={(e) => {
                                         e.preventDefault()
                                         e.stopPropagation()
-                                        moreMenuClicked()
+                                        moreMenuVisible ? closeMoreMenu() : hideAllExcept(openMoreMenu)
                                     }}
                                 />
                             </LemonMenu>

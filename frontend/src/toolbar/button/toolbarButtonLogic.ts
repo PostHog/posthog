@@ -13,7 +13,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         actions: [actionsTabLogic, ['showButtonActions'], elementsLogic, ['enableInspect']],
     }),
     actions: () => ({
-        moreMenuClicked: true,
+        openMoreMenu: true,
         closeMoreMenu: true,
         showHeatmapInfo: true,
         hideHeatmapInfo: true,
@@ -40,7 +40,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         moreMenuVisible: [
             false,
             {
-                moreMenuClicked: (state) => !state,
+                openMoreMenu: () => true,
                 closeMoreMenu: () => false,
             },
         ],

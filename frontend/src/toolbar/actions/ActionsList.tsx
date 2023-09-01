@@ -5,11 +5,14 @@ import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { IconPlus } from 'lib/lemon-ui/icons'
+import clsx from 'clsx'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
 export function ActionsList(): JSX.Element {
     const { allActions, sortedActions, allActionsLoading, searchTerm } = useValues(actionsLogic)
     const { setSearchTerm } = useActions(actionsLogic)
     const { newAction } = useActions(actionsTabLogic)
+    const { hedgehogMode } = useValues(toolbarButtonLogic)
 
     return (
         <>
@@ -19,11 +22,11 @@ export function ActionsList(): JSX.Element {
                 placeholder="Search"
                 type={'search'}
                 value={searchTerm}
-                className={'mb-1'}
+                className={clsx('mb-1', !hedgehogMode && 'rounded-b-0')}
                 onChange={(s) => setSearchTerm(s)}
             />
-            <div className="actions-list px-2">
-                <div className="actions-list-header pt-2 pb-4">
+            <div className="actions-list">
+                <div className={clsx('actions-list-header pt-2 pb-4', !hedgehogMode && 'px-2')}>
                     <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>
                         New action
                     </LemonButton>

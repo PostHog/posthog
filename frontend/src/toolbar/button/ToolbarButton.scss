@@ -1,5 +1,21 @@
-#button-toolbar {
-    // TODO the colors in vars.scss are being attached to host but aren't actually correct for 3000
+#button-toolbar[theme='light'] {
+    --text-3000: var(--text-3000-light);
+    --muted-3000: var(--muted-3000-light);
+    --trace-3000: var(--trace-3000-light);
+    --primary-3000: var(--primary-3000-light);
+    --primary-3000-hover: var(--primary-3000-hover-light);
+    --secondary-3000: var(--secondary-3000-light);
+    --secondary-3000-hover: var(--secondary-3000-hover-light);
+    --accent-3000: var(--accent-3000-light);
+    --bg-3000: var(--bg-3000-light);
+    --border-3000: var(--border-3000-light);
+    --border-bold-3000: var(--border-bold-3000-light);
+    --glass-bg-3000: var(--glass-bg-3000-light);
+    --glass-border-3000: var(--glass-border-3000-light);
+    --bg-light: #fff;
+}
+
+#button-toolbar[theme='dark'] {
     --text-3000: var(--text-3000-dark);
     --muted-3000: var(--muted-3000-dark);
     --trace-3000: var(--trace-3000-dark);
@@ -14,6 +30,10 @@
     --glass-bg-3000: var(--glass-bg-3000-dark);
     --glass-border-3000: var(--glass-border-3000-dark);
     --bg-light: var(--accent-3000);
+    --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
+}
+
+#button-toolbar {
     --default: var(--text-3000);
     --muted: var(--muted-3000);
     --muted-alt: var(--muted-3000);
@@ -23,6 +43,27 @@
     --mid: var(--bg-3000);
     --side: var(--bg-3000);
     background: var(--bg-3000);
+    user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
+
+    * > {
+        ::-webkit-scrollbar {
+            width: 0.5rem;
+            height: 0.5rem;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--accent-3000);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            border-radius: 0.25rem;
+            background: var(--trace-3000);
+
+            &:hover {
+                background: var(--muted-3000);
+            }
+        }
+    }
 
     position: fixed;
     left: 0;
@@ -183,7 +224,7 @@
                 }
 
                 &.overridden {
-                    background-color: var(--muted-3000);
+                    background-color: var(--mark);
                 }
             }
         }

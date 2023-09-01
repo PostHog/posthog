@@ -7,13 +7,21 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { EditAction } from '~/toolbar/actions/EditAction'
 import { urls } from 'scenes/urls'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import clsx from 'clsx'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
 export function ActionsTab(): JSX.Element {
     const { selectedAction } = useValues(actionsTabLogic)
     const { apiURL } = useValues(toolbarLogic)
+    const { hedgehogMode } = useValues(toolbarButtonLogic)
 
     return (
-        <div className="toolbar-block action-block-body ActionsBlockBody w-full rounded-t">
+        <div
+            className={clsx(
+                'toolbar-block action-block-body ActionsBlockBody w-full rounded-t',
+                hedgehogMode && 'px-2 py-1'
+            )}
+        >
             {selectedAction ? (
                 <EditAction />
             ) : (
