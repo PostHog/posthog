@@ -3,12 +3,14 @@
 
 .EditorFiltersWrapper {
     flex-shrink: 0;
-
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1rem;
-    margin-bottom: 1rem;
     background: var(--bg-light);
+
+    &:not(.EditorFiltersWrapper--embedded) {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
 
     .EditorFilters {
         > * + * {
