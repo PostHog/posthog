@@ -3090,6 +3090,8 @@ export type BatchExportDestinationS3 = {
         prefix: string
         aws_access_key_id: string
         aws_secret_access_key: string
+        exclude_events: string[]
+        compression: string | null
     }
 }
 
