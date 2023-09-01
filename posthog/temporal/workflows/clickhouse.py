@@ -171,7 +171,7 @@ class ClickHouseClient:
             ClickHouseError: If the status code is not 200.
         """
         if response.status_code != 200:
-            error_message = response.text()
+            error_message = response.text
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager
