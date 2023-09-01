@@ -6,9 +6,9 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -20,9 +20,9 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND has(['another@gmail.com'], "pmat_email")
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -34,7 +34,7 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND id IN
     (SELECT person_id
      FROM
@@ -45,7 +45,7 @@
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'distinct_id' )
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -57,7 +57,7 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND id IN
     (SELECT person_id
      FROM
@@ -68,7 +68,7 @@
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'another_one' )
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -80,9 +80,9 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -94,9 +94,9 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -108,7 +108,7 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND id IN
     (SELECT person_id
      FROM
@@ -119,7 +119,7 @@
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'inexistent' )
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -136,9 +136,9 @@
          AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', '')))
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -229,9 +229,9 @@
          AND (JSONHas(properties, 'email')) )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (JSONHas(argMax(person.properties, version), 'email'))
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -248,9 +248,9 @@
          AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%') )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -267,9 +267,9 @@
          AND (notEmpty("pmat_email")) )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (notEmpty(argMax(person."pmat_email", version)))
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -286,9 +286,9 @@
          AND ("pmat_email" ILIKE '%another@gm%') )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (argMax(person."pmat_email", version) ILIKE '%another@gm%')
-  ORDER BY argMax(created_at, version) DESC, id DESC
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -315,7 +315,7 @@
                  WHERE distinct_id = 'another@gm' )) )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
        OR id IN
          (SELECT person_id
@@ -327,7 +327,7 @@
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'another@gm' ))
-  ORDER BY argMax(created_at, version) DESC, id
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
@@ -354,7 +354,7 @@
                  WHERE distinct_id = 'distinct_id_3' )) )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND argMax(created_at, version) < now() + INTERVAL 1 DAY
+  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%distinct_id_3%')
        OR id IN
          (SELECT person_id
@@ -366,7 +366,7 @@
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'distinct_id_3' ))
-  ORDER BY argMax(created_at, version) DESC, id
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100
   '
 ---
