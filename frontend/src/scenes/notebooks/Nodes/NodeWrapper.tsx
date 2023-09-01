@@ -20,13 +20,18 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
-import { NotebookNode, NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
+import {
+    NotebookNodeAttributes,
+    NotebookNodeViewProps,
+    NotebookNodeWidget,
+    CustomNotebookNodeAttributes,
+} from '../Notebook/utils'
 
-export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
-    title: string | ((attributes: NotebookNode<T>['attrs']) => Promise<string>)
+export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
+    title: string | ((attributes: NotebookNodeAttributes<T>) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
-    href?: string | ((attributes: T) => string)
+    href?: string | ((attributes: NotebookNodeAttributes<T>) => string)
 
     // Sizing
     expandable?: boolean
@@ -41,8 +46,8 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     widgets?: NotebookNodeWidget[]
 }
 
-export function NodeWrapper<T extends NotebookNodeAttributes>({
-    title: defaultTitle,
+export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
+    title: titleOrGenerator,
     nodeType,
     children,
     selected,
@@ -72,7 +77,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
-        title: defaultTitle,
+        title: titleOrGenerator,
         widgets,
         startExpanded,
     }
@@ -188,7 +193,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     )
 }
 
-export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = NodeWrapperProps<T> & {
+export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
     Component: (props: NotebookNodeViewProps<T>) => JSX.Element | null
     pasteOptions?: {
@@ -199,7 +204,7 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
     widgets?: NotebookNodeWidget[]
 }
 
-export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
+export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>({
     Component,
     pasteOptions,
     attributes,

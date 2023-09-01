@@ -138,10 +138,6 @@ type NotebookNodeFlagAttributes = {
 export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
     title: async (attributes) => {
-        if (typeof attributes.title === 'string' && attributes.title.length > 0) {
-            return attributes.title
-        }
-
         const mountedFlagLogic = featureFlagLogic.findMounted({ id: attributes.id })
         let title = mountedFlagLogic?.values.featureFlag.key || null
         if (title === null) {
