@@ -1,10 +1,11 @@
 import './ViewLinkModal.scss'
 
-import { LemonButton, LemonDivider, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { IconDelete, IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { Form, Field } from 'kea-forms'
 import { useActions, useValues } from 'kea'
+import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 
 export function ViewLinkModal(): JSX.Element {
     const { viewOptions, toJoinKeyOptions, selectedView, selectedTable, isFieldModalOpen, fromJoinKeyOptions } =
@@ -98,5 +99,20 @@ export function ViewLinkDeleteButton({ table, column }: ViewLinkDeleteButtonProp
             type="tertiary"
             size="small"
         />
+    )
+}
+
+interface KeyLabelProps {
+    column: DatabaseSchemaQueryResponseField
+}
+
+export function ViewLinkKeyLabel({ column }: KeyLabelProps): JSX.Element {
+    return (
+        <span>
+            {column.key}{' '}
+            <LemonTag type="success" className="uppercase">
+                {column.type}
+            </LemonTag>
+        </span>
     )
 }
