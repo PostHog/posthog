@@ -13,21 +13,19 @@ export function ActionsTab(): JSX.Element {
     const { apiURL } = useValues(toolbarLogic)
 
     return (
-        <div className="toolbar-content w-ful">
-            <div className="toolbar-block action-block-body p-2 pt-3  ActionsBlockBody w-full">
-                {selectedAction ? (
-                    <EditAction />
-                ) : (
-                    <>
-                        <ActionsList />
-                        <div className="text-right mt-4">
-                            <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
-                                View &amp; edit all actions <IconOpenInNew />
-                            </a>
-                        </div>
-                    </>
-                )}
-            </div>
+        <div className="toolbar-block action-block-body ActionsBlockBody w-full rounded-t">
+            {selectedAction ? (
+                <EditAction />
+            ) : (
+                <>
+                    <ActionsList />
+                    <div className="text-right mt-4 pr-2">
+                        <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
+                            View &amp; edit all actions <IconOpenInNew />
+                        </a>
+                    </div>
+                </>
+            )}
         </div>
     )
 }

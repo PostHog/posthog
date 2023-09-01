@@ -18,10 +18,7 @@ export function FeatureFlags(): JSX.Element {
     const { apiURL } = useValues(toolbarLogic)
 
     return (
-        <div className="toolbar-block px-2 ToolbarBlock w-full overflow-hidden">
-            <div className="local-feature-flag-override-note rounded border p-2 my-2">
-                Note, overriding feature flags will only affect this browser.
-            </div>
+        <div className="toolbar-block ToolbarBlock w-full overflow-hidden rounded-t">
             <>
                 <LemonInput
                     autoFocus
@@ -38,16 +35,14 @@ export function FeatureFlags(): JSX.Element {
                             <div className={'feature-flag-row FeatureFlagRow'} key={feature_flag.key}>
                                 <div
                                     className={clsx(
-                                        'flex flex-row',
+                                        'flex flex-row items-center px-2',
                                         hasOverride && 'overridden',
                                         'feature-flag-row-header FeatureFlagRow__header'
                                     )}
                                 >
-                                    <div className="feature-flag-title flex-1 font-bold truncate">
-                                        {feature_flag.key}
-                                    </div>
+                                    <div className="flex-1 font-bold truncate">{feature_flag.key}</div>
                                     <a
-                                        className="feature-flag-external-link"
+                                        className="feature-flag-external-link mx-4"
                                         href={`${apiURL}${
                                             feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
                                         }`}
@@ -115,6 +110,9 @@ export function FeatureFlags(): JSX.Element {
                     )}
                 </div>
             </>
+            <div className="local-feature-flag-override-note rounded border p-2 my-2">
+                Note, overriding feature flags will only affect this browser.
+            </div>
         </div>
     )
 }

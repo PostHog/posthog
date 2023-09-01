@@ -13,7 +13,6 @@ import { Fire } from '~/toolbar/button/icons/Fire'
 import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { Close } from '~/toolbar/button/icons/Close'
 import {
     IconArrowDown,
     IconArrowUp,
@@ -24,6 +23,7 @@ import {
     IconMenu,
     IconHelpOutline,
     IconTarget,
+    IconClose,
 } from 'lib/lemon-ui/icons'
 import { Logomark as Logomark3000 } from './icons/icons'
 import { Logomark } from '~/toolbar/assets/Logomark'
@@ -34,6 +34,7 @@ import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -55,6 +56,7 @@ export function ToolbarButton(): JSX.Element {
         featureFlagsExtensionPercentage,
         flagsVisible,
         hedgehogMode,
+        moreMenuVisible,
     } = useValues(toolbarButtonLogic)
     const {
         setExtensionPercentage,
@@ -65,7 +67,10 @@ export function ToolbarButton(): JSX.Element {
         showFlags,
         hideFlags,
         setHedgehogMode,
+        moreMenuClicked,
+        closeMoreMenu,
     } = useActions(toolbarButtonLogic)
+
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
     const { actionCount, allActionsLoading } = useValues(actionsLogic)
@@ -135,129 +140,173 @@ export function ToolbarButton(): JSX.Element {
     // - 3000 styling of the inspect UI
     // - animate height when opening menu
     // - style scroll bars?
-    return (
-        <div className={'relative'}>
-            <div
-                className={
-                    'absolute bottom Toolbar3000 Toolbar3000__menu w-auto mx-2 rounded-t flex flex-col items-center'
-                }
-            >
-                {heatmapInfoVisible ? <HeatmapStats /> : null}
-                {heatmapEnabled ? (
-                    <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
-                        <div className={'flex flex-grow'}>
-                            <h5 className={'flex flex-row items-center'}>
-                                Heatmap:{' '}
-                                {heatmapLoading ? <Spinner textColored={true} /> : <>{elementCount} elements</>}
-                            </h5>
-                        </div>
-                        <LemonButton
-                            size={'small'}
-                            icon={heatmapInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
-                            status={'stealth'}
-                            onClick={
-                                heatmapInfoVisible
-                                    ? () => {
-                                          hideHeatmapInfo()
-                                          disableHeatmap()
-                                      }
-                                    : showHeatmapInfo
-                            }
-                            active={heatmapInfoVisible}
-                        />
-                    </div>
-                ) : null}
-                {actionsInfoVisible ? <ActionsTab /> : null}
-                {buttonActionsVisible ? (
-                    <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
-                        <div className={'flex flex-grow'}>
-                            <h5 className={'flex flex-row items-center'}>
-                                Actions:{' '}
-                                <div className="whitespace-nowrap text-center">
-                                    {allActionsLoading ? (
-                                        <Spinner textColored={true} />
-                                    ) : (
-                                        <LemonBadge.Number size={'small'} count={actionCount} showZero />
-                                    )}
-                                </div>
-                            </h5>
-                        </div>
-                        <LemonButton
-                            size={'small'}
-                            icon={actionsInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
-                            status={'stealth'}
-                            onClick={
-                                actionsInfoVisible
-                                    ? () => {
-                                          hideActionsInfo()
-                                          hideButtonActions()
-                                      }
-                                    : showActionsInfo
-                            }
-                            active={actionsInfoVisible}
-                        />
-                    </div>
-                ) : null}
 
-                {flagsVisible ? <FeatureFlags /> : null}
-                {flagsVisible ? (
-                    <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
-                        <div className={'flex flex-grow'}>
-                            <h5 className={'flex flex-row items-center'}>
-                                Feature flags: {countFlagsOverridden} overridden
-                            </h5>
+    // hedgehog mode uses the `Circle component`
+    // but 3000 mode does not
+    if (!hedgehogMode) {
+        return (
+            <div className={'relative'}>
+                <div
+                    className={
+                        'absolute bottom Toolbar3000 Toolbar3000__menu w-auto mx-2 rounded-t flex flex-col items-center'
+                    }
+                >
+                    {heatmapInfoVisible ? <HeatmapStats /> : null}
+                    {heatmapEnabled ? (
+                        <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
+                            <div className={'flex flex-grow'}>
+                                <h5 className={'flex flex-row items-center'}>
+                                    Heatmap:{' '}
+                                    {heatmapLoading ? <Spinner textColored={true} /> : <>{elementCount} elements</>}
+                                </h5>
+                            </div>
+                            <LemonButton
+                                size={'small'}
+                                icon={heatmapInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
+                                status={'stealth'}
+                                onClick={
+                                    heatmapInfoVisible
+                                        ? () => {
+                                              hideHeatmapInfo()
+                                              disableHeatmap()
+                                          }
+                                        : showHeatmapInfo
+                                }
+                                active={heatmapInfoVisible}
+                            />
                         </div>
-                        <LemonButton
-                            size={'small'}
-                            icon={<IconArrowDown />}
-                            status={'stealth'}
-                            onClick={hideFlags}
-                            active={flagsVisible}
-                        />
-                    </div>
-                ) : null}
+                    ) : null}
+                    {actionsInfoVisible ? <ActionsTab /> : null}
+                    {buttonActionsVisible ? (
+                        <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
+                            <div className={'flex flex-grow'}>
+                                <h5 className={'flex flex-row items-center'}>
+                                    Actions:{' '}
+                                    <div className="whitespace-nowrap text-center">
+                                        {allActionsLoading ? (
+                                            <Spinner textColored={true} />
+                                        ) : (
+                                            <LemonBadge.Number size={'small'} count={actionCount} showZero />
+                                        )}
+                                    </div>
+                                </h5>
+                            </div>
+                            <LemonButton
+                                size={'small'}
+                                icon={actionsInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
+                                status={'stealth'}
+                                onClick={
+                                    actionsInfoVisible
+                                        ? () => {
+                                              hideActionsInfo()
+                                              hideButtonActions()
+                                          }
+                                        : showActionsInfo
+                                }
+                                active={actionsInfoVisible}
+                            />
+                        </div>
+                    ) : null}
+
+                    {flagsVisible ? <FeatureFlags /> : null}
+                    {flagsVisible ? (
+                        <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
+                            <div className={'flex flex-grow'}>
+                                <h5 className={'flex flex-row items-center'}>
+                                    Feature flags: {countFlagsOverridden} overridden
+                                </h5>
+                            </div>
+                            <LemonButton
+                                size={'small'}
+                                icon={<IconArrowDown />}
+                                status={'stealth'}
+                                onClick={hideFlags}
+                                active={flagsVisible}
+                            />
+                        </div>
+                    ) : null}
+                </div>
+                <div className={'Toolbar3000 px-2 w-auto h-10 space-x-2 rounded-lg flex flex-row items-center'}>
+                    <IconDragHandle className={'text-2xl floating-toolbar-button cursor-grab'} />
+                    <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
+                    {isAuthenticated ? (
+                        <>
+                            <LemonButton
+                                title={'Inspect'}
+                                icon={<IconMagnifier />}
+                                status={'stealth'}
+                                onClick={inspectEnabled ? disableInspect : enableInspect}
+                                active={inspectEnabled}
+                            />
+                            <LemonButton
+                                title={'Heatmap'}
+                                icon={<IconClick />}
+                                status={'stealth'}
+                                onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
+                                active={heatmapEnabled}
+                            />
+                            <LemonButton
+                                title={'Actions'}
+                                icon={<IconTarget />}
+                                status={'stealth'}
+                                onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
+                                active={buttonActionsVisible}
+                            />
+                            <LemonButton
+                                title={'Feature flags'}
+                                icon={<IconFlag />}
+                                status={'stealth'}
+                                onClick={flagsVisible ? hideFlags : showFlags}
+                                active={flagsVisible}
+                            />
+                            <LemonMenu
+                                visible={moreMenuVisible}
+                                onVisibilityChange={(visible) => {
+                                    if (!visible && moreMenuVisible) {
+                                        closeMoreMenu()
+                                    }
+                                }}
+                                placement={'top-start'}
+                                fallbackPlacements={['bottom-start']}
+                                items={[
+                                    {
+                                        icon: <>🦔</>,
+                                        label: 'Hedgehog mode',
+                                        onClick: () => {
+                                            setHedgehogMode(true)
+                                        },
+                                    },
+                                    {
+                                        icon: <IconHelpOutline />,
+                                        label: 'Help',
+                                        onClick: () => {
+                                            window.open(HELP_URL, '_blank')?.focus()
+                                        },
+                                    },
+                                    { icon: <IconClose />, label: 'Logout', onClick: logout },
+                                ]}
+                            >
+                                <LemonButton
+                                    status={'stealth'}
+                                    size="small"
+                                    noPadding
+                                    icon={<IconMenu />}
+                                    title={'More'}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        moreMenuClicked()
+                                    }}
+                                />
+                            </LemonMenu>
+                            <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
+                        </>
+                    ) : null}
+                    <Logomark3000 />
+                </div>
             </div>
-            <div className={'Toolbar3000 px-2 w-auto h-10 space-x-2 rounded-lg flex flex-row items-center'}>
-                <IconDragHandle className={'text-2xl floating-toolbar-button cursor-grab'} />
-                <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
-                {isAuthenticated ? (
-                    <>
-                        <LemonButton
-                            title={'Inspect'}
-                            icon={<IconMagnifier />}
-                            status={'stealth'}
-                            onClick={inspectEnabled ? disableInspect : enableInspect}
-                            active={inspectEnabled}
-                        />
-                        <LemonButton
-                            title={'Heatmap'}
-                            icon={<IconClick />}
-                            status={'stealth'}
-                            onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
-                            active={heatmapEnabled}
-                        />
-                        <LemonButton
-                            title={'Actions'}
-                            icon={<IconTarget />}
-                            status={'stealth'}
-                            onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
-                            active={buttonActionsVisible}
-                        />
-                        <LemonButton
-                            title={'Feature flags'}
-                            icon={<IconFlag />}
-                            status={'stealth'}
-                            onClick={flagsVisible ? hideFlags : showFlags}
-                            active={flagsVisible}
-                        />
-                        <LemonButton title={'More'} icon={<IconMenu />} status={'stealth'} onClick={() => {}} />
-                        <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
-                    </>
-                ) : null}
-                <Logomark3000 />
-            </div>
-        </div>
-    )
+        )
+    }
 
     return (
         <Circle
@@ -289,7 +338,7 @@ export function ToolbarButton(): JSX.Element {
                 extensionPercentage={extensionPercentage}
                 distance={closeDistance}
                 rotation={closeRotation}
-                content={<Close style={{ width: 14, height: 14 }} />}
+                content={<IconClose className={'text-2xl'} />}
                 zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={logout}
                 style={{
@@ -354,7 +403,7 @@ export function ToolbarButton(): JSX.Element {
                                 <Magnifier style={{ height: 34, paddingTop: 2 }} engaged={inspectEnabled} />
                                 {inspectEnabled && selectedElement ? (
                                     <div className="absolute top-2 left-2.5 text-white text-xs">
-                                        <Close style={{ width: 10, height: 10 }} />
+                                        <IconClose />
                                     </div>
                                 ) : null}
                             </div>

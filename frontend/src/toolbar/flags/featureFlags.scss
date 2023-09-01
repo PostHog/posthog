@@ -6,12 +6,7 @@
         .feature-flag-row-header {
             background-color: #fafafa;
             min-height: 38px;
-            > * {
-                margin: 0 5px;
-            }
-            .feature-flag-title {
-                font-size: 13px;
-            }
+
             .feature-flag-external-link {
                 color: rgba(0, 0, 0, 0.5);
                 line-height: normal;
