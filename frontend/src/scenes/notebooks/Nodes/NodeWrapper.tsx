@@ -6,7 +6,7 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useMemo, useRef } from 'react'
+import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
 import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -20,18 +20,23 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
-import { NotebookNode, NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
+import {
+    NotebookNodeAttributes,
+    NotebookNodeViewProps,
+    NotebookNodeWidget,
+    CustomNotebookNodeAttributes,
+} from '../Notebook/utils'
 
-export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
-    title: string | ((attributes: NotebookNode<T>['attrs']) => Promise<string>)
+export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
+    title: string | ((attributes: NotebookNodeAttributes<T>) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
-    href?: string | ((attributes: T) => string)
+    href?: string | ((attributes: NotebookNodeAttributes<T>) => string)
 
     // Sizing
     expandable?: boolean
     startExpanded?: boolean
-    resizeable?: boolean | ((attributes: NotebookNode<T>['attrs']) => Promise<boolean>)
+    resizeable?: boolean | ((attributes: NotebookNodeAttributes<T>) => Promise<boolean>)
     heightEstimate?: number | string
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
@@ -41,8 +46,8 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     widgets?: NotebookNodeWidget[]
 }
 
-export function NodeWrapper<T extends NotebookNodeAttributes>({
-    title: defaultTitle,
+export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
+    title: titleOrGenerator,
     nodeType,
     children,
     selected,
@@ -72,12 +77,13 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
-        title: defaultTitle,
+        title: titleOrGenerator,
+        resizeable: resizeableOrGenerator,
         widgets,
         startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { title, expanded } = useValues(nodeLogic)
+    const { title, resizeable, expanded } = useValues(nodeLogic)
     const { setExpanded, deleteNode } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
@@ -85,14 +91,6 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
 
     // If resizeable is true then the node attr "height" is required
     const height = node.attrs.height ?? heightEstimate
-
-    const resizeable = useMemo(
-        async () =>
-            typeof resizeableOrGenerator === 'function'
-                ? await resizeableOrGenerator(node.attrs)
-                : resizeableOrGenerator,
-        [resizeableOrGenerator]
-    )
 
     const onResizeStart = useCallback((): void => {
         if (!resizeable) {
@@ -196,7 +194,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     )
 }
 
-export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = NodeWrapperProps<T> & {
+export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
     Component: (props: NotebookNodeViewProps<T>) => JSX.Element | null
     pasteOptions?: {
@@ -207,7 +205,7 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
     widgets?: NotebookNodeWidget[]
 }
 
-export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
+export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>({
     Component,
     pasteOptions,
     attributes,

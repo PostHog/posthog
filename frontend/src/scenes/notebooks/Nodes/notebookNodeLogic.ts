@@ -14,28 +14,40 @@ import {
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
-import { JSONContent, Node, NotebookNodeWidget } from '../Notebook/utils'
+import { CustomNotebookNodeAttributes, JSONContent, Node, NotebookNodeWidget } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 
 export type NotebookNodeLogicProps = {
     node: Node
-    nodeId: string | null
+    nodeId: string
     nodeType: NotebookNodeType
-    nodeAttributes: Record<string, any>
-    updateAttributes: (attributes: Record<string, any>) => void
+    nodeAttributes: CustomNotebookNodeAttributes
+    updateAttributes: (attributes: CustomNotebookNodeAttributes) => void
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     title: string | ((attributes: any) => Promise<string>)
+    resizeable: boolean | ((attributes: any) => Promise<boolean>)
     widgets: NotebookNodeWidget[]
-    startExpanded?: boolean
+    startExpanded: boolean
 }
 
 async function renderTitle(
     title: NotebookNodeLogicProps['title'],
     attrs: NotebookNodeLogicProps['nodeAttributes']
 ): Promise<string> {
+    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
+        return attrs.title
+    }
+
     return typeof title === 'function' ? await title(attrs) : title
+}
+
+async function renderResizeable(
+    resizeable: NotebookNodeLogicProps['resizeable'],
+    attrs: NotebookNodeLogicProps['nodeAttributes']
+): Promise<boolean> {
+    return typeof resizeable === 'function' ? await resizeable(attrs) : resizeable
 }
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -45,9 +57,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     actions({
         setExpanded: (expanded: boolean) => ({ expanded }),
         setTitle: (title: string) => ({ title }),
+        setResizeable: (resizeable: boolean) => ({ resizeable }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
-        updateAttributes: (attributes: Record<string, any>) => ({ attributes }),
+        updateAttributes: (attributes: CustomNotebookNodeAttributes) => ({ attributes }),
         insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
             timestamp,
             sessionRecordingId,
@@ -68,6 +81,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             '',
             {
                 setTitle: (_, { title }) => title,
+            },
+        ],
+        resizeable: [
+            false,
+            {
+                setResizeable: (_, { resizeable }) => resizeable,
             },
         ],
     })),
@@ -121,6 +140,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
         const renderedTitle = await renderTitle(logic.props.title, logic.props.nodeAttributes)
         logic.actions.setTitle(renderedTitle)
+        const resizeable = await renderResizeable(logic.props.resizeable, logic.props.nodeAttributes)
+        logic.actions.setResizeable(resizeable)
         logic.actions.updateAttributes({ title: renderedTitle })
     }),
 

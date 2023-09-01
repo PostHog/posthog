@@ -2,7 +2,7 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { InsightShortId, NotebookNodeType } from '~/types'
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { useJsonNodeState } from './utils'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -24,7 +24,8 @@ const DEFAULT_QUERY: QuerySchema = {
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const [query] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
-    const { expanded } = useValues(notebookNodeLogic)
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { expanded } = useValues(nodeLogic)
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query }
@@ -35,13 +36,8 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
             modifiedQuery.embedded = true
-        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
-            modifiedQuery.showFilters = false
-            modifiedQuery.showHeader = false
-            modifiedQuery.showTable = false
-            modifiedQuery.showCorrelationTable = false
-            modifiedQuery.embedded = true
         }
+
         return modifiedQuery
     }, [query])
 

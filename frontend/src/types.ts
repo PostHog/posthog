@@ -3155,3 +3155,29 @@ export type GroupedBatchExportRuns = {
     data_interval_end: Dayjs
     runs: BatchExportRun[]
 }
+
+export type SDK = {
+    name: string
+    key: string
+    recommended?: boolean
+    tags: string[]
+    image: string
+}
+
+export enum SDKKey {
+    JS_WEB = 'javascript_web',
+    REACT = 'react',
+    NEXT_JS = 'nextjs',
+    GATSBY = 'gatsby',
+    IOS = 'ios',
+    ANDROID = 'android',
+    FLUTTER = 'flutter',
+    REACT_NATIVE = 'react_native',
+    NODE_JS = 'nodejs',
+    RUBY = 'ruby',
+    PYTHON = 'python',
+    PHP = 'php',
+    GO = 'go',
+    ELIXIR = 'elixir',
+    API = 'api',
+}
