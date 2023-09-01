@@ -122,7 +122,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     Component,
     heightEstimate: 500,
     minHeight: 200,
-    resizeable: async (attrs) => attrs.query.kind === NodeKind.DataTableNode,
+    resizeable: (attrs) => attrs.query.kind === NodeKind.DataTableNode,
     startExpanded: true,
     attributes: {
         query: {

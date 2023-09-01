@@ -36,7 +36,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     // Sizing
     expandable?: boolean
     startExpanded?: boolean
-    resizeable?: boolean | ((attributes: NotebookNodeAttributes<T>) => Promise<boolean>)
+    resizeable?: boolean | ((attributes: NotebookNodeAttributes<T>) => boolean)
     heightEstimate?: number | string
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
