@@ -3040,11 +3040,6 @@ export enum NotebookNodeType {
     Image = 'ph-image',
 }
 
-export type NotebookNodeWidgetSettings = {
-    attributes: Record<string, any>
-    updateAttributes: (attributes: Record<string, any>) => void
-}
-
 export enum NotebookTarget {
     Popover = 'popover',
     Auto = 'auto',
@@ -3159,4 +3154,30 @@ export type GroupedBatchExportRuns = {
     data_interval_start: Dayjs
     data_interval_end: Dayjs
     runs: BatchExportRun[]
+}
+
+export type SDK = {
+    name: string
+    key: string
+    recommended?: boolean
+    tags: string[]
+    image: string
+}
+
+export enum SDKKey {
+    JS_WEB = 'javascript_web',
+    REACT = 'react',
+    NEXT_JS = 'nextjs',
+    GATSBY = 'gatsby',
+    IOS = 'ios',
+    ANDROID = 'android',
+    FLUTTER = 'flutter',
+    REACT_NATIVE = 'react_native',
+    NODE_JS = 'nodejs',
+    RUBY = 'ruby',
+    PYTHON = 'python',
+    PHP = 'php',
+    GO = 'go',
+    ELIXIR = 'elixir',
+    API = 'api',
 }
