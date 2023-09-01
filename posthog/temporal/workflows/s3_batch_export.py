@@ -326,6 +326,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             team_id=inputs.team_id,
             interval_start=interval_start,
             interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
         )
 
         result = None

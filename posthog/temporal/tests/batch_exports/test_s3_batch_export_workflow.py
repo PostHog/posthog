@@ -76,7 +76,9 @@ def s3_client(bucket_name):
     s3_client.delete_bucket(Bucket=bucket_name)
 
 
-def assert_events_in_s3(s3_client, bucket_name, key_prefix, events, compression: str | None = None):
+def assert_events_in_s3(
+    s3_client, bucket_name, key_prefix, events, compression: str | None = None, exclude_events: list[str] | None = None
+):
     """Assert provided events written to JSON in key_prefix in S3 bucket_name."""
     # List the objects in the bucket with the prefix.
     objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
@@ -105,7 +107,14 @@ def assert_events_in_s3(s3_client, bucket_name, key_prefix, events, compression:
     json_data.sort(key=lambda x: x["timestamp"])
 
     # Remove team_id, _timestamp from events
-    expected_events = [{k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]} for event in events]
+    if exclude_events is None:
+        exclude_events = []
+
+    expected_events = [
+        {k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]}
+        for event in events
+        if event["event"] not in exclude_events
+    ]
     expected_events.sort(key=lambda x: x["timestamp"])
 
     # First check one event, the first one, so that we can get a nice diff if
@@ -116,8 +125,13 @@ def assert_events_in_s3(s3_client, bucket_name, key_prefix, events, compression:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
-async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client, activity_environment, compression):
+@pytest.mark.parametrize(
+    "compression,exclude_events",
+    itertools.product([None, "gzip", "brotli"], [None, ["test-exclude"]]),
+)
+async def test_insert_into_s3_activity_puts_data_into_s3(
+    bucket_name, s3_client, activity_environment, compression, exclude_events
+):
     """Test that the insert_into_s3_activity function puts data into S3."""
 
     data_interval_start = "2023-04-20 14:00:00"
@@ -166,7 +180,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         EventValues(
             {
                 "uuid": str(uuid4()),
-                "event": "test",
+                "event": "test-exclude",
                 "_timestamp": "2023-04-20 14:29:00",
                 "timestamp": "2023-04-20 14:29:00.000000",
                 "inserted_at": "2023-04-20 14:30:00.000000",
@@ -253,6 +267,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
         compression=compression,
+        exclude_events=exclude_events,
     )
 
     with override_settings(
@@ -261,13 +276,18 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
             await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
+    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("interval,compression", itertools.product(["hour", "day"], [None, "gzip", "brotli"]))
-async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name, interval, compression):
+@pytest.mark.parametrize(
+    "interval,compression,exclude_events",
+    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, ["test-exclude"]]),
+)
+async def test_s3_export_workflow_with_minio_bucket(
+    client: HttpClient, s3_client, bucket_name, interval, compression, exclude_events
+):
     """Test S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     The workflow should update the batch export run status to completed and produce the expected
@@ -283,6 +303,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "aws_access_key_id": "object_storage_root_user",
             "aws_secret_access_key": "object_storage_root_password",
             "compression": compression,
+            "exclude_events": exclude_events,
         },
     }
 
@@ -318,7 +339,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
         },
         {
             "uuid": str(uuid4()),
-            "event": "test",
+            "event": "test-exclude",
             "timestamp": "2023-04-25 14:29:00.000000",
             "created_at": "2023-04-25 14:29:00.000000",
             "inserted_at": "2023-04-25 14:29:00.000000",
@@ -398,7 +419,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
+    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
 
 
 @pytest.mark.django_db
