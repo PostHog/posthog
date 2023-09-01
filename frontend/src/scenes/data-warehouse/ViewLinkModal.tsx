@@ -1,3 +1,5 @@
+import './ViewLinkModal.scss'
+
 import { LemonButton, LemonDivider, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { IconDelete, IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
