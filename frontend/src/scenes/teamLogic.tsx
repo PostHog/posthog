@@ -96,10 +96,7 @@ export const teamLogic = kea<teamLogicType>([
                         eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
                     })
 
-                    lemonToast.dismiss('updateCurrentTeam')
-                    lemonToast.success(message, {
-                        toastId: 'updateCurrentTeam',
-                    })
+                    lemonToast.success(message)
 
                     return patchedTeam
                 },

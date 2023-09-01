@@ -617,6 +617,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 return !!experiment?.start_date
             },
         ],
+        secondaryColumnSpan: [
+            (s) => [s.variants],
+            (variants): number => {
+                return Math.floor(24 / (variants.length + 2)) // +2 for the names column
+            },
+        ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
             (experiment, experimentId): Breadcrumb[] => [

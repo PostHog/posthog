@@ -123,7 +123,6 @@ class TestViewLinkQuery(APIBaseTest):
                 "kind": "DatabaseSchemaQuery",
             },
         )
-
         self.assertIn(
             {"key": "event_view", "type": "view", "table": "event_view", "fields": ["fake"]}, query_response["events"]
         )

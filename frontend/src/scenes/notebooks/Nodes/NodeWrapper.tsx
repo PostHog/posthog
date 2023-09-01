@@ -36,6 +36,8 @@ export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
     autoHideMetadata?: boolean
+    /** Expand the node if the component is clicked */
+    expandOnClick?: boolean
     widgets?: NotebookNodeWidget[]
 }
 
@@ -49,6 +51,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     resizeable = true,
     startExpanded = false,
     expandable = true,
+    expandOnClick = true,
     autoHideMetadata = false,
     minHeight,
     node,
@@ -171,7 +174,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={isResizeable ? { height, minHeight } : {}}
-                                    onClick={!expanded ? () => setExpanded(true) : undefined}
+                                    onClick={!expanded && expandOnClick ? () => setExpanded(true) : undefined}
                                     onMouseDown={onResizeStart}
                                 >
                                     {children}
