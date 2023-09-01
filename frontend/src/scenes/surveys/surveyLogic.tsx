@@ -50,6 +50,7 @@ export const defaultSurveyAppearance = {
     textColor: 'black',
     submitButtonText: 'Submit',
     descriptionTextColor: '#4b4b52',
+    whiteLabel: false,
 }
 
 const NEW_SURVEY: NewSurvey = {

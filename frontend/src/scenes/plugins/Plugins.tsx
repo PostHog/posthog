@@ -15,6 +15,9 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonTag } from '@posthog/lemon-ui'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { AppsScene } from './AppsScene'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: Plugins,
@@ -37,6 +40,23 @@ export function Plugins(): JSX.Element | null {
             window.location.href = '/'
         }
     }, [user])
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newUI = featureFlags[FEATURE_FLAGS.APPS_AND_EXPORTS_UI]
+
+    useEffect(() => {
+        const newUiTabs = [PluginTab.Apps, PluginTab.BatchExports]
+
+        if (newUI && !newUiTabs.includes(pluginTab)) {
+            setPluginTab(PluginTab.Apps)
+        } else if (!newUI && newUiTabs.includes(pluginTab)) {
+            setPluginTab(PluginTab.Installed)
+        }
+    }, [newUI])
+
+    if (featureFlags[FEATURE_FLAGS.APPS_AND_EXPORTS_UI]) {
+        return <AppsScene />
+    }
 
     if (!user || !canViewPlugins(user?.organization)) {
         return null

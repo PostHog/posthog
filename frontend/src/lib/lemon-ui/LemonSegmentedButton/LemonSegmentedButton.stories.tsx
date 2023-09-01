@@ -45,6 +45,11 @@ const Template: StoryFn<typeof LemonSegmentedButton> = (
 export const Default: Story = Template.bind({})
 Default.args = {}
 
+export const FullWidth: Story = Template.bind({})
+FullWidth.args = {
+    fullWidth: true,
+}
+
 export const Small: Story = Template.bind({})
 Small.args = {
     size: 'small',
