@@ -5,7 +5,7 @@ import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { getShadowRoot, getShadowRootPopoverContainer, getToolbarContainer } from '~/toolbar/utils'
+import { getShadowRoot, getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { Flag } from '~/toolbar/button/icons/Flag'
@@ -13,32 +13,13 @@ import { Fire } from '~/toolbar/button/icons/Fire'
 import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import {
-    IconArrowDown,
-    IconArrowUp,
-    IconClick,
-    IconDragHandle,
-    IconFlag,
-    IconMagnifier,
-    IconMenu,
-    IconHelpOutline,
-    IconTarget,
-    IconClose,
-    IconDarkMode,
-    IconLightMode,
-} from 'lib/lemon-ui/icons'
-import { Logomark as Logomark3000 } from './icons/icons'
+import { IconHelpOutline, IconTarget, IconClose } from 'lib/lemon-ui/icons'
 import { Logomark } from '~/toolbar/assets/Logomark'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
-import { ActionsTab } from '~/toolbar/actions/ActionsTab'
-import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { Toolbar3000 } from './Toolbar3000'
 
-const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
+export const HELP_URL =
+    'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 export function ToolbarButton(): JSX.Element {
     const {
@@ -58,8 +39,6 @@ export function ToolbarButton(): JSX.Element {
         featureFlagsExtensionPercentage,
         flagsVisible,
         hedgehogMode,
-        moreMenuVisible,
-        theme,
     } = useValues(toolbarButtonLogic)
     const {
         setExtensionPercentage,
@@ -70,9 +49,6 @@ export function ToolbarButton(): JSX.Element {
         showFlags,
         hideFlags,
         setHedgehogMode,
-        openMoreMenu,
-        closeMoreMenu,
-        toggleTheme,
     } = useActions(toolbarButtonLogic)
 
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
@@ -91,8 +67,6 @@ export function ToolbarButton(): JSX.Element {
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
     })
-
-    const { countFlagsOverridden } = useValues(featureFlagsLogic)
 
     useEffect(() => {
         globalMouseMove.current = function (e: MouseEvent): void {
@@ -148,160 +122,7 @@ export function ToolbarButton(): JSX.Element {
     // hedgehog mode uses the `Circle component`
     // but 3000 mode does not
     if (!hedgehogMode) {
-        return (
-            <div className={'relative'}>
-                <div
-                    className={
-                        'absolute bottom Toolbar3000 Toolbar3000__menu w-auto mx-2 rounded-t flex flex-col items-center'
-                    }
-                >
-                    {heatmapInfoVisible ? <HeatmapStats /> : null}
-                    {heatmapEnabled ? (
-                        <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
-                            <div className={'flex flex-grow'}>
-                                <h5 className={'flex flex-row items-center'}>
-                                    Heatmap:{' '}
-                                    {heatmapLoading ? <Spinner textColored={true} /> : <>{elementCount} elements</>}
-                                </h5>
-                            </div>
-                            <LemonButton
-                                size={'small'}
-                                icon={heatmapInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
-                                status={'stealth'}
-                                onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
-                                active={heatmapInfoVisible}
-                            />
-                        </div>
-                    ) : null}
-                    {actionsInfoVisible ? <ActionsTab /> : null}
-                    {buttonActionsVisible ? (
-                        <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
-                            <div className={'flex flex-grow'}>
-                                <h5 className={'flex flex-row items-center'}>
-                                    Actions:{' '}
-                                    <div className="whitespace-nowrap text-center">
-                                        {allActionsLoading ? (
-                                            <Spinner textColored={true} />
-                                        ) : (
-                                            <LemonBadge.Number size={'small'} count={actionCount} showZero />
-                                        )}
-                                    </div>
-                                </h5>
-                            </div>
-                            <LemonButton
-                                size={'small'}
-                                icon={actionsInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
-                                status={'stealth'}
-                                onClick={
-                                    actionsInfoVisible
-                                        ? () => {
-                                              hideActionsInfo()
-                                              hideButtonActions()
-                                          }
-                                        : showActionsInfo
-                                }
-                                active={actionsInfoVisible}
-                            />
-                        </div>
-                    ) : null}
-
-                    {flagsVisible ? <FeatureFlags /> : null}
-                    {flagsVisible ? (
-                        <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1'}>
-                            <div className={'flex flex-grow'}>
-                                <h5 className={'flex flex-row items-center'}>
-                                    Feature flags: {countFlagsOverridden} overridden
-                                </h5>
-                            </div>
-                        </div>
-                    ) : null}
-                </div>
-                <div className={'Toolbar3000 px-2 w-auto h-10 space-x-2 rounded-lg flex flex-row items-center'}>
-                    <IconDragHandle className={'text-2xl floating-toolbar-button cursor-grab'} />
-                    <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
-                    {isAuthenticated ? (
-                        <>
-                            <LemonButton
-                                title={'Inspect'}
-                                icon={<IconMagnifier />}
-                                status={'stealth'}
-                                onClick={inspectEnabled ? disableInspect : enableInspect}
-                                active={inspectEnabled}
-                            />
-                            <LemonButton
-                                title={'Heatmap'}
-                                icon={<IconClick />}
-                                status={'stealth'}
-                                onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
-                                active={heatmapEnabled}
-                            />
-                            <LemonButton
-                                title={'Actions'}
-                                icon={<IconTarget />}
-                                status={'stealth'}
-                                onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
-                                active={buttonActionsVisible}
-                            />
-                            <LemonButton
-                                title={'Feature flags'}
-                                icon={<IconFlag />}
-                                status={'stealth'}
-                                onClick={flagsVisible ? hideFlags : showFlags}
-                                active={flagsVisible}
-                            />
-                            <LemonMenu
-                                visible={moreMenuVisible}
-                                onVisibilityChange={(visible) => {
-                                    if (!visible && moreMenuVisible) {
-                                        closeMoreMenu()
-                                    }
-                                }}
-                                placement={'top-start'}
-                                fallbackPlacements={['bottom-start']}
-                                getPopupContainer={getToolbarContainer}
-                                items={[
-                                    {
-                                        icon: <>🦔</>,
-                                        label: 'Hedgehog mode',
-                                        onClick: () => {
-                                            setHedgehogMode(true)
-                                        },
-                                    },
-                                    {
-                                        icon: theme === 'light' ? <IconDarkMode /> : <IconLightMode />,
-                                        label: `Switch to ${theme === 'light' ? 'dark' : 'light'} mode`,
-                                        onClick: () => {
-                                            toggleTheme()
-                                        },
-                                    },
-                                    {
-                                        icon: <IconHelpOutline />,
-                                        label: 'Help',
-                                        onClick: () => {
-                                            window.open(HELP_URL, '_blank')?.focus()
-                                        },
-                                    },
-                                    { icon: <IconClose />, label: 'Logout', onClick: logout },
-                                ]}
-                            >
-                                <LemonButton
-                                    status={'stealth'}
-                                    icon={<IconMenu />}
-                                    title={'More'}
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        moreMenuVisible ? closeMoreMenu() : openMoreMenu()
-                                    }}
-                                />
-                            </LemonMenu>
-                            <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
-                        </>
-                    ) : null}
-                    <Logomark3000 />
-                </div>
-            </div>
-        )
+        return <Toolbar3000 />
     }
 
     return (

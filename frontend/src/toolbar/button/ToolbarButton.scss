@@ -175,7 +175,7 @@
     }
 
     &.Toolbar3000__menu {
-        transition: height 0.2s ease;
+        transition: height 0.5s ease;
         bottom: 100%;
         width: 94%;
     }
@@ -197,7 +197,6 @@
     }
 
     .ToolbarBlock {
-        max-height: 50vh;
         background-color: var(--bg-3000);
         color: var(--text-3000);
 
