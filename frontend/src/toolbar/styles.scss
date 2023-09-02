@@ -16,7 +16,7 @@
     font-size: 14px;
     line-height: 1.5;
 
-    // Until we have 3000 rolled out we fallback to standard colors
+    // Hedgehog mode doesn't use 3000 so, we fallback to standard colors
     --text-3000: var(--default);
     --muted-3000: var(--muted);
     --trace-3000: var(--trace-3000-light);

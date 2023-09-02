@@ -79,7 +79,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 hideFlags: () => false,
             },
         ],
-        nextCloseAction: [
+        closeTheLastOpenedMenu: [
             null as (() => void) | null,
             {
                 [actionsTabLogic.actionTypes.showButtonActions]: () => {

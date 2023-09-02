@@ -228,7 +228,7 @@ function ToolbarInfoMenu(): JSX.Element {
 }
 
 export function Toolbar3000(): JSX.Element {
-    const { flagsVisible, nextCloseAction } = useValues(toolbarButtonLogic)
+    const { flagsVisible, closeTheLastOpenedMenu } = useValues(toolbarButtonLogic)
     const { showFlags, hideFlags } = useActions(toolbarButtonLogic)
 
     const { buttonActionsVisible } = useValues(actionsTabLogic)
@@ -247,7 +247,7 @@ export function Toolbar3000(): JSX.Element {
         e.preventDefault()
         e.stopPropagation()
         // close the last opened thing
-        nextCloseAction?.()
+        closeTheLastOpenedMenu?.()
         // carry out the action
         actionFn()
     }
