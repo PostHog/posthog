@@ -28,7 +28,7 @@ export function EditAction(): JSX.Element {
     } = useActions(actionsTabLogic)
 
     return (
-        <div>
+        <div className={'flex flex-col h-full'}>
             <SelectorEditingModal
                 isOpen={editingSelector !== null}
                 setIsOpen={() => editSelectorWithIndex(null)}

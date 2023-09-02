@@ -12,7 +12,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
     const { allActionsLoading, searchTerm } = useValues(actionsLogic)
     const { selectAction } = useActions(actionsTabLogic)
     return (
-        <div className={'flex flex-col'}>
+        <div className={'flex flex-col h-full overflow-y-scoll'}>
             {allActionsLoading ? (
                 <div className={'flex items-center'}>
                     <Spinner className={'text-4xl'} />

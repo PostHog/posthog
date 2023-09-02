@@ -25,7 +25,7 @@ export function ActionsList(): JSX.Element {
                 className={clsx('mb-1', !hedgehogMode && 'rounded-b-0')}
                 onChange={(s) => setSearchTerm(s)}
             />
-            <div className="actions-list">
+            <div className="actions-list h-full overflow-hidden">
                 <div className={clsx('actions-list-header pt-2 pb-4', !hedgehogMode && 'px-2')}>
                     <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>
                         New action

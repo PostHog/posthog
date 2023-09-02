@@ -220,7 +220,9 @@ function ToolbarInfoMenu(): JSX.Element {
     return (
         <div
             ref={menuRef}
-            className={'absolute bottom Toolbar3000 Toolbar3000__menu w-auto mx-2 rounded-t flex flex-col items-center'}
+            className={
+                'absolute bottom Toolbar3000 justify-between Toolbar3000__menu w-auto mx-2 rounded-t flex flex-col items-center'
+            }
         >
             <FullMenu />
             <PeekMenu />

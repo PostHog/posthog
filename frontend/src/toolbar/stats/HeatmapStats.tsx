@@ -30,12 +30,12 @@ export function HeatmapStats(): JSX.Element | null {
     const { hedgehogMode } = useValues(toolbarButtonLogic)
 
     return heatmapEnabled ? (
-        <div className={clsx('space-y-2 w-full', hedgehogMode && 'p-2')}>
+        <div className={clsx('space-y-2 w-full h-full flex flex-col', hedgehogMode && 'p-2')}>
             <div>
                 <LemonInput value={wildcardHref} onChange={setWildcardHref} />
                 <div className="text-muted pl-2 pt-1">Use * as a wildcard</div>
             </div>
-            <div className={clsx('flex flex-col space-y-2', !hedgehogMode && 'px-2')}>
+            <div className={clsx('flex flex-col space-y-2 h-full overflow-hidden', !hedgehogMode && 'px-2')}>
                 <div className="flex items-center gap-2">
                     <DateFilter
                         dateFrom={heatmapFilter.date_from ?? '-7d'}
@@ -79,7 +79,7 @@ export function HeatmapStats(): JSX.Element | null {
                         />
                     </div>
                 </Tooltip>
-                <div className="flex flex-col w-full">
+                <div className="FlagList flex flex-col w-full overflow-y-scroll h-full">
                     {countedElements.map(({ element, count, actionStep }, index) => {
                         return (
                             <div

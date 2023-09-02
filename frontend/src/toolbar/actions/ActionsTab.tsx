@@ -18,7 +18,7 @@ export function ActionsTab(): JSX.Element {
     return (
         <div
             className={clsx(
-                'toolbar-block action-block-body ActionsBlockBody w-full rounded-t',
+                'toolbar-block action-block-body ActionsBlockBody justify-between w-full h-full rounded-t',
                 hedgehogMode && 'px-2 py-1'
             )}
         >
