@@ -249,23 +249,37 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         )
                     )}
                     <LemonDivider />
-                    {/* <Field name="appearance" label="Thank you message (optional)">
+                    <Field name="appearance" label="Thank you message (optional)">
                         {({ value, onChange }) => (
                             <>
-                                <LemonCheckbox label="Display thank you message" checked={value.displayThankYouMessage} onChange={(checked) => onChange({ ...value, displayThankYouMessage: checked })} />
+                                <LemonCheckbox
+                                    label="Display thank you message"
+                                    checked={value.displayThankYouMessage}
+                                    onChange={(checked) => onChange({ ...value, displayThankYouMessage: checked })}
+                                />
                                 {value.displayThankYouMessage && (
                                     <>
                                         <PureField label="Thank you header">
-                                            <LemonInput value={value.thankYouMessageHeader || 'Thank you!'} onChange={(val) => onChange({ ...value, thankYouMessageHeader: val })} placeholder="Thank you for your feedback!" />
+                                            <LemonInput
+                                                value={value.thankYouMessageHeader || 'Thank you!'}
+                                                onChange={(val) => onChange({ ...value, thankYouMessageHeader: val })}
+                                                placeholder="Thank you for your feedback!"
+                                            />
                                         </PureField>
                                         <PureField label="Thank you description">
-                                            <LemonTextArea value={value.thankYouMessageDescription} onChange={(val) => onChange({ ...value, thankYouMessageDescription: val })} placeholder="We really appreciate it." />
+                                            <LemonTextArea
+                                                value={value.thankYouMessageDescription}
+                                                onChange={(val) =>
+                                                    onChange({ ...value, thankYouMessageDescription: val })
+                                                }
+                                                placeholder="We really appreciate it."
+                                            />
                                         </PureField>
                                     </>
                                 )}
                             </>
                         )}
-                    </Field> */}
+                    </Field>
                     <LemonDivider className="my-2" />
                     <PureField label="Targeting (optional)">
                         <span className="text-muted">
