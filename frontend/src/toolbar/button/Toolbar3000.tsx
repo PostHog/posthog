@@ -32,6 +32,7 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { HELP_URL } from './ToolbarButton'
 import { useLayoutEffect, useRef } from 'react'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 function MoreMenu({
     onOpenOrClose,
@@ -251,6 +252,13 @@ export function Toolbar3000(): JSX.Element {
         // carry out the action
         actionFn()
     }
+
+    useKeyboardHotkeys(
+        {
+            escape: { action: () => closeTheLastOpenedMenu?.(), willHandleEvent: true },
+        },
+        [closeTheLastOpenedMenu]
+    )
 
     return (
         <div className={'relative'}>

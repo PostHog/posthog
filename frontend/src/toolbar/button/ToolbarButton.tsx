@@ -115,7 +115,6 @@ export function ToolbarButton(): JSX.Element {
     // - be able to switch to hedgehog mode
     // - 3000 styling of the inspect UI
     // - animate height when opening menu
-    // - ESC closes menu or current thing
 
     // hedgehog mode uses the `Circle component`
     // but 3000 mode does not
