@@ -76,6 +76,10 @@ export function getShadowRoot(): ShadowRoot | null {
     return getToolbarElement()?.shadowRoot || null
 }
 
+export function getToolbarContainer(): HTMLElement {
+    return getShadowRoot()?.getElementById('button-toolbar') as unknown as HTMLElement
+}
+
 export function getShadowRootPopoverContainer(): HTMLElement {
     return getShadowRoot() as unknown as HTMLElement
 }

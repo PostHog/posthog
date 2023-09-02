@@ -1,18 +1,20 @@
-import { kea } from 'kea'
-import { inBounds } from '~/toolbar/utils'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { getShadowRoot, inBounds } from '~/toolbar/utils'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
 import { posthog } from '~/toolbar/posthog'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
+import { subscriptions } from 'kea-subscriptions'
+import { windowValues } from 'kea-window-values'
 
-export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
-    path: ['toolbar', 'button', 'toolbarButtonLogic'],
-    connect: () => ({
+export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
+    path(() => ['toolbar', 'button', 'toolbarButtonLogic']),
+    connect(() => ({
         actions: [actionsTabLogic, ['showButtonActions'], elementsLogic, ['enableInspect']],
-    }),
-    actions: () => ({
+    })),
+    actions({
         openMoreMenu: true,
         closeMoreMenu: true,
         showHeatmapInfo: true,
@@ -21,6 +23,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideActionsInfo: true,
         showFlags: true,
         hideFlags: true,
+        toggleTheme: true,
         setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
         setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
@@ -31,12 +34,19 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
     }),
 
-    windowValues: () => ({
-        windowHeight: (window) => window.innerHeight,
-        windowWidth: (window) => Math.min(window.innerWidth, window.document.body.clientWidth),
-    }),
+    windowValues(() => ({
+        windowHeight: (window: Window) => window.innerHeight,
+        windowWidth: (window: Window) => Math.min(window.innerWidth, window.document.body.clientWidth),
+    })),
 
-    reducers: () => ({
+    reducers(() => ({
+        theme: [
+            'light' as 'light' | 'dark',
+            { persist: true },
+            {
+                toggleTheme: (state) => (state === 'light' ? 'dark' : 'light'),
+            },
+        ],
         moreMenuVisible: [
             false,
             {
@@ -122,9 +132,9 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 setHedgehogActor: (_, { actor }) => actor,
             },
         ],
-    }),
+    })),
 
-    selectors: {
+    selectors({
         dragPosition: [
             (s) => [s.lastDragPosition, s.windowWidth, s.windowHeight],
             (lastDragPosition, windowWidth, windowHeight) => {
@@ -204,9 +214,9 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             (flagsVisible, extensionPercentage) =>
                 flagsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
-    },
+    }),
 
-    listeners: ({ actions, values }) => ({
+    listeners(({ actions, values }) => ({
         showFlags: () => {
             posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: true })
             values.hedgehogActor?.setAnimation('flag')
@@ -233,5 +243,11 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 y > windowHeight / 2 ? -(windowHeight - y) : y
             )
         },
+    })),
+    subscriptions({
+        theme: (theme) => {
+            const toolbarElement = getShadowRoot()?.getElementById('button-toolbar')
+            toolbarElement?.setAttribute('theme', theme)
+        },
     }),
-})
+])

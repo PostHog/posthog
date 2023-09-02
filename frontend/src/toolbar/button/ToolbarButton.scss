@@ -1,4 +1,5 @@
-#button-toolbar[theme='light'] {
+// default to light theme
+#button-toolbar {
     --text-3000: var(--text-3000-light);
     --muted-3000: var(--muted-3000-light);
     --trace-3000: var(--trace-3000-light);
