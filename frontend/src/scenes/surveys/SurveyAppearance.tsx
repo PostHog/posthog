@@ -19,6 +19,7 @@ import {
 import { surveysLogic } from './surveysLogic'
 import { useValues } from 'kea'
 import { IconClose } from 'lib/lemon-ui/icons'
+import { useEffect, useState } from 'react'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
@@ -41,37 +42,57 @@ export function SurveyAppearance({
     onAppearanceChange,
 }: SurveyAppearanceProps): JSX.Element {
     const { whitelabelAvailable } = useValues(surveysLogic)
+    const [showThankYou, setShowThankYou] = useState(false)
+    const [hideSubmittedSurvey, setHideSubmittedSurvey] = useState(false)
+
+    useEffect(() => {
+        if (appearance.displayThankYouMessage && showThankYou) {
+            setHideSubmittedSurvey(true)
+            setTimeout(() => {
+                setShowThankYou(false)
+                setHideSubmittedSurvey(false)
+            }, 2000)
+        }
+    }, [showThankYou])
 
     return (
         <>
             <h3 className="mb-4 text-center">Preview</h3>
-            {type === SurveyQuestionType.Rating && (
-                <SurveyRatingAppearance
-                    ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
-                    appearance={appearance}
-                    question={question}
-                    description={description}
-                />
+            {!hideSubmittedSurvey && (
+                <>
+                    {type === SurveyQuestionType.Rating && (
+                        <SurveyRatingAppearance
+                            ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
+                            appearance={appearance}
+                            question={question}
+                            description={description}
+                            onSubmit={() => appearance.displayThankYouMessage && setShowThankYou(true)}
+                        />
+                    )}
+                    {(surveyQuestionItem.type === SurveyQuestionType.SingleChoice ||
+                        surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
+                        <SurveyMultipleChoiceAppearance
+                            multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
+                            appearance={appearance}
+                            question={question}
+                            description={description}
+                            onSubmit={() => appearance.displayThankYouMessage && setShowThankYou(true)}
+                        />
+                    )}
+                    {(surveyQuestionItem.type === SurveyQuestionType.Open ||
+                        surveyQuestionItem.type === SurveyQuestionType.Link) && (
+                        <BaseAppearance
+                            type={type}
+                            question={question}
+                            description={description}
+                            appearance={appearance}
+                            link={link}
+                            onSubmit={() => appearance.displayThankYouMessage && setShowThankYou(true)}
+                        />
+                    )}
+                </>
             )}
-            {(surveyQuestionItem.type === SurveyQuestionType.SingleChoice ||
-                surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
-                <SurveyMultipleChoiceAppearance
-                    multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
-                    appearance={appearance}
-                    question={question}
-                    description={description}
-                />
-            )}
-            {(surveyQuestionItem.type === SurveyQuestionType.Open ||
-                surveyQuestionItem.type === SurveyQuestionType.Link) && (
-                <BaseAppearance
-                    type={type}
-                    question={question}
-                    description={description}
-                    appearance={appearance}
-                    link={link}
-                />
-            )}
+            {showThankYou && <SurveyThankYou appearance={appearance} />}
             {!readOnly && (
                 <div className="flex flex-col">
                     <div className="mt-2">Background color</div>
@@ -151,12 +172,14 @@ function BaseAppearance({
     type,
     question,
     appearance,
+    onSubmit,
     description,
     link,
 }: {
     type: SurveyQuestionType
     question: string
     appearance: SurveyAppearanceType
+    onSubmit: () => void
     description?: string | null
     link?: string | null
 }): JSX.Element {
@@ -192,6 +215,7 @@ function BaseAppearance({
                             type="button"
                             onClick={() => {
                                 link && type === SurveyQuestionType.Link ? window.open(link) : null
+                                onSubmit()
                             }}
                             style={{ backgroundColor: appearance.submitButtonColor }}
                         >
@@ -211,11 +235,13 @@ function SurveyRatingAppearance({
     ratingSurveyQuestion,
     appearance,
     question,
+    onSubmit,
     description,
 }: {
     ratingSurveyQuestion: RatingSurveyQuestion
     appearance: SurveyAppearanceType
     question: string
+    onSubmit: () => void
     description?: string | null
 }): JSX.Element {
     const threeEmojis = [dissatisfiedEmoji, neutralEmoji, satisfiedEmoji]
@@ -257,6 +283,7 @@ function SurveyRatingAppearance({
                                         onMouseLeave={(val) => {
                                             val.currentTarget.style.fill = appearance.ratingButtonColor || 'black'
                                         }}
+                                        onClick={() => onSubmit()}
                                     >
                                         {emoji}
                                     </button>
@@ -280,6 +307,7 @@ function SurveyRatingAppearance({
                                                     className="ratings-number"
                                                     type="button"
                                                     key={idx}
+                                                    onClick={() => onSubmit()}
                                                     style={{ backgroundColor: appearance.ratingButtonColor }}
                                                 >
                                                     {num}
@@ -308,11 +336,13 @@ function SurveyMultipleChoiceAppearance({
     multipleChoiceQuestion,
     appearance,
     question,
+    onSubmit,
     description,
 }: {
     multipleChoiceQuestion: MultipleSurveyQuestion
     appearance: SurveyAppearanceType
     question: string
+    onSubmit: () => void
     description?: string | null
 }): JSX.Element {
     const inputType = multipleChoiceQuestion.type === SurveyQuestionType.SingleChoice ? 'radio' : 'checkbox'
@@ -349,7 +379,7 @@ function SurveyMultipleChoiceAppearance({
                         <button
                             className="form-submit"
                             type="button"
-                            onClick={() => {}}
+                            onClick={() => onSubmit()}
                             style={{ backgroundColor: appearance.submitButtonColor }}
                         >
                             {appearance.submitButtonText || 'Submit'}
@@ -361,5 +391,19 @@ function SurveyMultipleChoiceAppearance({
                 </div>
             </div>
         </form>
+    )
+}
+
+function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceType }): JSX.Element {
+    return (
+        <div className="thank-you-message">
+            <div className="thank-you-message-container">
+                <h3 className="thank-you-message-header">{appearance.thankYouMessageHeader || 'Thank you!'} </h3>
+                <div className="thank-you-message-description">{appearance.thankYouMessageDescription || ''}</div>
+                <div className="footer-branding" style={{ display: appearance.whiteLabel ? 'none' : '' }}>
+                    powered by {posthogLogoSVG} PostHog
+                </div>
+            </div>
+        </div>
     )
 }

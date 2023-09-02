@@ -102,7 +102,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <LemonInput data-attr="survey-name" />
                     </Field>
                     <Field name="description" label="Description (optional)">
-                        <LemonTextArea data-attr="survey-description" />
+                        <LemonTextArea data-attr="survey-description" minRows={2} />
                     </Field>
                     <Field name="type" label="Display mode" className="w-max">
                         <LemonSelect
@@ -147,7 +147,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     </Field>
                                 )}
                                 <Field name="description" label="Question description (optional)">
-                                    <LemonTextArea value={question.description || ''} />
+                                    <LemonTextArea value={question.description || ''} minRows={2} />
                                 </Field>
                                 {question.type === SurveyQuestionType.Rating && (
                                     <div className="flex flex-col gap-2">
@@ -261,9 +261,9 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     <>
                                         <PureField label="Thank you header">
                                             <LemonInput
-                                                value={value.thankYouMessageHeader || 'Thank you!'}
+                                                value={value.thankYouMessageHeader}
                                                 onChange={(val) => onChange({ ...value, thankYouMessageHeader: val })}
-                                                placeholder="Thank you for your feedback!"
+                                                placeholder="ex: Thank you for your feedback!"
                                             />
                                         </PureField>
                                         <PureField label="Thank you description">
@@ -272,7 +272,8 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                 onChange={(val) =>
                                                     onChange({ ...value, thankYouMessageDescription: val })
                                                 }
-                                                placeholder="We really appreciate it."
+                                                minRows={2}
+                                                placeholder="ex: We really appreciate it."
                                             />
                                         </PureField>
                                     </>
