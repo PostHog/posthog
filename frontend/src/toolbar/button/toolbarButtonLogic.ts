@@ -39,7 +39,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         windowWidth: (window: Window) => Math.min(window.innerWidth, window.document.body.clientWidth),
     })),
 
-    reducers(() => ({
+    reducers(({ actions }) => ({
         theme: [
             'light' as 'light' | 'dark',
             { persist: true },
@@ -77,6 +77,33 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             {
                 showFlags: () => true,
                 hideFlags: () => false,
+            },
+        ],
+        nextCloseAction: [
+            null as (() => void) | null,
+            {
+                [actionsTabLogic.actionTypes.showButtonActions]: () => {
+                    return () => {
+                        //close full menu
+                        actions.hideActionsInfo()
+                        // hide peek
+                        actionsTabLogic.actions.hideButtonActions()
+                    }
+                },
+                [heatmapLogic.actionTypes.enableHeatmap]: () => {
+                    return () => {
+                        // close full menu
+                        actions.hideHeatmapInfo()
+                        // close peek
+                        heatmapLogic.actions.disableHeatmap()
+                    }
+                },
+                // open flags window
+                showFlags: () => actions.hideFlags,
+                // show actions
+                [elementsLogic.actionTypes.enableInspect]: () => elementsLogic.actions.disableInspect,
+                // show menu
+                openMoreMenu: () => actions.closeMoreMenu,
             },
         ],
         extensionPercentage: [

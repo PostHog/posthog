@@ -33,9 +33,13 @@ import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { HELP_URL } from './ToolbarButton'
 import { useLayoutEffect, useRef } from 'react'
 
-function MoreMenu(): JSX.Element {
+function MoreMenu({
+    onOpenOrClose,
+}: {
+    onOpenOrClose: (e: React.MouseEvent, actionFn: () => void) => void
+}): JSX.Element {
     const { moreMenuVisible, theme } = useValues(toolbarButtonLogic)
-    const { setHedgehogMode, openMoreMenu, closeMoreMenu, toggleTheme } = useActions(toolbarButtonLogic)
+    const { setHedgehogMode, closeMoreMenu, openMoreMenu, toggleTheme } = useActions(toolbarButtonLogic)
 
     const { logout } = useActions(toolbarLogic)
 
@@ -80,9 +84,7 @@ function MoreMenu(): JSX.Element {
                 icon={<IconMenu />}
                 title={'More'}
                 onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    moreMenuVisible ? closeMoreMenu() : openMoreMenu()
+                    onOpenOrClose(e, moreMenuVisible ? closeMoreMenu : openMoreMenu)
                 }}
             />
         </LemonMenu>
@@ -198,11 +200,6 @@ function ToolbarInfoMenu(): JSX.Element {
             menuRef.current.style.height = `${heightAvailableForMenu - 10}px`
 
             // TODO what if there is less than 10 available
-            // if (heightAvailableForMenu >= 0) {
-            //     menuRef.current.style.top = '0px'
-            // } else {
-            //     menuRef.current.style.top = `${heightAvailableForMenu}px`
-            // }
         } else {
             menuRef.current.style.height = '0px'
         }
@@ -231,7 +228,7 @@ function ToolbarInfoMenu(): JSX.Element {
 }
 
 export function Toolbar3000(): JSX.Element {
-    const { flagsVisible } = useValues(toolbarButtonLogic)
+    const { flagsVisible, nextCloseAction } = useValues(toolbarButtonLogic)
     const { showFlags, hideFlags } = useActions(toolbarButtonLogic)
 
     const { buttonActionsVisible } = useValues(actionsTabLogic)
@@ -246,8 +243,12 @@ export function Toolbar3000(): JSX.Element {
     const { isAuthenticated } = useValues(toolbarLogic)
 
     const swallowClick = (e: React.MouseEvent, actionFn: () => void): void => {
+        // swallow the click
         e.preventDefault()
         e.stopPropagation()
+        // close the last opened thing
+        nextCloseAction?.()
+        // carry out the action
         actionFn()
     }
 
@@ -289,7 +290,7 @@ export function Toolbar3000(): JSX.Element {
                             onClick={(e) => swallowClick(e, flagsVisible ? hideFlags : showFlags)}
                             active={flagsVisible}
                         />
-                        <MoreMenu />
+                        <MoreMenu onOpenOrClose={swallowClick} />
                         <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
                     </>
                 ) : null}
