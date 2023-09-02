@@ -42,8 +42,15 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
 from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
+from prometheus_client import Counter
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
+
+SNAPSHOT_SOURCE_REQUESTED = Counter(
+    "session_snapshots_requested_counter",
+    "When calling the API and providing a concrete snapshot type to load.",
+    labelnames=["source"],
+)
 
 
 def snapshots_response(data: Any) -> Any:
@@ -245,16 +252,21 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         """
 
         event_properties = {"team_id": self.team.pk}
+
         if request.headers.get("X-POSTHOG-SESSION-ID"):
             event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
-        )
 
         recording = self.get_object()
         response_data = {}
         source = request.GET.get("source")
-        # TODO: Handle the old S3 storage method for pinned recordings
+        event_properties["request_source"] = source
+
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
+        )
+
+        if source:
+            SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
         if not source:
             sources: List[dict] = []
