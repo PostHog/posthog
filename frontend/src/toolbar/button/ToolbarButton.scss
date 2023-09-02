@@ -194,6 +194,10 @@
                 background-color: inherit;
             }
         }
+
+        .action-section:last-child {
+            border-bottom: none;
+        }
     }
 
     .ToolbarBlock {

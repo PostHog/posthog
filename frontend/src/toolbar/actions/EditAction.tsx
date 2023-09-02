@@ -28,7 +28,7 @@ export function EditAction(): JSX.Element {
     } = useActions(actionsTabLogic)
 
     return (
-        <div className={'flex flex-col h-full'}>
+        <div className={'flex flex-col h-full px-2 py-1'}>
             <SelectorEditingModal
                 isOpen={editingSelector !== null}
                 setIsOpen={() => editSelectorWithIndex(null)}
@@ -60,146 +60,159 @@ export function EditAction(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <Form name="action_step" logic={actionsTabLogic} formKey={'actionForm'} enableFormOnSubmit>
-                <div className="mb-4">
-                    <p>What did your user do?</p>
-                    <Field name="name">
-                        <LemonInput placeholder="E.g: Clicked Sign Up" className="action-title-field" />
-                    </Field>
-                </div>
+            <div className="h-full flex-grow flex-1">
+                <Form
+                    name="action_step"
+                    logic={actionsTabLogic}
+                    formKey={'actionForm'}
+                    enableFormOnSubmit
+                    className={'flex flex-col h-full gap-2'}
+                >
+                    <div>
+                        <p>What did your user do?</p>
+                        <Field name="name">
+                            <LemonInput placeholder="E.g: Clicked Sign Up" className="action-title-field" />
+                        </Field>
+                    </div>
 
-                <div>
-                    {actionForm.steps?.map((step, index) => (
-                        <Group key={index} name={['steps', index]}>
-                            <div key={index} className="action-section px-2 py-1 highlight flex flex-col gap-2">
-                                <div className="flex flex-row justify-between">
-                                    <h1 className="section-title">
-                                        {index > 0 ? 'OR ' : null}Element #{index + 1}
-                                    </h1>
-                                    <LemonButton
-                                        type={'tertiary'}
-                                        status={'muted'}
-                                        size="small"
-                                        onClick={() =>
-                                            setActionFormValue(
-                                                'steps',
-                                                //actionForm.steps without the step at index
-                                                actionForm.steps?.filter((_, i) => i !== index)
-                                            )
-                                        }
-                                        sideIcon={<IconMinusOutlined />}
-                                    >
-                                        Remove
-                                    </LemonButton>
-                                </div>
-
-                                <div className="action-inspect">
-                                    <LemonButton
-                                        size="small"
-                                        type={inspectingElement === index ? 'primary' : 'secondary'}
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            inspectForElementWithIndex(inspectingElement === index ? null : index)
-                                        }}
-                                        icon={<IconMagnifier />}
-                                    >
-                                        {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
-                                    </LemonButton>
-                                </div>
-
-                                {step?.event === '$autocapture' || inspectingElement === index ? (
-                                    <>
-                                        <StepField
-                                            step={step}
-                                            item="selector"
-                                            label="Selector"
-                                            caption="CSS selector that uniquely identifies your element"
-                                        />
-                                        <div className="flex flex-row justify-end mb-2">
-                                            <LemonButton
-                                                size={'small'}
-                                                type={'secondary'}
-                                                icon={<IconEdit />}
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    posthog.capture('toolbar_manual_selector_modal_opened', {
-                                                        selector: step?.selector,
-                                                    })
-                                                    editSelectorWithIndex(index)
-                                                }}
-                                                getTooltipPopupContainer={getShadowRootPopoverContainer}
-                                            >
-                                                Edit the selector
-                                            </LemonButton>
-                                        </div>
-                                        <StepField
-                                            step={step}
-                                            item="href"
-                                            label="Link target"
-                                            caption={
-                                                <>
-                                                    If your element is a link, the location that the link opens (
-                                                    <code>href</code> tag)
-                                                </>
-                                            }
-                                        />
-                                        <StepField
-                                            step={step}
-                                            item="text"
-                                            label="Text"
-                                            caption="Text content inside your element"
-                                        />
-
-                                        <StepField
-                                            step={step}
-                                            item="url"
-                                            label="Page URL"
-                                            caption="Elements will match only when triggered from the URL."
-                                        />
-                                    </>
-                                ) : null}
-
-                                {index === (actionForm.steps?.length || 0) - 1 ? (
-                                    <div className={'text-right mt-4'}>
+                    <div className={'h-full overflow-y-scroll'}>
+                        {actionForm.steps?.map((step, index) => (
+                            <Group key={index} name={['steps', index]}>
+                                <div key={index} className="action-section px-2 py-1 highlight flex flex-col gap-2">
+                                    <div className="flex flex-row justify-between">
+                                        <h1 className="section-title">
+                                            {index > 0 ? 'OR ' : null}Element #{index + 1}
+                                        </h1>
                                         <LemonButton
-                                            type="secondary"
+                                            type={'tertiary'}
                                             status={'muted'}
                                             size="small"
-                                            sideIcon={<IconPlus />}
                                             onClick={() =>
-                                                setActionFormValue('steps', [...(actionForm.steps || []), {}])
+                                                setActionFormValue(
+                                                    'steps',
+                                                    //actionForm.steps without the step at index
+                                                    actionForm.steps?.filter((_, i) => i !== index)
+                                                )
                                             }
+                                            sideIcon={<IconMinusOutlined />}
                                         >
-                                            Add Another Element
+                                            Remove
                                         </LemonButton>
                                     </div>
-                                ) : null}
-                            </div>
-                        </Group>
-                    ))}
 
-                    {(actionForm.steps || []).length === 0 ? (
-                        <LemonButton
-                            icon={<IconPlus />}
-                            size="small"
-                            type="primary"
-                            onClick={() => setActionFormValue('steps', [...(actionForm.steps || []), {}])}
-                        >
-                            Add An Element
+                                    <div className="action-inspect">
+                                        <LemonButton
+                                            size="small"
+                                            type={inspectingElement === index ? 'primary' : 'secondary'}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                inspectForElementWithIndex(inspectingElement === index ? null : index)
+                                            }}
+                                            icon={<IconMagnifier />}
+                                        >
+                                            {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
+                                        </LemonButton>
+                                    </div>
+
+                                    {step?.event === '$autocapture' || inspectingElement === index ? (
+                                        <>
+                                            <StepField
+                                                step={step}
+                                                item="selector"
+                                                label="Selector"
+                                                caption="CSS selector that uniquely identifies your element"
+                                            />
+                                            <div className="flex flex-row justify-end mb-2">
+                                                <LemonButton
+                                                    size={'small'}
+                                                    type={'secondary'}
+                                                    icon={<IconEdit />}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        posthog.capture('toolbar_manual_selector_modal_opened', {
+                                                            selector: step?.selector,
+                                                        })
+                                                        editSelectorWithIndex(index)
+                                                    }}
+                                                    getTooltipPopupContainer={getShadowRootPopoverContainer}
+                                                >
+                                                    Edit the selector
+                                                </LemonButton>
+                                            </div>
+                                            <StepField
+                                                step={step}
+                                                item="href"
+                                                label="Link target"
+                                                caption={
+                                                    <>
+                                                        If your element is a link, the location that the link opens (
+                                                        <code>href</code> tag)
+                                                    </>
+                                                }
+                                            />
+                                            <StepField
+                                                step={step}
+                                                item="text"
+                                                label="Text"
+                                                caption="Text content inside your element"
+                                            />
+
+                                            <StepField
+                                                step={step}
+                                                item="url"
+                                                label="Page URL"
+                                                caption="Elements will match only when triggered from the URL."
+                                            />
+                                        </>
+                                    ) : null}
+
+                                    {index === (actionForm.steps?.length || 0) - 1 ? (
+                                        <div className={'text-right mt-4'}>
+                                            <LemonButton
+                                                type="secondary"
+                                                status={'muted'}
+                                                size="small"
+                                                sideIcon={<IconPlus />}
+                                                onClick={() =>
+                                                    setActionFormValue('steps', [...(actionForm.steps || []), {}])
+                                                }
+                                            >
+                                                Add Another Element
+                                            </LemonButton>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </Group>
+                        ))}
+
+                        {(actionForm.steps || []).length === 0 ? (
+                            <LemonButton
+                                icon={<IconPlus />}
+                                size="small"
+                                type="primary"
+                                onClick={() => setActionFormValue('steps', [...(actionForm.steps || []), {}])}
+                            >
+                                Add An Element
+                            </LemonButton>
+                        ) : null}
+                    </div>
+
+                    <div className={'flex flex-row justify-between'}>
+                        <LemonButton type="primary" htmlType="submit">
+                            {selectedActionId === 'new' ? 'Create ' : 'Save '}
+                            action
                         </LemonButton>
-                    ) : null}
-                </div>
-
-                <div className={'flex flex-row justify-between mt-16'}>
-                    <LemonButton type="primary" htmlType="submit">
-                        {selectedActionId === 'new' ? 'Create ' : 'Save '}
-                        action
-                    </LemonButton>
-                    {selectedActionId !== 'new' ? (
-                        <LemonButton type="secondary" status={'danger'} onClick={deleteAction} icon={<IconDelete />} />
-                    ) : null}
-                </div>
-            </Form>
+                        {selectedActionId !== 'new' ? (
+                            <LemonButton
+                                type="secondary"
+                                status={'danger'}
+                                onClick={deleteAction}
+                                icon={<IconDelete />}
+                            />
+                        ) : null}
+                    </div>
+                </Form>
+            </div>
         </div>
     )
 }

@@ -112,12 +112,10 @@ export function ToolbarButton(): JSX.Element {
     let n = 0
 
     // TODO
-    // - be able to close it
     // - be able to switch to hedgehog mode
     // - 3000 styling of the inspect UI
-    // - 3000 styling of lemon menu
     // - animate height when opening menu
-    // - style scroll bars?
+    // - ESC closes menu or current thing
 
     // hedgehog mode uses the `Circle component`
     // but 3000 mode does not
