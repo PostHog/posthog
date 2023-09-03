@@ -398,8 +398,12 @@ function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceType }): J
     return (
         <div className="thank-you-message">
             <div className="thank-you-message-container">
-                <h3 className="thank-you-message-header">{appearance.thankYouMessageHeader || 'Thank you!'} </h3>
-                <div className="thank-you-message-description">{appearance.thankYouMessageDescription || ''}</div>
+                <h3 className="thank-you-message-header" style={{ color: appearance.textColor }}>
+                    {appearance.thankYouMessageHeader || 'Thank you!'}{' '}
+                </h3>
+                <div className="thank-you-message-description" style={{ color: appearance.descriptionTextColor }}>
+                    {appearance.thankYouMessageDescription || ''}
+                </div>
                 <div className="footer-branding" style={{ display: appearance.whiteLabel ? 'none' : '' }}>
                     powered by {posthogLogoSVG} PostHog
                 </div>
