@@ -251,16 +251,18 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         This path only supports loading from S3 or Redis based on query params
         """
 
-        event_properties = {"team_id": self.team.pk}
-
-        if request.headers.get("X-POSTHOG-SESSION-ID"):
-            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-
         recording = self.get_object()
         response_data = {}
         source = request.GET.get("source")
-        event_properties["request_source"] = source
-        event_properties["session_being_loaded"] = recording.session_id
+
+        event_properties = {
+            "team_id": self.team.pk,
+            "request_source": source,
+            "session_being_loaded": recording.session_id,
+        }
+
+        if request.headers.get("X-POSTHOG-SESSION-ID"):
+            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
 
         posthoganalytics.capture(
             self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
@@ -387,11 +389,10 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
 
-        event_properties = {"team_id": self.team.pk}
+        event_properties = {"team_id": self.team.pk, "session_being_loaded": recording.session_id, "offset": offset}
+
         if request.headers.get("X-POSTHOG-SESSION-ID"):
             event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-            event_properties["session_being_loaded"] = recording.session_id
-            event_properties["offset"] = offset
 
         posthoganalytics.capture(
             self._distinct_id_from_request(request), "v1 session recording snapshots viewed", event_properties
