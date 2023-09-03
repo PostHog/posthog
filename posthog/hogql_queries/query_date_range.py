@@ -1,0 +1,115 @@
+from datetime import datetime
+from functools import cached_property
+from typing import Optional
+
+import pytz
+from dateutil.relativedelta import relativedelta
+from rest_framework.exceptions import ValidationError
+
+from posthog.models.team import Team
+from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
+from posthog.schema import DateRange, IntervalType
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
+
+
+# Originally copied from posthog/queries/query_date_range.py with some changes to support the new format
+class QueryDateRange:
+    """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
+
+    _team: Team
+    _date_range: Optional[DateRange]
+    _interval: Optional[IntervalType]
+    _now_nontz: datetime
+
+    def __init__(
+        self, date_range: Optional[DateRange], team: Team, interval: Optional[IntervalType], now: datetime
+    ) -> None:
+        self._team = team
+        self._date_range = date_range
+        self._interval = interval
+        self._now_nontz = now
+
+    @cached_property
+    def date_to_param(self) -> datetime:
+        date_to = self._now
+        delta_mapping = None
+
+        if self._date_range and self._date_range.date_to:
+            if isinstance(self._date_range.date_to, str):
+                date_to, delta_mapping = relative_date_parse_with_delta_mapping(
+                    self._date_range.date_to, self._team.timezone_info, always_truncate=True
+                )
+            elif isinstance(self._date_range.date_to, datetime):
+                date_to = self._localize_to_team(self._date_range.date_to)
+
+        is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
+        if not self.is_hourly():
+            date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif is_relative:
+            date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+
+        return date_to
+
+    def get_earliest_timestamp(self):
+        return get_earliest_timestamp(self._team.pk)
+
+    @cached_property
+    def date_from_param(self) -> datetime:
+        date_from: datetime
+        if self._date_range and self._date_range.date_from == "all":
+            date_from = self.get_earliest_timestamp()
+        elif self._date_range and isinstance(self._date_range.date_from, str):
+            date_from = relative_date_parse(self._date_range.date_from, self._team.timezone_info)
+        elif self._date_range and isinstance(self._date_range.date_from, datetime):
+            date_from = self._localize_to_team(self._date_range.date_from)
+        else:
+            date_from = self._now.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
+                days=DEFAULT_DATE_FROM_DAYS
+            )
+
+        if not self.is_hourly():
+            date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        return date_from
+
+    @cached_property
+    def _now(self):
+        return self._localize_to_team(self._now_nontz)
+
+    def _localize_to_team(self, target: datetime):
+        return target.astimezone(pytz.timezone(self._team.timezone))
+
+    @cached_property
+    def interval_annotation(self) -> str:
+        interval = self._interval
+        if interval is None:
+            interval = "day"
+        ch_function = PERIOD_TO_TRUNC_FUNC.get(interval.lower())
+        if ch_function is None:
+            raise ValidationError(f"Period {interval} is unsupported.")
+        return ch_function
+
+    @cached_property
+    def date_to(self) -> str:
+        date_to = self.date_to_param
+
+        return date_to.strftime("%Y-%m-%d %H:%M:%S")
+
+    @cached_property
+    def date_from(self) -> str:
+        date_from = self.date_from_param
+
+        return date_from.strftime("%Y-%m-%d %H:%M:%S")
+
+    @cached_property
+    def num_intervals(self) -> int:
+        if self._interval is None:
+            return 1
+        if self._interval == "month":
+            rel_delta = relativedelta(self.date_to_param, self.date_from_param)
+            return (rel_delta.years * 12) + rel_delta.months + 1
+
+        return int(self.delta.total_seconds() / TIME_IN_SECONDS[self._interval]) + 1
+
+    def is_hourly(self):
+        return self._interval and self._interval.name == "hour"
