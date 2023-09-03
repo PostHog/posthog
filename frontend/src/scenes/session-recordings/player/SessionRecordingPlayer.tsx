@@ -76,7 +76,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound } = useValues(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
     useKeyboardHotkeys(
@@ -149,6 +149,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
                     'SessionRecordingPlayer--inspector-focus': inspectorFocus,
                     'SessionRecordingPlayer--inspector-hidden': noInspector,
+                    'SessionRecordingPlayer--buffering': isBuffering,
                 })}
                 onClick={incrementClickCount}
             >
