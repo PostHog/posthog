@@ -100,6 +100,7 @@ class BigQueryBatchExportInputs:
     dataset_id: str = "public"
     table_id: str = "events"
     data_interval_end: str | None = None
+    exclude_events: list[str] | None = None
 
 
 DESTINATION_WORKFLOWS = {
