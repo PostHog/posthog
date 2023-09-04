@@ -4,10 +4,9 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { useJsonNodeState } from './utils'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
+import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
 
@@ -23,7 +22,7 @@ const DEFAULT_QUERY: QuerySchema = {
 }
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const [query] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
+    const { query } = props.attributes
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
     const nodeLogic = useMountedLogic(notebookNodeLogic)
@@ -63,11 +62,9 @@ type NotebookNodeQueryAttributes = {
 export const Settings = ({
     attributes,
     updateAttributes,
-}: NotebookNodeWidgetSettings<NotebookNodeQueryAttributes>): JSX.Element => {
-    const [query, setQuery] = useJsonNodeState<QuerySchema>(attributes, updateAttributes, 'query')
-
+}: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...attributes.query }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -78,7 +75,7 @@ export const Settings = ({
         }
 
         return modifiedQuery
-    }, [query])
+    }, [attributes.query])
 
     return (
         <div className="p-3">
@@ -86,7 +83,9 @@ export const Settings = ({
                 query={modifiedQuery}
                 setQuery={(t) => {
                     if (t.kind === NodeKind.DataTableNode) {
-                        setQuery({ ...query, source: (t as DataTableNode).source } as QuerySchema)
+                        updateAttributes({
+                            query: { ...attributes.query, source: (t as DataTableNode).source } as QuerySchema,
+                        })
                     }
                 }}
                 uniqueKey={attributes.nodeId}

@@ -5,8 +5,9 @@ import {
     ReactNodeViewRenderer,
     ExtendedRegExpMatchArray,
     Attribute,
+    NodeViewProps,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useRef } from 'react'
+import { ReactNode, useCallback, useMemo, useRef } from 'react'
 import clsx from 'clsx'
 import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -17,8 +18,8 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
-import { uuid } from 'lib/utils'
+import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
+import { jsonParse, uuid } from 'lib/utils'
 import { posthogNodePasteRule } from './utils'
 import {
     NotebookNodeAttributes,
@@ -61,6 +62,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     minHeight,
     node,
     getPos,
+    attributes,
     updateAttributes,
     widgets = [],
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
@@ -68,11 +70,11 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     const { isEditable } = useValues(mountedNotebookLogic)
 
     // nodeId can start null, but should then immediately be generated
-    const nodeId = node.attrs.nodeId
-    const nodeLogicProps = {
+    const nodeId = attributes.nodeId
+    const nodeLogicProps: NotebookNodeLogicProps = {
         node,
         nodeType,
-        nodeAttributes: node.attrs,
+        attributes,
         updateAttributes,
         nodeId,
         notebookLogic: mountedNotebookLogic,
@@ -89,7 +91,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
-    const height = node.attrs.height ?? heightEstimate
+    const height = attributes.height ?? heightEstimate
 
     const onResizeStart = useCallback((): void => {
         if (!resizeable) {
@@ -103,14 +105,14 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
             if (heightAttr && heightAttr !== initialHeightAttr) {
                 updateAttributes({
                     height: contentRef.current?.clientHeight,
-                })
+                } as any)
             }
         }
 
         window.addEventListener('mouseup', onResizedEnd)
     }, [resizeable, updateAttributes])
 
-    const parsedHref = typeof href === 'function' ? href(node.attrs) : href
+    const parsedHref = typeof href === 'function' ? href(attributes) : href
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
@@ -210,19 +212,59 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     attributes,
     ...wrapperProps
 }: CreatePostHogWidgetNodeOptions<T>): Node {
-    const WrappedComponent = (props: NotebookNodeViewProps<T>): JSX.Element => {
+    // NOTE: We use NodeViewProps here as we convert them to NotebookNodeViewProps
+    const WrappedComponent = (props: NodeViewProps): JSX.Element => {
+        const nodeId = useMemo(() => props.node.attrs.nodeId ?? uuid(), [props.node.attrs.nodeId])
+
         if (props.node.attrs.nodeId === null) {
             // TODO only wrapped in setTimeout because of the flushSync bug
             setTimeout(() => {
                 props.updateAttributes({
-                    nodeId: uuid(),
+                    nodeId,
                 })
             }, 0)
         }
 
+        const attributes = useMemo(() => {
+            // Here we parse all properties that could be objects.
+
+            const parsedAttrs = Object.keys(props.node.attrs).reduce(
+                (acc, x) => ({
+                    ...acc,
+                    [x]: jsonParse(props.node.attrs[x], props.node.attrs[x]),
+                }),
+                {}
+            )
+
+            return { ...parsedAttrs, nodeId } as NotebookNodeAttributes<T>
+        }, [props.node.attrs, nodeId])
+
+        const updateAttributes = useCallback(
+            (attrs: Partial<NotebookNodeAttributes<T>>): void => {
+                // We call the update whilst json stringifying
+                const stringifiedAttrs = Object.keys(attrs).reduce(
+                    (acc, x) => ({
+                        ...acc,
+                        [x]: JSON.stringify(attrs[x]),
+                    }),
+                    {}
+                )
+
+                props.updateAttributes(stringifiedAttrs)
+            },
+            [props.updateAttributes]
+        )
+
+        const nodeProps: NotebookNodeViewProps<T> = {
+            ...props,
+            node: props.node,
+            attributes,
+            updateAttributes,
+        }
+
         return (
-            <NodeWrapper {...props} {...wrapperProps}>
-                <Component {...props} />
+            <NodeWrapper {...nodeProps} {...wrapperProps}>
+                <Component {...nodeProps} />
             </NodeWrapper>
         )
     }

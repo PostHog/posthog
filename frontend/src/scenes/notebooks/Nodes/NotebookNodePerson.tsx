@@ -13,7 +13,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import api from 'lib/api'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): JSX.Element => {
-    const id = props.node.attrs.id
+    const { id } = props.attributes
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
     const { expanded } = useValues(notebookNodeLogic)

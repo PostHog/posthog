@@ -1,29 +1,7 @@
-import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core'
+import { ExtendedRegExpMatchArray, PasteRule } from '@tiptap/core'
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
 import { Editor as TTEditor } from '@tiptap/core'
-
-export function useJsonNodeState<T>(
-    attributes: NodeViewProps['node']['attrs'],
-    updateAttributes: NodeViewProps['updateAttributes'],
-    key: string
-): [T, (value: T) => void] {
-    let value = attributes[key]
-    try {
-        value = typeof value === 'string' ? JSON.parse(value) : value
-    } catch (e) {
-        console.error("Couldn't parse query", e)
-        value = {}
-    }
-
-    const setValue = (value: any): void => {
-        updateAttributes({
-            [key]: JSON.stringify(value),
-        })
-    }
-
-    return [value, setValue]
-}
 
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')

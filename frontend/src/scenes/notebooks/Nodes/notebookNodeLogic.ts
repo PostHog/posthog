@@ -15,26 +15,31 @@ import {
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
-import { CustomNotebookNodeAttributes, JSONContent, Node, NotebookNodeWidget } from '../Notebook/utils'
+import {
+    JSONContent,
+    Node,
+    NotebookNode,
+    NotebookNodeAttributeProperties,
+    NotebookNodeAttributes,
+    NotebookNodeWidget,
+} from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 
 export type NotebookNodeLogicProps = {
-    node: Node
+    node: NotebookNode
     nodeId: string
     nodeType: NotebookNodeType
-    nodeAttributes: CustomNotebookNodeAttributes
-    updateAttributes: (attributes: CustomNotebookNodeAttributes) => void
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     title: string | ((attributes: any) => Promise<string>)
     widgets: NotebookNodeWidget[]
     startExpanded: boolean
-}
+} & NotebookNodeAttributeProperties<any>
 
 async function renderTitle(
     title: NotebookNodeLogicProps['title'],
-    attrs: NotebookNodeLogicProps['nodeAttributes']
+    attrs: NotebookNodeLogicProps['attributes']
 ): Promise<string> {
     if (typeof attrs.title === 'string' && attrs.title.length > 0) {
         return attrs.title
@@ -52,7 +57,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setTitle: (title: string) => ({ title }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
-        updateAttributes: (attributes: CustomNotebookNodeAttributes) => ({ attributes }),
+        updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
         insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
             timestamp,
             sessionRecordingId,
@@ -96,7 +101,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
-        nodeAttributes: [(_, p) => [p.nodeAttributes], (nodeAttributes) => nodeAttributes],
+        nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
         widgets: [(_, p) => [p.widgets], (widgets) => widgets],
     }),
 
@@ -151,7 +156,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     afterMount(async (logic) => {
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
-        const renderedTitle = await renderTitle(logic.props.title, logic.props.nodeAttributes)
+        const renderedTitle = await renderTitle(logic.props.title, logic.props.attributes)
         logic.actions.setTitle(renderedTitle)
         logic.actions.updateAttributes({ title: renderedTitle })
     }),
