@@ -1144,3 +1144,7 @@ export type RRWebEvent = Record<string, any> & {
     type: number
     data: any
 }
+
+export interface ValueMatcher<T> {
+    (value: T): boolean
+}
