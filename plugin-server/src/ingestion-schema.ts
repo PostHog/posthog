@@ -1,4 +1,8 @@
 /**
+* Types added to this file will be processed into the Plugin Server schema.json file and be available for validation using `ajv`
+*/
+
+/**
  *
  * written to kafka topic: clickhouse_session_replay_events
  * and from there to clickhouse table: session_replay_events
