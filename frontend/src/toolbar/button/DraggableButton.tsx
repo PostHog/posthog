@@ -20,6 +20,7 @@ export function DraggableButton(): JSX.Element {
         flagsVisible,
         flagsPosition,
         hedgehogMode,
+        theme,
     } = useValues(toolbarButtonLogic)
     const {
         saveDragPosition,
@@ -36,7 +37,7 @@ export function DraggableButton(): JSX.Element {
     // linting and typescript complain about it not being
     // a valid attribute. So we put it in a variable and
     // spread it in. 🤷‍
-    const themeProps = { theme: 'light' }
+    const themeProps = { theme }
 
     return (
         <>
