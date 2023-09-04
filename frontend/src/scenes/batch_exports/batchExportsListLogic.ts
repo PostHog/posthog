@@ -7,6 +7,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 
 import type { batchExportsListLogicType } from './batchExportsListLogicType'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { lemonToast } from '@posthog/lemon-ui'
 
 const PAGE_SIZE = 10
 // Refresh the current page of exports periodically to see whats up.
@@ -39,6 +40,26 @@ export const batchExportsListLogic = kea<batchExportsListLogicType>([
                         limit: PAGE_SIZE,
                     })
                     return res
+                },
+
+                pause: async (batchExport: BatchExportConfiguration) => {
+                    await api.batchExports.pause(batchExport.id)
+                    lemonToast.success('Batch export paused. No future runs will be scheduled')
+
+                    return {
+                        ...batchExport,
+                        paused: false,
+                    }
+                },
+
+                unpause: async (batchExport: BatchExportConfiguration) => {
+                    await api.batchExports.unpause(batchExport.id)
+                    lemonToast.success('Batch export unpaused. Future runs will be scheduled')
+
+                    return {
+                        ...batchExport,
+                        paused: false,
+                    }
                 },
             },
         ],
