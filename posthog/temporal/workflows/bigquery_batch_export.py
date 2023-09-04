@@ -117,8 +117,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         ]
         json_columns = ("properties", "elements", "set", "set_once")
 
-        with bigquery_client(inputs) as client:
-            bigquery_table = create_table_in_bigquery(inputs.table_id, table_schema, client)
+        with bigquery_client(inputs) as bq_client:
+            bigquery_table = create_table_in_bigquery(inputs.table_id, table_schema, bq_client)
 
             with BatchExportTemporaryFile() as bigquery_file:
                 for result in results_iterator:
@@ -139,7 +139,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                         load_file_to_bigquery_table(
                             bigquery_file,
                             bigquery_table,
-                            client,
+                            bq_client,
                         )
                         bigquery_file.reset()
 
@@ -149,7 +149,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                         bigquery_file.records_since_last_reset,
                         bigquery_file.bytes_since_last_reset,
                     )
-                    load_file_to_bigquery_table(bigquery_file, bigquery_table, client)
+                    load_file_to_bigquery_table(bigquery_file, bigquery_table, bq_client)
 
 
 @workflow.defn(name="bigquery-export")
