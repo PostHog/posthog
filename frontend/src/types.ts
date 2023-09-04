@@ -3040,11 +3040,6 @@ export enum NotebookNodeType {
     Image = 'ph-image',
 }
 
-export type NotebookNodeWidgetSettings = {
-    attributes: Record<string, any>
-    updateAttributes: (attributes: Record<string, any>) => void
-}
-
 export enum NotebookTarget {
     Popover = 'popover',
     Auto = 'auto',
@@ -3095,6 +3090,8 @@ export type BatchExportDestinationS3 = {
         prefix: string
         aws_access_key_id: string
         aws_secret_access_key: string
+        exclude_events: string[]
+        compression: string | null
     }
 }
 

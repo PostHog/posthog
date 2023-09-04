@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { BatchExportsEditLogicProps, batchExportsEditLogic } from './batchExportEditLogic'
 import { Field } from 'lib/forms/Field'
@@ -177,6 +178,14 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                                 ]}
                                             />
                                         </Field>
+                                        <Field name="compression" label="Compression" className="flex-1">
+                                            <LemonSelect
+                                                options={[
+                                                    { value: 'gzip', label: 'gzip' },
+                                                    { value: null, label: 'No compression' },
+                                                ]}
+                                            />
+                                        </Field>
                                     </div>
                                     <Field name="prefix" label="Key prefix">
                                         <LemonInput placeholder="e.g. posthog-events/" />
@@ -198,6 +207,15 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             />
                                         </Field>
                                     </div>
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'Snowflake' ? (
                                 <>

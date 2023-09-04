@@ -1294,6 +1294,10 @@
         "InsightVizNode": {
             "additionalProperties": false,
             "properties": {
+                "embedded": {
+                    "description": "Query is embedded inside another bordered component",
+                    "type": "boolean"
+                },
                 "full": {
                     "description": "Show with most visual options enabled. Used in insight scene.",
                     "type": "boolean"
@@ -1305,6 +1309,9 @@
                 "showCorrelationTable": {
                     "type": "boolean"
                 },
+                "showFilters": {
+                    "type": "boolean"
+                },
                 "showHeader": {
                     "type": "boolean"
                 },
@@ -1312,6 +1319,9 @@
                     "type": "boolean"
                 },
                 "showLastComputationRefresh": {
+                    "type": "boolean"
+                },
+                "showResults": {
                     "type": "boolean"
                 },
                 "showTable": {

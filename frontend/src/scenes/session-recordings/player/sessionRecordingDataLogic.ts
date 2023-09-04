@@ -221,6 +221,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             if (snapshots && !snapshots.length && sources?.length === 1) {
                 // We got the snapshot response for realtime, and it was empty, so we fall back to the old API
                 // Until we migrate over we need to fall back to the old API if the new one returns no snapshots
+                posthog.capture('recording_snapshots_v2_empty_response', {
+                    source: sources[0],
+                })
+
                 actions.loadRecordingSnapshotsV1()
                 return
             }
