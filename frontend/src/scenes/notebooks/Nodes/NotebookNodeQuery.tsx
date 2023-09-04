@@ -10,6 +10,8 @@ import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/u
 import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
 
+import './NotebookNodeQuery.scss'
+
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
     source: {
@@ -34,7 +36,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
             modifiedQuery.embedded = true
-        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = false
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false

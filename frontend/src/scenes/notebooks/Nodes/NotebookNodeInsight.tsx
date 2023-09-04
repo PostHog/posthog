@@ -15,7 +15,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeInsightAttributes>):
     if (!expanded) {
         return null
     }
-    return <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id }} />
+    return <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id, showHeader: false }} />
 }
 
 type NotebookNodeInsightAttributes = {
