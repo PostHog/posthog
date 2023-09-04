@@ -144,7 +144,7 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
     """
     plugin = plugin_config.plugin
 
-    if plugin.name == "S3 Export":
+    if plugin.name == "S3 Export Plugin":
         config = {
             "bucket_name": plugin_config.config["s3BucketName"],
             "region": plugin_config.config["awsRegion"],
@@ -169,7 +169,7 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
         export_type = "Snowflake"
     else:
         raise CommandError(
-            f"Unsupported Plugin: '{plugin.name}'.  Supported Plugins are: 'Snowflake Export' and 'S3 Export'"
+            f"Unsupported Plugin: '{plugin.name}'.  Supported Plugins are: 'Snowflake Export' and 'S3 Export Plugin'"
         )
 
     return (export_type, config)

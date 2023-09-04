@@ -48,7 +48,7 @@ def snowflake_plugin(organization) -> typing.Generator[Plugin, None, None]:
 @pytest.fixture
 def s3_plugin(organization) -> typing.Generator[Plugin, None, None]:
     plugin = Plugin.objects.create(
-        name="S3 Export",
+        name="S3 Export Plugin",
         url="https://github.com/PostHog/s3-export-plugin",
         plugin_type="custom",
         organization=organization,
