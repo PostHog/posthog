@@ -198,7 +198,8 @@ function ToolbarInfoMenu(): JSX.Element {
         const fullIsShowing = heatmapInfoVisible || actionsInfoVisible || flagsVisible
 
         if (peekIsShowing && !fullIsShowing) {
-            menuRef.current.style.height = 'auto'
+            // needs to be a fixed value for animation to work
+            menuRef.current.style.height = '40px'
         } else if (fullIsShowing) {
             const heightAvailableForMenu = menuRef.current.getBoundingClientRect().bottom
             menuRef.current.style.height = `${heightAvailableForMenu - 10}px`
