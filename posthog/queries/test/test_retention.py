@@ -43,8 +43,8 @@ def _create_signup_actions(team, user_and_timestamps):
     return sign_up_action
 
 
-def _date(day, hour=5, month=0):
-    return datetime(2020, 6 + month, 10 + day, hour).isoformat()
+def _date(day, hour=5, month=0, minute=0):
+    return datetime(2020, 6 + month, 10 + day, hour, minute).isoformat()
 
 
 def pluck(list_of_dicts, key, child_key=None):
@@ -457,7 +457,7 @@ def retention_test_factory(retention):
                 ],
             )
 
-            filter = RetentionFilter(data={"date_to": _date(0, hour=16), "period": "Hour"})
+            filter = RetentionFilter(data={"date_to": _date(0, hour=16, minute=13), "period": "Hour"})
 
             result = retention().run(filter, self.team, total_intervals=11)
 
