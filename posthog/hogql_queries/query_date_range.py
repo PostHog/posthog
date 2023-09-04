@@ -4,10 +4,9 @@ from typing import Optional
 
 import pytz
 from dateutil.relativedelta import relativedelta
-from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
-from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
+from posthog.queries.util import get_earliest_timestamp
 from posthog.schema import DateRange, IntervalType
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
@@ -35,12 +34,9 @@ class QueryDateRange:
         delta_mapping = None
 
         if self._date_range and self._date_range.date_to:
-            if isinstance(self._date_range.date_to, str):
-                date_to, delta_mapping = relative_date_parse_with_delta_mapping(
-                    self._date_range.date_to, self._team.timezone_info, always_truncate=True
-                )
-            elif isinstance(self._date_range.date_to, datetime):
-                date_to = self._localize_to_team(self._date_range.date_to)
+            date_to, delta_mapping = relative_date_parse_with_delta_mapping(
+                self._date_range.date_to, self._team.timezone_info, always_truncate=True
+            )
 
         is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
         if not self.is_hourly():
@@ -60,8 +56,6 @@ class QueryDateRange:
             date_from = self.get_earliest_timestamp()
         elif self._date_range and isinstance(self._date_range.date_from, str):
             date_from = relative_date_parse(self._date_range.date_from, self._team.timezone_info)
-        elif self._date_range and isinstance(self._date_range.date_from, datetime):
-            date_from = self._localize_to_team(self._date_range.date_from)
         else:
             date_from = self._now.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
                 days=DEFAULT_DATE_FROM_DAYS
@@ -80,16 +74,6 @@ class QueryDateRange:
         return target.astimezone(pytz.timezone(self._team.timezone))
 
     @cached_property
-    def interval_annotation(self) -> str:
-        interval = self._interval
-        if interval is None:
-            interval = "day"
-        ch_function = PERIOD_TO_TRUNC_FUNC.get(interval.lower())
-        if ch_function is None:
-            raise ValidationError(f"Period {interval} is unsupported.")
-        return ch_function
-
-    @cached_property
     def date_to(self) -> str:
         date_to = self.date_to_param
 
@@ -100,16 +84,6 @@ class QueryDateRange:
         date_from = self.date_from_param
 
         return date_from.strftime("%Y-%m-%d %H:%M:%S")
-
-    @cached_property
-    def num_intervals(self) -> int:
-        if self._interval is None:
-            return 1
-        if self._interval == "month":
-            rel_delta = relativedelta(self.date_to_param, self.date_from_param)
-            return (rel_delta.years * 12) + rel_delta.months + 1
-
-        return int(self.delta.total_seconds() / TIME_IN_SECONDS[self._interval]) + 1
 
     def is_hourly(self):
         return self._interval and self._interval.name == "hour"
