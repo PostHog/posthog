@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react'
 import { heatmapLogic } from '../elements/heatmapLogic'
 
 export function HedgehogButton(): JSX.Element {
-    const { hedgehogMode, extensionPercentage } = useValues(toolbarButtonLogic)
+    const { hedgehogMode, extensionPercentage, theme } = useValues(toolbarButtonLogic)
     const { saveDragPosition, setExtensionPercentage, setHedgehogActor } = useActions(toolbarButtonLogic)
 
     const { authenticate } = useActions(toolbarLogic)
@@ -42,6 +42,7 @@ export function HedgehogButton(): JSX.Element {
                             authenticate()
                         }
                     }}
+                    isDarkModeOn={theme === 'dark'}
                     onPositionChange={(actor) => {
                         saveDragPosition(actor.x + SPRITE_SIZE * 0.5, -actor.y - SPRITE_SIZE * 0.5)
                     }}

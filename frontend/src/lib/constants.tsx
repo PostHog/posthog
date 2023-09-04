@@ -144,7 +144,6 @@ export const FEATURE_FLAGS = {
     NOTEBOOKS: 'notebooks', // owner: #team-monitoring
     EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
-    HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-monitoring
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring

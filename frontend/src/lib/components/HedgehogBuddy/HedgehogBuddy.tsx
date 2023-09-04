@@ -17,8 +17,6 @@ import {
     baseSpritePath,
     baseSpriteAccessoriesPath,
 } from './sprites/sprites'
-import { FlaggedFeature } from '../FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 import './HedgehogBuddy.scss'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -390,16 +388,17 @@ export function HedgehogBuddy({
     onClick: _onClick,
     onPositionChange,
     popoverOverlay,
+    isDarkModeOn,
 }: {
     actorRef?: MutableRefObject<HedgehogActor | undefined>
     onClose: () => void
     onClick?: () => void
     onPositionChange?: (actor: HedgehogActor) => void
     popoverOverlay?: React.ReactNode
+    // passed in as this might need to be the app's global dark mode setting or the toolbar's local one
+    isDarkModeOn?: boolean
 }): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
-
-    const { isDarkModeOn } = useValues(themeLogic)
 
     if (!actorRef.current) {
         actorRef.current = new HedgehogActor()
@@ -424,7 +423,7 @@ export function HedgehogBuddy({
     }, [accessories])
 
     useEffect(() => {
-        actor.darkMode = isDarkModeOn
+        actor.darkMode = !!isDarkModeOn
     }, [isDarkModeOn])
 
     useEffect(() => {
@@ -500,23 +499,6 @@ export function HedgehogBuddy({
                             </div>
                         ))}
 
-                        <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG}>
-                            <>
-                                <LemonDivider />
-                                <div className="flex gap-2 my-2 overflow-y-auto">
-                                    {Object.keys(standardAnimations).map((x) => (
-                                        <LemonButton
-                                            key={x}
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => actor.setAnimation(x)}
-                                        >
-                                            {capitalizeFirstLetter(x)}
-                                        </LemonButton>
-                                    ))}
-                                </div>
-                            </>
-                        </FlaggedFeature>
                         <LemonDivider />
                         <div className="flex justify-end gap-2">
                             <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
@@ -538,6 +520,11 @@ export function HedgehogBuddy({
 export function HedgehogBuddyWithLogic(): JSX.Element {
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
-    return hedgehogModeEnabled ? <HedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} /> : <></>
+    return hedgehogModeEnabled ? (
+        <HedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} isDarkModeOn={isDarkModeOn} />
+    ) : (
+        <></>
+    )
 }

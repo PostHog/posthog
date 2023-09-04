@@ -42,6 +42,9 @@ function MoreMenu({
     const { moreMenuVisible, theme } = useValues(toolbarButtonLogic)
     const { setHedgehogMode, closeMoreMenu, openMoreMenu, toggleTheme } = useActions(toolbarButtonLogic)
 
+    // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
+    const currentlyLightMode = !theme || theme === 'light'
+
     const { logout } = useActions(toolbarLogic)
 
     return (
@@ -64,8 +67,8 @@ function MoreMenu({
                     },
                 },
                 {
-                    icon: theme === 'light' ? <IconDarkMode /> : <IconLightMode />,
-                    label: `Switch to ${theme === 'light' ? 'dark' : 'light'} mode`,
+                    icon: currentlyLightMode ? <IconDarkMode /> : <IconLightMode />,
+                    label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
                     onClick: () => {
                         toggleTheme()
                     },
