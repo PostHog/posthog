@@ -4,9 +4,8 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("posthog", "0344_add_new_export_type"),
+        ("posthog", "0346_team_week_start_day"),
     ]
 
     operations = [
