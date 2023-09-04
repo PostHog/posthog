@@ -73,6 +73,8 @@ test_s3_config = {
     "s3BucketName": "test-bucket",
     "awsRegion": "eu-central-1",
     "prefix": "posthog/",
+    "compression": "gzip",
+    "eventsToIgnore": "$feature_flag_called",
 }
 
 
@@ -127,7 +129,11 @@ def test_map_plugin_config_to_destination(plugin_config, config, expected_type):
     assert export_type == expected_type
 
     result_values = list(export_config.values())
-    for value in config.values():
+    for key, value in config.items():
+        if key == "eventsToIgnore":
+            assert value in export_config["exclude_events"]
+            continue
+
         assert value in result_values
 
 
