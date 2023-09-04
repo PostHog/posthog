@@ -53,7 +53,7 @@ def encode_clickhouse_data(data: typing.Any) -> bytes:
 
         case _:
             str_data = str(data)
-            str_data.replace("\\", "\\\\").replace("'", "\\'")
+            str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
             return f"'{str_data}'".encode("utf-8")
 
 

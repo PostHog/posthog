@@ -13,6 +13,8 @@ from posthog.temporal.workflows.clickhouse import encode_clickhouse_data
         ("test-string", b"'test-string'"),
         (("a", 1, ("b", 2)), b"('a',1,('b',2))"),
         (["a", 1, ["b", 2]], b"['a',1,['b',2]]"),
+        (("; DROP TABLE events --",), b"('; DROP TABLE events --')"),
+        (("'a'); DROP TABLE events --",), b"('\\'a\\'); DROP TABLE events --')"),
         (dt.datetime(2023, 7, 14, 0, 0, 0, tzinfo=dt.timezone.utc), b"toDateTime('2023-07-14 00:00:00', 'UTC')"),
         (dt.datetime(2023, 7, 14, 0, 0, 0), b"toDateTime('2023-07-14 00:00:00')"),
         (
