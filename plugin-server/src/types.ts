@@ -273,6 +273,7 @@ export interface PluginServerCapabilities {
     sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
     transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
+    preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
 }

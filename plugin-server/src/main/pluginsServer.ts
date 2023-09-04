@@ -370,7 +370,9 @@ export async function startPluginsServer(
 
             await pubSub.start()
 
-            startPreflightSchedules(hub)
+            if (capabilities.preflightSchedules) {
+                startPreflightSchedules(hub)
+            }
 
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
