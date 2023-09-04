@@ -28,7 +28,7 @@ export const batchExportsListLogic = kea<batchExportsListLogicType>([
         ],
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         batchExportConfigs: [
             null as null | CountedPaginatedResponse<BatchExportConfiguration>,
             {
@@ -46,20 +46,26 @@ export const batchExportsListLogic = kea<batchExportsListLogicType>([
                     await api.batchExports.pause(batchExport.id)
                     lemonToast.success('Batch export paused. No future runs will be scheduled')
 
-                    return {
-                        ...batchExport,
-                        paused: false,
+                    const found = values.batchExportConfigs?.results.find((config) => config.id === batchExport.id)
+
+                    if (found) {
+                        found.paused = true
                     }
+
+                    return values.batchExportConfigs
                 },
 
                 unpause: async (batchExport: BatchExportConfiguration) => {
                     await api.batchExports.unpause(batchExport.id)
                     lemonToast.success('Batch export unpaused. Future runs will be scheduled')
 
-                    return {
-                        ...batchExport,
-                        paused: false,
+                    const found = values.batchExportConfigs?.results.find((config) => config.id === batchExport.id)
+
+                    if (found) {
+                        found.paused = false
                     }
+
+                    return values.batchExportConfigs
                 },
             },
         ],
