@@ -151,6 +151,8 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
             "prefix": plugin_config.config.get("prefix", ""),
             "aws_access_key_id": plugin_config.config["awsAccessKey"],
             "aws_secret_access_key": plugin_config.config["awsSecretAccessKey"],
+            "compression": plugin_config.config["compression"],
+            "exclude_events": plugin_config.config["eventsToIgnore"].split(","),
         }
         export_type = "S3"
     elif plugin.name == "Snowflake Export":
