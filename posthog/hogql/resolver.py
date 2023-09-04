@@ -345,8 +345,7 @@ class Resolver(CloningVisitor):
                 else:
                     raise ResolverException(f"Unknown type for function '{node.name}', parameter {i}")
 
-        return_type = UnknownType()
-
+        return_type = None
         if node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
             signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
             if signatures:
@@ -359,6 +358,10 @@ class Resolver(CloningVisitor):
                     if sig_arg_type_classes == arg_type_classes:
                         return_type = sig_return_type()
                         break
+        if return_type is None:
+            raise ResolverException(
+                f"Can't call function '{node.name}' with arguments of type: {', '.join(arg_type_classes)}"
+            )
 
         if node.name == "concat":
             return_type.nullable = False

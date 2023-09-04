@@ -184,7 +184,23 @@ class SelectQueryAliasType(Type):
 
 
 @dataclass(kw_only=True)
-class IntegerType(ConstantType):
+class NumericType(ConstantType):
+    data_type: ConstantDataType = field(default="numeric", init=False)
+
+    def print_type(self) -> str:
+        return "Numeric"
+
+
+@dataclass(kw_only=True)
+class DecimalType(NumericType):
+    data_type: ConstantDataType = field(default="decimal", init=False)
+
+    def print_type(self) -> str:
+        return "Decimal"
+
+
+@dataclass(kw_only=True)
+class IntegerType(NumericType):
     data_type: ConstantDataType = field(default="int", init=False)
 
     def print_type(self) -> str:
@@ -192,7 +208,7 @@ class IntegerType(ConstantType):
 
 
 @dataclass(kw_only=True)
-class FloatType(ConstantType):
+class FloatType(NumericType):
     data_type: ConstantDataType = field(default="float", init=False)
 
     def print_type(self) -> str:
@@ -242,7 +258,7 @@ class UUIDType(ConstantType):
 @dataclass(kw_only=True)
 class ArrayType(ConstantType):
     data_type: ConstantDataType = field(default="array", init=False)
-    item_type: ConstantType
+    item_type: Optional[ConstantType] = None  # none means any type
 
     def print_type(self) -> str:
         return "Array"
@@ -251,7 +267,8 @@ class ArrayType(ConstantType):
 @dataclass(kw_only=True)
 class TupleType(ConstantType):
     data_type: ConstantDataType = field(default="tuple", init=False)
-    item_types: List[ConstantType]
+    item_types: List[ConstantType]  # [] means any type
+    repeat: bool = False
 
     def print_type(self) -> str:
         return "Tuple"
