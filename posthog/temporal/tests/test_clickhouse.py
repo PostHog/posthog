@@ -10,7 +10,11 @@ from posthog.temporal.workflows.clickhouse import encode_clickhouse_data
     "data,expected",
     [
         (uuid.UUID("c4c5547d-8782-4017-8eca-3ea19f4d528e"), b"'c4c5547d-8782-4017-8eca-3ea19f4d528e'"),
+        ("", b"''"),
+        ("'", b"'\\''"),
+        ("\\", b"'\\\\'"),
         ("test-string", b"'test-string'"),
+        ("a'\\b\\'c", b"'a\\'\\\\b\\\\\\'c'"),
         (("a", 1, ("b", 2)), b"('a',1,('b',2))"),
         (["a", 1, ["b", 2]], b"['a',1,['b',2]]"),
         (("; DROP TABLE events --",), b"('; DROP TABLE events --')"),
