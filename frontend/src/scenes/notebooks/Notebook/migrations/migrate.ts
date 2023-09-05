@@ -2,6 +2,10 @@ import { JSONContent } from '@tiptap/core'
 import { NodeKind } from '~/queries/schema'
 import { NotebookNodeType, NotebookType } from '~/types'
 
+// NOTE: Increment this number when you add a new content migration
+// It will bust the cache on the localContent in the notebookLogic
+// so that the latest content will fall back to the remote content which
+// is filtered through the migrate function below that ensures integrity
 export const NOTEBOOKS_VERSION = '1'
 
 export function migrate(notebook: NotebookType): NotebookType {
