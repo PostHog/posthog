@@ -51,6 +51,8 @@ botocore==1.29.66
     #   s3transfer
 botocore-stubs==1.29.130
     # via boto3-stubs
+brotli==1.0.9
+    # via -r requirements.in
 celery==4.4.7
     # via
     #   -r requirements.in

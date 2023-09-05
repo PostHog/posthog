@@ -51,13 +51,14 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
     }
 
     const showIfFull = !!query.full
-    const disableHeader = query.showHeader ? !query.showHeader : !showIfFull
-    const disableTable = query.showTable ? !query.showTable : !showIfFull
-    const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
-    const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
-    const disableLastComputationRefresh = query.showLastComputationRefresh
-        ? !query.showLastComputationRefresh
-        : !showIfFull
+    const disableHeader = !(query.showHeader ?? showIfFull)
+    const disableTable = !(query.showTable ?? showIfFull)
+    const disableCorrelationTable = !(query.showCorrelationTable ?? showIfFull)
+    const disableLastComputation = !(query.showLastComputation ?? showIfFull)
+    const disableLastComputationRefresh = !(query.showLastComputationRefresh ?? showIfFull)
+    const showingFilters = query.showFilters ?? insightMode === ItemMode.Edit
+    const showingResults = query.showResults ?? true
+    const embedded = query.embedded ?? false
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -71,21 +72,25 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
                         <EditorFilters
                             query={query.source}
                             setQuery={setQuerySource}
-                            showing={insightMode === ItemMode.Edit}
+                            showing={showingFilters}
+                            embedded={embedded}
                         />
                     )}
 
-                    <div className="insights-container" data-attr="insight-view">
-                        <InsightContainer
-                            insightMode={insightMode}
-                            context={context}
-                            disableHeader={disableHeader}
-                            disableTable={disableTable}
-                            disableCorrelationTable={disableCorrelationTable}
-                            disableLastComputation={disableLastComputation}
-                            disableLastComputationRefresh={disableLastComputationRefresh}
-                        />
-                    </div>
+                    {showingResults && (
+                        <div className="insights-container" data-attr="insight-view">
+                            <InsightContainer
+                                insightMode={insightMode}
+                                context={context}
+                                disableHeader={disableHeader}
+                                disableTable={disableTable}
+                                disableCorrelationTable={disableCorrelationTable}
+                                disableLastComputation={disableLastComputation}
+                                disableLastComputationRefresh={disableLastComputationRefresh}
+                                embedded={embedded}
+                            />
+                        </div>
+                    )}
                 </div>
             </BindLogic>
         </BindLogic>
