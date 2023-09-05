@@ -397,7 +397,7 @@ function SurveyMultipleChoiceAppearance({
 function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceType }): JSX.Element {
     return (
         <div className="thank-you-message">
-            <div className="thank-you-message-container">
+            <div className="thank-you-message-container" style={{ backgroundColor: appearance.backgroundColor }}>
                 <h3 className="thank-you-message-header" style={{ color: appearance.textColor }}>
                     {appearance.thankYouMessageHeader || 'Thank you!'}{' '}
                 </h3>
