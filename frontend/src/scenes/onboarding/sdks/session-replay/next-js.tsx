@@ -2,14 +2,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-
-function NextInstallSnippet(): JSX.Element {
-    return (
-        <CodeSnippet language={Language.Bash}>
-            {['npm install posthog-js', '# OR', 'yarn add posthog-js', '# OR', 'pnpm add posthog-js'].join('\n')}
-        </CodeSnippet>
-    )
-}
+import { JSInstallSnippet, SessionReplayFinalSteps } from '../shared-snippets'
 
 function NextEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -68,9 +61,9 @@ if (typeof window !== 'undefined') {
 export function NextJSInstructions(): JSX.Element {
     return (
         <>
-            <h3>Install posthog-js using your package manager:</h3>
-            <NextInstallSnippet />
-            <h3>Add enviornment variables:</h3>
+            <h3>Install posthog-js using your package manager</h3>
+            <JSInstallSnippet />
+            <h3>Add enviornment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
                 Netlify, AWS). You can find your project API key in your project settings.
@@ -81,7 +74,7 @@ export function NextJSInstructions(): JSX.Element {
             </p>
             <NextEnvVarsSnippet />
 
-            <h3>Init PostHog:</h3>
+            <h3>Initialize</h3>
             <h4>With Pages router</h4>
             <p>
                 If your Next.js app uses the <Link to={'https://nextjs.org/docs/pages'}>pages router</Link>, you can
@@ -100,7 +93,7 @@ export function NextJSInstructions(): JSX.Element {
                 .
             </p>
             <NextAppRouterCodeSnippet />
-            <p>You'll start recording sessions automatically.</p>
+            <SessionReplayFinalSteps />
         </>
     )
 }
