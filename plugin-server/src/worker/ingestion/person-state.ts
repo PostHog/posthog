@@ -29,7 +29,6 @@ const BASE_ILLEGAL_IDS = [
     '',
     '[object Object]'.toLowerCase(),
     'NaN'.toLowerCase(),
-    'None',
     'none',
     'null',
     '0',
