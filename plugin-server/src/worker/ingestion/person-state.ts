@@ -45,7 +45,9 @@ const CASE_SENSITIVE_ILLEGAL_IDS = new Set([
     'null',
     '"null"',
     '0',
+    '"0"',
     'undefined',
+    '"undefined"',
 ])
 
 const isDistinctIdIllegal = (id: string): boolean => {
