@@ -363,6 +363,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         1. From S3 if the session is older than our ingestion limit. This will be multiple files that can be streamed to the client
         2. From Redis if the session is newer than our ingestion limit.
         3. From Clickhouse whilst we are migrating to the new ingestion method
+
+        NB calling this API without `version=2` in the query params or with no version is deprecated and will be removed in the future
         """
 
         if request.GET.get("version") == "2":
