@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import type { surveysLogicType } from './surveysLogicType'
 import { lemonToast } from '@posthog/lemon-ui'
 import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -40,6 +41,7 @@ export const surveysLogic = kea<surveysLogicType>([
     listeners(() => ({
         deleteSurveySuccess: () => {
             lemonToast.success('Survey deleted')
+            router.actions.push(urls.surveys())
         },
         updateSurveySuccess: () => {
             lemonToast.success('Survey updated')
