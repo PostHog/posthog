@@ -224,7 +224,7 @@ function ToolbarInfoMenu(): JSX.Element {
         <div
             ref={menuRef}
             className={
-                'absolute bottom Toolbar3000 justify-between Toolbar3000__menu w-auto mx-2 rounded-t flex flex-col items-center'
+                'absolute bottom Toolbar3000 justify-between Toolbar3000__menu w-auto rounded-lg flex flex-col items-center'
             }
         >
             <FullMenu />

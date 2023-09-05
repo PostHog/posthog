@@ -178,8 +178,9 @@
 
     &.Toolbar3000__menu {
         transition: height 0.5s ease;
-        bottom: 100%;
-        width: 94%;
+        bottom: 115%;
+        width: 100%;
+        max-height: 45vh;
     }
 
     .ActionsBlockBody {
