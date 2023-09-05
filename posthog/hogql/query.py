@@ -87,7 +87,7 @@ def execute_hogql_query(
             )
 
         timings_dict = timings.to_dict()
-        with timings.measure("sync_execute"):
+        with timings.measure("clickhouse_execute"):
             tag_queries(
                 team_id=team.pk,
                 query_type=query_type,

@@ -294,6 +294,8 @@ export interface DataTableNode extends Node {
     showReload?: boolean
     /** Show the time it takes to run a query */
     showElapsedTime?: boolean
+    /** Show a detailed query timing breakdown */
+    showTimings?: boolean
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
     /** Show a button to configure and persist the table's default columns if possible */

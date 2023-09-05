@@ -177,7 +177,7 @@ def run_events_query(
 
     # Convert star field from tuple to dict in each result
     if "*" in select_input_raw:
-        with timings.measure("star"):
+        with timings.measure("expand_asterisk"):
             star_idx = select_input_raw.index("*")
             for index, result in enumerate(query_result.results):
                 query_result.results[index] = list(result)
@@ -191,7 +191,7 @@ def run_events_query(
                 query_result.results[index][star_idx] = new_result
 
     if len(person_indices) > 0 and len(query_result.results) > 0:
-        with timings.measure("person"):
+        with timings.measure("person_column_extra_query"):
             # Make a query into postgres to fetch person
             person_idx = person_indices[0]
             distinct_ids = list(set(event[person_idx] for event in query_result.results))

@@ -136,6 +136,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
+    QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-monitoring
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-monitoring
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes

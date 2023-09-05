@@ -24,7 +24,7 @@ function ElapsedTimeFinished({
                     key={key}
                     className={clsx(
                         'flex justify-between items-start space-x-2',
-                        time > timings['.'] * 0.5 ? 'font-bold' : ''
+                        time > timings[timings.length - 1].t * 0.5 ? 'font-bold' : ''
                     )}
                 >
                     <div>{key}</div>
@@ -50,7 +50,7 @@ function ElapsedTimeFinished({
     )
 }
 
-export function ElapsedTime(): JSX.Element | null {
+export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Element | null {
     const { elapsedTime, loadingStart, responseError, isShowingCachedResults, timings } = useValues(dataNodeLogic)
     const [, setTick] = useState(0)
 
@@ -72,7 +72,7 @@ export function ElapsedTime(): JSX.Element | null {
 
     const formattedTime = `${(time / 1000).toFixed(time < 1000 ? 2 : 1)}s`
 
-    if (elapsedTime && timings) {
+    if (elapsedTime && timings && showTimings) {
         return <ElapsedTimeFinished formattedTime={formattedTime} timings={timings} hasError={!!responseError} />
     }
 
