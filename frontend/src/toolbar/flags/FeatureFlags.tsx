@@ -30,21 +30,21 @@ export function FeatureFlags(): JSX.Element {
     return (
         <div
             className={clsx(
-                'toolbar-block ToolbarBlock justify-between w-full overflow-hidden rounded-t',
+                'toolbar-block ToolbarBlock justify-between w-full overflow-hidden rounded-t flex flex-col',
                 hedgehogMode && 'px-2 py-1'
             )}
         >
-            <>
-                {hedgehogMode && <OverrideNotice />}
-                <LemonInput
-                    autoFocus
-                    placeholder="Search"
-                    fullWidth
-                    type={'search'}
-                    value={searchTerm}
-                    className={clsx('feature-flag-row', !hedgehogMode && 'rounded-b-0')}
-                    onChange={(s) => setSearchTerm(s)}
-                />
+            {hedgehogMode && <OverrideNotice />}
+            <LemonInput
+                autoFocus
+                placeholder="Search"
+                fullWidth
+                type={'search'}
+                value={searchTerm}
+                className={clsx('feature-flag-row', !hedgehogMode && 'rounded-b-0')}
+                onChange={(s) => setSearchTerm(s)}
+            />
+            <div className={'flex-grow flex-1'}>
                 <div className={'flex flex-col w-full h-full overflow-y-scroll'}>
                     {filteredFlags.length > 0 ? (
                         filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
@@ -125,7 +125,7 @@ export function FeatureFlags(): JSX.Element {
                         </div>
                     )}
                 </div>
-            </>
+            </div>
             {!hedgehogMode && <OverrideNotice />}
         </div>
     )

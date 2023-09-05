@@ -37,6 +37,10 @@
         cursor: default;
     }
 
+    &.LemonButton--square {
+        border-radius: 0;
+    }
+
     &.LemonButton--full-width {
         width: 100%;
         padding-left: 0.5rem;

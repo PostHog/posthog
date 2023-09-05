@@ -90,6 +90,7 @@ function MoreMenu({
                 onClick={(e) => {
                     onOpenOrClose(e, moreMenuVisible ? closeMoreMenu : openMoreMenu)
                 }}
+                square={true}
             />
         </LemonMenu>
     )
@@ -278,6 +279,7 @@ export function Toolbar3000(): JSX.Element {
                             status={'stealth'}
                             onClick={(e) => swallowClick(e, inspectEnabled ? disableInspect : enableInspect)}
                             active={inspectEnabled}
+                            square={true}
                         />
                         <LemonButton
                             title={'Heatmap'}
@@ -285,6 +287,7 @@ export function Toolbar3000(): JSX.Element {
                             status={'stealth'}
                             onClick={(e) => swallowClick(e, heatmapEnabled ? disableHeatmap : enableHeatmap)}
                             active={heatmapEnabled}
+                            square={true}
                         />
                         <LemonButton
                             title={'Actions'}
@@ -294,6 +297,7 @@ export function Toolbar3000(): JSX.Element {
                                 swallowClick(e, buttonActionsVisible ? hideButtonActions : showButtonActions)
                             }
                             active={buttonActionsVisible}
+                            square={true}
                         />
                         <LemonButton
                             title={'Feature flags'}
@@ -301,6 +305,7 @@ export function Toolbar3000(): JSX.Element {
                             status={'stealth'}
                             onClick={(e) => swallowClick(e, flagsVisible ? hideFlags : showFlags)}
                             active={flagsVisible}
+                            square={true}
                         />
                         <MoreMenu onOpenOrClose={swallowClick} />
                         <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
