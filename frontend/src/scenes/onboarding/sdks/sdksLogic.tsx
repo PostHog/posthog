@@ -39,7 +39,7 @@ export const sdksLogic = kea<sdksLogicType>({
         setSelectedSDK: (sdk: SDK | null) => ({ sdk }),
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
         resetSDKs: true,
-        setAvailableSDKInstructionsMap: (sdkInstructionMap: Record<string, JSX.Element>) => ({ sdkInstructionMap }),
+        setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
     },
 
     reducers: {
