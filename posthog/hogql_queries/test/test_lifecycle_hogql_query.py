@@ -74,7 +74,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             interval=interval,
             now=datetime.strptime("2020-01-30T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ"),
         )
-        (time_filter, _, _) = create_time_filter(date_range, interval="day")
+        time_filter = create_time_filter(date_range)
 
         # TODO probably doesn't make sense to test like this
         #  maybe this query should be what is returned by the function

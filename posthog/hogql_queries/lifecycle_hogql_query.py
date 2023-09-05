@@ -5,29 +5,29 @@ from django.utils.timezone import datetime
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import Team
 from posthog.hogql_queries.query_date_range import QueryDateRange
+from posthog.models import Team
 from posthog.schema import LifecycleQuery
 
 
-def create_time_filter(date_range: QueryDateRange, interval: str) -> (ast.Expr, ast.Expr, ast.Expr):
+def create_time_filter(date_range: QueryDateRange) -> ast.Expr:
     # don't need timezone here, as HogQL will use the project timezone automatically
-    date_from_s = f"assumeNotNull(toDateTime('{date_range.date_from}'))"
-    date_from = parse_expr(date_from_s)
-    date_to_s = f"assumeNotNull(toDateTime('{date_range.date_to}'))"
-    date_to = parse_expr(date_to_s)
-
     # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
-    # TODO use placeholders, for some reason I couldn't get this to work properly
     time_filter = parse_expr(
-        f"""
-    (timestamp >= dateTrunc('{interval}', {date_from_s}) - INTERVAL 1 {interval})
+        """
+    (timestamp >= dateTrunc({interval}, {date_from}) - {one_interval_period})
     AND
-    (timestamp < dateTrunc('{interval}', {date_to_s}) + INTERVAL 1 {interval})
-    """
+    (timestamp < dateTrunc({interval}, {date_to}) + {one_interval_period})
+    """,
+        placeholders={
+            "date_from": date_range.date_from_as_hogql,
+            "date_to": date_range.date_to_as_hogql,
+            "one_interval_period": date_range.one_interval_period_as_hogql,
+            "interval": date_range.interval_period_string_as_hogql,
+        },
     )
 
-    return time_filter, date_from, date_to
+    return time_filter
 
 
 def create_events_query(interval: str, event_filter: ast.Expr):
@@ -73,18 +73,13 @@ def run_lifecycle_query(
 ) -> Dict[str, Any]:
     now_dt = datetime.now()
 
-    try:
-        interval = query.interval.name
-    except AttributeError:
-        interval = "day"
-    if interval not in ["minute", "hour", "day", "week", "month", "quarter", "year"]:
-        raise ValueError(f"Invalid interval: {interval}")
+    query_date_range = QueryDateRange(date_range=query.dateRange, team=team, interval=query.interval, now=now_dt)
+
+    interval = query_date_range.interval.name
     one_interval_period = parse_expr(f"toInterval{interval.capitalize()}(1)")
     number_interval_period = parse_expr(f"toInterval{interval.capitalize()}(number)")
 
-    query_date_range = QueryDateRange(date_range=query.dateRange, team=team, interval=query.interval, now=now_dt)
-
-    time_filter, date_from, date_to = create_time_filter(query_date_range, interval=interval)
+    time_filter = create_time_filter(query_date_range)
     event_filter = time_filter  # TODO: add all other filters
 
     placeholders = {
@@ -92,8 +87,8 @@ def run_lifecycle_query(
         "one_interval_period": one_interval_period,
         "number_interval_period": number_interval_period,
         "event_filter": event_filter,
-        "date_from": date_from,
-        "date_to": date_to,
+        "date_from": query_date_range.date_from_as_hogql,
+        "date_to": query_date_range.date_to_as_hogql,
     }
 
     events_query = create_events_query(interval=interval, event_filter=event_filter)

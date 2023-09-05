@@ -5,6 +5,7 @@ from typing import Optional
 import pytz
 from dateutil.relativedelta import relativedelta
 
+from posthog.hogql.parser import parse_expr, ast
 from posthog.models.team import Team
 from posthog.queries.util import get_earliest_timestamp
 from posthog.schema import DateRange, IntervalType
@@ -18,7 +19,7 @@ class QueryDateRange:
     _team: Team
     _date_range: Optional[DateRange]
     _interval: Optional[IntervalType]
-    _now_nontz: datetime
+    _now_non_timezone: datetime
 
     def __init__(
         self, date_range: Optional[DateRange], team: Team, interval: Optional[IntervalType], now: datetime
@@ -26,7 +27,7 @@ class QueryDateRange:
         self._team = team
         self._date_range = date_range
         self._interval = interval
-        self._now_nontz = now
+        self._now_non_timezone = now
 
     @cached_property
     def date_to_param(self) -> datetime:
@@ -68,7 +69,7 @@ class QueryDateRange:
 
     @cached_property
     def _now(self):
-        return self._localize_to_team(self._now_nontz)
+        return self._localize_to_team(self._now_non_timezone)
 
     def _localize_to_team(self, target: datetime):
         return target.astimezone(pytz.timezone(self._team.timezone))
@@ -86,4 +87,28 @@ class QueryDateRange:
         return date_from.strftime("%Y-%m-%d %H:%M:%S")
 
     def is_hourly(self):
-        return self._interval and self._interval.name == "hour"
+        return self.interval.name == "hour"
+
+    @cached_property
+    def date_to_as_hogql(self):
+        return parse_expr(f"assumeNotNull(toDateTime('{self.date_to}'))")
+
+    @cached_property
+    def date_from_as_hogql(self):
+        return parse_expr(f"assumeNotNull(toDateTime('{self.date_from}'))")
+
+    @cached_property
+    def interval(self):
+        return self._interval or IntervalType.day
+
+    @cached_property
+    def one_interval_period_as_hogql(self):
+        return parse_expr(f"toInterval{self.interval.capitalize()}(1)")
+
+    @cached_property
+    def interval_period_string(self):
+        return self.interval.value
+
+    @cached_property
+    def interval_period_string_as_hogql(self):
+        return ast.Constant(value=self.interval.value)
