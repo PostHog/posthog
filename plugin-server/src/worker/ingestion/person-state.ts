@@ -17,9 +17,23 @@ import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
+
+export const mergeFinalFailuresCounter = new Counter({
+    name: 'person_merge_final_failure_total',
+    help: 'Number of person merge final failures.',
+})
+
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
-const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
+const BASE_ILLEGAL_IDS = [
+    '',
+    '[object Object]'.toLowerCase(),
+    'NaN'.toLowerCase(),
+    'None',
+    'none',
+    'null',
+    '0',
+    'undefined',
     'anonymous',
     'guest',
     'distinctid',
@@ -30,28 +44,17 @@ const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
     'undefined',
     'true',
     'false',
-])
+]
+// we have seen illegal ids received but wrapped in double quotes
+// to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
+const SINGLE_QUOTED_ILLEGAL_IDS = BASE_ILLEGAL_IDS.map((id) => `'${id}'`)
+const DOUBLE_QUOTED_ILLEGAL_IDS = BASE_ILLEGAL_IDS.map((id) => `"${id}"`)
 
-export const mergeFinalFailuresCounter = new Counter({
-    name: 'person_merge_final_failure_total',
-    help: 'Number of person merge final failures.',
-})
-
-const CASE_SENSITIVE_ILLEGAL_IDS = new Set([
-    '[object Object]',
-    'NaN',
-    'None',
-    'none',
-    'null',
-    '"null"',
-    '0',
-    '"0"',
-    'undefined',
-    '"undefined"',
-])
+export const ILLEGAL_IDS = new Set(BASE_ILLEGAL_IDS.concat(SINGLE_QUOTED_ILLEGAL_IDS).concat(DOUBLE_QUOTED_ILLEGAL_IDS))
 
 const isDistinctIdIllegal = (id: string): boolean => {
-    return id.trim() === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
+    const trimmed = id.trim()
+    return trimmed === '' || ILLEGAL_IDS.has(trimmed.toLowerCase())
 }
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
@@ -256,7 +259,7 @@ export class PersonState {
                     this.teamId,
                     this.timestamp
                 )
-            } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
+            } else if (this.event.event === '$identify' && '$anon_distinct_id' in this.eventProperties) {
                 return await this.merge(
                     String(this.eventProperties['$anon_distinct_id']),
                     this.distinctId,
