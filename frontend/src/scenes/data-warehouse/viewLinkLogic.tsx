@@ -18,6 +18,11 @@ const NEW_VIEW_LINK: DataWarehouseViewLink = {
     from_join_key: undefined,
 }
 
+export interface KeySelectOption {
+    value: string
+    label: JSX.Element
+}
+
 export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
     connect({
@@ -145,7 +150,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         ],
         toJoinKeyOptions: [
             (s) => [s.selectedView],
-            (selectedView: DataWarehouseSceneRow | null) => {
+            (selectedView: DataWarehouseSceneRow | null): KeySelectOption[] => {
                 if (!selectedView) {
                     return []
                 }
@@ -169,7 +174,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         ],
         fromJoinKeyOptions: [
             (s) => [s.selectedTable],
-            (selectedTable: DataWarehouseSceneRow | null) => {
+            (selectedTable: DataWarehouseSceneRow | null): KeySelectOption[] => {
                 if (!selectedTable) {
                     return []
                 }
