@@ -76,7 +76,8 @@ export function NextJSInstructions(): JSX.Element {
                 Netlify, AWS). You can find your project API key in your project settings.
             </p>
             <p className="italic">
-                These values need to start with `NEXT_PUBLIC_` to be accessible on the client-side.
+                These values need to start with <code className="not-italic">NEXT_PUBLIC_</code> to be accessible on the
+                client-side.
             </p>
             <NextEnvVarsSnippet />
 
@@ -94,7 +95,7 @@ export function NextJSInstructions(): JSX.Element {
                 integrate PostHog by creating a providers file in your app folder. This is because the posthog-js
                 library needs to be initialized on the client-side using the Next.js{' '}
                 <Link to="https://nextjs.org/docs/getting-started/react-essentials#client-components">
-                    `'use client'`` directive
+                    <code>'use client'</code> directive
                 </Link>
                 .
             </p>
