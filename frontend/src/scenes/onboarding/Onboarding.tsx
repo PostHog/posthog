@@ -9,6 +9,7 @@ import { SDKs } from './sdks/SDKs'
 import { OnboardingProductIntro } from './OnboardingProductIntro'
 import { OnboardingStep } from './OnboardingStep'
 import { ProductKey } from '~/types'
+import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -49,7 +50,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <SDKs usersAction="collecting events" />
+            <SDKs usersAction="collecting events" sdkInstructionMap={ProductAnalyticsSDKInstructions} />
             <OnboardingStep title="my onboarding step" subtitle="my onboarding subtitle">
                 <div>my onboarding content</div>
             </OnboardingStep>
@@ -57,18 +58,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
-    return (
-        <OnboardingWrapper>
-            <SDKs usersAction="recording sessions" />
-        </OnboardingWrapper>
-    )
+    return <OnboardingWrapper>{/* <SDKs usersAction="recording sessions" /> */}</OnboardingWrapper>
 }
 const FeatureFlagsOnboarding = (): JSX.Element => {
-    return (
-        <OnboardingWrapper>
-            <SDKs usersAction="loading flags" />
-        </OnboardingWrapper>
-    )
+    return <OnboardingWrapper>{/* <SDKs usersAction="loading flags" /> */}</OnboardingWrapper>
 }
 
 export function Onboarding(): JSX.Element | null {

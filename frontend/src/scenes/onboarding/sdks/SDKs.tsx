@@ -4,11 +4,23 @@ import { useActions, useValues } from 'kea'
 import { OnboardingStep } from '../OnboardingStep'
 import { SDKSnippet } from './SDKSnippet'
 import { onboardingLogic } from '../onboardingLogic'
+import { useEffect } from 'react'
+import React from 'react'
 
-export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
-    const { setSourceFilter, setSelectedSDK } = useActions(sdksLogic)
+export function SDKs({
+    usersAction,
+    sdkInstructionMap,
+}: {
+    usersAction?: string
+    sdkInstructionMap: Record<string, () => JSX.Element>
+}): JSX.Element {
+    const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap } = useActions(sdksLogic)
     const { sourceFilter, sdks, selectedSDK, sourceOptions } = useValues(sdksLogic)
     const { productKey } = useValues(onboardingLogic)
+
+    useEffect(() => {
+        setAvailableSDKInstructionsMap(sdkInstructionMap)
+    }, [])
 
     return (
         <OnboardingStep
@@ -29,7 +41,7 @@ export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
                         />
                     )}
                     {sdks?.map((sdk) => (
-                        <>
+                        <React.Fragment key={`sdk-${sdk.key}`}>
                             {selectedSDK?.key == sdk.key ? (
                                 <LemonButton
                                     type="secondary"
@@ -65,12 +77,12 @@ export function SDKs({ usersAction }: { usersAction?: string }): JSX.Element {
                                     {sdk.name}
                                 </LemonButton>
                             )}
-                        </>
+                        </React.Fragment>
                     ))}
                 </div>
                 {selectedSDK && productKey && (
                     <div className="shrink min-w-8">
-                        <SDKSnippet sdk={selectedSDK} productKey={productKey} />
+                        <SDKSnippet sdk={selectedSDK} sdkInstructionMap={sdkInstructionMap} />
                     </div>
                 )}
             </div>

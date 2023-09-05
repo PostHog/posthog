@@ -3208,3 +3208,5 @@ export enum SDKTag {
     RECOMMENDED = 'Recommended',
     OTHER = 'Other',
 }
+
+export type SDKInstructionsMap = Partial<Record<SDKKey, JSX.Element>>
