@@ -96,8 +96,13 @@ class BigQueryBatchExportInputs:
 
     batch_export_id: str
     team_id: int
+    project_id: str
+    dataset_id: str
+    private_key: str
+    private_key_id: str
+    token_uri: str
+    client_email: str
     interval: str = "hour"
-    dataset_id: str = "public"
     table_id: str = "events"
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
