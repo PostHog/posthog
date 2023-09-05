@@ -808,6 +808,12 @@
                     },
                     "type": "array"
                 },
+                "timings": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
                 "types": {
                     "items": {
                         "type": "string"
@@ -1233,6 +1239,12 @@
                 "results": {
                     "items": {},
                     "type": "array"
+                },
+                "timings": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
                 },
                 "types": {
                     "items": {},

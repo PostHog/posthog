@@ -123,6 +123,7 @@ export interface HogQLQueryResponse {
     results?: any[]
     types?: any[]
     columns?: any[]
+    timings?: Record<string, number>
 }
 
 export interface HogQLQuery extends DataNode {
@@ -192,6 +193,7 @@ export interface EventsQueryResponse {
     types: string[]
     results: any[][]
     hasMore?: boolean
+    timings?: Record<string, number>
 }
 export interface EventsQueryPersonColumn {
     uuid: string

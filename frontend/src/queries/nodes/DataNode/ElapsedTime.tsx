@@ -1,9 +1,58 @@
 import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { useState } from 'react'
+import { Popover } from 'lib/lemon-ui/Popover'
+import clsx from 'clsx'
+
+function ElapsedTimeFinished({
+    formattedTime,
+    hasError,
+    timings,
+}: {
+    formattedTime: string
+    hasError: boolean
+    timings: Record<string, number>
+}): JSX.Element | null {
+    const [popoverVisible, setPopoverVisible] = useState(false)
+
+    const overlay = (
+        <div className="space-y-2 p-2">
+            <div className="font-bold">Timings</div>
+            {Object.keys(timings)
+                .sort()
+                .map((key) => (
+                    <div
+                        key={key}
+                        className={clsx(
+                            'flex justify-between items-start space-x-2',
+                            timings[key] > timings['.'] * 0.5 ? 'font-bold' : ''
+                        )}
+                    >
+                        <div>{key}</div>
+                        <div>{timings[key].toFixed(3)}s</div>
+                    </div>
+                ))}
+        </div>
+    )
+    return (
+        <Popover
+            onClickOutside={() => setPopoverVisible(false)}
+            visible={popoverVisible}
+            placement="bottom"
+            overlay={overlay}
+        >
+            <div
+                onClick={() => setPopoverVisible((visible) => !visible)}
+                className={clsx(hasError ? 'text-danger' : '', 'cursor-help')}
+            >
+                {formattedTime}
+            </div>
+        </Popover>
+    )
+}
 
 export function ElapsedTime(): JSX.Element | null {
-    const { elapsedTime, loadingStart, responseError, isShowingCachedResults } = useValues(dataNodeLogic)
+    const { elapsedTime, loadingStart, responseError, isShowingCachedResults, timings } = useValues(dataNodeLogic)
     const [, setTick] = useState(0)
 
     let time = elapsedTime
@@ -22,5 +71,11 @@ export function ElapsedTime(): JSX.Element | null {
         return null
     }
 
-    return <div className={responseError ? 'text-danger' : ''}>{`${(time / 1000).toFixed(time < 1000 ? 2 : 1)}s`}</div>
+    const formattedTime = `${(time / 1000).toFixed(time < 1000 ? 2 : 1)}s`
+
+    if (elapsedTime && timings) {
+        return <ElapsedTimeFinished formattedTime={formattedTime} timings={timings} hasError={!!responseError} />
+    }
+
+    return <div className={responseError ? 'text-danger' : ''}>{formattedTime}</div>
 }

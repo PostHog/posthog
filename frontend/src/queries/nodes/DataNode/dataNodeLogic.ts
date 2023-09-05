@@ -429,6 +429,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return disabledReason
             },
         ],
+        timings: [
+            (s) => [s.response],
+            (response): Record<string, number> | null => {
+                return response && 'timings' in response ? response.timings : null
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         abortAnyRunningQuery: () => {

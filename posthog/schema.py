@@ -185,6 +185,7 @@ class EventsQueryResponse(BaseModel):
     columns: List
     hasMore: Optional[bool] = None
     results: List[List]
+    timings: Optional[Dict[str, float]] = None
     types: List[str]
 
 
@@ -262,6 +263,7 @@ class HogQLQueryResponse(BaseModel):
     hogql: Optional[str] = None
     query: Optional[str] = None
     results: Optional[List] = None
+    timings: Optional[Dict[str, float]] = None
     types: Optional[List] = None
 
 
