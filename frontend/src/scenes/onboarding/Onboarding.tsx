@@ -10,6 +10,7 @@ import { OnboardingProductIntro } from './OnboardingProductIntro'
 import { OnboardingStep } from './OnboardingStep'
 import { ProductKey } from '~/types'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -58,7 +59,11 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
-    return <OnboardingWrapper>{/* <SDKs usersAction="recording sessions" /> */}</OnboardingWrapper>
+    return (
+        <OnboardingWrapper>
+            <SDKs usersAction="recording sessions" sdkInstructionMap={SessionReplaySDKInstructions} />
+        </OnboardingWrapper>
+    )
 }
 const FeatureFlagsOnboarding = (): JSX.Element => {
     return <OnboardingWrapper>{/* <SDKs usersAction="loading flags" /> */}</OnboardingWrapper>
