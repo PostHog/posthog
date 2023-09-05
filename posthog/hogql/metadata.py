@@ -40,7 +40,12 @@ def get_hogql_metadata(
             saved_query_visitor.visit(select_ast)
 
             # prevent nested views until optimized query building is implemented
-            response.isValidView = _is_valid_view and not saved_query_visitor.has_saved_query
+            if _is_valid_view:
+                if saved_query_visitor.has_saved_query:
+                    raise HogQLException("Nested views are not supported")
+
+                response.isValidView = _is_valid_view
+
             print_ast(node=select_ast, context=context, dialect="clickhouse", stack=None, settings=None)
         else:
             raise ValueError("Either expr or select must be provided")
