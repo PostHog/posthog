@@ -227,5 +227,5 @@ def run_events_query(
         columns=select_input_raw,
         types=[type for _, type in query_result.types],
         hasMore=received_extra_row,
-        timings=timings.to_dict(),
+        timings=timings.to_list(),
     )

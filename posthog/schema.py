@@ -178,17 +178,6 @@ class Response(BaseModel):
     results: List[EventType]
 
 
-class EventsQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    columns: List
-    hasMore: Optional[bool] = None
-    results: List[List]
-    timings: Optional[Dict[str, float]] = None
-    types: List[str]
-
-
 class FilterLogicalOperator(str, Enum):
     AND = "AND"
     OR = "OR"
@@ -252,19 +241,6 @@ class HogQLNotice(BaseModel):
     fix: Optional[str] = None
     message: str
     start: Optional[float] = None
-
-
-class HogQLQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    clickhouse: Optional[str] = None
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    query: Optional[str] = None
-    results: Optional[List] = None
-    timings: Optional[Dict[str, float]] = None
-    types: Optional[List] = None
 
 
 class IntervalType(str, Enum):
@@ -351,6 +327,14 @@ class PropertyOperator(str, Enum):
     not_between = "not_between"
     min = "min"
     max = "max"
+
+
+class QueryTiming(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    k: str = Field(..., description="Key. Shortened to 'k' to save on data.")
+    t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
 
 
 class RecordingDurationFilter(BaseModel):
@@ -494,6 +478,17 @@ class EventPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
+class EventsQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    columns: List
+    hasMore: Optional[bool] = None
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
 class FeaturePropertyFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -568,13 +563,17 @@ class HogQLPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class HogQLQuery(BaseModel):
+class HogQLQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    kind: str = Field("HogQLQuery", const=True)
-    query: str
-    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
+    clickhouse: Optional[str] = None
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    query: Optional[str] = None
+    results: Optional[List] = None
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
 
 
 class LifecycleFilter(BaseModel):
@@ -742,6 +741,15 @@ class HogQLMetadata(BaseModel):
     kind: str = Field("HogQLMetadata", const=True)
     response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
     select: Optional[str] = None
+
+
+class HogQLQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("HogQLQuery", const=True)
+    query: str
+    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
 
 
 class PersonsNode(BaseModel):

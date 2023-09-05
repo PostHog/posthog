@@ -91,8 +91,9 @@ def print_prepared_ast(
     stack: Optional[List[ast.SelectQuery]] = None,
     settings: Optional[HogQLSettings] = None,
 ) -> str:
-    # _Printer also adds a team_id guard if printing clickhouse
-    return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
+    with context.timings.measure("printer"):
+        # _Printer also adds a team_id guard if printing clickhouse
+        return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
 
 
 @dataclass

@@ -123,7 +123,7 @@ export interface HogQLQueryResponse {
     results?: any[]
     types?: any[]
     columns?: any[]
-    timings?: Record<string, number>
+    timings?: QueryTiming[]
 }
 
 export interface HogQLQuery extends DataNode {
@@ -187,13 +187,18 @@ export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
 }
-
+export interface QueryTiming {
+    /** Key. Shortened to 'k' to save on data. */
+    k: string
+    /** Time in seconds. Shortened to 't' to save on data. */
+    t: number
+}
 export interface EventsQueryResponse {
     columns: any[]
     types: string[]
     results: any[][]
     hasMore?: boolean
-    timings?: Record<string, number>
+    timings?: QueryTiming[]
 }
 export interface EventsQueryPersonColumn {
     uuid: string

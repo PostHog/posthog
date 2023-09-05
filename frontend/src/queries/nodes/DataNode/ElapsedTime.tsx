@@ -3,6 +3,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { useState } from 'react'
 import { Popover } from 'lib/lemon-ui/Popover'
 import clsx from 'clsx'
+import { QueryTiming } from '~/queries/schema'
 
 function ElapsedTimeFinished({
     formattedTime,
@@ -11,27 +12,25 @@ function ElapsedTimeFinished({
 }: {
     formattedTime: string
     hasError: boolean
-    timings: Record<string, number>
+    timings: QueryTiming[]
 }): JSX.Element | null {
     const [popoverVisible, setPopoverVisible] = useState(false)
 
     const overlay = (
         <div className="space-y-2 p-2">
             <div className="font-bold">Timings</div>
-            {Object.keys(timings)
-                .sort()
-                .map((key) => (
-                    <div
-                        key={key}
-                        className={clsx(
-                            'flex justify-between items-start space-x-2',
-                            timings[key] > timings['.'] * 0.5 ? 'font-bold' : ''
-                        )}
-                    >
-                        <div>{key}</div>
-                        <div>{timings[key].toFixed(3)}s</div>
-                    </div>
-                ))}
+            {timings.map(({ k: key, t: time }) => (
+                <div
+                    key={key}
+                    className={clsx(
+                        'flex justify-between items-start space-x-2',
+                        time > timings['.'] * 0.5 ? 'font-bold' : ''
+                    )}
+                >
+                    <div>{key}</div>
+                    <div>{time.toFixed(3)}s</div>
+                </div>
+            ))}
         </div>
     )
     return (

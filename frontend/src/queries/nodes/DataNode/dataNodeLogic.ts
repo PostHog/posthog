@@ -15,7 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode } from '~/queries/schema'
+import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode, QueryTiming } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
@@ -431,7 +431,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         timings: [
             (s) => [s.response],
-            (response): Record<string, number> | null => {
+            (response): QueryTiming[] | null => {
                 return response && 'timings' in response ? response.timings : null
             },
         ],
