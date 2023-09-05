@@ -7,8 +7,9 @@ export const ensureTopicExists = async (adminClient: IAdminClient, topic: string
     // does, this is a no-op. We use -1 for the number of partitions and
     // replication factor as this will use the default values configured in
     // the Kafka broker config.
-    return await new Promise((resolve, reject) =>
-        adminClient.createTopic({ topic, num_partitions: -1, replication_factor: -1 }, (error: LibrdKafkaError) => {
+    return await new Promise((resolve, reject) => {
+        const newTopic = { topic, num_partitions: -1, replication_factor: -1 }
+        const callback = (error: LibrdKafkaError) => {
             if (error) {
                 if (error.code === CODES.ERRORS.ERR_TOPIC_ALREADY_EXISTS) {
                     // If it's a topic already exists error, then we don't need
@@ -22,9 +23,16 @@ export const ensureTopicExists = async (adminClient: IAdminClient, topic: string
                 status.info('🔁', 'Created topic', { topic })
                 resolve(adminClient)
             }
-        })
-    )
+        }
+        if (process.env.DEBUG) {
+            // In local development, kafka network connections can be poor
+            adminClient.createTopic(newTopic, 30000, callback)
+        } else {
+            adminClient.createTopic(newTopic, callback)
+        }
+    })
 }
+
 export const createAdminClient = (connectionConfig: GlobalConfig) => {
     return AdminClient.create(connectionConfig)
 }
