@@ -1,4 +1,4 @@
-import { SDK } from '~/types'
+import { SDK, SDKInstructionsMap } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 
@@ -7,7 +7,7 @@ export const SDKSnippet = ({
     sdkInstructionMap,
 }: {
     sdk: SDK
-    sdkInstructionMap: Record<string, () => JSX.Element>
+    sdkInstructionMap: SDKInstructionsMap
 }): JSX.Element => {
     const SDKInstructions = sdkInstructionMap[sdk.key]
     return SDKInstructions ? (

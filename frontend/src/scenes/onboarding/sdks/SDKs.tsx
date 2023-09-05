@@ -6,13 +6,14 @@ import { SDKSnippet } from './SDKSnippet'
 import { onboardingLogic } from '../onboardingLogic'
 import { useEffect } from 'react'
 import React from 'react'
+import { SDKInstructionsMap } from '~/types'
 
 export function SDKs({
     usersAction,
     sdkInstructionMap,
 }: {
     usersAction?: string
-    sdkInstructionMap: Record<string, () => JSX.Element>
+    sdkInstructionMap: SDKInstructionsMap
 }): JSX.Element {
     const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap } = useActions(sdksLogic)
     const { sourceFilter, sdks, selectedSDK, sourceOptions } = useValues(sdksLogic)
