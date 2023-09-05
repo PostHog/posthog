@@ -6,11 +6,11 @@ import clsx from 'clsx'
 import { QueryTiming } from '~/queries/schema'
 
 function ElapsedTimeFinished({
-    formattedTime,
+    elapsedTime,
     hasError,
     timings,
 }: {
-    formattedTime: string
+    elapsedTime: number
     hasError: boolean
     timings: QueryTiming[]
 }): JSX.Element | null {
@@ -18,7 +18,6 @@ function ElapsedTimeFinished({
 
     const overlay = (
         <div className="space-y-2 p-2">
-            <div className="font-bold">Timings</div>
             {timings.map(({ k: key, t: time }) => (
                 <div
                     key={key}
@@ -27,10 +26,16 @@ function ElapsedTimeFinished({
                         time > timings[timings.length - 1].t * 0.5 ? 'font-bold' : ''
                     )}
                 >
-                    <div>{key}</div>
+                    <div>{key == '.' ? 'Query total' : key}</div>
                     <div>{time.toFixed(3)}s</div>
                 </div>
             ))}
+            {timings.length > 0 ? (
+                <div className={clsx('flex justify-between items-start space-x-2')}>
+                    <div>+ HTTP overhead</div>
+                    <div>{(elapsedTime / 1000 - timings[timings.length - 1].t).toFixed(3)}s</div>
+                </div>
+            ) : null}
         </div>
     )
     return (
@@ -44,7 +49,7 @@ function ElapsedTimeFinished({
                 onClick={() => setPopoverVisible((visible) => !visible)}
                 className={clsx(hasError ? 'text-danger' : '', 'cursor-help')}
             >
-                {formattedTime}
+                {(elapsedTime / 1000).toFixed(elapsedTime < 1000 ? 2 : 1)}s
             </div>
         </Popover>
     )
@@ -70,11 +75,9 @@ export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Ele
         return null
     }
 
-    const formattedTime = `${(time / 1000).toFixed(time < 1000 ? 2 : 1)}s`
-
     if (elapsedTime && timings && showTimings) {
-        return <ElapsedTimeFinished formattedTime={formattedTime} timings={timings} hasError={!!responseError} />
+        return <ElapsedTimeFinished elapsedTime={elapsedTime} timings={timings} hasError={!!responseError} />
     }
 
-    return <div className={responseError ? 'text-danger' : ''}>{formattedTime}</div>
+    return <div className={responseError ? 'text-danger' : ''}>{(time / 1000).toFixed(time < 1000 ? 2 : 1)}s</div>
 }
