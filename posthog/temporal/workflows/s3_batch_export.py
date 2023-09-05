@@ -455,6 +455,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=[
                         # S3 parameter validation failed.
                         "ParamValidationError",
+                        # This error usually indicates credentials are incorrect or permissions are missing.
+                        "ClientError",
                     ],
                 ),
             )

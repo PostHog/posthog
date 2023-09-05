@@ -24,7 +24,7 @@ export type CustomNotebookNodeAttributes = Record<string, any>
 
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
-    title: string | null
+    title: string | ((attributes: T) => Promise<string>)
     height?: string | number
 }
 
@@ -52,8 +52,7 @@ export type NotebookNodeWidget = {
 export interface NotebookEditor {
     getJSON: () => JSONContent
     getSelectedNode: () => Node | null
-    getPreviousNode: () => Node | null
-    getNextNode: () => Node | null
+    getAdjacentNodes: (pos: number) => { previous: Node | null; next: Node | null }
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     setSelection: (position: number) => void

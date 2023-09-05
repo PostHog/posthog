@@ -66,6 +66,8 @@ const formFields = (
                   prefix: !config.prefix ? 'This field is required' : '',
                   aws_access_key_id: isNew ? (!config.aws_access_key_id ? 'This field is required' : '') : '',
                   aws_secret_access_key: isNew ? (!config.aws_secret_access_key ? 'This field is required' : '') : '',
+                  compression: '',
+                  exclude_events: '',
               }
             : destination === 'Snowflake'
             ? {

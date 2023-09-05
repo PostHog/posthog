@@ -50,7 +50,14 @@ declare module '@storybook/types' {
 }
 
 const RETRY_TIMES = 5
-const LOADER_SELECTORS = ['.ant-skeleton', '.Spinner', '.LemonSkeleton', '.LemonTableLoader', '[aria-busy="true"]']
+const LOADER_SELECTORS = [
+    '.ant-skeleton',
+    '.Spinner',
+    '.LemonSkeleton',
+    '.LemonTableLoader',
+    '[aria-busy="true"]',
+    '.SessionRecordingPlayer--buffering',
+]
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 
