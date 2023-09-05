@@ -21,8 +21,11 @@ export async function eachMessageAppsOnEventHandlers(
     const pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
     if (pluginConfigs) {
         // Elements parsing can be extremely slow, so we skip it for some plugins
-        const skipElementsChain = pluginConfigs.every((pluginConfig) =>
-            process.env.SKIP_ELEMENTS_PARSING_PLUGINS?.split(',').includes(pluginConfig.plugin_id.toString())
+        // # SKIP_ELEMENTS_PARSING_PLUGINS
+        const skipElementsChain = pluginConfigs.every(
+            (pluginConfig) =>
+                queue.pluginsServer.pluginConfigsToSkipElementsParsing &&
+                queue.pluginsServer.pluginConfigsToSkipElementsParsing(pluginConfig.plugin_id)
         )
 
         const event = convertToIngestionEvent(clickHouseEvent, skipElementsChain)

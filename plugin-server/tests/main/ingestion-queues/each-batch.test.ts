@@ -1,3 +1,4 @@
+import { buildIntegerMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import {
     eachBatchParallelIngestion,
@@ -198,7 +199,7 @@ describe('eachBatchX', () => {
                 { ...pluginConfig39, plugin_id: 60 },
                 { ...pluginConfig39, plugin_id: 33 },
             ])
-            process.env.SKIP_ELEMENTS_PARSING_PLUGINS = '12,60,100'
+            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(
                 createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
                 queue
@@ -216,7 +217,7 @@ describe('eachBatchX', () => {
                 { ...pluginConfig39, plugin_id: 60 },
                 { ...pluginConfig39, plugin_id: 100 },
             ])
-            process.env.SKIP_ELEMENTS_PARSING_PLUGINS = '12,60,100'
+            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(
                 createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
                 queue
