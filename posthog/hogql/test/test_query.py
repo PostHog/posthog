@@ -1,6 +1,6 @@
 from uuid import UUID
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
@@ -817,21 +817,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             expected += [
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=ZoneInfo("UTC")),
                     "random event",
                     [],
                     ["random bla", "random boo"],
                 ),
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=ZoneInfo("UTC")),
                     "random bla",
                     ["random event"],
                     ["random boo"],
                 ),
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=ZoneInfo("UTC")),
                     "random boo",
                     ["random event", "random bla"],
                     [],
@@ -902,7 +902,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             expected += [
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=ZoneInfo("UTC")),
                     "random event",
                     [],
                     ["random bla", "random boo"],
@@ -917,7 +917,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ),
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=ZoneInfo("UTC")),
                     "random bla",
                     ["random event"],
                     ["random boo"],
@@ -932,7 +932,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ),
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=ZoneInfo("UTC")),
                     "random boo",
                     ["random event", "random bla"],
                     [],
@@ -1226,7 +1226,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("null", "!~*", "null", 0),
         ]
 
-        for (a, op, b, res) in expected:
+        for a, op, b, res in expected:
             # works when selecting directly
             query = f"select {a} {op} {b}"
             response = execute_hogql_query(query, team=self.team)

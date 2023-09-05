@@ -28,11 +28,11 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
-from zoneinfo import ZoneInfo
 
 import lzstring
 import posthoganalytics
 import pytz
+from zoneinfo import ZoneInfo
 import structlog
 from celery.schedules import crontab
 from dateutil import parser
@@ -128,13 +128,13 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     period_end: datetime.datetime = datetime.datetime.combine(
         at - datetime.timedelta(days=1),
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the previous day
 
     return (period_start, period_end)
@@ -152,13 +152,13 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
     period_end: datetime.datetime = datetime.datetime.combine(
         at,
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the reference day
 
     return (period_start, period_end)
@@ -1085,7 +1085,7 @@ def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) ->
     if isinstance(timestamp, str):
         timestamp = parser.isoparse(timestamp)
     else:
-        timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.astimezone(ZoneInfo("UTC"))
 
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
