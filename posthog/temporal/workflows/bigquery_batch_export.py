@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from google.cloud import bigquery
+from google.oauth2 import service_account
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -25,19 +26,27 @@ from posthog.temporal.workflows.batch_exports import (
 from posthog.temporal.workflows.clickhouse import get_client
 
 
-def load_file_to_bigquery_table(tsv_file, table, bigquery_client):
-    """Execute a COPY FROM query with given connection to copy contents of tsv_file."""
-    bigquery_client.load_table_from_file(tsv_file, table, rewind=True)
+def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, bigquery_client):
+    """Execute a COPY FROM query with given connection to copy contents of jsonl_file."""
+    job_config = bigquery.LoadJobConfig(
+        source_format="NEWLINE_DELIMITED_JSON",
+        schema=table_schema,
+    )
+
+    load_job = bigquery_client.load_table_from_file(jsonl_file, table, job_config=job_config, rewind=True)
+    load_job.result()
 
 
 def create_table_in_bigquery(
+    project_id: str,
+    dataset_id: str,
     table_id: str,
     table_schema: list[bigquery.SchemaField],
     bigquery_client: bigquery.Client,
     exists_ok: bool = True,
 ) -> bigquery.Table:
-    table = bigquery.Table(table_id, schema=table_schema)
-
+    fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
+    table = bigquery.Table(fully_qualified_name, schema=table_schema)
     table = bigquery_client.create_table(table, exists_ok=exists_ok)
 
     return table
@@ -48,8 +57,13 @@ class BigQueryInsertInputs:
     """Inputs for BigQuery."""
 
     team_id: int
+    project_id: str
     dataset_id: str
     table_id: str
+    private_key: str
+    private_key_id: str
+    token_uri: str
+    client_email: str
     data_interval_start: str
     data_interval_end: str
     exclude_events: list[str] | None = None
@@ -58,7 +72,20 @@ class BigQueryInsertInputs:
 @contextlib.contextmanager
 def bigquery_client(inputs: BigQueryInsertInputs):
     """Manage a BigQuery client."""
-    client = bigquery.Client()
+    credentials = service_account.Credentials.from_service_account_info(
+        {
+            "private_key": inputs.private_key,
+            "private_key_id": inputs.private_key_id,
+            "token_uri": inputs.token_uri,
+            "client_email": inputs.client_email,
+            "project_id": inputs.project_id,
+        },
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    client = bigquery.Client(
+        project=inputs.project_id,
+        credentials=credentials,
+    )
 
     try:
         yield client
@@ -118,38 +145,42 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         json_columns = ("properties", "elements", "set", "set_once")
 
         with bigquery_client(inputs) as bq_client:
-            bigquery_table = create_table_in_bigquery(inputs.table_id, table_schema, bq_client)
+            bigquery_table = create_table_in_bigquery(
+                inputs.project_id, inputs.dataset_id, inputs.table_id, table_schema, bq_client
+            )
 
-            with BatchExportTemporaryFile() as bigquery_file:
+            with BatchExportTemporaryFile() as jsonl_file:
                 for result in results_iterator:
                     row = {
-                        field.name: json.dumps(result[field.name])
-                        if field.name in json_columns and result[field.name] is not None
-                        else result[field.name]
+                        field.name: json.dumps(result[field.name]) if field.name in json_columns else result[field.name]
                         for field in table_schema
+                        if field.name != "bq_ingested_timestamp"
                     }
-                    bigquery_file.write_records_to_tsv([row], fieldnames=[field.name for field in table_schema])
+                    row["bq_ingested_timestamp"] = str(dt.datetime.utcnow())
 
-                    if bigquery_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
+                    jsonl_file.write_records_to_jsonl([row])
+
+                    if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
                         activity.logger.info(
                             "Copying %s records of size %s bytes to BigQuery",
-                            bigquery_file.records_since_last_reset,
-                            bigquery_file.bytes_since_last_reset,
+                            jsonl_file.records_since_last_reset,
+                            jsonl_file.bytes_since_last_reset,
                         )
-                        load_file_to_bigquery_table(
-                            bigquery_file,
+                        load_jsonl_file_to_bigquery_table(
+                            jsonl_file,
                             bigquery_table,
+                            table_schema,
                             bq_client,
                         )
-                        bigquery_file.reset()
+                        jsonl_file.reset()
 
-                if bigquery_file.tell() > 0:
+                if jsonl_file.tell() > 0:
                     activity.logger.info(
                         "Copying %s records of size %s bytes to BigQuery",
-                        bigquery_file.records_since_last_reset,
-                        bigquery_file.bytes_since_last_reset,
+                        jsonl_file.records_since_last_reset,
+                        jsonl_file.bytes_since_last_reset,
                     )
-                    load_file_to_bigquery_table(bigquery_file, bigquery_table, bq_client)
+                    load_jsonl_file_to_bigquery_table(jsonl_file, bigquery_table, table_schema, bq_client)
 
 
 @workflow.defn(name="bigquery-export")
@@ -199,6 +230,11 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             table_id=inputs.table_id,
             dataset_id=inputs.dataset_id,
+            project_id=inputs.project_id,
+            private_key=inputs.private_key,
+            private_key_id=inputs.private_key_id,
+            token_uri=inputs.token_uri,
+            client_email=inputs.client_email,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
