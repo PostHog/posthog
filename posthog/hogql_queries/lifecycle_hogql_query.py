@@ -30,16 +30,14 @@ def create_time_filter(date_range: QueryDateRange) -> ast.Expr:
     return time_filter
 
 
-def create_events_query(interval: str, event_filter: ast.Expr):
-    one_interval_period = parse_expr(f"toInterval{interval.capitalize()}(1)")
-
+def create_events_query(date_range: QueryDateRange, event_filter: ast.Expr):
     if not event_filter:
         event_filter = ast.Constant(value=True)
 
     placeholders = {
         "event_filter": event_filter,
-        "interval": ast.Constant(value=interval),
-        "one_interval_period": one_interval_period,
+        "interval": date_range.interval_period_string_as_hogql,
+        "one_interval_period": date_range.one_interval_period_as_hogql,
     }
 
     events_query = parse_select(
@@ -91,7 +89,7 @@ def run_lifecycle_query(
         "date_to": query_date_range.date_to_as_hogql,
     }
 
-    events_query = create_events_query(interval=interval, event_filter=event_filter)
+    events_query = create_events_query(date_range=query_date_range, event_filter=event_filter)
 
     periods = parse_select(
         """

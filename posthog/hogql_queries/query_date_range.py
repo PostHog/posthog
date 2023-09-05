@@ -30,7 +30,7 @@ class QueryDateRange:
         self._now_non_timezone = now
 
     @cached_property
-    def date_to_param(self) -> datetime:
+    def date_to(self) -> datetime:
         date_to = self._now
         delta_mapping = None
 
@@ -51,7 +51,7 @@ class QueryDateRange:
         return get_earliest_timestamp(self._team.pk)
 
     @cached_property
-    def date_from_param(self) -> datetime:
+    def date_from(self) -> datetime:
         date_from: datetime
         if self._date_range and self._date_range.date_from == "all":
             date_from = self.get_earliest_timestamp()
@@ -75,27 +75,23 @@ class QueryDateRange:
         return target.astimezone(pytz.timezone(self._team.timezone))
 
     @cached_property
-    def date_to(self) -> str:
-        date_to = self.date_to_param
-
-        return date_to.strftime("%Y-%m-%d %H:%M:%S")
+    def date_to_str(self) -> str:
+        return self.date_to.strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
-    def date_from(self) -> str:
-        date_from = self.date_from_param
-
-        return date_from.strftime("%Y-%m-%d %H:%M:%S")
+    def date_from_str(self) -> str:
+        return self.date_from.strftime("%Y-%m-%d %H:%M:%S")
 
     def is_hourly(self):
         return self.interval.name == "hour"
 
     @cached_property
     def date_to_as_hogql(self):
-        return parse_expr(f"assumeNotNull(toDateTime('{self.date_to}'))")
+        return parse_expr(f"assumeNotNull(toDateTime('{self.date_to_str}'))")
 
     @cached_property
     def date_from_as_hogql(self):
-        return parse_expr(f"assumeNotNull(toDateTime('{self.date_from}'))")
+        return parse_expr(f"assumeNotNull(toDateTime('{self.date_from_str}'))")
 
     @cached_property
     def interval(self):

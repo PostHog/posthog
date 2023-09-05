@@ -78,7 +78,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         # TODO probably doesn't make sense to test like this
         #  maybe this query should be what is returned by the function
-        events_query = create_events_query("day", event_filter=time_filter)
+        events_query = create_events_query(event_filter=time_filter, date_range=date_range)
         return execute_hogql_query(
             team=self.team,
             query="""
