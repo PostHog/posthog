@@ -266,10 +266,14 @@ export function Toolbar3000(): JSX.Element {
     )
 
     return (
-        <div className={'relative'}>
+        <>
             <ToolbarInfoMenu />
-            <div className={'Toolbar3000 px-2 w-auto h-10 space-x-2 rounded-lg flex flex-row items-center'}>
-                <IconDragHandle className={'text-2xl floating-toolbar-button cursor-grab'} />
+            <div
+                className={
+                    'Toolbar3000 px-2 w-auto h-10 space-x-2 rounded-lg flex flex-row items-center floating-toolbar-button'
+                }
+            >
+                <IconDragHandle className={'text-2xl cursor-grab'} />
                 <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
                 {isAuthenticated ? (
                     <>
@@ -313,6 +317,6 @@ export function Toolbar3000(): JSX.Element {
                 ) : null}
                 <Logomark3000 />
             </div>
-        </div>
+        </>
     )
 }
