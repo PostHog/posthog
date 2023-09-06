@@ -678,8 +678,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        # with self.assertNumQueries(10):
-        response = self.client.get("/api/person/?limit=10").json()
+        with self.assertNumQueries(10):
+            response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
         response_next = self.client.get(response["next"]).json()
@@ -689,8 +689,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        # with self.assertNumQueries(9):
-        response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
+        with self.assertNumQueries(9):
+            response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
     def test_retrieve_person(self):
@@ -853,4 +853,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
 @patch("posthog.api.person.posthoganalytics.feature_enabled", Mock())
 class TestPersonFromClickhouse(TestPerson):
-    pass
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_pagination_limit(self):
+        created_ids = []
+
+        for index in range(0, 19):
+            created_ids.append(str(index + 100))
+            Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+                team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"}
+            )
+        returned_ids = []
+        response = self.client.get("/api/person/?limit=10").json()
+        self.assertEqual(len(response["results"]), 10)
+        returned_ids += [x["distinct_ids"][0] for x in response["results"]]
+        response_next = self.client.get(response["next"]).json()
+        returned_ids += [x["distinct_ids"][0] for x in response_next["results"]]
+        self.assertEqual(len(response_next["results"]), 9)
+
+        created_ids.reverse()  # ids are returned in desc order
+        self.assertEqual(returned_ids, created_ids, returned_ids)
+
+        response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
+        self.assertEqual(response_include_total["count"], 19)  #  With `include_total`, the total count is returned too
