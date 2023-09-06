@@ -33,12 +33,9 @@ class HogQLTimings:
 
     def to_dict(self) -> Dict[str, float]:
         timings = {**self.timings}
-        for key, start in self.timing_starts.items():
+        for key, start in reversed(self.timing_starts.items()):
             timings[key] = timings.get(key, 0.0) + (perf_counter() - start)
         return timings
 
     def to_list(self) -> List[QueryTiming]:
-        timings = {**self.timings}
-        for key, start in reversed(self.timing_starts.items()):
-            timings[key] = timings.get(key, 0.0) + (perf_counter() - start)
-        return [QueryTiming(k=key, t=time) for key, time in timings.items()]
+        return [QueryTiming(k=key, t=time) for key, time in self.to_dict().items()]
