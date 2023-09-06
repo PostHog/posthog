@@ -14,7 +14,7 @@ from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
 from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
-from posthog.schema import HogQLFilters, EventPropertyFilter
+from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
@@ -1448,8 +1448,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(len(response.results), 1)
 
-            filters.dateFrom = "2020-01-01"
-            filters.dateTo = "2020-01-02"
+            filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-01-02")
             response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
             self.assertEqual(
                 response.hogql,
@@ -1461,8 +1460,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(len(response.results), 0)
 
-            filters.dateFrom = "2020-01-01"
-            filters.dateTo = "2020-02-02"
+            filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-01-02")
             response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
             self.assertEqual(len(response.results), 1)
 
