@@ -570,7 +570,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         canFallbackToClickHouseForData: [
             (s) => [s.featureFlags],
             (featureFlags) => {
-                return !featureFlags[FEATURE_FLAGS.SESSION_RECORDING_FORBID_V1_SNAPSHOTS]
+                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_ALLOW_V1_SNAPSHOTS]
             },
         ],
         sessionPlayerData: [
