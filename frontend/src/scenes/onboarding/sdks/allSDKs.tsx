@@ -125,7 +125,11 @@ export const allSDKs: SDK[] = [
         name: 'API',
         key: SDKKey.API,
         tags: [SDKTag.SERVER],
-        image: <Logomark />,
+        image: (
+            <span className="flex w-4">
+                <Logomark />
+            </span>
+        ),
         docsLink: 'https://posthog.com/docs/api',
     },
     {

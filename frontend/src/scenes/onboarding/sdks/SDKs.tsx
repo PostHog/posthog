@@ -49,13 +49,7 @@ export function SDKs({
                                 onClick={selectedSDK?.key !== sdk.key ? () => setSelectedSDK(sdk) : undefined}
                                 fullWidth
                                 icon={
-                                    <div className="w-4">
-                                        {typeof sdk.image === 'string' ? (
-                                            <img src={sdk.image} className="w-4" />
-                                        ) : (
-                                            sdk.image
-                                        )}
-                                    </div>
+                                    typeof sdk.image === 'string' ? <img src={sdk.image} className="w-4" /> : sdk.image
                                 }
                             >
                                 {sdk.name}
