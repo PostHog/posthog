@@ -400,6 +400,7 @@ export class SessionRecordingIngesterV2 {
             consumerErrorBackoffMs: this.recordingConsumerConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             fetchBatchSize: this.recordingConsumerConfig.SESSION_RECORDING_KAFKA_BATCH_SIZE,
             batchingTimeoutMs: this.recordingConsumerConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            topicCreationTimeoutMs: this.recordingConsumerConfig.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             autoCommit: false,
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)

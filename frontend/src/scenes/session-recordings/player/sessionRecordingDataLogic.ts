@@ -219,13 +219,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshotsV2Success: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
+                const canFallbackToClickHouse = values.canFallbackToClickHouseForData
                 // We got the snapshot response for realtime, and it was empty, so we fall back to the old API
                 // Until we migrate over we need to fall back to the old API if the new one returns no snapshots
                 posthog.capture('recording_snapshots_v2_empty_response', {
                     source: sources[0],
+                    canFallbackToClickHouse,
                 })
 
-                actions.loadRecordingSnapshotsV1()
+                if (canFallbackToClickHouse) {
+                    actions.loadRecordingSnapshotsV1()
+                }
                 return
             }
 
@@ -563,6 +567,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     selectors({
+        canFallbackToClickHouseForData: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_ALLOW_V1_SNAPSHOTS]
+            },
+        ],
         sessionPlayerData: [
             (s) => [
                 s.sessionPlayerMetaData,
