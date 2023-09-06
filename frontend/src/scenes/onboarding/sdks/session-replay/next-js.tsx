@@ -75,13 +75,6 @@ export function NextJSInstructions(): JSX.Element {
             <NextEnvVarsSnippet />
 
             <h3>Initialize</h3>
-            <h4>With Pages router</h4>
-            <p>
-                If your Next.js app uses the <Link to={'https://nextjs.org/docs/pages'}>pages router</Link>, you can
-                integrate PostHog at the root of your app (pages/_app.js).
-            </p>
-            <NextPagesRouterCodeSnippet />
-
             <h4>With App router</h4>
             <p>
                 If your Next.js app to uses the <Link to="https://nextjs.org/docs/app">app router</Link>, you can
@@ -93,6 +86,12 @@ export function NextJSInstructions(): JSX.Element {
                 .
             </p>
             <NextAppRouterCodeSnippet />
+            <h4>With Pages router</h4>
+            <p>
+                If your Next.js app uses the <Link to={'https://nextjs.org/docs/pages'}>pages router</Link>, you can
+                integrate PostHog at the root of your app (pages/_app.js).
+            </p>
+            <NextPagesRouterCodeSnippet />
             <SessionReplayFinalSteps />
         </>
     )
