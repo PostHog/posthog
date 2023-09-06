@@ -330,15 +330,7 @@ def render_template(
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "week_start": 1,  # Monday
     }
-
-    from posthog.api.geoip import get_geoip_properties  # avoids circular import
-
-    geoip_properties = get_geoip_properties(get_ip_address(request))
-    country_code = geoip_properties.get("$geoip_country_code", None)
-    if country_code:
-        posthog_app_context["week_start"] = get_week_start_for_country_code(country_code)
 
     posthog_bootstrap: Dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
