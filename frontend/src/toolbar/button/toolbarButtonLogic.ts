@@ -50,6 +50,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         ],
         minimizedWidth: [
             false,
+            { persist: true },
             {
                 toggleWidth: (state) => !state,
             },

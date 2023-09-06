@@ -225,7 +225,7 @@ function ToolbarInfoMenu(): JSX.Element {
         <div
             ref={menuRef}
             className={
-                'absolute bottom Toolbar3000 justify-between Toolbar3000__menu w-auto rounded-lg flex flex-col items-center'
+                'absolute bottom Toolbar3000 justify-between Toolbar3000__menu rounded-lg flex flex-col items-center'
             }
         >
             <FullMenu />
@@ -272,7 +272,7 @@ export function Toolbar3000(): JSX.Element {
             <div
                 className={clsx(
                     'Toolbar3000 px-2 h-10 space-x-2 rounded-lg flex flex-row items-center floating-toolbar-button',
-                    minimizedWidth ? 'Toolbar3000--minimized-wdth' : ''
+                    minimizedWidth ? 'Toolbar3000--minimized-width' : ''
                 )}
             >
                 {!minimizedWidth ? (
@@ -321,7 +321,13 @@ export function Toolbar3000(): JSX.Element {
                         <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
                     </>
                 ) : null}
-                <Logomark3000
+                <LemonButton
+                    icon={<Logomark3000 />}
+                    title={minimizedWidth ? 'expand the toolbar' : 'minimize'}
+                    status={'stealth'}
+                    size={'small'}
+                    square={true}
+                    noPadding={true}
                     onClick={(e) => {
                         e.stopPropagation()
                         toggleWidth()

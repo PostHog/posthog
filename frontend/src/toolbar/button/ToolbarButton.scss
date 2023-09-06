@@ -170,13 +170,13 @@
     background-color: var(--bg-3000);
     color: var(--text-3000);
     transition-property: filter, width;
-    transition-duration: 0.2s;
+    transition-duration: 0.3s;
     transition-timing-function: ease;
     filter: drop-shadow(1px 2px 2px var(--trace-3000));
 
-    width: 12rem;
+    width: 21rem;
     &.Toolbar3000--minimized-width {
-        width: 2rem;
+        width: 2.75rem;
     }
 
     &:hover {
