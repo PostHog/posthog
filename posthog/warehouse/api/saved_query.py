@@ -1,14 +1,17 @@
 from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import filters, serializers, viewsets
+from rest_framework import filters, serializers, viewsets, exceptions
 from posthog.warehouse.models import DataWarehouseSavedQuery
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.hogql.database.database import serialize_fields, SerializedField
 
-from posthog.models import User
+from posthog.models import User, Team
 from typing import Any, List
+
+from posthog.hogql.metadata import get_hogql_metadata
+from posthog.schema import HogQLMetadata
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
@@ -48,6 +51,20 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(str(err))
         view.save()
         return view
+
+    def validate_query(self, query):
+        team_id = self.context["team_id"]
+        team = Team.objects.get(pk=team_id)
+        metadata = get_hogql_metadata(query=HogQLMetadata(select=query["query"]), team=team)
+        if not metadata.isValidView:
+            error = (
+                metadata.errors[0].message
+                if len(metadata.errors) > 0
+                else "Ensure all fields are aliased and there are no nested views"
+            )
+            raise exceptions.ValidationError(detail=error)
+
+        return query
 
 
 class DataWarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
