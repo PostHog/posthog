@@ -59,9 +59,9 @@ export function SDKs({
                         </React.Fragment>
                     ))}
                 </div>
-                {selectedSDK && productKey && (
+                {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div className="shrink min-w-8">
-                        <SDKSnippet sdk={selectedSDK} sdkInstructionMap={sdkInstructionMap} />
+                        <SDKSnippet sdk={selectedSDK} sdkInstructions={sdkInstructionMap[selectedSDK.key]} />
                     </div>
                 )}
             </div>
