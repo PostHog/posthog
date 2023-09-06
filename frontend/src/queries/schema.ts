@@ -128,8 +128,7 @@ export interface HogQLQueryResponse {
 /** Filters object that will be converted to a HogQL {filters} placeholder */
 export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
-    dateFrom?: string | null
-    dateTo?: string | null
+    dateRange?: DateRange
 }
 
 export interface HogQLQuery extends DataNode {

@@ -305,7 +305,7 @@ const HogQLRaw: HogQLQuery = {
           properties.$browser,
           count()
      from events
-    where {filters} -- global date and property filters
+    where {filters} -- replaced with global date and property filters
       and person.properties.email is not null
  group by event,
           properties.$browser,
@@ -313,7 +313,9 @@ const HogQLRaw: HogQLQuery = {
  order by count() desc
     limit 100`,
     filters: {
-        dateFrom: '-30d',
+        dateRange: {
+            date_from: '-24h',
+        },
     },
 }
 

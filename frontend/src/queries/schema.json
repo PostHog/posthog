@@ -1099,11 +1099,8 @@
             "additionalProperties": false,
             "description": "Filters object that will be converted to a HogQL {filters} placeholder",
             "properties": {
-                "dateFrom": {
-                    "type": ["string", "null"]
-                },
-                "dateTo": {
-                    "type": ["string", "null"]
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
                 },
                 "properties": {
                     "items": {

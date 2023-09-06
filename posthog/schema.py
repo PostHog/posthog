@@ -727,8 +727,7 @@ class HogQLFilters(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    dateFrom: Optional[str] = None
-    dateTo: Optional[str] = None
+    dateRange: Optional[DateRange] = None
     properties: Optional[
         List[
             Union[

@@ -28,15 +28,17 @@ export function DateRange({ query, setQuery }: DateRangeProps): JSX.Element | nu
         return (
             <DateFilter
                 size="medium"
-                dateFrom={query.filters?.dateFrom ?? undefined}
-                dateTo={query.filters?.dateTo ?? undefined}
+                dateFrom={query.filters?.dateRange?.date_from ?? undefined}
+                dateTo={query.filters?.dateRange?.date_to ?? undefined}
                 onChange={(changedDateFrom, changedDateTo) => {
                     const newQuery: HogQLQuery = {
                         ...query,
                         filters: {
                             ...(query.filters ?? {}),
-                            dateFrom: changedDateFrom ?? undefined,
-                            dateTo: changedDateTo ?? undefined,
+                            dateRange: {
+                                date_from: changedDateFrom ?? undefined,
+                                date_to: changedDateTo ?? undefined,
+                            },
                         },
                     }
                     setQuery?.(newQuery)

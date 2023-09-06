@@ -53,7 +53,7 @@ class ReplaceFilters(CloningVisitor):
             if self.filters.properties is not None:
                 exprs.append(property_to_expr(self.filters.properties, self.team))
 
-            dateTo = self.filters.dateTo
+            dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
                     parsed_date = isoparse(dateTo)
@@ -62,7 +62,7 @@ class ReplaceFilters(CloningVisitor):
                 exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
             # limit to the last 30d by default
-            dateFrom = self.filters.dateFrom
+            dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
                     parsed_date = isoparse(dateFrom)
