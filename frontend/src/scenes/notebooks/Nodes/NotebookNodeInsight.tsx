@@ -25,10 +25,6 @@ type NotebookNodeInsightAttributes = {
 export const NotebookNodeInsight = createPostHogWidgetNode<NotebookNodeInsightAttributes>({
     nodeType: NotebookNodeType.Insight,
     title: async (attributes) => {
-        if (typeof attributes.title === 'string' && attributes.title.length > 0) {
-            return attributes.title
-        }
-
         const mountedInsightLogic = insightLogic.findMounted({ dashboardItemId: attributes.id })
         let title = mountedInsightLogic?.values.insightName || null
 

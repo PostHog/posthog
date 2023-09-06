@@ -29,6 +29,7 @@ import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
+import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -54,7 +55,7 @@ export function Editor({
     const updatePreviousNode = useCallback(() => {
         const editor = editorRef.current
         if (editor) {
-            setPreviousNode(getPreviousNode(editor))
+            setPreviousNode(getNodeBeforeActiveNode(editor))
         }
     }, [editorRef.current])
 
@@ -92,6 +93,7 @@ export function Editor({
             NotebookNodeFlagCodeExample,
             NotebookNodeFlag,
             NotebookNodeExperiment,
+            NotebookNodeEarlyAccessFeature,
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
@@ -181,8 +183,7 @@ export function Editor({
             onCreate({
                 getJSON: () => editor.getJSON(),
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
-                getPreviousNode: () => getPreviousNode(editor),
-                getNextNode: () => getNextNode(editor),
+                getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
@@ -287,16 +288,16 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
     return children
 }
 
-function getPreviousNode(editor: TTEditor): Node | null {
+function getAdjacentNodes(editor: TTEditor, pos: number): { previous: Node | null; next: Node | null } {
+    const { doc } = editor.state
+    const currentIndex = doc.resolve(pos).index(0)
+    return { previous: doc.maybeChild(currentIndex - 1), next: doc.maybeChild(currentIndex + 1) }
+}
+
+function getNodeBeforeActiveNode(editor: TTEditor): Node | null {
     const { doc, selection } = editor.state
     const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
     return doc.maybeChild(currentIndex - 1)
-}
-
-function getNextNode(editor: TTEditor): Node | null {
-    const { doc, selection } = editor.state
-    const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
-    return doc.maybeChild(currentIndex + 1)
 }
 
 export function hasMatchingNode(

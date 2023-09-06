@@ -3031,15 +3031,11 @@ export enum NotebookNodeType {
     FeatureFlag = 'ph-feature-flag',
     FeatureFlagCodeExample = 'ph-feature-flag-code-example',
     Experiment = 'ph-experiment',
+    EarlyAccessFeature = 'ph-early-access-feature',
     Person = 'ph-person',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
-}
-
-export type NotebookNodeWidgetSettings = {
-    attributes: Record<string, any>
-    updateAttributes: (attributes: Record<string, any>) => void
 }
 
 export enum NotebookTarget {
@@ -3092,6 +3088,8 @@ export type BatchExportDestinationS3 = {
         prefix: string
         aws_access_key_id: string
         aws_secret_access_key: string
+        exclude_events: string[]
+        compression: string | null
     }
 }
 
@@ -3156,4 +3154,30 @@ export type GroupedBatchExportRuns = {
     data_interval_start: Dayjs
     data_interval_end: Dayjs
     runs: BatchExportRun[]
+}
+
+export type SDK = {
+    name: string
+    key: string
+    recommended?: boolean
+    tags: string[]
+    image: string
+}
+
+export enum SDKKey {
+    JS_WEB = 'javascript_web',
+    REACT = 'react',
+    NEXT_JS = 'nextjs',
+    GATSBY = 'gatsby',
+    IOS = 'ios',
+    ANDROID = 'android',
+    FLUTTER = 'flutter',
+    REACT_NATIVE = 'react_native',
+    NODE_JS = 'nodejs',
+    RUBY = 'ruby',
+    PYTHON = 'python',
+    PHP = 'php',
+    GO = 'go',
+    ELIXIR = 'elixir',
+    API = 'api',
 }
