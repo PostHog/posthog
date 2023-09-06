@@ -50,7 +50,7 @@ export const sdksLogic = kea<sdksLogicType>({
             },
         ],
         sdks: [
-            null as SDK[] | null,
+            [] as SDK[] | null,
             {
                 setSDKs: (_, { sdks }) => sdks,
             },
@@ -71,6 +71,16 @@ export const sdksLogic = kea<sdksLogicType>({
             {} as SDKInstructionsMap,
             {
                 setAvailableSDKInstructionsMap: (_, { sdkInstructionMap }) => sdkInstructionMap,
+            },
+        ],
+    },
+    selectors: {
+        showSourceOptionsSelect: [
+            (selectors) => [selectors.sourceOptions, selectors.sdks],
+            (sourceOptions: LemonSelectOptions<string>, sdks: SDK[]): boolean => {
+                // more than two source options since one will almost always be "recommended"
+                // more than 5 sdks since with fewer you don't really need to filter
+                return sdks.length > 5 && sourceOptions.length > 2
             },
         ],
     },

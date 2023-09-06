@@ -18,7 +18,7 @@ export function SDKs({
     subtitle?: string
 }): JSX.Element {
     const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap } = useActions(sdksLogic)
-    const { sourceFilter, sdks, selectedSDK, sourceOptions } = useValues(sdksLogic)
+    const { sourceFilter, sdks, selectedSDK, sourceOptions, showSourceOptionsSelect } = useValues(sdksLogic)
     const { productKey } = useValues(onboardingLogic)
 
     useEffect(() => {
@@ -33,7 +33,7 @@ export function SDKs({
             <LemonDivider className="my-8" />
             <div className="flex gap-x-8 mt-8">
                 <div className={`flex flex-col gap-y-2 flex-wrap gap-x-4 min-w-50`}>
-                    {sourceOptions.length > 1 && (
+                    {showSourceOptionsSelect && (
                         <LemonSelect
                             allowClear
                             onChange={(v) => setSourceFilter(v)}
