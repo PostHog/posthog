@@ -12,7 +12,7 @@ export function JSInstallSnippet(): JSX.Element {
 export function SessionReplayFinalSteps(): JSX.Element {
     return (
         <>
-            <h4>Optional: Configure</h4>
+            <h3>Optional: Configure</h3>
             <p>
                 Advanced users can add{' '}
                 <Link to="https://posthog.com/docs/libraries/js#config" target="_blank">

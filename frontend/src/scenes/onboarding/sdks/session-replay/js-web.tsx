@@ -34,6 +34,8 @@ export function JSWebInstructions(): JSX.Element {
             <JSInstallSnippet />
             <h4>Initialize</h4>
             <JSSetupSnippet />
+            <LemonDivider thick dashed className="my-4" />
+            <h3>Final steps</h3>
             <SessionReplayFinalSteps />
         </>
     )
