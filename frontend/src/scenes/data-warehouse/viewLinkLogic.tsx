@@ -8,7 +8,6 @@ import { databaseSceneLogic } from 'scenes/data-management/database/databaseScen
 import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import type { viewLinkLogicType } from './viewLinkLogicType'
-import { ViewLinkKeyLabel } from './ViewLinkModal'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
@@ -16,11 +15,6 @@ const NEW_VIEW_LINK: DataWarehouseViewLink = {
     table: undefined,
     to_join_key: undefined,
     from_join_key: undefined,
-}
-
-export interface KeySelectOption {
-    value: string
-    label: JSX.Element
 }
 
 export const viewLinkLogic = kea<viewLinkLogicType>([
@@ -69,34 +63,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     forms(({ actions, values }) => ({
         viewLink: {
             defaults: NEW_VIEW_LINK,
-            errors: ({ saved_query_id, to_join_key, from_join_key }) => {
-                let to_join_key_err: string | undefined = undefined
-                let from_join_key_err: string | undefined = undefined
-
-                if (!to_join_key) {
-                    to_join_key_err = 'Must select a join key'
-                }
-
-                if (!from_join_key) {
-                    from_join_key_err = 'Must select a join key'
-                }
-
-                if (
-                    to_join_key &&
-                    from_join_key &&
-                    values.mappedToJoinKeyOptions[to_join_key]?.type !==
-                        values.mappedFromJoinKeyOptions[from_join_key]?.type
-                ) {
-                    to_join_key_err = 'Join key types must match'
-                    from_join_key_err = 'Join key types must match'
-                }
-
-                return {
-                    saved_query_id: !saved_query_id ? 'Must select a view' : undefined,
-                    to_join_key: to_join_key_err,
-                    from_join_key: from_join_key_err,
-                }
-            },
+            errors: ({ saved_query_id, to_join_key, from_join_key }) => ({
+                saved_query_id: !saved_query_id ? 'Must select a view' : undefined,
+                to_join_key: !to_join_key ? 'Must select a join key' : undefined,
+                from_join_key: !from_join_key ? 'Must select a join key' : undefined,
+            }),
             submit: async ({ saved_query_id, to_join_key, from_join_key }) => {
                 if (values.selectedTable) {
                     await api.dataWarehouseViewLinks.create({
@@ -107,7 +78,6 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     })
                     actions.toggleFieldModal()
                     actions.loadDatabase()
-                    actions.loadViewLinks()
                 }
             },
         },
@@ -150,50 +120,26 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         ],
         toJoinKeyOptions: [
             (s) => [s.selectedView],
-            (selectedView: DataWarehouseSceneRow | null): KeySelectOption[] => {
+            (selectedView: DataWarehouseSceneRow | null) => {
                 if (!selectedView) {
                     return []
                 }
                 return selectedView.columns.map((column) => ({
                     value: column.key,
-                    label: <ViewLinkKeyLabel column={column} />,
+                    label: column.key,
                 }))
-            },
-        ],
-        mappedToJoinKeyOptions: [
-            (s) => [s.selectedView],
-            (selectedView: DataWarehouseSceneRow | null) => {
-                if (!selectedView) {
-                    return []
-                }
-                return selectedView.columns.reduce((acc, column) => {
-                    acc[column.key] = column
-                    return acc
-                }, {})
             },
         ],
         fromJoinKeyOptions: [
-            (s) => [s.selectedTable],
-            (selectedTable: DataWarehouseSceneRow | null): KeySelectOption[] => {
-                if (!selectedTable) {
-                    return []
-                }
-                return selectedTable.columns.map((column) => ({
-                    value: column.key,
-                    label: <ViewLinkKeyLabel column={column} />,
-                }))
-            },
-        ],
-        mappedFromJoinKeyOptions: [
             (s) => [s.selectedTable],
             (selectedTable: DataWarehouseSceneRow | null) => {
                 if (!selectedTable) {
                     return []
                 }
-                return selectedTable.columns.reduce((acc, column) => {
-                    acc[column.key] = column
-                    return acc
-                }, {})
+                return selectedTable.columns.map((column) => ({
+                    value: column.key,
+                    label: column.key,
+                }))
             },
         ],
     }),
