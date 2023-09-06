@@ -139,6 +139,7 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
+    KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
@@ -258,6 +259,8 @@ export interface Hub extends PluginsServerConfig {
     conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
+    // ValueMatchers used for various opt-in/out features
+    pluginConfigsToSkipElementsParsing: ValueMatcher<number>
 }
 
 export interface PluginServerCapabilities {
