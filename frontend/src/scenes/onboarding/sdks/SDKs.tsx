@@ -38,46 +38,28 @@ export function SDKs({
                             options={sourceOptions}
                             placeholder="Select a source type"
                             value={sourceFilter}
-                            className="w-full"
+                            fullWidth
                         />
                     )}
                     {sdks?.map((sdk) => (
                         <React.Fragment key={`sdk-${sdk.key}`}>
-                            {selectedSDK?.key == sdk.key ? (
-                                <LemonButton
-                                    type="secondary"
-                                    className="flex"
-                                    icon={
-                                        <div className="w-4">
-                                            {typeof sdk.image === 'string' ? (
-                                                <img src={sdk.image} className="w-4" />
-                                            ) : (
-                                                sdk.image
-                                            )}
-                                        </div>
-                                    }
-                                >
-                                    {sdk.name}
-                                </LemonButton>
-                            ) : (
-                                <LemonButton
-                                    type="tertiary"
-                                    status="muted"
-                                    className="flex"
-                                    onClick={() => setSelectedSDK(sdk)}
-                                    icon={
-                                        <div className="w-4">
-                                            {typeof sdk.image === 'string' ? (
-                                                <img src={sdk.image} className="w-4" />
-                                            ) : (
-                                                sdk.image
-                                            )}
-                                        </div>
-                                    }
-                                >
-                                    {sdk.name}
-                                </LemonButton>
-                            )}
+                            <LemonButton
+                                status={selectedSDK?.key === sdk.key ? 'primary' : 'muted-alt'}
+                                active={selectedSDK?.key === sdk.key}
+                                onClick={selectedSDK?.key !== sdk.key ? () => setSelectedSDK(sdk) : undefined}
+                                fullWidth
+                                icon={
+                                    <div className="w-4">
+                                        {typeof sdk.image === 'string' ? (
+                                            <img src={sdk.image} className="w-4" />
+                                        ) : (
+                                            sdk.image
+                                        )}
+                                    </div>
+                                }
+                            >
+                                {sdk.name}
+                            </LemonButton>
                         </React.Fragment>
                     ))}
                 </div>
