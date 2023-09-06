@@ -268,7 +268,7 @@ export function Toolbar3000(): JSX.Element {
 
     return (
         <>
-            <ToolbarInfoMenu />
+            {!minimizedWidth && <ToolbarInfoMenu />}
             <div
                 className={clsx(
                     'Toolbar3000 px-2 h-10 space-x-2 rounded-lg flex flex-row items-center floating-toolbar-button',
