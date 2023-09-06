@@ -23,7 +23,7 @@ base64 = "0.21.1"
 uuid = { version = "1.3.3", features = ["serde", "v4"] }
 async-trait = "0.1.68"
 serde_urlencoded = "0.7.1"
-rdkafka = { version = "0.25", features = ["cmake-build"] }
+rdkafka = { version = "0.34", features = ["cmake-build"] }
 
 [dev-dependencies]
 axum-test-helper = "0.2.0"
