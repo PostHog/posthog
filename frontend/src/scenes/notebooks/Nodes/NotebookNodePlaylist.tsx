@@ -1,5 +1,5 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, NotebookNodeWidgetSettings, RecordingFilters } from '~/types'
+import { FilterType, NotebookNodeType, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
@@ -18,7 +18,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
 
@@ -72,7 +72,10 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     return <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
 }
 
-export const Settings = ({ attributes, updateAttributes }: NotebookNodeWidgetSettings): JSX.Element => {
+export const Settings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeWidgetSettings<NotebookNodePlaylistAttributes>): JSX.Element => {
     const [filters, setFilters] = useJsonNodeState<RecordingFilters | undefined>(
         attributes,
         updateAttributes,

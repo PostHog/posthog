@@ -1,17 +1,17 @@
 import { Query } from '~/queries/Query/Query'
-import { NodeKind, QuerySchema } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { BindLogic, useValues } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { useValues } from 'kea'
 import { useJsonNodeState } from './utils'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
+import clsx from 'clsx'
+import { IconSettings } from 'lib/lemon-ui/icons'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
-    full: false,
     source: {
         kind: NodeKind.EventsQuery,
         select: ['*', 'event', 'person', 'timestamp'],
@@ -19,13 +19,10 @@ const DEFAULT_QUERY: QuerySchema = {
         after: '-24h',
         limit: 100,
     },
-    expandable: false,
 }
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const [query, setQuery] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
-    const logic = insightLogic({ dashboardItemId: 'new' })
-    const { insightProps } = useValues(logic)
+    const [query] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
     const { expanded } = useValues(notebookNodeLogic)
 
     const modifiedQuery = useMemo(() => {
@@ -35,23 +32,72 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.full = false
+            modifiedQuery.showHogQLEditor = false
+            modifiedQuery.embedded = true
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = false
+            modifiedQuery.showHeader = false
+            modifiedQuery.showTable = false
+            modifiedQuery.showCorrelationTable = false
+            modifiedQuery.embedded = true
         }
+
         return modifiedQuery
-    }, [query, expanded])
+    }, [query])
 
     if (!expanded) {
         return null
     }
 
     return (
-        <BindLogic logic={insightLogic} props={insightProps}>
-            <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
-        </BindLogic>
+        <div
+            className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
+        >
+            <Query query={modifiedQuery} uniqueKey={props.node.attrs.nodeId} />
+        </div>
     )
 }
 
 type NotebookNodeQueryAttributes = {
     query: QuerySchema
+}
+
+export const Settings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeWidgetSettings<NotebookNodeQueryAttributes>): JSX.Element => {
+    const [query, setQuery] = useJsonNodeState<QuerySchema>(attributes, updateAttributes, 'query')
+
+    const modifiedQuery = useMemo(() => {
+        const modifiedQuery = { ...query }
+
+        if (NodeKind.DataTableNode === modifiedQuery.kind) {
+            // We don't want to show the insights button for now
+            modifiedQuery.showOpenEditorButton = false
+            modifiedQuery.showHogQLEditor = true
+            modifiedQuery.showResultsTable = false
+            modifiedQuery.showReload = true
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = true
+            modifiedQuery.showResults = false
+            modifiedQuery.embedded = true
+        }
+
+        return modifiedQuery
+    }, [query])
+
+    return (
+        <div className="p-3">
+            <Query
+                query={modifiedQuery}
+                setQuery={(t) => {
+                    setQuery({ ...query, source: (t as DataTableNode | InsightVizNode).source } as QuerySchema)
+                }}
+                readOnly={false}
+                uniqueKey={attributes.nodeId}
+            />
+        </div>
+    )
 }
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
@@ -70,6 +116,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     },
     Component,
     heightEstimate: 500,
+    minHeight: 200,
     resizeable: true,
     startExpanded: true,
     attributes: {
@@ -77,4 +124,12 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
     },
+    widgets: [
+        {
+            key: 'settings',
+            label: 'Settings',
+            icon: <IconSettings />,
+            Component: Settings,
+        },
+    ],
 })

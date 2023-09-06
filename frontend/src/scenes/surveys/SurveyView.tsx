@@ -68,9 +68,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 </LemonButton>
                                                 <LemonDivider />
                                             </>
-                                            <LemonButton onClick={() => archiveSurvey()} fullWidth>
-                                                Archive
-                                            </LemonButton>
+                                            {survey.end_date && !survey.archived && (
+                                                <LemonButton onClick={() => archiveSurvey()} fullWidth>
+                                                    Archive
+                                                </LemonButton>
+                                            )}
                                             <LemonButton status="danger" fullWidth onClick={() => deleteSurvey(id)}>
                                                 Delete survey
                                             </LemonButton>
