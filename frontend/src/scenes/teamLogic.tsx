@@ -106,7 +106,7 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(() => ({
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
@@ -198,7 +198,7 @@ export const teamLogic = kea<teamLogicType>([
                 return frequentMistakes
             },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
         deleteTeam: async ({ team }) => {
             try {
