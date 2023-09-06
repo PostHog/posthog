@@ -611,16 +611,6 @@ const ensureProjectIdNotInvalid = (url: string): void => {
     }
 }
 
-function getSessionId(): string | undefined {
-    // get_session_id is not always present e.g. in the toolbar
-    // but our typing in the SDK doesn't make this clear
-    // TODO when the SDK makes this safe this check can be simplified
-    if (typeof posthog?.get_session_id !== 'function') {
-        return undefined
-    }
-    return posthog.get_session_id()
-}
-
 const api = {
     insights: {
         loadInsight(
@@ -1608,9 +1598,6 @@ const api = {
         try {
             response = await fetch(url, {
                 signal: options?.signal,
-                headers: {
-                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
-                },
             })
         } catch (e) {
             throw { status: 0, message: e }
@@ -1634,7 +1621,6 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1666,7 +1652,6 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1692,7 +1677,6 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
             },
         })
 
