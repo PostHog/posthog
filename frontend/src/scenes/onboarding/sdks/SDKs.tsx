@@ -11,9 +11,11 @@ import { SDKInstructionsMap } from '~/types'
 export function SDKs({
     usersAction,
     sdkInstructionMap,
+    subtitle,
 }: {
     usersAction?: string
     sdkInstructionMap: SDKInstructionsMap
+    subtitle?: string
 }): JSX.Element {
     const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap } = useActions(sdksLogic)
     const { sourceFilter, sdks, selectedSDK, sourceOptions } = useValues(sdksLogic)
@@ -26,7 +28,7 @@ export function SDKs({
     return (
         <OnboardingStep
             title={`Where are you ${usersAction || 'collecting data'} from?`}
-            subtitle="Pick one or two to start and add more sources later."
+            subtitle={subtitle || 'Pick one or two to start and add more sources later.'}
         >
             <LemonDivider className="my-8" />
             <div className="flex gap-x-8 mt-8">

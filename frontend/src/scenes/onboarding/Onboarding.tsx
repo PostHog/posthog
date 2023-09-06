@@ -61,7 +61,11 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 const SessionReplayOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <SDKs usersAction="recording sessions" sdkInstructionMap={SessionReplaySDKInstructions} />
+            <SDKs
+                usersAction="recording sessions"
+                sdkInstructionMap={SessionReplaySDKInstructions}
+                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library."
+            />
         </OnboardingWrapper>
     )
 }
