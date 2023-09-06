@@ -6,7 +6,8 @@ import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { BillingProductV2Type } from '~/types'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
-import { IconCheckCircleOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconArrowLeft, IconCheckCircleOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 export const OnboardingProductIntro = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { currentAndUpgradePlans, isPricingModalOpen } = useValues(billingProductLogic({ product }))
@@ -31,6 +32,18 @@ export const OnboardingProductIntro = ({ product }: { product: BillingProductV2T
             <div className="flex flex-col w-full p-6 bg-mid items-center justify-center">
                 <div className="max-w-lg flex flex-wrap my-8 items-center">
                     <div className="w-1/2 pr-6 min-w-80">
+                        <div className="flex flex-row mb-6">
+                            <LemonButton
+                                to={urls.products()}
+                                icon={<IconArrowLeft />}
+                                type="tertiary"
+                                status="muted"
+                                noPadding
+                                size="small"
+                            >
+                                <span className="pr-1">All products</span>
+                            </LemonButton>
+                        </div>
                         <h1 className="text-5xl font-bold">{product.name}</h1>
                         <h2 className="font-bold mb-6">{product.description}</h2>
                         <div className="flex gap-x-2">
