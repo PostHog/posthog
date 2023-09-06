@@ -32,7 +32,7 @@ export function JSWebInstructions(): JSX.Element {
             <h3>Option 2. Javascript Library</h3>
             <h4>Install the package</h4>
             <JSInstallSnippet />
-            <h3>Initialize</h3>
+            <h4>Initialize</h4>
             <JSSetupSnippet />
             <SessionReplayFinalSteps />
         </>

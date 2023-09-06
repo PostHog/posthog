@@ -63,7 +63,7 @@ export function NextJSInstructions(): JSX.Element {
         <>
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />
-            <h3>Add enviornment variables</h3>
+            <h3>Add environment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
                 Netlify, AWS). You can find your project API key in your project settings.
@@ -87,7 +87,7 @@ export function NextJSInstructions(): JSX.Element {
                 If your Next.js app to uses the <Link to="https://nextjs.org/docs/app">app router</Link>, you can
                 integrate PostHog by creating a providers file in your app folder. This is because the posthog-js
                 library needs to be initialized on the client-side using the Next.js{' '}
-                <Link to="https://nextjs.org/docs/getting-started/react-essentials#client-components">
+                <Link to="https://nextjs.org/docs/getting-started/react-essentials#client-components" target="_blank">
                     <code>'use client'</code> directive
                 </Link>
                 .
