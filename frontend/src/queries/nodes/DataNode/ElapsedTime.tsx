@@ -5,7 +5,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import clsx from 'clsx'
 import { QueryTiming } from '~/queries/schema'
 
-function ElapsedTimeFinished({
+function ElapsedTimeWithTimings({
     elapsedTime,
     hasError,
     timings,
@@ -76,7 +76,7 @@ export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Ele
     }
 
     if (elapsedTime && timings && showTimings) {
-        return <ElapsedTimeFinished elapsedTime={elapsedTime} timings={timings} hasError={!!responseError} />
+        return <ElapsedTimeWithTimings elapsedTime={elapsedTime} timings={timings} hasError={!!responseError} />
     }
 
     return <div className={responseError ? 'text-danger' : ''}>{(time / 1000).toFixed(time < 1000 ? 2 : 1)}s</div>
