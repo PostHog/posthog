@@ -28,7 +28,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { isInsightVizNode } from '~/queries/utils'
+import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { useState } from 'react'
@@ -211,6 +211,25 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             fullWidth
                                                         >
                                                             {showQueryEditor ? 'Hide source' : 'View source'}
+                                                        </LemonButton>
+                                                    ) : null}
+                                                    {isHogQLQuery(query) ||
+                                                    (isDataTableNode(query) && isHogQLQuery(query.source)) ? (
+                                                        <LemonButton
+                                                            status="stealth"
+                                                            onClick={() => {
+                                                                // console.log(insight)
+                                                                // debugger
+                                                                // if (
+                                                                //     'hogql' in insight.result &&
+                                                                //     typeof insight.result.hogql === 'string'
+                                                                // ) {
+                                                                //     console.log(insight.result.hogql)
+                                                                // }
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            View final query
                                                         </LemonButton>
                                                     ) : null}
                                                     <LemonDivider />
