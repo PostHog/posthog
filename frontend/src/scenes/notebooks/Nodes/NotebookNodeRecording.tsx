@@ -60,12 +60,14 @@ export const Settings = ({
     updateAttributes,
 }: NotebookNodeWidgetSettings<NotebookNodeRecordingAttributes>): JSX.Element => {
     return (
-        <LemonSwitch
-            onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
-            label="Hide Inspector"
-            checked={attributes.noInspector}
-            fullWidth={true}
-        />
+        <div className="p-3">
+            <LemonSwitch
+                onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
+                label="Hide Inspector"
+                checked={attributes.noInspector}
+                fullWidth={true}
+            />
+        </div>
     )
 }
 
