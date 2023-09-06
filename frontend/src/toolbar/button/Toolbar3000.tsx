@@ -33,6 +33,7 @@ import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { HELP_URL } from './ToolbarButton'
 import { useLayoutEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import clsx from 'clsx'
 
 function MoreMenu({
     onOpenOrClose,
@@ -234,8 +235,8 @@ function ToolbarInfoMenu(): JSX.Element {
 }
 
 export function Toolbar3000(): JSX.Element {
-    const { flagsVisible, closeTheLastOpenedMenu } = useValues(toolbarButtonLogic)
-    const { showFlags, hideFlags } = useActions(toolbarButtonLogic)
+    const { flagsVisible, closeTheLastOpenedMenu, minimizedWidth } = useValues(toolbarButtonLogic)
+    const { showFlags, hideFlags, toggleWidth } = useActions(toolbarButtonLogic)
 
     const { buttonActionsVisible } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
@@ -269,13 +270,18 @@ export function Toolbar3000(): JSX.Element {
         <>
             <ToolbarInfoMenu />
             <div
-                className={
-                    'Toolbar3000 px-2 w-auto h-10 space-x-2 rounded-lg flex flex-row items-center floating-toolbar-button'
-                }
+                className={clsx(
+                    'Toolbar3000 px-2 h-10 space-x-2 rounded-lg flex flex-row items-center floating-toolbar-button',
+                    minimizedWidth ? 'Toolbar3000--minimized-wdth' : ''
+                )}
             >
-                <IconDragHandle className={'text-2xl cursor-grab'} />
-                <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
-                {isAuthenticated ? (
+                {!minimizedWidth ? (
+                    <>
+                        <IconDragHandle className={'text-2xl cursor-grab'} />
+                        <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
+                    </>
+                ) : null}
+                {isAuthenticated && !minimizedWidth ? (
                     <>
                         <LemonButton
                             title={'Inspect'}
@@ -315,7 +321,12 @@ export function Toolbar3000(): JSX.Element {
                         <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
                     </>
                 ) : null}
-                <Logomark3000 />
+                <Logomark3000
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        toggleWidth()
+                    }}
+                />
             </div>
         </>
     )

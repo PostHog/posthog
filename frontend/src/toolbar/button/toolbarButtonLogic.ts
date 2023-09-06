@@ -24,6 +24,8 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         showFlags: true,
         hideFlags: true,
         toggleTheme: true,
+        toggleWidth: true,
+        setMenuPlacement: (placement: 'top' | 'bottom') => ({ placement }),
         setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
         setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
@@ -40,6 +42,18 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     })),
 
     reducers(({ actions }) => ({
+        menuPlacement: [
+            'top' as 'top' | 'bottom',
+            {
+                setMenuPlacement: (_, { placement }) => placement,
+            },
+        ],
+        minimizedWidth: [
+            false,
+            {
+                toggleWidth: (state) => !state,
+            },
+        ],
         theme: [
             'light' as 'light' | 'dark',
             { persist: true },

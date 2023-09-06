@@ -169,8 +169,15 @@
 .Toolbar3000 {
     background-color: var(--bg-3000);
     color: var(--text-3000);
-    transition: filter 0.2s ease;
+    transition-property: filter, width;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
     filter: drop-shadow(1px 2px 2px var(--trace-3000));
+
+    width: 12rem;
+    &.Toolbar3000--minimized-width {
+        width: 2rem;
+    }
 
     &:hover {
         filter: drop-shadow(1px 2px 4px var(--trace-3000));
