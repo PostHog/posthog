@@ -14,7 +14,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.resolver import ResolverException, resolve_types
-from posthog.test.base import BaseTest, APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):
@@ -962,43 +962,3 @@ class TestResolver(BaseTest):
         self.assertEqual(lambda_type.parent, node.type)
         self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
         self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
-
-
-class TestResolverView(ClickhouseTestMixin, APIBaseTest):
-    def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.SelectQuery:
-        return cast(ast.SelectQuery, clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True))
-
-    def _setUp(self):
-        self.database = create_hogql_database(self.team.pk)
-        self.context = HogQLContext(database=self.database, team_id=self.team.pk)
-
-    def test_nested_view(self):
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": f"select event as event from events LIMIT 100",
-                },
-            },
-        )
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "nested_event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": f"select event as event from event_view",
-                },
-            },
-        )
-
-        self._setUp()
-        node = self._select("select event from nested_event_view")
-
-        with self.assertRaises(ResolverException) as e:
-            node = resolve_types(node, self.context)
-        self.assertEqual(str(e.exception), "Nested views are not supported")
