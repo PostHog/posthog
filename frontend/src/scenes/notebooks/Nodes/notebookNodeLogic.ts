@@ -3,6 +3,7 @@ import {
     afterMount,
     beforeUnmount,
     BuiltLogic,
+    connect,
     kea,
     key,
     listeners,
@@ -14,27 +15,31 @@ import {
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
-import { JSONContent, Node, NotebookNodeWidget } from '../Notebook/utils'
+import { CustomNotebookNodeAttributes, JSONContent, Node, NotebookNodeWidget } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 
 export type NotebookNodeLogicProps = {
     node: Node
-    nodeId: string | null
+    nodeId: string
     nodeType: NotebookNodeType
-    nodeAttributes: Record<string, any>
-    updateAttributes: (attributes: Record<string, any>) => void
+    nodeAttributes: CustomNotebookNodeAttributes
+    updateAttributes: (attributes: CustomNotebookNodeAttributes) => void
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     title: string | ((attributes: any) => Promise<string>)
     widgets: NotebookNodeWidget[]
-    startExpanded?: boolean
+    startExpanded: boolean
 }
 
 async function renderTitle(
     title: NotebookNodeLogicProps['title'],
     attrs: NotebookNodeLogicProps['nodeAttributes']
 ): Promise<string> {
+    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
+        return attrs.title
+    }
+
     return typeof title === 'function' ? await title(attrs) : title
 }
 
@@ -47,15 +52,20 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setTitle: (title: string) => ({ title }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
-        updateAttributes: (attributes: Record<string, any>) => ({ attributes }),
+        updateAttributes: (attributes: CustomNotebookNodeAttributes) => ({ attributes }),
         insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
             timestamp,
             sessionRecordingId,
         }),
+        setPreviousNode: (node: Node | null) => ({ node }),
+        setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
-        // TODO: Implement this
-        // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
     }),
+
+    connect((props: NotebookNodeLogicProps) => ({
+        actions: [props.notebookLogic, ['onUpdateEditor']],
+        values: [props.notebookLogic, ['editor']],
+    })),
 
     reducers(({ props }) => ({
         expanded: [
@@ -70,6 +80,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setTitle: (_, { title }) => title,
             },
         ],
+        previousNode: [
+            null as Node | null,
+            {
+                setPreviousNode: (_, { node }) => node,
+            },
+        ],
+        nextNode: [
+            null as Node | null,
+            {
+                setNextNode: (_, { node }) => node,
+            },
+        ],
     })),
 
     selectors({
@@ -78,7 +100,17 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         widgets: [(_, p) => [p.widgets], (widgets) => widgets],
     }),
 
-    listeners(({ values, props }) => ({
+    listeners(({ actions, values, props }) => ({
+        onUpdateEditor: async () => {
+            const editor = values.notebookLogic.values.editor
+            if (editor) {
+                const pos = props.getPos()
+                const { previous, next } = editor.getAdjacentNodes(pos)
+                actions.setPreviousNode(previous)
+                actions.setNextNode(next)
+            }
+        },
+
         insertAfter: ({ content }) => {
             const logic = values.notebookLogic
             logic.values.editor?.insertContentAfterNode(props.getPos(), content)

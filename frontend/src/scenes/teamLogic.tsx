@@ -106,7 +106,7 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(() => ({
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
@@ -129,6 +129,11 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
         timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
+        /** 0 means Sunday, 1 means Monday. */
+        weekStartDay: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number => currentTeam?.week_start_day || 0,
+        ],
         isTeamTokenResetAvailable: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): boolean =>
@@ -193,7 +198,7 @@ export const teamLogic = kea<teamLogicType>([
                 return frequentMistakes
             },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
         deleteTeam: async ({ team }) => {
             try {
