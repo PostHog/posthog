@@ -914,6 +914,7 @@ class DataTableNode(BaseModel):
     showResultsTable: Optional[bool] = Field(None, description="Show a results table")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
+    showTimings: Optional[bool] = Field(None, description="Show a detailed query timing breakdown")
     source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
         ..., description="Source of the events"
     )

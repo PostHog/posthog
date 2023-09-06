@@ -369,6 +369,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showTimings": {
+                    "description": "Show a detailed query timing breakdown",
+                    "type": "boolean"
+                },
                 "source": {
                     "anyOf": [
                         {
