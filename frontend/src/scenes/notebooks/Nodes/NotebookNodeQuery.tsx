@@ -1,7 +1,7 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { InsightShortId, NotebookNodeType } from '~/types'
 import { useValues } from 'kea'
 import { useJsonNodeState } from './utils'
 import { useMemo } from 'react'
@@ -9,6 +9,8 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
+import api from 'lib/api'
 
 import './NotebookNodeQuery.scss'
 
@@ -104,10 +106,15 @@ export const Settings = ({
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: (attributes) => {
+    title: async (attributes) => {
         const query = attributes.query
         let title = 'HogQL'
-        if (NodeKind.DataTableNode === query.kind) {
+        if (NodeKind.SavedInsightNode === query.kind) {
+            const response = await api.insights.loadInsight(query.shortId)
+            title = response.results[0].name?.length
+                ? response.results[0].name
+                : response.results[0].derived_name || 'Saved insight'
+        } else if (NodeKind.DataTableNode === query.kind) {
             if (query.source.kind) {
                 title = query.source.kind.replace('Node', '').replace('Query', '')
             } else {
@@ -134,4 +141,15 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             Component: Settings,
         },
     ],
+    pasteOptions: {
+        find: urls.insightView('(.+)' as InsightShortId),
+        getAttributes: async (match) => {
+            return {
+                query: {
+                    kind: NodeKind.SavedInsightNode,
+                    shortId: match[1] as InsightShortId,
+                },
+            }
+        },
+    },
 })
