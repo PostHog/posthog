@@ -195,8 +195,8 @@ dependencies:
     specifier: ^0.39.0
     version: 0.39.0
   posthog-js:
-    specifier: 1.77.3
-    version: 1.77.3
+    specifier: 1.78.0
+    version: 1.78.0
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -973,8 +973,8 @@ packages:
     dependencies:
       '@babel/types': 7.22.10
 
-  /@babel/parser@7.22.15:
-    resolution: {integrity: sha512-RWmQ/sklUN9BvGGpCDgSubhHWfAx24XDTDObup4ffvxaYsptOg2P3KG0j+1eWKLxpkX0j0uHxmpq2Z1SP/VhxA==}
+  /@babel/parser@7.22.16:
+    resolution: {integrity: sha512-+gPfKv8UWeKKeJTUxe59+OobVcrYHETCsORl61EmSkmgymguYk/X5bp7GuUIXaFsc6y++v8ZxPsLSSuujqDphA==}
     engines: {node: '>=6.0.0'}
     hasBin: true
     dependencies:
@@ -5720,7 +5720,7 @@ packages:
   /@types/babel__core@7.20.1:
     resolution: {integrity: sha512-aACu/U/omhdk15O4Nfb+fHgH/z3QsfQzpnvRZhYhThms83ZnAOZz7zZAWO7mn2yyNQaA4xTO8GLK3uqFU4bYYw==}
     dependencies:
-      '@babel/parser': 7.22.15
+      '@babel/parser': 7.22.16
       '@babel/types': 7.22.15
       '@types/babel__generator': 7.6.4
       '@types/babel__template': 7.4.1
@@ -14909,8 +14909,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.77.3:
-    resolution: {integrity: sha512-DKsGpBIUjQSihhGruEW8wpVCkeDxU4jz7gADdXX2jEWV6bl4WpUPxjo1ukidVDFvvc/ihCM5PQWMQrItexdpSA==}
+  /posthog-js@1.78.0:
+    resolution: {integrity: sha512-JB3Ehq0i7rGo1ieT7r5IDlgOVt7oJxBYLql1QYnJTctCg9ohpjXyI/gjLqvrTHkmFeu+PDu9RLBKijoxZNgIsQ==}
     dependencies:
       fflate: 0.4.8
     dev: false
