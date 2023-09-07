@@ -254,6 +254,7 @@ export class IngestionConsumer {
             consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             fetchBatchSize: 500,
+            topicCreationTimeoutMs: this.pluginsServer.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             eachBatch: (payload) => this.eachBatchConsumer(payload),
         })
         this.consumerReady = true

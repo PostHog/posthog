@@ -16,8 +16,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
 import { LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
 
@@ -41,13 +39,11 @@ export const AdvancedSessionRecordingsFilters = ({
 
     return (
         <div className="space-y-2">
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
-                <TestAccountFilter
-                    filters={filters}
-                    onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
-                    disabledReason={hasGroupFilters ? 'Session replay does not support group filters' : false}
-                />
-            </FlaggedFeature>
+            <TestAccountFilter
+                filters={filters}
+                onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
+                disabledReason={hasGroupFilters ? 'Session replay does not support group filters' : false}
+            />
 
             <LemonLabel>Time and duration</LemonLabel>
             <div className="flex flex-wrap gap-2">

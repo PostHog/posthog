@@ -251,15 +251,18 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         This path only supports loading from S3 or Redis based on query params
         """
 
-        event_properties = {"team_id": self.team.pk}
-
-        if request.headers.get("X-POSTHOG-SESSION-ID"):
-            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-
         recording = self.get_object()
         response_data = {}
         source = request.GET.get("source")
-        event_properties["request_source"] = source
+
+        event_properties = {
+            "team_id": self.team.pk,
+            "request_source": source,
+            "session_being_loaded": recording.session_id,
+        }
+
+        if request.headers.get("X-POSTHOG-SESSION-ID"):
+            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
 
         posthoganalytics.capture(
             self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
@@ -360,17 +363,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         1. From S3 if the session is older than our ingestion limit. This will be multiple files that can be streamed to the client
         2. From Redis if the session is newer than our ingestion limit.
         3. From Clickhouse whilst we are migrating to the new ingestion method
+
+        NB calling this API without `version=2` in the query params or with no version is deprecated and will be removed in the future
         """
 
         if request.GET.get("version") == "2":
             return self._snapshots_v2(request)
-
-        event_properties = {"team_id": self.team.pk}
-        if request.headers.get("X-POSTHOG-SESSION-ID"):
-            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request), "v1 session recording snapshots viewed", event_properties
-        )
 
         recording = self.get_object()
 
@@ -392,6 +390,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         filter = Filter(request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
+
+        event_properties = {"team_id": self.team.pk, "session_being_loaded": recording.session_id, "offset": offset}
+
+        if request.headers.get("X-POSTHOG-SESSION-ID"):
+            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
+
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request), "v1 session recording snapshots viewed", event_properties
+        )
 
         # Optimisation step if passed to speed up retrieval of CH data
         if not recording.start_time:

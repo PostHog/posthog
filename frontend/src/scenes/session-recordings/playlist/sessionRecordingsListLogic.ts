@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { objectClean, toParams } from 'lib/utils'
+import { objectClean, objectsEqual, toParams } from 'lib/utils'
 import {
     AnyPropertyFilter,
     PropertyFilterType,
@@ -206,7 +206,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         loadPrev: true,
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        if (props.filters !== oldProps.filters) {
+        if (!objectsEqual(props.filters, oldProps.filters)) {
             props.filters ? actions.setFilters(props.filters) : actions.resetFilters()
         }
     }),
