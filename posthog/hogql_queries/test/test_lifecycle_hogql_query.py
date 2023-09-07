@@ -175,6 +175,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_lifecycle_query(date_from, date_to, IntervalType.day)
 
+        statuses = [res["status"] for res in response["result"]]
+        self.assertEqual(["new", "returning", "resurrecting", "dormant"], statuses)
+
         self.assertEqual(
             [
                 {
@@ -222,18 +225,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "status": "new",
                 },
                 {
-                    "count": -7.0,
+                    "count": 2.0,
                     "data": [
+                        0.0,  # 9th
+                        0.0,  # 10th
+                        0.0,  # 11th
+                        1.0,  # 12th, p1
+                        1.0,  # 13th, p1
                         0.0,
-                        -1.0,  # 10th, p2
                         0.0,
                         0.0,
-                        -2.0,  # 13th, p2, p3
-                        -1.0,  # 14th, p1
                         0.0,
-                        -2.0,  # 16th, p1, p4
                         0.0,
-                        -1.0,  # 18th, p1
                         0.0,
                     ],
                     "days": [
@@ -249,7 +252,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-18",
                         "2020-01-19",
                     ],
-                    "label": " - dormant",
+                    "label": " - returning",
                     "labels": [
                         "9-Jan-2020",
                         "10-Jan-2020",
@@ -263,7 +266,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
-                    "status": "dormant",
+                    "status": "returning",
                 },
                 {
                     "count": 4.0,
@@ -310,18 +313,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "status": "resurrecting",
                 },
                 {
-                    "count": 2.0,
+                    "count": -7.0,
                     "data": [
-                        0.0,  # 9th
-                        0.0,  # 10th
-                        0.0,  # 11th
-                        1.0,  # 12th, p1
-                        1.0,  # 13th, p1
+                        0.0,
+                        -1.0,  # 10th, p2
                         0.0,
                         0.0,
+                        -2.0,  # 13th, p2, p3
+                        -1.0,  # 14th, p1
                         0.0,
+                        -2.0,  # 16th, p1, p4
                         0.0,
-                        0.0,
+                        -1.0,  # 18th, p1
                         0.0,
                     ],
                     "days": [
@@ -337,7 +340,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-18",
                         "2020-01-19",
                     ],
-                    "label": " - returning",
+                    "label": " - dormant",
                     "labels": [
                         "9-Jan-2020",
                         "10-Jan-2020",
@@ -351,7 +354,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
-                    "status": "returning",
+                    "status": "dormant",
                 },
             ],
             response["result"],

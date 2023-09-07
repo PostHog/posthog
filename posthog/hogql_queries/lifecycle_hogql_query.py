@@ -151,8 +151,12 @@ def run_lifecycle_query(
         query_type="LifecycleQuery",
     )
 
+    # ensure that the items are in a deterministic order
+    order = {"new": 1, "returning": 2, "resurrecting": 3, "dormant": 4}
+    results = sorted(response.results, key=lambda result: order.get(result[2], result[2]))
+
     res = []
-    for val in response.results:
+    for val in results:
         counts = val[1]
         labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if interval == "hour" else "")) for item in val[0]]
         days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if interval == "hour" else "")) for item in val[0]]
