@@ -14,7 +14,7 @@ from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
 from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
-from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange
+from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
@@ -118,6 +118,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT DISTINCT person_id, distinct_id FROM person_distinct_ids LIMIT 100",
             )
             self.assertTrue(len(response.results) > 0)
+
+    def test_query_timings(self):
+        with freeze_time("2020-01-10"):
+            random_uuid = self._create_random_events()
+        response = execute_hogql_query(
+            "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
+            placeholders={"random_uuid": ast.Constant(value=random_uuid)},
+            team=self.team,
+        )
+        self.assertTrue(isinstance(response.timings, list) and len(response.timings) > 0)
+        self.assertTrue(isinstance(response.timings[0], QueryTiming))
+        self.assertEqual(response.timings[-1].k, ".")
 
     def test_query_joins_simple(self):
         with freeze_time("2020-01-10"):

@@ -178,16 +178,6 @@ class Response(BaseModel):
     results: List[EventType]
 
 
-class EventsQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    columns: List
-    hasMore: Optional[bool] = None
-    results: List[List]
-    types: List[str]
-
-
 class FilterLogicalOperator(str, Enum):
     AND = "AND"
     OR = "OR"
@@ -251,18 +241,6 @@ class HogQLNotice(BaseModel):
     fix: Optional[str] = None
     message: str
     start: Optional[float] = None
-
-
-class HogQLQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    clickhouse: Optional[str] = None
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    query: Optional[str] = None
-    results: Optional[List] = None
-    types: Optional[List] = None
 
 
 class IntervalType(str, Enum):
@@ -349,6 +327,14 @@ class PropertyOperator(str, Enum):
     not_between = "not_between"
     min = "min"
     max = "max"
+
+
+class QueryTiming(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    k: str = Field(..., description="Key. Shortened to 'k' to save on data.")
+    t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
 
 
 class RecordingDurationFilter(BaseModel):
@@ -492,6 +478,17 @@ class EventPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
+class EventsQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    columns: List
+    hasMore: Optional[bool] = None
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
 class FeaturePropertyFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -564,6 +561,19 @@ class HogQLPropertyFilter(BaseModel):
     label: Optional[str] = None
     type: str = Field("hogql", const=True)
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
+
+
+class HogQLQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    clickhouse: Optional[str] = None
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    query: Optional[str] = None
+    results: Optional[List] = None
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
 
 
 class LifecycleFilter(BaseModel):
@@ -929,6 +939,7 @@ class DataTableNode(BaseModel):
     showResultsTable: Optional[bool] = Field(None, description="Show a results table")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
+    showTimings: Optional[bool] = Field(None, description="Show a detailed query timing breakdown")
     source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
         ..., description="Source of the events"
     )

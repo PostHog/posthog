@@ -369,6 +369,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showTimings": {
+                    "description": "Show a detailed query timing breakdown",
+                    "type": "boolean"
+                },
                 "source": {
                     "anyOf": [
                         {
@@ -805,6 +809,12 @@
                     "items": {
                         "items": {},
                         "type": "array"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
                 },
@@ -1254,6 +1264,12 @@
                 },
                 "results": {
                     "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
                     "type": "array"
                 },
                 "types": {
@@ -1750,6 +1766,21 @@
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
+        },
+        "QueryTiming": {
+            "additionalProperties": false,
+            "properties": {
+                "k": {
+                    "description": "Key. Shortened to 'k' to save on data.",
+                    "type": "string"
+                },
+                "t": {
+                    "description": "Time in seconds. Shortened to 't' to save on data.",
+                    "type": "number"
+                }
+            },
+            "required": ["k", "t"],
+            "type": "object"
         },
         "RecordingDurationFilter": {
             "additionalProperties": false,

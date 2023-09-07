@@ -109,6 +109,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         embedded,
         showOpenEditorButton,
         showResultsTable,
+        showTimings,
     } = queryWithDefaults
 
     const isReadOnly = setQuery === undefined
@@ -351,7 +352,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const secondRowLeft = [
         showReload ? <Reload /> : null,
         showReload && canLoadNewData ? <AutoLoad /> : null,
-        showElapsedTime ? <ElapsedTime /> : null,
+        showElapsedTime ? <ElapsedTime showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
     const secondRowRight = [
