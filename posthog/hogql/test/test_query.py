@@ -1460,7 +1460,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(len(response.results), 0)
 
-            filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-01-02")
+            filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-02-02")
             response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
             self.assertEqual(len(response.results), 1)
 
