@@ -32,7 +32,7 @@ export const OnboardingProductIntro = ({ product }: { product: BillingProductV2T
             <div className="flex flex-col w-full p-6 bg-mid items-center justify-center">
                 <div className="max-w-lg flex flex-wrap my-8 items-center">
                     <div className="w-1/2 pr-6 min-w-80">
-                        <div className="flex flex-row mb-6">
+                        <div className="flex mb-6">
                             <LemonButton
                                 to={urls.products()}
                                 icon={<IconArrowLeft />}
