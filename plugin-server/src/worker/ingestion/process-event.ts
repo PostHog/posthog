@@ -272,7 +272,7 @@ export interface SummarizedSessionRecordingEvent {
     team_id: number
     distinct_id: string
     session_id: string
-    first_url: string | undefined
+    first_url: string | null
     click_count: number
     keypress_count: number
     mouse_activity_count: number
@@ -311,7 +311,7 @@ export const createSessionReplayEvent = (
     let consoleLogCount = 0
     let consoleWarnCount = 0
     let consoleErrorCount = 0
-    let url: string | undefined = undefined
+    let url: string | null = null
     events.forEach((event) => {
         if (event.type === 3) {
             mouseActivity += 1
@@ -322,7 +322,7 @@ export const createSessionReplayEvent = (
                 keypressCount += 1
             }
         }
-        if (!!event.data?.href?.trim().length && url === undefined) {
+        if (url === null && !!event.data?.href?.trim().length) {
             url = event.data.href
         }
         if (event.type === 6 && event.data?.plugin === 'rrweb/console@1') {
