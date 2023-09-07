@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Any
+
+from posthog.hogql.timings import HogQLTimings
 from posthog.utils import PersonOnEventsMode
 from posthog.schema import HogQLNotice
 
@@ -40,6 +42,8 @@ class HogQLContext:
     warnings: List["HogQLNotice"] = field(default_factory=list)
     # Notices returned with the metadata query
     notices: List["HogQLNotice"] = field(default_factory=list)
+    # Timings in seconds for different parts of the HogQL query
+    timings: HogQLTimings = field(default_factory=HogQLTimings)
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

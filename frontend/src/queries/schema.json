@@ -369,6 +369,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showTimings": {
+                    "description": "Show a detailed query timing breakdown",
+                    "type": "boolean"
+                },
                 "source": {
                     "anyOf": [
                         {
@@ -808,6 +812,12 @@
                     },
                     "type": "array"
                 },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
                 "types": {
                     "items": {
                         "type": "string"
@@ -1095,6 +1105,22 @@
         "HogQLExpression": {
             "type": "string"
         },
+        "HogQLFilters": {
+            "additionalProperties": false,
+            "description": "Filters object that will be converted to a HogQL {filters} placeholder",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "HogQLMathType": {
             "const": "hogql",
             "type": "string"
@@ -1104,6 +1130,9 @@
             "properties": {
                 "expr": {
                     "type": "string"
+                },
+                "filters": {
+                    "$ref": "#/definitions/HogQLFilters"
                 },
                 "kind": {
                     "const": "HogQLMetadata",
@@ -1199,6 +1228,9 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "filters": {
+                    "$ref": "#/definitions/HogQLFilters"
+                },
                 "kind": {
                     "const": "HogQLQuery",
                     "type": "string"
@@ -1232,6 +1264,12 @@
                 },
                 "results": {
                     "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
                     "type": "array"
                 },
                 "types": {
@@ -1728,6 +1766,21 @@
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
+        },
+        "QueryTiming": {
+            "additionalProperties": false,
+            "properties": {
+                "k": {
+                    "description": "Key. Shortened to 'k' to save on data.",
+                    "type": "string"
+                },
+                "t": {
+                    "description": "Time in seconds. Shortened to 't' to save on data.",
+                    "type": "number"
+                }
+            },
+            "required": ["k", "t"],
+            "type": "object"
         },
         "RecordingDurationFilter": {
             "additionalProperties": false,

@@ -90,10 +90,29 @@ class PostgresBatchExportInputs:
     data_interval_end: str | None = None
 
 
+@dataclass
+class BigQueryBatchExportInputs:
+    """Inputs for BigQuery export workflow."""
+
+    batch_export_id: str
+    team_id: int
+    project_id: str
+    dataset_id: str
+    private_key: str
+    private_key_id: str
+    token_uri: str
+    client_email: str
+    interval: str = "hour"
+    table_id: str = "events"
+    data_interval_end: str | None = None
+    exclude_events: list[str] | None = None
+
+
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
+    "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
 }
 
 
