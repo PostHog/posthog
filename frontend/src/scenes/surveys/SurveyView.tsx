@@ -21,6 +21,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const {
@@ -38,6 +40,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { editPlugin } = useActions(pluginsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     useEffect(() => {
@@ -148,9 +151,14 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                               {survey.questions[0].type === SurveyQuestionType.Rating && (
                                                   <div className="mb-4">
                                                       <Query query={surveyDataVizQuery} />
-                                                      <LemonDivider className="my-4" />
-                                                      <h2>NPS Score</h2>
-                                                      <SurveyNPSResults survey={survey as Survey} />
+                                                      {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] &&
+                                                          survey.questions[0].scale === 10 && (
+                                                              <>
+                                                                  <LemonDivider className="my-4" />
+                                                                  <h2>NPS Score</h2>
+                                                                  <SurveyNPSResults survey={survey as Survey} />
+                                                              </>
+                                                          )}
                                                   </div>
                                               )}
                                               {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
