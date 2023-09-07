@@ -35,6 +35,7 @@ def extend_api_router(
     project_feature_flags_router: NestedRegistryItem,
 ) -> None:
     root_router.register(r"billing-v2", billing.BillingViewset, "billing")
+    root_router.register(r"billing_ratelimits_applied", billing.BillingRateLimitsAppliedViewset, "billing_ratelimits_applied")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
     root_router.register(r"time_to_see_data", time_to_see_data.TimeToSeeDataViewSet, "query_metrics")

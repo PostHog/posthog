@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Link } from 'lib/lemon-ui/Link/Link'
 
 export function BillingAlertsV2(): JSX.Element | null {
-    const { billingAlert } = useValues(billingLogic)
+    const { billingAlert, rateLimits } = useValues(billingLogic)
     const { reportBillingAlertShown } = useActions(billingLogic)
     const { currentLocation } = useValues(router)
     const [alertHidden, setAlertHidden] = useState(false)
@@ -17,21 +18,17 @@ export function BillingAlertsV2(): JSX.Element | null {
         }
     }, [billingAlert])
 
-    if (!billingAlert || alertHidden) {
-        return null
-    }
+    let billingAlertBanner = null
+    if (billingAlert && !alertHidden) {
+        const showButton = currentLocation.pathname !== urls.organizationBilling()
 
-    const showButton = currentLocation.pathname !== urls.organizationBilling()
-
-    const buttonProps = billingAlert.contactSupport
-        ? {
-              to: 'mailto:sales@posthog.com',
-              children: 'Contact support',
-          }
-        : { to: urls.organizationBilling(), children: 'Manage billing' }
-
-    return (
-        <div className="my-4">
+        const buttonProps = billingAlert.contactSupport
+            ? {
+                to: 'mailto:sales@posthog.com',
+                children: 'Contact support',
+            }
+            : { to: urls.organizationBilling(), children: 'Manage billing' }
+        billingAlertBanner =
             <LemonBanner
                 type={billingAlert.status}
                 action={showButton ? buttonProps : undefined}
@@ -41,6 +38,16 @@ export function BillingAlertsV2(): JSX.Element | null {
                 <br />
                 {billingAlert.message}
             </LemonBanner>
+    }
+
+    return (
+        <div className="my-4">
+            {rateLimits && (
+                <LemonBanner type="error">
+                    <b>Rate limits exceeded dropping {rateLimits.toString()}. See <Link to={urls.organizationBilling()}>billing page</Link> for resolutions</b>
+                </LemonBanner>
+            )}
+            {billingAlertBanner}
         </div>
     )
 }

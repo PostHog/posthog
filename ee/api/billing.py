@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.billing.billing_manager import BillingManager, build_billing_token
+from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -33,6 +34,14 @@ class BillingSerializer(serializers.Serializer):
 class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
+
+class BillingRateLimitsAppliedViewset(viewsets.GenericViewSet):
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        event_tokens = list_limited_team_tokens(QuotaResource.EVENTS)
+        recordings_tokens = list_limited_team_tokens(QuotaResource.RECORDINGS)
+        # use the token
+        # TODO: get the right rate limits from from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
+        return Response(data=['events', 'recordings'])
 
 class BillingViewset(viewsets.GenericViewSet):
     serializer_class = BillingSerializer

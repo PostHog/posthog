@@ -24,6 +24,7 @@ QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
 
 
 class QuotaResource(Enum):
+    # update BillingRateLimitsAppliedViewset also if adding options here
     EVENTS = "events"
     RECORDINGS = "recordings"
 

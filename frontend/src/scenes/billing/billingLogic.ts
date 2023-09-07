@@ -119,6 +119,18 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
+        rateLimits: [
+            [] as string[],
+            {
+                loadRateLimits: async () => {
+                    // const response = await api.get('api/billing_ratelimits_applied')
+                    // console.log('loaded rate limits', response)
+                    // console.log(response)
+                    // TODO: get the right response
+                    return ['events', 'recordings']
+                },
+            },
+        ],
     })),
     selectors({
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
@@ -273,6 +285,7 @@ export const billingLogic = kea<billingLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadBilling()
+        actions.loadRateLimits()
     }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
