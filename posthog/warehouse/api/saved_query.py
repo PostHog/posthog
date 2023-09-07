@@ -10,6 +10,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.metadata import is_valid_view
+from posthog.hogql.errors import HogQLException
 
 from posthog.models import User
 from typing import Any, List
@@ -65,8 +66,11 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         try:
             print_ast(node=select_ast, context=context, dialect="clickhouse", stack=None, settings=None)
         except Exception as err:
-            error = str(err)
-            raise exceptions.ValidationError(detail=f"Invalid query: {error}")
+            if isinstance(err, ValueError) or isinstance(err, HogQLException):
+                error = str(err)
+                raise exceptions.ValidationError(detail=f"Invalid query: {error}")
+            else:
+                raise exceptions.ValidationError(detail=f"Unexpected f{err.__class__.__name__}")
 
         return query
 
