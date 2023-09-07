@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Dict, Literal, Optional, Tuple
-from zoneinfo import ZoneInfo
 
+import pytz
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from posthog.models.filters.base_filter import BaseFilter
@@ -82,7 +82,7 @@ class QueryDateRange:
         return self._localize_to_team(timezone.now())
 
     def _localize_to_team(self, target: datetime):
-        return target.replace(tzinfo=ZoneInfo(self._team.timezone))
+        return target.astimezone(pytz.timezone(self._team.timezone))
 
     @cached_property
     def date_to_clause(self):

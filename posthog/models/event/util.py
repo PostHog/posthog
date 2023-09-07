@@ -3,6 +3,7 @@ import json
 import uuid
 from typing import Any, Dict, List, Optional, Set, Union
 
+import pytz
 from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
 from django.utils import timezone
@@ -119,7 +120,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
         # Offset timezone-naive datetime by project timezone, to facilitate @also_test_with_different_timezones
         if timestamp.tzinfo is None:
             team_timezone = event["team"].timezone if event.get("team") else "UTC"
-            timestamp = timestamp.replace(tzinfo=ZoneInfo(team_timezone))
+            timestamp = pytz.timezone(team_timezone).localize(timestamp)
         # Format for ClickHouse
         timestamp = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
 
