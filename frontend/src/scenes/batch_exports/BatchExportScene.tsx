@@ -149,7 +149,17 @@ export function BatchExportScene(): JSX.Element {
                                             </li>
 
                                             {Object.keys(batchExportConfig.destination.config)
-                                                .filter((x) => !['password', 'aws_secret_access_key'].includes(x))
+                                                .filter(
+                                                    (x) =>
+                                                        ![
+                                                            'password',
+                                                            'aws_secret_access_key',
+                                                            'client_email',
+                                                            'token_uri',
+                                                            'private_key',
+                                                            'private_key_id',
+                                                        ].includes(x)
+                                                )
                                                 .map((x) => (
                                                     <li key={x} className="flex items-center justify-between gap-2">
                                                         <span>{identifierToHuman(x)}:</span>

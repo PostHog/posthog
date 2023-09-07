@@ -4,6 +4,8 @@ import '@testing-library/jest-dom'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
+jest.mock('lib/colors')
+
 describe('the activity log logic', () => {
     describe('humanizing insights', () => {
         const insightTestSetup = makeTestSetup(

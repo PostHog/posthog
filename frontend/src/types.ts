@@ -3124,10 +3124,25 @@ export type BatchExportDestinationSnowflake = {
     }
 }
 
+export type BatchExportDestinationBigQuery = {
+    type: 'BigQuery'
+    config: {
+        project_id: string
+        private_key: string
+        private_key_id: string
+        client_email: string
+        token_uri: string
+        dataset_id: string
+        table_id: string
+        exclude_events: string[]
+    }
+}
+
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake
     | BatchExportDestinationPostgres
+    | BatchExportDestinationBigQuery
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
