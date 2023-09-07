@@ -6,12 +6,13 @@ from posthog.warehouse.models import DataWarehouseSavedQuery
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.hogql.database.database import serialize_fields, SerializedField
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_ast
+from posthog.hogql.metadata import is_valid_view
 
-from posthog.models import User, Team
+from posthog.models import User
 from typing import Any, List
-
-from posthog.hogql.metadata import get_hogql_metadata
-from posthog.schema import HogQLMetadata
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
@@ -54,15 +55,17 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
     def validate_query(self, query):
         team_id = self.context["team_id"]
-        team = Team.objects.get(pk=team_id)
-        metadata = get_hogql_metadata(query=HogQLMetadata(select=query["query"]), team=team)
-        if not metadata.isValidView:
-            error = (
-                metadata.errors[0].message
-                if len(metadata.errors) > 0
-                else "Ensure all fields are aliased and there are no nested views"
-            )
-            raise exceptions.ValidationError(detail=error)
+
+        context = HogQLContext(team_id=team_id, enable_select_queries=True)
+        context.max_view_depth = 0
+        select_ast = parse_select(query["query"])
+        _is_valid_view = is_valid_view(select_ast)
+        if not _is_valid_view:
+            raise exceptions.ValidationError(detail="Ensure all fields are aliased")
+        try:
+            print_ast(node=select_ast, context=context, dialect="clickhouse", stack=None, settings=None)
+        except Exception as err:
+            raise exceptions.ValidationError(detail=err)
 
         return query
 

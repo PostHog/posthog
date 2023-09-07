@@ -2,8 +2,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast, create_hogql_database
-from posthog.hogql.resolver import SavedQueryVisitor
+from posthog.hogql.printer import print_ast
 from posthog.models import Team
 from posthog.schema import HogQLMetadataResponse, HogQLMetadata, HogQLNotice
 from posthog.hogql import ast
@@ -29,16 +28,9 @@ def get_hogql_metadata(
             translate_hogql(query.expr, context=context)
         elif isinstance(query.select, str):
             context = HogQLContext(team_id=team.pk, enable_select_queries=True)
-            context.database = create_hogql_database(context.team_id)
             select_ast = parse_select(query.select)
             _is_valid_view = is_valid_view(select_ast)
-
-            # Kludge: redundant pass through the AST (called in print_ast)
-            saved_query_visitor = SavedQueryVisitor(context=context)
-            saved_query_visitor.visit(select_ast)
-
-            # prevent nested views until optimized query building is implemented
-            response.isValidView = _is_valid_view and not saved_query_visitor.has_saved_query
+            response.isValidView = _is_valid_view
 
             print_ast(node=select_ast, context=context, dialect="clickhouse", stack=None, settings=None)
         else:

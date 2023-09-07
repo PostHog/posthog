@@ -225,7 +225,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
+                "isValidView": True,
                 "inputExpr": None,
                 "inputSelect": "select event AS event FROM event_view",
                 "errors": [],

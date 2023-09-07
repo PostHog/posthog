@@ -60,6 +60,7 @@ class Resolver(CloningVisitor):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
+        self.current_view_depth: int = 0
         self.context = context
         self.database = context.database
         self.cte_counter = 0
@@ -212,17 +213,16 @@ class Resolver(CloningVisitor):
                 database_table = self.database.get_table(table_name)
 
                 if isinstance(database_table, SavedQuery):
-                    node.table = parse_select(str(database_table.query))
-                    node.alias = table_alias or database_table.name
+                    self.current_view_depth += 1
 
-                    # prevent nested views until optimized query building is implemented
-                    saved_query_visitor = SavedQueryVisitor(context=self.context)
-                    saved_query_visitor.visit(node.table)
-
-                    if saved_query_visitor.has_saved_query:
+                    if self.current_view_depth > self.context.max_view_depth:
                         raise ResolverException("Nested views are not supported")
 
+                    node.table = parse_select(str(database_table.query))
+                    node.alias = table_alias or database_table.name
                     node = self.visit(node)
+
+                    self.current_view_depth -= 1
                     return node
 
                 if isinstance(database_table, LazyTable):
@@ -581,18 +581,3 @@ def lookup_cte_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional
         if scope and scope.ctes and name in scope.ctes:
             return scope.ctes[name]
     return None
-
-
-class SavedQueryVisitor(Resolver):
-    def __init__(self, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None):
-        super().__init__(context=context, scopes=scopes)
-        self.has_saved_query = False
-
-    def visit_join_expr(self, node: ast.JoinExpr):
-        if isinstance(node.table, ast.Field):
-            table_name = node.table.chain[0]
-            if self.database.has_table(table_name):
-                database_table = self.database.get_table(table_name)
-                if isinstance(database_table, SavedQuery):
-                    self.has_saved_query = True
-        super().visit_join_expr(node)
