@@ -334,8 +334,8 @@ export const createSessionReplayEvent = (
 
     const activeTime = activeMilliseconds(events)
 
-    // NB forces types to be correct e.g. by truncating or rounding to ensure we don't send floats
-    // when we should send an integer
+    // NB forces types to be correct e.g. by truncating or rounding
+    // to ensure we don't send floats when we should send an integer
     const data: SummarizedSessionRecordingEvent = {
         uuid,
         team_id: team_id,
