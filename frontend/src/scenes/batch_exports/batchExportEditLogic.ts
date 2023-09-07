@@ -34,7 +34,7 @@ export type BatchExportConfigurationForm = Omit<
         destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery'
         start_at: Dayjs | null
         end_at: Dayjs | null
-        json_config_file: File[] | null
+        json_config_file?: File[] | null
     }
 
 const formFields = (
@@ -74,7 +74,17 @@ const formFields = (
               }
             : destination === 'BigQuery'
             ? {
-                  json_config_file: isNew ? (!config.json_config_file ? 'This field is required' : '') : '',
+                  json_config_file: isNew
+                      ? !config.json_config_file
+                          ? 'This field is required'
+                          : !config.project_id ||
+                            !config.private_key ||
+                            !config.private_key_id ||
+                            !config.client_email ||
+                            !config.token_uri
+                          ? 'The config file is not valid'
+                          : ''
+                      : '',
                   dataset_id: !config.dataset_id ? 'This field is required' : '',
                   table_id: !config.table_id ? 'This field is required' : '',
                   exclude_events: '',
@@ -114,21 +124,6 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             } as BatchExportConfigurationForm,
             errors: (form) => formFields(props, form),
             submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
-                const loadedFile: string =
-                    destination === 'BigQuery'
-                        ? await new Promise((resolve, reject) => {
-                              const filereader = new FileReader()
-                              filereader.onload = (e) => {
-                                  resolve(e.target?.result as string)
-                              }
-                              filereader.onerror = (e) => {
-                                  reject(e)
-                              }
-                              filereader.readAsText(config.json_config_file.pop())
-                          })
-                        : ''
-                const jsonConfig = destination === 'BigQuery' ? JSON.parse(loadedFile) : null
-
                 const destinationObject: BatchExportDestination =
                     destination === 'Postgres'
                         ? ({
@@ -143,16 +138,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                         : destination === 'BigQuery'
                         ? ({
                               type: 'BigQuery',
-                              config: {
-                                  project_id: jsonConfig.project_id,
-                                  private_key: jsonConfig.private_key,
-                                  private_key_id: jsonConfig.private_key_id,
-                                  client_email: jsonConfig.client_email,
-                                  token_uri: jsonConfig.token_uri,
-                                  dataset_id: config.dataset_id,
-                                  table_id: config.table_id,
-                                  exclude_events: config.exclude_events,
-                              },
+                              config: config,
                           } as unknown as BatchExportDestinationBigQuery)
                         : ({
                               type: 'Snowflake',
@@ -189,6 +175,32 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                 router.actions.push(urls.batchExports())
             } else {
                 router.actions.push(urls.batchExport(props.id))
+            }
+        },
+
+        setBatchExportConfigFormValue: async ({ name, value }) => {
+            if (name[0] === 'json_config_file' && value) {
+                try {
+                    const loadedFile: string = await new Promise((resolve, reject) => {
+                        const filereader = new FileReader()
+                        filereader.onload = (e) => resolve(e.target?.result as string)
+                        filereader.onerror = (e) => reject(e)
+                        filereader.readAsText(value[0])
+                    })
+                    const jsonConfig = JSON.parse(loadedFile)
+                    actions.setBatchExportConfigFormValues({
+                        ...values.batchExportConfigForm,
+                        project_id: jsonConfig.project_id,
+                        private_key: jsonConfig.private_key,
+                        private_key_id: jsonConfig.private_key_id,
+                        client_email: jsonConfig.client_email,
+                        token_uri: jsonConfig.token_uri,
+                    })
+                } catch (e) {
+                    actions.setBatchExportConfigFormManualErrors({
+                        json_config_file: 'The config file is not valid',
+                    })
+                }
             }
         },
 
