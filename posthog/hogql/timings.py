@@ -35,7 +35,7 @@ class HogQLTimings:
             del self._timing_starts[full_key]
             self._timing_pointer = last_key
             if span:
-                span.set_tag("duration", duration)
+                span.set_tag("duration_seconds", duration)
 
     def to_dict(self) -> Dict[str, float]:
         timings = {**self.timings}
