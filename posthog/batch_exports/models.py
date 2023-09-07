@@ -28,7 +28,7 @@ class BatchExportDestination(UUIDModel):
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": set("password"),
         "Postgres": set("password"),
-        "BigQuery": {},
+        "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
     }
 
     type: models.CharField = models.CharField(
