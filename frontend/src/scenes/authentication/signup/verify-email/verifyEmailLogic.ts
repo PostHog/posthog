@@ -96,7 +96,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                 actions.validateEmailToken({ uuid, token })
             }
         },
-        '/verify_email': ({}) => {
+        '/verify_email': () => {
             actions.setView('invalid')
         },
     })),

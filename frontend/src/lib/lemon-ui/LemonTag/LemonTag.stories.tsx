@@ -1,10 +1,13 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonTag as LemonTagComponent, LemonTagType } from './LemonTag'
 
-export default {
+type Story = StoryObj<typeof LemonTagComponent>
+const meta: Meta<typeof LemonTagComponent> = {
     title: 'Lemon UI/Lemon Tag',
     component: LemonTagComponent,
-} as ComponentMeta<typeof LemonTagComponent>
+    tags: ['autodocs'],
+}
+export default meta
 
 const ALL_COLORS: LemonTagType[] = [
     'primary',
@@ -18,7 +21,7 @@ const ALL_COLORS: LemonTagType[] = [
     'none',
 ]
 
-const Template: ComponentStory<typeof LemonTagComponent> = (props) => {
+const Template: StoryFn<typeof LemonTagComponent> = (props) => {
     return (
         <div className="flex gap-1 flex-wrap">
             {ALL_COLORS.map((type) => (
@@ -30,5 +33,5 @@ const Template: ComponentStory<typeof LemonTagComponent> = (props) => {
     )
 }
 
-export const LemonTag = Template.bind({})
+export const LemonTag: Story = Template.bind({})
 LemonTag.args = {}

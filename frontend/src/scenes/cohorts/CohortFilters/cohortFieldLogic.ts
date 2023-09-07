@@ -92,10 +92,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                     : null,
         ],
         calculatedValueLoading: [
-            (s) => [
+            (s, p) => [
                 s.value,
-                (_, props) => props.criteria,
-                (_, props) => props.fieldKey,
+                p.criteria,
+                p.fieldKey,
                 cohortsModel.selectors.cohortsLoading,
                 actionsModel.selectors.actionsLoading,
             ],
@@ -113,10 +113,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                 },
         ],
         calculatedValue: [
-            (s) => [
+            (s, p) => [
                 s.value,
-                (_, props) => props.criteria,
-                (_, props) => props.fieldKey,
+                p.criteria,
+                p.fieldKey,
                 cohortsModel.selectors.cohortsLoading,
                 actionsModel.selectors.actionsLoading,
             ],

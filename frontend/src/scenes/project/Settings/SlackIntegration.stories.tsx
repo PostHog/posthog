@@ -1,15 +1,16 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { AvailableFeature } from '~/types'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useStorybookMocks } from '~/mocks/browser'
 import { mockIntegration } from '~/test/mocks'
 import { SlackIntegration } from './SlackIntegration'
 
-export default {
+const meta: Meta<typeof SlackIntegration> = {
     title: 'Components/Integrations/Slack',
     component: SlackIntegration,
     parameters: {},
-} as ComponentMeta<typeof SlackIntegration>
+}
+export default meta
 
 const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }): JSX.Element => {
     const { instanceConfigured = true, integrated = false } = args

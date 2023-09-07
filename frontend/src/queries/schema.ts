@@ -301,6 +301,10 @@ export interface DataTableNode extends Node {
     allowSorting?: boolean
     /** Show a button to open the current query as a new insight. (default: true) */
     showOpenEditorButton?: boolean
+    /** Show a results table */
+    showResultsTable?: boolean
+    /** Uses the embedded version of LemonTable */
+    embedded?: boolean
 }
 
 // Saved insight node
@@ -323,6 +327,10 @@ export interface InsightVizNode extends Node {
     showCorrelationTable?: boolean
     showLastComputation?: boolean
     showLastComputationRefresh?: boolean
+    showFilters?: boolean
+    showResults?: boolean
+    /** Query is embedded inside another bordered component */
+    embedded?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */

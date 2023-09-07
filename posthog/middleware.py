@@ -29,7 +29,7 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
-from posthog.utils import cors_response
+from .utils_cors import cors_response
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -479,15 +479,15 @@ class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
     def label_metric(self, metric, request, response=None, **labels):
         new_labels = labels
         if metric._name in PROMETHEUS_EXTENDED_METRICS:
-            if (
-                request
-                and getattr(request, "user", None)
-                and request.user.is_authenticated
-                and hasattr(request.user, "current_team_id")
-            ):
-                team_id = request.user.current_team_id
-            else:
-                team_id = None
+            team_id = None
+            if request and getattr(request, "user", None) and request.user.is_authenticated:
+                if request.resolver_match.kwargs.get("parent_lookup_team_id"):
+                    team_id = request.resolver_match.kwargs["parent_lookup_team_id"]
+                    if team_id == "@current":
+                        if hasattr(request.user, "current_team_id"):
+                            team_id = request.user.current_team_id
+                        else:
+                            team_id = None
 
             new_labels = {LABEL_TEAM_ID: team_id}
             new_labels.update(labels)

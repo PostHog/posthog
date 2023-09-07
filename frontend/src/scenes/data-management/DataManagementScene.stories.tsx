@@ -79,11 +79,10 @@ const MOCK_DATABASE: DatabaseSchemaQueryResponse = {
     ],
 }
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Data Management',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -106,8 +105,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function Database(): JSX.Element {
     useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {

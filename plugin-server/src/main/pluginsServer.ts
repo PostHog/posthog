@@ -10,11 +10,12 @@ import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createStatsdClient } from '../utils/db/hub'
+import { PostgresRouter } from '../utils/db/postgres'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, createRedisPool, delay } from '../utils/utils'
+import { createRedisPool, delay } from '../utils/utils'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
@@ -331,7 +332,7 @@ export async function startPluginsServer(
             // If we have a hub, then reuse some of it's attributes, otherwise
             // we need to create them. We only initialize the ones we need.
             const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
-            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig, statsd)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
@@ -369,7 +370,9 @@ export async function startPluginsServer(
 
             await pubSub.start()
 
-            startPreflightSchedules(hub)
+            if (capabilities.preflightSchedules) {
+                startPreflightSchedules(hub)
+            }
 
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
@@ -387,7 +390,8 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingIngestion) {
-            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const {
                 stop,
@@ -401,6 +405,7 @@ export async function startPluginsServer(
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
                 consumerErrorBackoffMs: serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
                 batchingTimeoutMs: serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+                topicCreationTimeoutMs: serverConfig.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             })
             stopSessionRecordingEventsConsumer = stop
             joinSessionRecordingEventsConsumer = join
@@ -409,7 +414,8 @@ export async function startPluginsServer(
 
         if (capabilities.sessionRecordingBlobIngestion) {
             const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-            const postgres = hub?.postgres ?? createPostgresPool(recordingConsumerConfig.DATABASE_URL)
+            const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
             const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
             const redisPool = hub?.db.redisPool ?? createRedisPool(recordingConsumerConfig)
 

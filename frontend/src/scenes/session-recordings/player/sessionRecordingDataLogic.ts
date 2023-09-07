@@ -219,9 +219,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshotsV2Success: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
+                const canFallbackToClickHouse = values.canFallbackToClickHouseForData
                 // We got the snapshot response for realtime, and it was empty, so we fall back to the old API
                 // Until we migrate over we need to fall back to the old API if the new one returns no snapshots
-                actions.loadRecordingSnapshotsV1()
+                posthog.capture('recording_snapshots_v2_empty_response', {
+                    source: sources[0],
+                    canFallbackToClickHouse,
+                })
+
+                if (canFallbackToClickHouse) {
+                    actions.loadRecordingSnapshotsV1()
+                }
                 return
             }
 
@@ -236,7 +244,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
         loadRecordingSnapshotsV1Success: ({ sessionPlayerSnapshotData }) => {
-            if (!!sessionPlayerSnapshotData?.sources?.length) {
+            if (sessionPlayerSnapshotData?.sources?.length) {
                 // v1 request was force-upgraded to v2
                 actions.loadRecordingSnapshotsV2Success(sessionPlayerSnapshotData, undefined)
                 return
@@ -244,7 +252,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             actions.loadRecordingSnapshotsSuccess()
 
-            if (!!values.sessionPlayerSnapshotData?.next) {
+            if (values.sessionPlayerSnapshotData?.next) {
                 actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
             } else {
                 actions.reportUsageIfFullyLoaded()
@@ -493,10 +501,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
                             // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
-                            let pathname = undefined
+                            let pathname: string | undefined
                             try {
                                 pathname = event[5] ? new URL(event[5]).pathname : undefined
-                            } catch {}
+                            } catch {
+                                pathname = undefined
+                            }
 
                             return {
                                 id: event[0],
@@ -557,6 +567,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     selectors({
+        canFallbackToClickHouseForData: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_ALLOW_V1_SNAPSHOTS]
+            },
+        ],
         sessionPlayerData: [
             (s) => [
                 s.sessionPlayerMetaData,

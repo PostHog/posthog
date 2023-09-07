@@ -437,10 +437,8 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         # The other team should not be returned as it's restricted for the logged-in user
         projects_response = self.client.get(f"/api/projects/")
 
-        # 9 (above) + 2 below:
-        # Used for `metadata`.`taxonomy_set_events_count`: SELECT COUNT(*) FROM "ee_enterpriseeventdefinition" WHERE ...
-        #  Used for `metadata`.`taxonomy_set_properties_count`: SELECT COUNT(*) FROM "ee_enterprisepropertydefinition" WHERE ...
-        with self.assertNumQueries(10):
+        # 9 (above):
+        with self.assertNumQueries(8):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)

@@ -46,6 +46,7 @@ class BreakdownType(str, Enum):
     event = "event"
     group = "group"
     session = "session"
+    hogql = "hogql"
 
 
 class ChartDisplayType(str, Enum):
@@ -873,6 +874,7 @@ class DataTableNode(BaseModel):
     columns: Optional[List[str]] = Field(
         None, description="Columns shown in the table, unless the `source` provides them."
     )
+    embedded: Optional[bool] = Field(None, description="Uses the embedded version of LemonTable")
     expandable: Optional[bool] = Field(None, description="Can expand row to show raw event data (default: true)")
     full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in scenes.")
     hiddenColumns: Optional[List[str]] = Field(
@@ -899,6 +901,7 @@ class DataTableNode(BaseModel):
     )
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
+    showResultsTable: Optional[bool] = Field(None, description="Show a results table")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
     source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
@@ -1136,12 +1139,15 @@ class InsightVizNode(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    embedded: Optional[bool] = Field(None, description="Query is embedded inside another bordered component")
     full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in insight scene.")
     kind: str = Field("InsightVizNode", const=True)
     showCorrelationTable: Optional[bool] = None
+    showFilters: Optional[bool] = None
     showHeader: Optional[bool] = None
     showLastComputation: Optional[bool] = None
     showLastComputationRefresh: Optional[bool] = None
+    showResults: Optional[bool] = None
     showTable: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 

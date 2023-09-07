@@ -4,12 +4,12 @@ import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { PoolClient } from 'pg'
 import { Counter } from 'prom-client'
 
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
+import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
@@ -434,7 +434,7 @@ export class PersonState {
         createdAt: DateTime,
         properties: Properties
     ): Promise<[ProducerRecord[], Person]> {
-        return await this.db.postgresTransaction('mergePeople', async (client) => {
+        return await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, 'mergePeople', async (tx) => {
             const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
                 mergeInto,
                 {
@@ -442,20 +442,20 @@ export class PersonState {
                     properties: properties,
                     is_identified: true,
                 },
-                client
+                tx
             )
 
             // Merge the distinct IDs
             // TODO: Doesn't this table need to add updates to CH too?
-            await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
+            await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, tx)
 
-            const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
+            const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, tx)
 
-            const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
+            const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
 
             let personOverrideMessages: ProducerRecord[] = []
             if (this.poEEmbraceJoin) {
-                personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, client)]
+                personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, tx)]
             }
 
             return [
@@ -468,7 +468,7 @@ export class PersonState {
     private async addPersonOverride(
         oldPerson: Person,
         overridePerson: Person,
-        client?: PoolClient
+        tx: TransactionClient
     ): Promise<ProducerRecord> {
         const mergedAt = DateTime.now()
         const oldestEvent = overridePerson.created_at
@@ -479,10 +479,11 @@ export class PersonState {
          2. Add an override from oldPerson to override person
          3. Update any entries that have oldPerson as the override person to now also point to the new override person. Note that we don't update `oldest_event`, because it's a heuristic (used to optimise squashing) tied to the old_person and nothing changed about the old_person who's events need to get squashed.
          */
-        const oldPersonId = await this.addPersonOverrideMapping(oldPerson, client)
-        const overridePersonId = await this.addPersonOverrideMapping(overridePerson, client)
+        const oldPersonId = await this.addPersonOverrideMapping(oldPerson, tx)
+        const overridePersonId = await this.addPersonOverrideMapping(overridePerson, tx)
 
-        await this.db.postgresQuery(
+        await this.db.postgres.query(
+            tx,
             SQL`
                 INSERT INTO posthog_personoverride (
                     team_id,
@@ -499,13 +500,13 @@ export class PersonState {
                 )
             `,
             undefined,
-            'personOverride',
-            client
+            'personOverride'
         )
 
         // The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
         // of the IDs we updated from the mapping table.
-        const { rows: transitiveUpdates } = await this.db.postgresQuery(
+        const { rows: transitiveUpdates } = await this.db.postgres.query(
+            tx,
             SQL`
                 WITH updated_ids AS (
                     UPDATE
@@ -531,8 +532,7 @@ export class PersonState {
                     helper.id = updated_ids.old_person_id;
             `,
             undefined,
-            'transitivePersonOverrides',
-            client
+            'transitivePersonOverrides'
         )
 
         status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
@@ -566,7 +566,7 @@ export class PersonState {
         return personOverrideMessages
     }
 
-    private async addPersonOverrideMapping(person: Person, client?: PoolClient): Promise<number> {
+    private async addPersonOverrideMapping(person: Person, tx: TransactionClient): Promise<number> {
         /**
             Update the helper table that serves as a mapping between a serial ID and a Person UUID.
 
@@ -580,7 +580,8 @@ export class PersonState {
         // as we map int ids to UUIDs (the latter not supported in exclusion contraints).
         const {
             rows: [{ id }],
-        } = await this.db.postgresQuery(
+        } = await this.db.postgres.query(
+            tx,
             `WITH insert_id AS (
                     INSERT INTO posthog_personoverridemapping(
                         team_id,
@@ -600,8 +601,7 @@ export class PersonState {
                 WHERE uuid = '${person.uuid}'
             `,
             undefined,
-            'personOverrideMapping',
-            client
+            'personOverrideMapping'
         )
 
         return id
@@ -610,26 +610,20 @@ export class PersonState {
     private async handleTablesDependingOnPersonID(
         sourcePerson: Person,
         targetPerson: Person,
-        client: PoolClient
+        tx: TransactionClient
     ): Promise<void> {
         // When personIDs change, update places depending on a person_id foreign key
 
-        // for inc-2023-07-31-us-person-id-override skip this and store the info in person_overrides table instead
         // For Cohorts
-        await this.db.postgresQuery(
+        await this.db.postgres.query(
+            tx,
             'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
             [targetPerson.id, sourcePerson.id],
-            'updateCohortPeople',
-            client
+            'updateCohortPeople'
         )
 
         // For FeatureFlagHashKeyOverrides
-        await this.db.addFeatureFlagHashKeysForMergedPerson(
-            sourcePerson.team_id,
-            sourcePerson.id,
-            targetPerson.id,
-            client
-        )
+        await this.db.addFeatureFlagHashKeysForMergedPerson(sourcePerson.team_id, sourcePerson.id, targetPerson.id, tx)
     }
 }
 

@@ -94,6 +94,7 @@ class Command(BaseCommand):
                 destination=destination,
             )
 
+            destination.save()
             batch_export.save()
 
             sync_batch_export(batch_export, created=True)
@@ -143,13 +144,15 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
     """
     plugin = plugin_config.plugin
 
-    if plugin.name == "S3 Export":
+    if plugin.name == "S3 Export Plugin":
         config = {
             "bucket_name": plugin_config.config["s3BucketName"],
             "region": plugin_config.config["awsRegion"],
             "prefix": plugin_config.config.get("prefix", ""),
             "aws_access_key_id": plugin_config.config["awsAccessKey"],
             "aws_secret_access_key": plugin_config.config["awsSecretAccessKey"],
+            "compression": plugin_config.config["compression"],
+            "exclude_events": plugin_config.config["eventsToIgnore"].split(","),
         }
         export_type = "S3"
     elif plugin.name == "Snowflake Export":
@@ -166,7 +169,7 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
         export_type = "Snowflake"
     else:
         raise CommandError(
-            f"Unsupported Plugin: '{plugin.name}'.  Supported Plugins are: 'Snowflake Export' and 'S3 Export'"
+            f"Unsupported Plugin: '{plugin.name}'.  Supported Plugins are: 'Snowflake Export' and 'S3 Export Plugin'"
         )
 
     return (export_type, config)

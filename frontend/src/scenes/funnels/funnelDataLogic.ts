@@ -204,7 +204,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
                     ...step,
-                    nested_breakdown: (!!baseLineSteps?.steps
+                    nested_breakdown: (baseLineSteps?.steps
                         ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
                         : step?.nested_breakdown
                     )

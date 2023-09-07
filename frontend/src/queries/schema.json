@@ -221,7 +221,7 @@
             ]
         },
         "BreakdownType": {
-            "enum": ["cohort", "person", "event", "group", "session"],
+            "enum": ["cohort", "person", "event", "group", "session", "hogql"],
             "type": "string"
         },
         "ChartDisplayType": {
@@ -285,6 +285,10 @@
                         "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
+                },
+                "embedded": {
+                    "description": "Uses the embedded version of LemonTable",
+                    "type": "boolean"
                 },
                 "expandable": {
                     "description": "Can expand row to show raw event data (default: true)",
@@ -351,6 +355,10 @@
                 },
                 "showReload": {
                     "description": "Show a reload button",
+                    "type": "boolean"
+                },
+                "showResultsTable": {
+                    "description": "Show a results table",
                     "type": "boolean"
                 },
                 "showSavedQueries": {
@@ -1261,6 +1269,10 @@
         "InsightVizNode": {
             "additionalProperties": false,
             "properties": {
+                "embedded": {
+                    "description": "Query is embedded inside another bordered component",
+                    "type": "boolean"
+                },
                 "full": {
                     "description": "Show with most visual options enabled. Used in insight scene.",
                     "type": "boolean"
@@ -1272,6 +1284,9 @@
                 "showCorrelationTable": {
                     "type": "boolean"
                 },
+                "showFilters": {
+                    "type": "boolean"
+                },
                 "showHeader": {
                     "type": "boolean"
                 },
@@ -1279,6 +1294,9 @@
                     "type": "boolean"
                 },
                 "showLastComputationRefresh": {
+                    "type": "boolean"
+                },
+                "showResults": {
                     "type": "boolean"
                 },
                 "showTable": {

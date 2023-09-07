@@ -1,5 +1,6 @@
 import { Hub, PropertyOperator } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
@@ -11,7 +12,7 @@ describe('ActionManager', () => {
     beforeEach(async () => {
         ;[hub, closeServer] = await createHub()
         await resetTestDatabase()
-        actionManager = new ActionManager(hub.postgres, { processAsyncWebhooksHandlers: true })
+        actionManager = new ActionManager(hub.postgres)
         await actionManager.prepare()
     })
 
@@ -51,7 +52,8 @@ describe('ActionManager', () => {
             ],
         })
 
-        await hub.db.postgresQuery(
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `UPDATE posthog_actionstep SET properties = jsonb_set(properties, '{0,key}', '"baz"') WHERE id = $1`,
             [ACTION_STEP_ID],
             'testKey'
@@ -123,7 +125,14 @@ describe('ActionManager', () => {
             ],
         })
 
-        await hub.db.postgresQuery(`UPDATE posthog_action SET deleted = TRUE WHERE id = $1`, [ACTION_ID], 'testKey')
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_action
+             SET deleted = TRUE
+             WHERE id = $1`,
+            [ACTION_ID],
+            'testKey'
+        )
 
         // This is normally dispatched by Django and broadcasted by Piscina
         await actionManager.reloadAction(TEAM_ID, ACTION_ID)
@@ -137,7 +146,7 @@ describe('ActionManager', () => {
         jest.spyOn(hub.db, 'fetchAllActionsGroupedByTeam')
         jest.spyOn(hub.db, 'fetchAction')
 
-        const manager = new ActionManager(hub.postgres, { processAsyncWebhooksHandlers: false })
+        const manager = new ActionManager(hub.postgres)
 
         await manager.prepare()
         await manager.reloadAllActions()

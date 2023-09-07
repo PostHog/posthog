@@ -6,11 +6,10 @@ import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import notebook12345Json from './__mocks__/notebook-12345.json'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Notebooks',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-07-04', // To stabilize relative dates
     },
@@ -70,8 +69,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function NotebooksList(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.notebooks())

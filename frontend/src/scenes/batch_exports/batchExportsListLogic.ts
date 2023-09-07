@@ -7,6 +7,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 
 import type { batchExportsListLogicType } from './batchExportsListLogicType'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { lemonToast } from '@posthog/lemon-ui'
 
 const PAGE_SIZE = 10
 // Refresh the current page of exports periodically to see whats up.
@@ -27,7 +28,7 @@ export const batchExportsListLogic = kea<batchExportsListLogicType>([
         ],
     }),
 
-    loaders(({}) => ({
+    loaders(({ values }) => ({
         batchExportConfigs: [
             null as null | CountedPaginatedResponse<BatchExportConfiguration>,
             {
@@ -39,6 +40,32 @@ export const batchExportsListLogic = kea<batchExportsListLogicType>([
                         limit: PAGE_SIZE,
                     })
                     return res
+                },
+
+                pause: async (batchExport: BatchExportConfiguration) => {
+                    await api.batchExports.pause(batchExport.id)
+                    lemonToast.success('Batch export paused. No future runs will be scheduled')
+
+                    const found = values.batchExportConfigs?.results.find((config) => config.id === batchExport.id)
+
+                    if (found) {
+                        found.paused = true
+                    }
+
+                    return values.batchExportConfigs
+                },
+
+                unpause: async (batchExport: BatchExportConfiguration) => {
+                    await api.batchExports.unpause(batchExport.id)
+                    lemonToast.success('Batch export unpaused. Future runs will be scheduled')
+
+                    const found = values.batchExportConfigs?.results.find((config) => config.id === batchExport.id)
+
+                    if (found) {
+                        found.paused = false
+                    }
+
+                    return values.batchExportConfigs
                 },
             },
         ],

@@ -162,7 +162,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
-            if (!!insight.query) {
+            if (insight.query) {
                 actions.setQuery(insight.query)
             } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
                 const query = queryFromFilters(insight.filters)

@@ -45,7 +45,7 @@ import { InlineHogQLEditor } from './InlineHogQLEditor'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
-        if (!!KEY_MAPPING.event[eventDefinition.name]) {
+        if (KEY_MAPPING.event[eventDefinition.name]) {
             return 'PostHog event'
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} event`
@@ -131,7 +131,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     // connect to taxonomicFilterLogic to select their initial values. They won't be built yet and will be unknown.
     selectors: {
         taxonomicFilterLogicKey: [
-            () => [(_, props) => props.taxonomicFilterLogicKey],
+            (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],

@@ -9,6 +9,7 @@ import requests
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse, HttpResponse
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.decorators import action
@@ -34,14 +35,22 @@ from posthog.permissions import (
 
 from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
+    SessionIdEventsQuery,
 )
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
 from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
+from prometheus_client import Counter
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
+
+SNAPSHOT_SOURCE_REQUESTED = Counter(
+    "session_snapshots_requested_counter",
+    "When calling the API and providing a concrete snapshot type to load.",
+    labelnames=["source"],
+)
 
 
 def snapshots_response(data: Any) -> Any:
@@ -175,6 +184,30 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         return Response(list_recordings(filter, request, context=self.get_serializer_context()))
 
+    @extend_schema(
+        description="""
+        Gets a list of event ids that match the given session recording filter.
+        The filter must include a single session ID.
+        And must include at least one event or action filter.
+        This API is intended for internal use and might have unannounced breaking changes."""
+    )
+    @action(methods=["GET"], detail=False)
+    def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
+        filter = SessionRecordingsFilter(request=request, team=self.team)
+
+        if not filter.session_ids or len(filter.session_ids) != 1:
+            raise exceptions.ValidationError(
+                "Must specify exactly one session_id",
+            )
+
+        if not filter.events and not filter.actions:
+            raise exceptions.ValidationError(
+                "Must specify at least one event or action filter",
+            )
+
+        matching_events: List[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
+        return JsonResponse(data={"results": matching_events})
+
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
@@ -218,17 +251,25 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         This path only supports loading from S3 or Redis based on query params
         """
 
-        event_properties = {"team_id": self.team.pk}
+        recording = self.get_object()
+        response_data = {}
+        source = request.GET.get("source")
+
+        event_properties = {
+            "team_id": self.team.pk,
+            "request_source": source,
+            "session_being_loaded": recording.session_id,
+        }
+
         if request.headers.get("X-POSTHOG-SESSION-ID"):
             event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
+
         posthoganalytics.capture(
             self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
         )
 
-        recording = self.get_object()
-        response_data = {}
-        source = request.GET.get("source")
-        # TODO: Handle the old S3 storage method for pinned recordings
+        if source:
+            SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
         if not source:
             sources: List[dict] = []
@@ -322,17 +363,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         1. From S3 if the session is older than our ingestion limit. This will be multiple files that can be streamed to the client
         2. From Redis if the session is newer than our ingestion limit.
         3. From Clickhouse whilst we are migrating to the new ingestion method
+
+        NB calling this API without `version=2` in the query params or with no version is deprecated and will be removed in the future
         """
 
         if request.GET.get("version") == "2":
             return self._snapshots_v2(request)
-
-        event_properties = {"team_id": self.team.pk}
-        if request.headers.get("X-POSTHOG-SESSION-ID"):
-            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request), "v1 session recording snapshots viewed", event_properties
-        )
 
         recording = self.get_object()
 
@@ -354,6 +390,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         filter = Filter(request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
+
+        event_properties = {"team_id": self.team.pk, "session_being_loaded": recording.session_id, "offset": offset}
+
+        if request.headers.get("X-POSTHOG-SESSION-ID"):
+            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
+
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request), "v1 session recording snapshots viewed", event_properties
+        )
 
         # Optimisation step if passed to speed up retrieval of CH data
         if not recording.start_time:

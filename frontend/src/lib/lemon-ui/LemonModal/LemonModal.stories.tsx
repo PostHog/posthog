@@ -1,14 +1,16 @@
 import { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { LemonModal, LemonModalProps } from './LemonModal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-export default {
+const meta: Meta<typeof LemonModal> = {
     title: 'Lemon UI/Lemon Modal',
     component: LemonModal,
-} as ComponentMeta<typeof LemonModal>
+    tags: ['autodocs'],
+}
+export default meta
 
-export const _LemonModal: ComponentStory<typeof LemonModal> = (props: LemonModalProps) => {
+export const _LemonModal: StoryFn<typeof LemonModal> = (props: LemonModalProps) => {
     const [isOpen, setIsOpen] = useState(false)
     return (
         <>
@@ -59,7 +61,7 @@ export const _LemonModal: ComponentStory<typeof LemonModal> = (props: LemonModal
     )
 }
 
-export const WithoutContent: ComponentStory<typeof LemonModal> = (props: LemonModalProps) => {
+export const WithoutContent: StoryFn<typeof LemonModal> = (props: LemonModalProps) => {
     const [isOpen, setIsOpen] = useState(false)
     return (
         <>
@@ -86,7 +88,7 @@ export const WithoutContent: ComponentStory<typeof LemonModal> = (props: LemonMo
     )
 }
 
-export const Inline: ComponentStory<typeof LemonModal> = () => {
+export const Inline: StoryFn<typeof LemonModal> = () => {
     const [isOpen, setIsOpen] = useState(false)
     return (
         <div className="bg-default p-4">
@@ -109,7 +111,7 @@ export const Inline: ComponentStory<typeof LemonModal> = () => {
     )
 }
 
-export const WithCustomContent: ComponentStory<typeof LemonModal> = () => {
+export const WithCustomContent: StoryFn<typeof LemonModal> = () => {
     const [isOpen, setIsOpen] = useState(false)
     return (
         <div className="bg-default p-4">
