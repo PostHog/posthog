@@ -309,17 +309,19 @@ export interface DataTableNode extends Node {
 
 // Saved insight node
 
-export interface SavedInsightNode extends Node {
+export interface SavedInsightNode extends Node, InsightVizNodeViewProps {
     kind: NodeKind.SavedInsightNode
     shortId: InsightShortId
 }
 
 // Insight viz node
 
-export interface InsightVizNode extends Node {
+export interface InsightVizNode extends Node, InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
+}
 
+interface InsightVizNodeViewProps {
     /** Show with most visual options enabled. Used in insight scene. */
     full?: boolean
     showHeader?: boolean
