@@ -256,6 +256,18 @@ class TrendsTotalVolume:
 
         return _parse
 
+    def _offset_date_from(self, point_datetime: datetime, filter: Filter) -> datetime | None:
+        if filter.display == TRENDS_CUMULATIVE:
+            return filter.date_from
+        else:
+            return point_datetime
+
+    def _offset_date_to(self, point_datetime: datetime, filter: Filter, entity: Entity, team: Team) -> datetime:
+        if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+            return point_datetime
+        else:
+            return offset_time_series_date_by_interval(point_datetime, filter=filter, team=team)
+
     def _get_persons_url(
         self, filter: Filter, entity: Entity, team: Team, point_datetimes: List[datetime]
     ) -> List[Dict[str, Any]]:
@@ -267,8 +279,8 @@ class TrendsTotalVolume:
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else point_datetime,
-                "date_to": offset_time_series_date_by_interval(point_datetime, filter=filter, team=team),
+                "date_from": self._offset_date_from(point_datetime, filter=filter),
+                "date_to": self._offset_date_to(point_datetime, filter=filter, entity=entity, team=team),
                 "entity_order": entity.order,
             }
 
