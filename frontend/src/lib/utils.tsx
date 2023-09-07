@@ -1439,7 +1439,7 @@ export function validateJson(value: string): boolean {
     }
 }
 
-export function jsonParse(value: string, fallback?: any): any {
+export function tryJsonParse(value: string, fallback?: any): any {
     try {
         return JSON.parse(value)
     } catch (error) {

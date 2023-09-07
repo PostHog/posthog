@@ -5,6 +5,7 @@ import {
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
+    SessionRecordingListLogicProps,
     addedAdvancedFilters,
     getDefaultFilters,
     sessionRecordingsListLogic,
@@ -25,15 +26,16 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     const { filters, nodeId } = props.attributes
     const playerKey = `notebook-${nodeId}`
 
-    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = {
+    const recordingPlaylistLogicProps: SessionRecordingListLogicProps = {
+        key: playerKey,
         filters,
         updateSearchParams: false,
         autoPlay: false,
-        mode: 'notebook',
-        onFiltersChange: (newFilters) =>
-            props.updateAttributes({
-                filters: newFilters,
-            }),
+        onFiltersChange: (newFilters) => {
+            // props.updateAttributes({
+            //     filters: newFilters,
+            // })
+        },
     }
 
     const { expanded } = useValues(notebookNodeLogic)

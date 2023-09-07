@@ -3,8 +3,8 @@ import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
 import { Editor as TTEditor } from '@tiptap/core'
 import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Notebook/utils'
-import { useCallback, useMemo } from 'react'
-import { jsonParse, uuid } from 'lib/utils'
+import { useCallback, useMemo, useRef } from 'react'
+import { tryJsonParse, uuid } from 'lib/utils'
 
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
@@ -97,28 +97,36 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
     props: NodeViewProps
 ): [NotebookNodeAttributes<T>, (attrs: Partial<NotebookNodeAttributes<T>>) => void] {
     const nodeId = useMemo(() => props.node.attrs.nodeId ?? uuid(), [props.node.attrs.nodeId])
+    const previousNodeAttrs = useRef<NodeViewProps['node']['attrs']>()
+    const parsedAttrs = useRef<NotebookNodeAttributes<T>>({} as NotebookNodeAttributes<T>)
 
-    const attributes = useMemo(() => {
-        // Here we parse all properties that could be objects.
+    if (previousNodeAttrs.current !== props.node.attrs) {
+        const newParsedAttrs = {}
 
-        const parsedAttrs = Object.keys(props.node.attrs).reduce(
-            (acc, x) => ({
-                ...acc,
-                [x]: jsonParse(props.node.attrs[x], props.node.attrs[x]),
-            }),
-            {}
-        )
+        Object.keys(props.node.attrs).forEach((key) => {
+            if (previousNodeAttrs.current?.[key] !== props.node.attrs[key]) {
+                // If changed, set it whilst trying to parse
+                newParsedAttrs[key] = tryJsonParse(props.node.attrs[key], props.node.attrs[key])
+            } else if (parsedAttrs.current) {
+                // Otherwise use the old value to preserve object equality
+                newParsedAttrs[key] = parsedAttrs.current[key]
+            }
+        })
 
-        return { ...parsedAttrs, nodeId } as NotebookNodeAttributes<T>
-    }, [props.node.attrs, nodeId])
+        parsedAttrs.current = newParsedAttrs as NotebookNodeAttributes<T>
+        parsedAttrs.current.nodeId = nodeId
+    }
+
+    previousNodeAttrs.current = props.node.attrs
 
     const updateAttributes = useCallback(
         (attrs: Partial<NotebookNodeAttributes<T>>): void => {
+            console.log('updating!')
             // We call the update whilst json stringifying
             const stringifiedAttrs = Object.keys(attrs).reduce(
                 (acc, x) => ({
                     ...acc,
-                    [x]: JSON.stringify(attrs[x]),
+                    [x]: attrs[x] && typeof attrs[x] === 'object' ? JSON.stringify(attrs[x]) : attrs[x],
                 }),
                 {}
             )
@@ -128,5 +136,5 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
         [props.updateAttributes]
     )
 
-    return [attributes, updateAttributes]
+    return [parsedAttrs.current, updateAttributes]
 }
