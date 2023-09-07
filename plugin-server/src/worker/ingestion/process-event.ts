@@ -121,8 +121,13 @@ export class EventsProcessor {
             delete properties['$elements']
         }
 
-        if (ip && !team.anonymize_ips && !('$ip' in properties)) {
-            properties['$ip'] = ip
+        if (ip) {
+            if (team.anonymize_ips) {
+                ip = null
+                delete properties['$ip']
+            } else if (!('$ip' in properties)) {
+                properties['$ip'] = ip
+            }
         }
 
         try {
