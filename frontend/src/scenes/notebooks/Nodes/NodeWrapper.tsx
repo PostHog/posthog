@@ -28,7 +28,7 @@ import {
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
-    title: string | ((attributes: NotebookNodeAttributes<T>) => Promise<string>)
+    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string)
@@ -36,7 +36,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     // Sizing
     expandable?: boolean
     startExpanded?: boolean
-    resizeable?: boolean | ((attributes: NotebookNodeAttributes<T>) => boolean)
+    resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     heightEstimate?: number | string
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
