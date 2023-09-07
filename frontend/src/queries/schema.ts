@@ -126,9 +126,16 @@ export interface HogQLQueryResponse {
     timings?: QueryTiming[]
 }
 
+/** Filters object that will be converted to a HogQL {filters} placeholder */
+export interface HogQLFilters {
+    properties?: AnyPropertyFilter[]
+    dateRange?: DateRange
+}
+
 export interface HogQLQuery extends DataNode {
     kind: NodeKind.HogQLQuery
     query: string
+    filters?: HogQLFilters
     response?: HogQLQueryResponse
 }
 
@@ -153,6 +160,7 @@ export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
     expr?: string
     select?: string
+    filters?: HogQLFilters
     response?: HogQLMetadataResponse
 }
 

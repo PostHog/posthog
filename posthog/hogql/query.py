@@ -3,22 +3,25 @@ from typing import Dict, Optional, Union, cast
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLSettings
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
-from posthog.schema import HogQLQueryResponse
+from posthog.schema import HogQLQueryResponse, HogQLFilters
 
 
 def execute_hogql_query(
     query: Union[str, ast.SelectQuery],
     team: Team,
     query_type: str = "hogql_query",
+    filters: Optional[HogQLFilters] = None,
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLSettings] = None,
@@ -35,7 +38,23 @@ def execute_hogql_query(
         else:
             select_query = parse_select(str(query), timings=timings)
 
-        with timings.measure("replace_placeholders"):
+    with timings.measure("replace_placeholders"):
+        placeholders_in_query = find_placeholders(select_query)
+        placeholders = placeholders or {}
+
+        if "filters" in placeholders and filters is not None:
+            raise HogQLException(
+                f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
+            )
+        if "filters" in placeholders_in_query:
+            select_query = replace_filters(select_query, filters, team)
+            placeholders_in_query.remove("filters")
+
+        if len(placeholders_in_query) > 0:
+            if len(placeholders) == 0:
+                raise HogQLException(
+                    f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(placeholders_in_query)}"
+                )
             select_query = replace_placeholders(select_query, placeholders)
 
         if select_query.limit is None:
