@@ -42,7 +42,9 @@ class TestFilters(BaseTest):
         )
 
         select = replace_filters(
-            self._parse_select("SELECT event FROM events where {filters}"), HogQLFilters(dateTo="2020-02-02"), self.team
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(dateRange=DateRange(date_to="2020-02-02")),
+            self.team,
         )
         self.assertEqual(
             self._print_ast(select),
