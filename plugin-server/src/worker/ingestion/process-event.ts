@@ -334,22 +334,24 @@ export const createSessionReplayEvent = (
 
     const activeTime = activeMilliseconds(events)
 
+    // NB forces types to be correct e.g. by truncating or rounding to ensure we don't send floats
+    // when we should send an integer
     const data: SummarizedSessionRecordingEvent = {
         uuid,
         team_id: team_id,
-        distinct_id: distinct_id,
+        distinct_id: String(distinct_id),
         session_id: session_id,
         first_timestamp: timestamps[0],
         last_timestamp: timestamps[timestamps.length - 1],
-        click_count: clickCount,
-        keypress_count: keypressCount,
-        mouse_activity_count: mouseActivity,
+        click_count: Math.trunc(clickCount),
+        keypress_count: Math.trunc(keypressCount),
+        mouse_activity_count: Math.trunc(mouseActivity),
         first_url: url,
-        active_milliseconds: activeTime,
-        console_log_count: consoleLogCount,
-        console_warn_count: consoleWarnCount,
-        console_error_count: consoleErrorCount,
-        size: Buffer.byteLength(JSON.stringify(events), 'utf8'),
+        active_milliseconds: Math.round(activeTime),
+        console_log_count: Math.trunc(consoleLogCount),
+        console_warn_count: Math.trunc(consoleWarnCount),
+        console_error_count: Math.trunc(consoleErrorCount),
+        size: Math.trunc(Buffer.byteLength(JSON.stringify(events), 'utf8')),
     }
 
     return data
