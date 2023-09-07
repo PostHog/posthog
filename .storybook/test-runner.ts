@@ -57,7 +57,6 @@ const LOADER_SELECTORS = [
     '.LemonTableLoader',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
-    'Lettermark--unknown',
 ]
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`

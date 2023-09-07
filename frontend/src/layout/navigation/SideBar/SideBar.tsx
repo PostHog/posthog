@@ -70,32 +70,34 @@ function Pages(): JSX.Element {
     return (
         <ul>
             <div className="SideBar__heading">Project</div>
-            <PageButton
-                title={
-                    isAuthenticatedTeam(currentTeam) ? (
-                        <>
-                            <span>
-                                <ProjectName team={currentTeam} />
-                            </span>
-                        </>
-                    ) : (
-                        'Choose project'
-                    )
-                }
-                icon={<Lettermark name={currentOrganization?.name} />}
-                identifier={Scene.ProjectHomepage}
-                to={urls.projectHomepage()}
-                sideAction={{
-                    'aria-label': 'switch project',
-                    onClick: () => toggleProjectSwitcher(),
-                    dropdown: {
-                        visible: isProjectSwitcherShown,
-                        onClickOutside: hideProjectSwitcher,
-                        overlay: <ProjectSwitcherOverlay />,
-                        actionable: true,
-                    },
-                }}
-            />
+            {currentOrganization && (
+                <PageButton
+                    title={
+                        isAuthenticatedTeam(currentTeam) ? (
+                            <>
+                                <span>
+                                    <ProjectName team={currentTeam} />
+                                </span>
+                            </>
+                        ) : (
+                            'Choose project'
+                        )
+                    }
+                    icon={<Lettermark name={currentOrganization.name} />}
+                    identifier={Scene.ProjectHomepage}
+                    to={urls.projectHomepage()}
+                    sideAction={{
+                        'aria-label': 'switch project',
+                        onClick: () => toggleProjectSwitcher(),
+                        dropdown: {
+                            visible: isProjectSwitcherShown,
+                            onClickOutside: hideProjectSwitcher,
+                            overlay: <ProjectSwitcherOverlay />,
+                            actionable: true,
+                        },
+                    }}
+                />
+            )}
             {currentTeam && (
                 <>
                     <LemonDivider />

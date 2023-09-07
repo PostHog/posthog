@@ -37,8 +37,7 @@ export function Lettermark({ name, index, color, rounded = false }: LettermarkPr
             className={clsx(
                 'Lettermark',
                 colorIndex && `Lettermark--variant-${colorIndex}`,
-                rounded && `Lettermark--rounded`,
-                representation === '?' && 'Lettermark--unknown'
+                rounded && `Lettermark--rounded`
             )}
             title={String(name)}
         >
