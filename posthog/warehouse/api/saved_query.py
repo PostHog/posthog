@@ -65,7 +65,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         try:
             print_ast(node=select_ast, context=context, dialect="clickhouse", stack=None, settings=None)
         except Exception as err:
-            raise exceptions.ValidationError(detail=err)
+            error = str(err)
+            raise exceptions.ValidationError(detail=f"Invalid query: {error}")
 
         return query
 
