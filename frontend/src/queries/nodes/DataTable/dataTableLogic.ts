@@ -140,7 +140,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (query: DataTableNode, columnsInQuery, featureFlags, context): Required<DataTableNode> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
-                const flagQueryRunningTimeEnabled = featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
+                const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
+                const flagQueryTimingsEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_TIMINGS]
                 return {
                     kind,
                     columns: columnsInQuery,
@@ -159,9 +160,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showDateRange: query.showDateRange ?? showIfFull,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
+                        showTimings: query.showTimings ?? flagQueryTimingsEnabled,
                         showElapsedTime:
-                            query.showElapsedTime ??
-                            (flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery ? showIfFull : false),
+                            query.showTimings ||
+                            flagQueryTimingsEnabled ||
+                            (query.showElapsedTime ??
+                                ((flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery) && showIfFull)),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showPersistentColumnConfigurator: query.showPersistentColumnConfigurator ?? false,
                         showSavedQueries: query.showSavedQueries ?? false,

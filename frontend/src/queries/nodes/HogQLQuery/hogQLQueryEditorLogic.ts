@@ -103,6 +103,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             const response = await query<HogQLMetadata>({
                 kind: NodeKind.HogQLMetadata,
                 select: queryInput,
+                filters: props.query.filters,
             })
             breakpoint()
             const markers: ModelMarker[] = []
