@@ -2101,6 +2101,9 @@ export interface SurveyAppearance {
     ratingButtonColor?: string
     ratingButtonHoverColor?: string
     whiteLabel?: boolean
+    displayThankYouMessage?: boolean
+    thankYouMessageHeader?: string
+    thankYouMessageDescription?: string
 }
 
 interface SurveyQuestionBase {
@@ -2588,8 +2591,6 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
-    /** First day of the week (0 = Sun, 1 = Mon, ...) */
-    week_start: number
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

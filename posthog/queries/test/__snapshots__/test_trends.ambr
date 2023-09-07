@@ -3199,7 +3199,7 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT person_id) AS total,
+        UNION ALL SELECT count(DISTINCT e.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
