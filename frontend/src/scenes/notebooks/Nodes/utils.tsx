@@ -1,7 +1,10 @@
-import { ExtendedRegExpMatchArray, PasteRule } from '@tiptap/core'
+import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core'
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
 import { Editor as TTEditor } from '@tiptap/core'
+import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Notebook/utils'
+import { useCallback, useMemo } from 'react'
+import { jsonParse, uuid } from 'lib/utils'
 
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
@@ -88,4 +91,42 @@ export function selectFile(options: { contentType: string; multiple: boolean }):
 
         input.click()
     })
+}
+
+export function useSyncedAtrributes<T extends CustomNotebookNodeAttributes>(
+    props: NodeViewProps
+): [NotebookNodeAttributes<T>, (attrs: Partial<NotebookNodeAttributes<T>>) => void] {
+    const nodeId = useMemo(() => props.node.attrs.nodeId ?? uuid(), [props.node.attrs.nodeId])
+
+    const attributes = useMemo(() => {
+        // Here we parse all properties that could be objects.
+
+        const parsedAttrs = Object.keys(props.node.attrs).reduce(
+            (acc, x) => ({
+                ...acc,
+                [x]: jsonParse(props.node.attrs[x], props.node.attrs[x]),
+            }),
+            {}
+        )
+
+        return { ...parsedAttrs, nodeId } as NotebookNodeAttributes<T>
+    }, [props.node.attrs, nodeId])
+
+    const updateAttributes = useCallback(
+        (attrs: Partial<NotebookNodeAttributes<T>>): void => {
+            // We call the update whilst json stringifying
+            const stringifiedAttrs = Object.keys(attrs).reduce(
+                (acc, x) => ({
+                    ...acc,
+                    [x]: JSON.stringify(attrs[x]),
+                }),
+                {}
+            )
+
+            props.updateAttributes(stringifiedAttrs)
+        },
+        [props.updateAttributes]
+    )
+
+    return [attributes, updateAttributes]
 }

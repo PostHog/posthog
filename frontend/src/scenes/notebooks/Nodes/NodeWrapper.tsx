@@ -7,7 +7,7 @@ import {
     Attribute,
     NodeViewProps,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useMemo, useRef } from 'react'
+import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
 import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -19,8 +19,7 @@ import { useInView } from 'react-intersection-observer'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { jsonParse, uuid } from 'lib/utils'
-import { posthogNodePasteRule } from './utils'
+import { posthogNodePasteRule, useSyncedAtrributes } from './utils'
 import {
     NotebookNodeAttributes,
     NotebookNodeViewProps,
@@ -214,50 +213,19 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 }: CreatePostHogWidgetNodeOptions<T>): Node {
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeViewProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
-        const nodeId = useMemo(() => props.node.attrs.nodeId ?? uuid(), [props.node.attrs.nodeId])
+        const [attributes, updateAttributes] = useSyncedAtrributes<T>(props)
 
         if (props.node.attrs.nodeId === null) {
             // TODO only wrapped in setTimeout because of the flushSync bug
             setTimeout(() => {
                 props.updateAttributes({
-                    nodeId,
+                    nodeId: attributes.nodeId,
                 })
             }, 0)
         }
 
-        const attributes = useMemo(() => {
-            // Here we parse all properties that could be objects.
-
-            const parsedAttrs = Object.keys(props.node.attrs).reduce(
-                (acc, x) => ({
-                    ...acc,
-                    [x]: jsonParse(props.node.attrs[x], props.node.attrs[x]),
-                }),
-                {}
-            )
-
-            return { ...parsedAttrs, nodeId } as NotebookNodeAttributes<T>
-        }, [props.node.attrs, nodeId])
-
-        const updateAttributes = useCallback(
-            (attrs: Partial<NotebookNodeAttributes<T>>): void => {
-                // We call the update whilst json stringifying
-                const stringifiedAttrs = Object.keys(attrs).reduce(
-                    (acc, x) => ({
-                        ...acc,
-                        [x]: JSON.stringify(attrs[x]),
-                    }),
-                    {}
-                )
-
-                props.updateAttributes(stringifiedAttrs)
-            },
-            [props.updateAttributes]
-        )
-
         const nodeProps: NotebookNodeViewProps<T> = {
             ...props,
-            node: props.node,
             attributes,
             updateAttributes,
         }
