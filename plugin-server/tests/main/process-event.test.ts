@@ -11,7 +11,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
-import { SummarizedSessionRecordingEvent } from '../../src/ingestion-schema'
+import { SummarizedSessionRecordingEvent } from '../../src/schema/ingestion-schema'
 import {
     ClickHouseEvent,
     Database,

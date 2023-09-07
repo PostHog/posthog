@@ -10,11 +10,11 @@ import {
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
 } from '../../../config/kafka-topics'
-import { SummarizedSessionRecordingEvent } from '../../../ingestion-schema'
 import { startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { retryOnDependencyUnavailableError } from '../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../kafka/producer'
+import { SummarizedSessionRecordingEvent } from '../../../schema/ingestion-schema'
 import { PipelineEvent, RawEventMessage, Team } from '../../../types'
 import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'

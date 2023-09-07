@@ -3,8 +3,8 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import { SummarizedSessionRecordingEvent } from '../../ingestion-schema'
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
+import { SummarizedSessionRecordingEvent } from '../../schema/ingestion-schema'
 import {
     Element,
     GroupTypeIndex,

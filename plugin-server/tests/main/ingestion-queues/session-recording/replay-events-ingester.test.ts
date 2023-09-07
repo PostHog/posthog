@@ -6,6 +6,7 @@ import path from 'path'
 import { defaultConfig } from '../../../../src/config/config'
 import { OffsetHighWaterMarker } from '../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { ReplayEventsIngester } from '../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
+import { activeMilliseconds } from '../../../../src/main/ingestion-queues/session-recording/snapshot-segmenter'
 import { Hub, PluginsServerConfig, TimestampFormat } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { castTimestampOrNow } from '../../../../src/utils/utils'
@@ -14,9 +15,18 @@ import { createIncomingRecordingMessage } from './fixtures'
 jest.mock('@sentry/node', () => ({
     captureException: jest.fn(),
     captureMessage: jest.fn(),
+    startTransaction: () => ({ finish: jest.fn() }),
+}))
+
+jest.mock('../../../../src/main/ingestion-queues/session-recording/snapshot-segmenter', () => ({
+    activeMilliseconds: jest.fn().mockReturnValue(0),
 }))
 
 describe('replayEventsIngester', () => {
+    beforeEach(() => {
+        ;(activeMilliseconds as any).mockReturnValue(0)
+    })
+
     const config: PluginsServerConfig = {
         ...defaultConfig,
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/test-session-recordings',
@@ -43,8 +53,7 @@ describe('replayEventsIngester', () => {
 
         ingester = new ReplayEventsIngester(
             config,
-            new OffsetHighWaterMarker(hub.redisPool, 'test-session_replay_events_ingester'),
-            hub.db
+            new OffsetHighWaterMarker(hub.redisPool, 'test-session_replay_events_ingester')
         )
         await ingester.start()
     })
@@ -91,6 +100,39 @@ describe('replayEventsIngester', () => {
                     uuid: expect.any(String),
                 },
                 timestamp: fortyDaysAgoISO,
+                uuid: expect.any(String),
+            },
+            tags: { session_id: 'session_id_1', team: 1 },
+        })
+    })
+
+    it('reports invalid active duration to Sentry', async () => {
+        ;(activeMilliseconds as any).mockReturnValue(12.24)
+
+        const timestamp = Date.now()
+        await ingester.consume(createIncomingRecordingMessage({}, { timestamp }, { timestamp }))
+
+        expect(captureException).not.toHaveBeenCalled()
+        expect(captureMessage).toHaveBeenCalledWith(`Invalid replay record timestamp wat for event`, {
+            extra: {
+                replayRecord: {
+                    active_milliseconds: 12.24, // ruh roh should be an int
+                    click_count: 0,
+                    console_error_count: 0,
+                    console_log_count: 0,
+                    console_warn_count: 0,
+                    distinct_id: 'distinct_id',
+                    first_timestamp: timestamp,
+                    first_url: undefined,
+                    keypress_count: 0,
+                    last_timestamp: timestamp,
+                    mouse_activity_count: 0,
+                    session_id: 'session_id_1',
+                    size: 4103,
+                    team_id: 1,
+                    uuid: expect.any(String),
+                },
+                timestamp: timestamp,
                 uuid: expect.any(String),
             },
             tags: { session_id: 'session_id_1', team: 1 },

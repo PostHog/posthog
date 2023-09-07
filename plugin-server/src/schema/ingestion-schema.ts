@@ -1,6 +1,6 @@
 /**
-* Types added to this file will be processed into the Plugin Server schema.json file and be available for validation using `ajv`
-*/
+ * Types added to this file will be processed into the Plugin Server schema.json file and be available for validation using `ajv`
+ */
 
 /**
  *
