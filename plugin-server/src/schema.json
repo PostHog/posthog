@@ -7,19 +7,19 @@
             "description": "written to kafka topic: clickhouse_session_replay_events and from there to clickhouse table: session_replay_events",
             "properties": {
                 "active_milliseconds": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "click_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "console_error_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "console_log_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "console_warn_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "distinct_id": {
                     "type": "string"
@@ -28,22 +28,22 @@
                     "type": "string"
                 },
                 "first_url": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "keypress_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "last_timestamp": {
                     "type": "string"
                 },
                 "mouse_activity_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "session_id": {
                     "type": "string"
                 },
                 "size": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "team_id": {
                     "type": "number"

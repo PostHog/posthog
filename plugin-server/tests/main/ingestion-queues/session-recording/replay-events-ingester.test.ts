@@ -109,11 +109,15 @@ describe('replayEventsIngester', () => {
     it('reports invalid active duration to Sentry', async () => {
         ;(activeMilliseconds as any).mockReturnValue(12.24)
 
-        const timestamp = Date.now()
-        await ingester.consume(createIncomingRecordingMessage({}, { timestamp }, { timestamp }))
+        const timestamp = DateTime.now()
+        const timestampMillis = timestamp.toMillis()
+        const timestampISO = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
+        await ingester.consume(
+            createIncomingRecordingMessage({}, { timestamp: timestampMillis }, { timestamp: timestampMillis })
+        )
 
         expect(captureException).not.toHaveBeenCalled()
-        expect(captureMessage).toHaveBeenCalledWith(`Invalid replay record timestamp wat for event`, {
+        expect(captureMessage).toHaveBeenCalledWith(`Invalid replay record for session session_id_1`, {
             extra: {
                 replayRecord: {
                     active_milliseconds: 12.24, // ruh roh should be an int
@@ -122,18 +126,27 @@ describe('replayEventsIngester', () => {
                     console_log_count: 0,
                     console_warn_count: 0,
                     distinct_id: 'distinct_id',
-                    first_timestamp: timestamp,
+                    first_timestamp: timestampISO,
                     first_url: undefined,
                     keypress_count: 0,
-                    last_timestamp: timestamp,
+                    last_timestamp: timestampISO,
                     mouse_activity_count: 0,
                     session_id: 'session_id_1',
                     size: 4103,
                     team_id: 1,
                     uuid: expect.any(String),
                 },
-                timestamp: timestamp,
-                uuid: expect.any(String),
+                validationErrors: [
+                    {
+                        instancePath: '/active_milliseconds',
+                        keyword: 'type',
+                        message: 'must be integer',
+                        params: {
+                            type: 'integer',
+                        },
+                        schemaPath: '#/definitions/SummarizedSessionRecordingEvent/properties/active_milliseconds/type',
+                    },
+                ],
             },
             tags: { session_id: 'session_id_1', team: 1 },
         })
