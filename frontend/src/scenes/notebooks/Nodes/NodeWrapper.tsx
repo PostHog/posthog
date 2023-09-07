@@ -19,7 +19,7 @@ import { useInView } from 'react-intersection-observer'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodePasteRule, useSyncedAtrributes } from './utils'
+import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 import {
     NotebookNodeAttributes,
     NotebookNodeViewProps,
@@ -213,7 +213,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 }: CreatePostHogWidgetNodeOptions<T>): Node {
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeViewProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
-        const [attributes, updateAttributes] = useSyncedAtrributes<T>(props)
+        const [attributes, updateAttributes] = useSyncedAttributes<T>(props)
 
         if (props.node.attrs.nodeId === null) {
             // TODO only wrapped in setTimeout because of the flushSync bug

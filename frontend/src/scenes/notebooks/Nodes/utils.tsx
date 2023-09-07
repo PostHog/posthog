@@ -93,7 +93,7 @@ export function selectFile(options: { contentType: string; multiple: boolean }):
     })
 }
 
-export function useSyncedAtrributes<T extends CustomNotebookNodeAttributes>(
+export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
     props: NodeViewProps
 ): [NotebookNodeAttributes<T>, (attrs: Partial<NotebookNodeAttributes<T>>) => void] {
     const nodeId = useMemo(() => props.node.attrs.nodeId ?? uuid(), [props.node.attrs.nodeId])
