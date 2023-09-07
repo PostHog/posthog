@@ -312,6 +312,16 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                     <Field name="dataset_id" label="Dataset ID">
                                         <LemonInput placeholder="dataset" />
                                     </Field>
+
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
                                 </>
                             ) : null}
                         </div>
