@@ -3,6 +3,8 @@ from time import perf_counter
 from typing import Dict, List
 from contextlib import contextmanager
 
+from sentry_sdk import start_span
+
 from posthog.schema import QueryTiming
 
 
@@ -25,11 +27,15 @@ class HogQLTimings:
         self._timing_pointer = full_key
         self._timing_starts[full_key] = perf_counter()
         try:
-            yield
+            with start_span(op=key) as span:
+                yield
         finally:
-            self.timings[full_key] = self.timings.get(full_key, 0.0) + (perf_counter() - self._timing_starts[full_key])
+            duration = perf_counter() - self._timing_starts[full_key]
+            self.timings[full_key] = self.timings.get(full_key, 0.0) + duration
             del self._timing_starts[full_key]
             self._timing_pointer = last_key
+            if span:
+                span.set_tag("duration", duration)
 
     def to_dict(self) -> Dict[str, float]:
         timings = {**self.timings}
