@@ -12,7 +12,7 @@ from posthog.schema import DateRange, IntervalType
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 
-# Originally copied from posthog/queries/query_date_range.py with some changes to support the new format
+# Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
 class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
