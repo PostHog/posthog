@@ -1,8 +1,8 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { InsightShortId, NotebookNodeType } from '~/types'
 import { useValues } from 'kea'
+import { InsightShortId, NotebookNodeType } from '~/types'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
@@ -124,7 +124,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     Component,
     heightEstimate: 500,
     minHeight: 200,
-    resizeable: true,
+    resizeable: (attrs) => attrs.query.kind === NodeKind.DataTableNode,
     startExpanded: true,
     attributes: {
         query: {

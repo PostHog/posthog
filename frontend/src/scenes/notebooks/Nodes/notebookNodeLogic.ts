@@ -32,7 +32,8 @@ export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
-    title: string | ((attributes: any) => Promise<string>)
+    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
+    resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     widgets: NotebookNodeWidget[]
     startExpanded: boolean
 } & NotebookNodeAttributeProperties<any>
@@ -45,8 +46,13 @@ async function renderTitle(
         return attrs.title
     }
 
-    return typeof title === 'function' ? await title(attrs) : title
+    return title instanceof Function ? await title(attrs) : title
 }
+
+const computeResizeable = (
+    resizeable: NotebookNodeLogicProps['resizeable'],
+    attrs: NotebookNodeLogicProps['nodeAttributes']
+): boolean => (typeof resizeable === 'function' ? resizeable(attrs) : resizeable)
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
     props({} as NotebookNodeLogicProps),
@@ -55,6 +61,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     actions({
         setExpanded: (expanded: boolean) => ({ expanded }),
         setTitle: (title: string) => ({ title }),
+        setResizeable: (resizeable: boolean) => ({ resizeable }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
@@ -83,6 +90,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             '',
             {
                 setTitle: (_, { title }) => title,
+            },
+        ],
+        resizeable: [
+            false,
+            {
+                setResizeable: (_, { resizeable }) => resizeable,
             },
         ],
         previousNode: [
@@ -158,6 +171,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
         const renderedTitle = await renderTitle(logic.props.title, logic.props.attributes)
         logic.actions.setTitle(renderedTitle)
+        const resizeable = computeResizeable(logic.props.resizeable, logic.props.nodeAttributes)
+        logic.actions.setResizeable(resizeable)
         logic.actions.updateAttributes({ title: renderedTitle })
     }),
 

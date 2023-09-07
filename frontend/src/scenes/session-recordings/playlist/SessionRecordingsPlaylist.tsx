@@ -57,19 +57,32 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
     )
 }
 
+export type SessionRecordingsPlaylistProps = SessionRecordingListLogicProps & {
+    playlistShortId?: string
+    personUUID?: string
+    filters?: RecordingFilters
+    updateSearchParams?: boolean
+    onFiltersChange?: (filters: RecordingFilters) => void
+    autoPlay?: boolean
+    mode?: 'standard' | 'notebook'
+}
+
 export function RecordingsLists({
     playlistShortId,
     personUUID,
     filters: defaultFilters,
     updateSearchParams,
+    ...props
 }: SessionRecordingsPlaylistProps): JSX.Element {
-    const logicProps = {
+    const logicProps: SessionRecordingListLogicProps = {
+        ...props,
         playlistShortId,
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
     }
     const logic = sessionRecordingsListLogic(logicProps)
+
     const {
         filters,
         hasNext,
@@ -285,33 +298,12 @@ export function RecordingsLists({
     )
 }
 
-export type SessionRecordingsPlaylistProps = {
-    playlistShortId?: string
-    personUUID?: string
-    filters?: RecordingFilters
-    updateSearchParams?: boolean
-    onFiltersChange?: (filters: RecordingFilters) => void
-    autoPlay?: boolean
-    mode?: 'standard' | 'notebook'
-}
-
 export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps): JSX.Element {
-    const {
-        playlistShortId,
-        personUUID,
-        filters: defaultFilters,
-        updateSearchParams,
-        onFiltersChange,
-        autoPlay = true,
-    } = props
+    const { playlistShortId } = props
 
     const logicProps: SessionRecordingListLogicProps = {
-        playlistShortId,
-        personUUID,
-        filters: defaultFilters,
-        updateSearchParams,
-        autoPlay,
-        onFiltersChange,
+        ...props,
+        autoPlay: props.autoPlay ?? true,
     }
     const logic = sessionRecordingsListLogic(logicProps)
     const {
