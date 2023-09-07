@@ -1,5 +1,5 @@
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { InsightShortId, NotebookNodeType } from '~/types'
 import { useValues } from 'kea'
@@ -90,11 +90,12 @@ export const Settings = ({
             <Query
                 query={modifiedQuery}
                 setQuery={(t) => {
-                    if (t.kind === NodeKind.DataTableNode) {
-                        updateAttributes({
-                            query: { ...attributes.query, source: (t as DataTableNode).source } as QuerySchema,
-                        })
-                    }
+                    updateAttributes({
+                        query: {
+                            ...attributes.query,
+                            source: (t as DataTableNode | InsightVizNode).source,
+                        } as QuerySchema,
+                    })
                 }}
                 readOnly={false}
                 uniqueKey={attributes.nodeId}
