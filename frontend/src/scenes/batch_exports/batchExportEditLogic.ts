@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import {
     BatchExportConfiguration,
     BatchExportDestination,
+    BatchExportDestinationBigQuery,
     BatchExportDestinationPostgres,
     BatchExportDestinationS3,
     BatchExportDestinationSnowflake,
@@ -27,11 +28,13 @@ export type BatchExportConfigurationForm = Omit<
     'id' | 'destination' | 'start_at' | 'end_at'
 > &
     Partial<BatchExportDestinationPostgres['config']> &
+    Partial<BatchExportDestinationBigQuery['config']> &
     Partial<BatchExportDestinationS3['config']> &
     Partial<BatchExportDestinationSnowflake['config']> & {
-        destination: 'S3' | 'Snowflake' | 'Postgres'
+        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery'
         start_at: Dayjs | null
         end_at: Dayjs | null
+        json_config_file: File[] | null
     }
 
 const formFields = (
@@ -69,6 +72,13 @@ const formFields = (
                   compression: '',
                   exclude_events: '',
               }
+            : destination === 'BigQuery'
+            ? {
+                  json_config_file: isNew ? (!config.json_config_file ? 'This field is required' : '') : '',
+                  dataset_id: !config.dataset_id ? 'This field is required' : '',
+                  table_id: !config.table_id ? 'This field is required' : '',
+                  exclude_events: '',
+              }
             : destination === 'Snowflake'
             ? {
                   account: !config.account ? 'This field is required' : '',
@@ -104,8 +114,23 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             } as BatchExportConfigurationForm,
             errors: (form) => formFields(props, form),
             submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
+                const loadedFile: string =
+                    destination === 'BigQuery'
+                        ? await new Promise((resolve, reject) => {
+                              const filereader = new FileReader()
+                              filereader.onload = (e) => {
+                                  resolve(e.target?.result as string)
+                              }
+                              filereader.onerror = (e) => {
+                                  reject(e)
+                              }
+                              filereader.readAsText(config.json_config_file.pop())
+                          })
+                        : ''
+                const jsonConfig = destination === 'BigQuery' ? JSON.parse(loadedFile) : null
+
                 const destinationObject: BatchExportDestination =
-                    destination == 'Postgres'
+                    destination === 'Postgres'
                         ? ({
                               type: 'Postgres',
                               config: config,
@@ -115,6 +140,20 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               type: 'S3',
                               config: config,
                           } as unknown as BatchExportDestinationS3)
+                        : destination === 'BigQuery'
+                        ? ({
+                              type: 'BigQuery',
+                              config: {
+                                  project_id: jsonConfig.project_id,
+                                  private_key: jsonConfig.private_key,
+                                  private_key_id: jsonConfig.private_key_id,
+                                  client_email: jsonConfig.client_email,
+                                  token_uri: jsonConfig.token_uri,
+                                  dataset_id: config.dataset_id,
+                                  table_id: config.table_id,
+                                  exclude_events: config.exclude_events,
+                              },
+                          } as unknown as BatchExportDestinationBigQuery)
                         : ({
                               type: 'Snowflake',
                               config: config,
