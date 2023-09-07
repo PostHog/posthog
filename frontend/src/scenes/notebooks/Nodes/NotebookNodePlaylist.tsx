@@ -32,6 +32,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     const playerKey = useRef(`notebook-${uuid()}`).current
 
     const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = {
+        logicKey: playerKey,
         filters,
         updateSearchParams: false,
         autoPlay: false,
@@ -48,6 +49,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     if (!expanded) {
         return <div className="p-4">20+ recordings </div>
     }
+
     const content = !activeSessionRecording?.id ? (
         <RecordingsLists {...recordingPlaylistLogicProps} />
     ) : (
