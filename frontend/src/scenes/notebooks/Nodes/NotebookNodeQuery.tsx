@@ -1,15 +1,16 @@
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
-import { BindLogic, useMountedLogic, useValues } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightShortId, NotebookNodeType } from '~/types'
+import { useValues } from 'kea'
 import { useJsonNodeState } from './utils'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
+import api from 'lib/api'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -24,10 +25,7 @@ const DEFAULT_QUERY: QuerySchema = {
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const [query] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
-    const logic = insightLogic({ dashboardItemId: 'new' })
-    const { insightProps } = useValues(logic)
-    const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded } = useValues(nodeLogic)
+    const { expanded } = useValues(notebookNodeLogic)
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query }
@@ -37,6 +35,12 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
+            modifiedQuery.embedded = true
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = false
+            modifiedQuery.showHeader = false
+            modifiedQuery.showTable = false
+            modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
         }
 
@@ -48,11 +52,11 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     }
 
     return (
-        <BindLogic logic={insightLogic} props={insightProps}>
-            <div className={clsx('flex flex-1 flex-col overflow-hidden')}>
-                <Query query={modifiedQuery} uniqueKey={nodeLogic.props.nodeId} />
-            </div>
-        </BindLogic>
+        <div
+            className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
+        >
+            <Query query={modifiedQuery} uniqueKey={props.node.attrs.nodeId} />
+        </div>
     )
 }
 
@@ -75,6 +79,10 @@ export const Settings = ({
             modifiedQuery.showHogQLEditor = true
             modifiedQuery.showResultsTable = false
             modifiedQuery.showReload = true
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = true
+            modifiedQuery.showResults = false
+            modifiedQuery.embedded = true
         }
 
         return modifiedQuery
@@ -85,10 +93,9 @@ export const Settings = ({
             <Query
                 query={modifiedQuery}
                 setQuery={(t) => {
-                    if (t.kind === NodeKind.DataTableNode) {
-                        setQuery({ ...query, source: (t as DataTableNode).source } as QuerySchema)
-                    }
+                    setQuery({ ...query, source: (t as DataTableNode | InsightVizNode).source } as QuerySchema)
                 }}
+                readOnly={false}
                 uniqueKey={attributes.nodeId}
             />
         </div>
@@ -97,10 +104,13 @@ export const Settings = ({
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: (attributes) => {
+    title: async (attributes) => {
         const query = attributes.query
         let title = 'HogQL'
-        if (NodeKind.DataTableNode === query.kind) {
+        if (NodeKind.SavedInsightNode === query.kind) {
+            const response = await api.insights.loadInsight(query.shortId)
+            title = response.results[0].name || 'Saved insight'
+        } else if (NodeKind.DataTableNode === query.kind) {
             if (query.source.kind) {
                 title = query.source.kind.replace('Node', '').replace('Query', '')
             } else {
@@ -127,4 +137,15 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             Component: Settings,
         },
     ],
+    pasteOptions: {
+        find: urls.insightView('(.+)' as InsightShortId),
+        getAttributes: async (match) => {
+            return {
+                query: {
+                    kind: NodeKind.SavedInsightNode,
+                    shortId: match[1] as InsightShortId,
+                },
+            }
+        },
+    },
 })

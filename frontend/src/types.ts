@@ -2588,8 +2588,6 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
-    /** First day of the week (0 = Sun, 1 = Mon, ...) */
-    week_start: number
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3090,6 +3088,8 @@ export type BatchExportDestinationS3 = {
         prefix: string
         aws_access_key_id: string
         aws_secret_access_key: string
+        exclude_events: string[]
+        compression: string | null
     }
 }
 

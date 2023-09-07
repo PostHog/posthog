@@ -1,4 +1,5 @@
 import json
+from typing import List, cast
 from unittest.mock import ANY, MagicMock, patch
 
 from asgiref.sync import sync_to_async
@@ -8,6 +9,7 @@ from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.batch_exports.service import describe_schedule
+from posthog.constants import AvailableFeature
 from posthog.models import EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
@@ -68,6 +70,33 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{team.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json(), self.not_found_response())
+
+    @patch("posthog.api.team.get_geoip_properties")
+    def test_ip_location_is_used_for_new_project_week_day_start(self, get_geoip_properties_mock: MagicMock):
+        self.organization.available_features = cast(List[str], [AvailableFeature.ORGANIZATIONS_PROJECTS])
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        get_geoip_properties_mock.return_value = {}
+        response = self.client.post("/api/projects/", {"name": "Test World"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertDictContainsSubset({"name": "Test World", "week_start_day": None}, response.json())
+
+        get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
+        response = self.client.post("/api/projects/", {"name": "Test US"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertDictContainsSubset({"name": "Test US", "week_start_day": 0}, response.json())
+
+        get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
+        response = self.client.post("/api/projects/", {"name": "Test PL"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertDictContainsSubset({"name": "Test PL", "week_start_day": 1}, response.json())
+
+        get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
+        response = self.client.post("/api/projects/", {"name": "Test IR"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertDictContainsSubset({"name": "Test IR", "week_start_day": 0}, response.json())
 
     def test_cant_create_team_without_license_on_selfhosted(self):
         with self.is_cloud(False):

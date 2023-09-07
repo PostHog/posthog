@@ -28,6 +28,7 @@ import {
     buildTimestampCommentContent,
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
+import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
 
 const SYNC_DELAY = 1000
 
@@ -102,7 +103,7 @@ export const notebookLogic = kea<notebookLogicType>([
     reducers({
         localContent: [
             null as JSONContent | null,
-            { persist: true },
+            { persist: true, prefix: NOTEBOOKS_VERSION },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
@@ -167,7 +168,6 @@ export const notebookLogic = kea<notebookLogicType>([
             null as NotebookType | null,
             {
                 loadNotebook: async () => {
-                    // NOTE: This is all hacky and temporary until we have a backend
                     let response: NotebookType | null
 
                     if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
@@ -187,12 +187,14 @@ export const notebookLogic = kea<notebookLogicType>([
                         throw new Error('Notebook not found')
                     }
 
+                    const notebook = migrate(response)
+
                     if (!values.notebook) {
                         // If this is the first load we need to override the content fully
-                        values.editor?.setContent(response.content)
+                        values.editor?.setContent(notebook.content)
                     }
 
-                    return response
+                    return notebook
                 },
 
                 saveNotebook: async ({ notebook }) => {

@@ -41,9 +41,11 @@ async def get_rows_count(
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
     if exclude_events:
-        exclude_events_statement = f"AND event NOT IN {str(tuple(exclude_events))}"
+        exclude_events_statement = "AND event NOT IN {exclude_events}"
+        events_to_exclude_tuple = tuple(exclude_events)
     else:
         exclude_events_statement = ""
+        events_to_exclude_tuple = ()
 
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
@@ -58,6 +60,7 @@ async def get_rows_count(
             "team_id": team_id,
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
+            "exclude_events": events_to_exclude_tuple,
         },
     )
 
@@ -96,9 +99,11 @@ def get_results_iterator(
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
     if exclude_events:
-        exclude_events_statement = f"AND event NOT IN {str(tuple(exclude_events))}"
+        exclude_events_statement = "AND event NOT IN {exclude_events}"
+        events_to_exclude_tuple = tuple(exclude_events)
     else:
         exclude_events_statement = ""
+        events_to_exclude_tuple = ()
 
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=FIELDS,
@@ -113,6 +118,7 @@ def get_results_iterator(
             "team_id": team_id,
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
+            "exclude_events": events_to_exclude_tuple,
         },
     ):
         yield from iter_batch_records(batch)
@@ -211,6 +217,10 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
     elif interval == "day":
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
+    elif interval == "every-5-minutes":
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(minutes=5)
+    elif interval == "every-10-minutes":
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(minutes=10)
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 

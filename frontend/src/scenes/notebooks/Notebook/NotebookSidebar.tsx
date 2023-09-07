@@ -5,7 +5,11 @@ import { notebookLogic } from './notebookLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 
 export const NotebookSidebar = (): JSX.Element | null => {
-    const { selectedNodeLogic, isShowingSidebar } = useValues(notebookLogic)
+    const { selectedNodeLogic, isShowingSidebar, isEditable } = useValues(notebookLogic)
+
+    if (!isEditable) {
+        return null
+    }
 
     return (
         <div
