@@ -38,6 +38,7 @@ drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
 drf-spectacular==0.24.2
 geoip2==4.6.0
+google-cloud-bigquery==3.11.4
 google-cloud-sqlcommenter==2.0.0
 gunicorn==20.1.0
 idna==2.8
