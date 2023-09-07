@@ -2,7 +2,6 @@ import json
 import uuid
 from datetime import datetime
 
-import pytz
 from zoneinfo import ZoneInfo
 from django.test import override_settings
 from rest_framework import status
@@ -37,7 +36,6 @@ def _create_action(**kwargs):
 
 
 def _create_signup_actions(team, user_and_timestamps):
-
     for distinct_id, timestamp in user_and_timestamps:
         _create_event(team=team, event="sign up", distinct_id=distinct_id, timestamp=timestamp)
     sign_up_action = _create_action(team=team, name="sign up")
@@ -54,7 +52,7 @@ def pluck(list_of_dicts, key, child_key=None):
 
 def _create_events(team, user_and_timestamps, event="$pageview"):
     i = 0
-    for (distinct_id, timestamp, *properties_args) in user_and_timestamps:
+    for distinct_id, timestamp, *properties_args in user_and_timestamps:
         properties = {"$some_property": "value"} if i % 2 == 0 else {}
         if len(properties_args) == 1:
             properties.update(properties_args[0])
@@ -872,7 +870,6 @@ def retention_test_factory(retention):
             )
 
         def test_retention_with_properties(self):
-
             _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
@@ -1157,7 +1154,6 @@ def retention_test_factory(retention):
             return p1, p2, p3, p4
 
         def test_retention_aggregate_by_distinct_id(self):
-
             _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"test": "ok"})
             _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
@@ -1271,7 +1267,7 @@ def retention_test_factory(retention):
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
             )
 
-            self.assertEqual(result_pacific[0]["date"], pytz.timezone("US/Pacific").localize(datetime(2020, 6, 10)))
+            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, tzinfo=ZoneInfo("US/Pacific")))
             self.assertEqual(result_pacific[0]["date"].isoformat(), "2020-06-10T00:00:00-07:00")
 
             self.assertEqual(

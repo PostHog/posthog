@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
-
-import pytz
+from zoneinfo import ZoneInfo
 
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -33,7 +32,6 @@ class Retention:
     def _get_retention_by_breakdown_values(
         self, filter: RetentionFilter, team: Team
     ) -> Dict[CohortKey, Dict[str, Any]]:
-
         actor_query, actor_query_params = build_actor_activity_query(
             filter=filter, team=team, retention_events_query=self.event_query
         )
@@ -109,10 +107,8 @@ class Retention:
                     for day in range(filter.total_intervals - first_day)
                 ],
                 "label": "{} {}".format(filter.period, first_day),
-                "date": pytz.timezone(team.timezone).localize(
-                    (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]).replace(
-                        tzinfo=None
-                    )
+                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]).replace(
+                    tzinfo=ZoneInfo(team.timezone)
                 ),
                 "people_url": construct_url(first_day),
             }

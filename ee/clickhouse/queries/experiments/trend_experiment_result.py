@@ -3,8 +3,8 @@ from datetime import datetime
 from functools import lru_cache
 from math import exp, lgamma, log
 from typing import List, Optional, Tuple, Type
+from zoneinfo import ZoneInfo
 
-import pytz
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
@@ -77,7 +77,6 @@ class ClickhouseTrendExperimentResult:
         trend_class: Type[Trends] = Trends,
         custom_exposure_filter: Optional[Filter] = None,
     ):
-
         breakdown_key = f"$feature/{feature_flag.key}"
         variants = [variant["key"] for variant in feature_flag.variants]
 
@@ -85,9 +84,9 @@ class ClickhouseTrendExperimentResult:
         # while start and end date are in UTC.
         # so we need to convert them to the project timezone
         if team.timezone:
-            start_date_in_project_timezone = experiment_start_date.astimezone(pytz.timezone(team.timezone))
+            start_date_in_project_timezone = experiment_start_date.astimezone(ZoneInfo(team.timezone))
             end_date_in_project_timezone = (
-                experiment_end_date.astimezone(pytz.timezone(team.timezone)) if experiment_end_date else None
+                experiment_end_date.astimezone(ZoneInfo(team.timezone)) if experiment_end_date else None
             )
 
         count_per_user_aggregation = uses_count_per_user_aggregation(filter)
