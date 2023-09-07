@@ -31,7 +31,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
-import { PromiseManager } from './worker/vm/promise-manager'
+import { PromiseManager } from './worker/vm/promise-manager' /** Re-export Element from scaffolding, for backwards compat. */
 
 /** Re-export Element from scaffolding, for backwards compat. */
 export { Element } from '@posthog/plugin-scaffold'
@@ -200,6 +200,13 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
+
+    // dump profiles to disk, covering the first N seconds of runtime
+    STARTUP_PROFILE_DURATION_SECONDS: number
+    STARTUP_PROFILE_CPU: boolean
+    STARTUP_PROFILE_HEAP: boolean
+    STARTUP_PROFILE_HEAP_INTERVAL: number
+    STARTUP_PROFILE_HEAP_DEPTH: number
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
