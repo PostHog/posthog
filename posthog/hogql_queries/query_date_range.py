@@ -36,7 +36,7 @@ class QueryDateRange:
 
         if self._date_range and self._date_range.date_to:
             date_to, delta_mapping = relative_date_parse_with_delta_mapping(
-                self._date_range.date_to, self._team.timezone_info, always_truncate=True
+                self._date_range.date_to, self._team.timezone_info, always_truncate=True, now=self._now
             )
 
         is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
@@ -56,7 +56,7 @@ class QueryDateRange:
         if self._date_range and self._date_range.date_from == "all":
             date_from = self.get_earliest_timestamp()
         elif self._date_range and isinstance(self._date_range.date_from, str):
-            date_from = relative_date_parse(self._date_range.date_from, self._team.timezone_info)
+            date_from = relative_date_parse(self._date_range.date_from, self._team.timezone_info, now=self._now)
         else:
             date_from = self._now.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
                 days=DEFAULT_DATE_FROM_DAYS
