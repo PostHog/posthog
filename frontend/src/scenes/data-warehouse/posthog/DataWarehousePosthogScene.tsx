@@ -1,9 +1,10 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
 import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
+import { useState } from 'react'
 
 export const scene: SceneExport = {
     component: DataWarehousePosthogScene,
@@ -11,6 +12,8 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehousePosthogScene(): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
+
     return (
         <div>
             <PageHeader
@@ -31,9 +34,37 @@ export function DataWarehousePosthogScene(): JSX.Element {
                         .
                     </div>
                 }
+                buttons={
+                    <LemonButton type="primary" data-attr="new-data-warehouse-table" onClick={() => setIsOpen(true)}>
+                        Link table to view
+                    </LemonButton>
+                }
             />
             <DataWarehousePageTabs tab={DataWarehouseTab.Posthog} />
             <DatabaseTablesContainer />
+            <TableToLinkModal isOpen={isOpen} onClose={() => setIsOpen(false)} />
         </div>
+    )
+}
+
+interface TableToLinkModalProps {
+    isOpen: boolean
+    onClose: () => void
+}
+
+function TableToLinkModal({ isOpen, onClose }: TableToLinkModalProps): JSX.Element {
+    return (
+        <LemonModal
+            title="Link view to table"
+            description={
+                <span>
+                    Define a join between the table and view. <b>All</b> fields from the view will be accessible in
+                    queries at the top level without needing to explicitly join the view.
+                </span>
+            }
+            isOpen={isOpen}
+            onClose={onClose}
+            width={600}
+        />
     )
 }
