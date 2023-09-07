@@ -123,6 +123,7 @@ export interface HogQLQueryResponse {
     results?: any[]
     types?: any[]
     columns?: any[]
+    timings?: QueryTiming[]
 }
 
 export interface HogQLQuery extends DataNode {
@@ -186,12 +187,18 @@ export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
 }
-
+export interface QueryTiming {
+    /** Key. Shortened to 'k' to save on data. */
+    k: string
+    /** Time in seconds. Shortened to 't' to save on data. */
+    t: number
+}
 export interface EventsQueryResponse {
     columns: any[]
     types: string[]
     results: any[][]
     hasMore?: boolean
+    timings?: QueryTiming[]
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -287,6 +294,8 @@ export interface DataTableNode extends Node {
     showReload?: boolean
     /** Show the time it takes to run a query */
     showElapsedTime?: boolean
+    /** Show a detailed query timing breakdown */
+    showTimings?: boolean
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
     /** Show a button to configure and persist the table's default columns if possible */
