@@ -24,6 +24,7 @@ const Template: StoryFn<typeof Lettermark> = (props: LettermarkProps) => {
 
 export const Base: Story = Template.bind({})
 Base.args = { name: 'Athena' }
+Base.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 
 export const Overview = (): JSX.Element => {
     return (
@@ -58,6 +59,7 @@ Number.args = { name: 42 }
 
 export const Unknown: Story = Template.bind({})
 Unknown.args = { name: null }
+Unknown.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 
 export const Gray: Story = Template.bind({})
 Gray.args = { name: 5, color: LettermarkColor.Gray }
