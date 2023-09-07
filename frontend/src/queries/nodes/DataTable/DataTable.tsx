@@ -109,6 +109,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         embedded,
         showOpenEditorButton,
         showResultsTable,
+        showTimings,
     } = queryWithDefaults
 
     const isReadOnly = setQuery === undefined
@@ -327,7 +328,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     )
 
     const firstRowLeft = [
-        showDateRange && isEventsQuery(query.source) ? (
+        showDateRange && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
             <DateRange query={query.source} setQuery={setQuerySource} />
         ) : null,
         showEventFilter && isEventsQuery(query.source) ? (
@@ -336,7 +337,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showSearch && isPersonsNode(query.source) ? (
             <PersonsSearch query={query.source} setQuery={setQuerySource} />
         ) : null,
-        showPropertyFilter && isEventsQuery(query.source) ? (
+        showPropertyFilter && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
             <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && isPersonsNode(query.source) ? (
@@ -351,7 +352,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const secondRowLeft = [
         showReload ? <Reload /> : null,
         showReload && canLoadNewData ? <AutoLoad /> : null,
-        showElapsedTime ? <ElapsedTime /> : null,
+        showElapsedTime ? <ElapsedTime showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
     const secondRowRight = [
