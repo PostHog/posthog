@@ -1,5 +1,5 @@
 from datetime import datetime
-from functools import cached_property
+from functools import cached_property, lru_cache
 from typing import Optional
 
 import pytz
@@ -100,6 +100,10 @@ class QueryDateRange:
     @cached_property
     def one_interval_period_as_hogql(self):
         return parse_expr(f"toInterval{self.interval.capitalize()}(1)")
+
+    @lru_cache
+    def interval_periods_as_hogql(self, s: str):
+        return parse_expr(f"toInterval{self.interval.capitalize()}({s})")
 
     @cached_property
     def interval_period_string(self):

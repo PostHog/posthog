@@ -74,8 +74,8 @@ def run_lifecycle_query(
     query_date_range = QueryDateRange(date_range=query.dateRange, team=team, interval=query.interval, now=now_dt)
 
     interval = query_date_range.interval.name
-    one_interval_period = parse_expr(f"toInterval{interval.capitalize()}(1)")
-    number_interval_period = parse_expr(f"toInterval{interval.capitalize()}(number)")
+    one_interval_period = query_date_range.one_interval_period_as_hogql
+    number_interval_period = query_date_range.interval_periods_as_hogql("number")
 
     time_filter = create_time_filter(query_date_range)
     event_filter = time_filter  # TODO: add all other filters

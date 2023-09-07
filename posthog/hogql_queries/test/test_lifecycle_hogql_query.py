@@ -4,9 +4,9 @@ from freezegun import freeze_time
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.utils import UUIDT
-from posthog.hogql_queries.lifecycle_hogql_query import create_events_query, create_time_filter
+from posthog.hogql_queries.lifecycle_hogql_query import create_events_query, create_time_filter, run_lifecycle_query
 from posthog.hogql_queries.query_date_range import QueryDateRange
-from posthog.schema import DateRange, IntervalType
+from posthog.schema import DateRange, IntervalType, LifecycleQuery, EventsNode
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 
@@ -67,7 +67,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    def run_events_query(self, date_from, date_to, interval):
+    def _run_events_query(self, date_from, date_to, interval):
         date_range = QueryDateRange(
             date_range=DateRange(date_from=date_from, date_to=date_to),
             team=self.team,
@@ -97,7 +97,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         date_from = "2020-01-09"
         date_to = "2020-01-19"
 
-        response = self.run_events_query(date_from, date_to, IntervalType.day)
+        response = self._run_events_query(date_from, date_to, IntervalType.day)
 
         self.assertEqual(
             {
@@ -125,7 +125,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
         date_from = "2020-01-12"
         date_to = "2020-01-14"
-        response = self.run_events_query(date_from, date_to, IntervalType.day)
+        response = self._run_events_query(date_from, date_to, IntervalType.day)
 
         self.assertEqual(
             {
@@ -159,3 +159,200 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     #         },
     #         set(response.results),
     #     )
+
+    def _run_lifecycle_query(self, date_from, date_to, interval):
+        series = [EventsNode(event="$pageview")]
+        query = LifecycleQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to), interval=interval, series=series
+        )
+        return run_lifecycle_query(team=self.team, query=query)
+
+    def test_lifecycle_query_whole_range(self):
+        self._create_test_events()
+
+        date_from = "2020-01-09"
+        date_to = "2020-01-19"
+
+        response = self._run_lifecycle_query(date_from, date_to, IntervalType.day)
+
+        self.assertEqual(
+            [
+                {
+                    "count": 4.0,
+                    "data": [
+                        1.0,  # 9th, p2
+                        0.0,
+                        1.0,  # 11th, p1
+                        1.0,  # 12th, p3
+                        0.0,
+                        0.0,
+                        1.0,  # 15th, p4
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": " - new",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "new",
+                },
+                {
+                    "count": -7.0,
+                    "data": [
+                        0.0,
+                        -1.0,  # 10th, p2
+                        0.0,
+                        0.0,
+                        -2.0,  # 13th, p2, p3
+                        -1.0,  # 14th, p1
+                        0.0,
+                        -2.0,  # 16th, p1, p4
+                        0.0,
+                        -1.0,  # 18th, p1
+                        0.0,
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": " - dormant",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "dormant",
+                },
+                {
+                    "count": 4.0,
+                    "data": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,  # 12th, p2
+                        0.0,
+                        0.0,
+                        1.0,  # 15th, p1
+                        0.0,
+                        1.0,  # 17th, p1
+                        0.0,
+                        1.0,  # 19th, p1
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": " - resurrecting",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "resurrecting",
+                },
+                {
+                    "count": 2.0,
+                    "data": [
+                        0.0,  # 9th
+                        0.0,  # 10th
+                        0.0,  # 11th
+                        1.0,  # 12th, p1
+                        1.0,  # 13th, p1
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "days": [
+                        "2020-01-09",
+                        "2020-01-10",
+                        "2020-01-11",
+                        "2020-01-12",
+                        "2020-01-13",
+                        "2020-01-14",
+                        "2020-01-15",
+                        "2020-01-16",
+                        "2020-01-17",
+                        "2020-01-18",
+                        "2020-01-19",
+                    ],
+                    "label": " - returning",
+                    "labels": [
+                        "9-Jan-2020",
+                        "10-Jan-2020",
+                        "11-Jan-2020",
+                        "12-Jan-2020",
+                        "13-Jan-2020",
+                        "14-Jan-2020",
+                        "15-Jan-2020",
+                        "16-Jan-2020",
+                        "17-Jan-2020",
+                        "18-Jan-2020",
+                        "19-Jan-2020",
+                    ],
+                    "status": "returning",
+                },
+            ],
+            response["result"],
+        )
