@@ -27,7 +27,7 @@ def parse_expr(
         node = HogQLParseTreeConverter(start=start).visit(parse_tree)
         if placeholders:
             with timings.measure("replace_placeholders"):
-                return replace_placeholders(node, placeholders)
+                node = replace_placeholders(node, placeholders)
     return node
 
 
@@ -41,7 +41,7 @@ def parse_order_expr(
         node = HogQLParseTreeConverter().visit(parse_tree)
         if placeholders:
             with timings.measure("replace_placeholders"):
-                return replace_placeholders(node, placeholders)
+                node = replace_placeholders(node, placeholders)
     return node
 
 

@@ -31,6 +31,7 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
+from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
@@ -75,6 +76,8 @@ def prepare_ast_for_printing(
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
+    with context.timings.measure("resolve_in_cohorts"):
+        resolve_in_cohorts(node, stack, context)
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
             node = resolve_property_types(node, context)
@@ -471,7 +474,7 @@ class _Printer(Visitor):
                 lambda left_op, right_op: left_op <= right_op if left_op is not None and right_op is not None else False
             )
         else:
-            raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
+            raise HogQLException(f"Unknown CompareOperationOp: {node.op.name}")
 
         # Try to see if we can take shortcuts
 
