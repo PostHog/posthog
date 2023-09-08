@@ -1,4 +1,5 @@
 import time
+from unittest.mock import patch
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -175,12 +176,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.usage["events"]["todays_usage"] = 10
         assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) == 1612137599
 
-        self.organization.never_drop_data = True
-        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
-        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) is None
-
         self.organization.usage["events"]["limit"] = None
-        self.organization.never_drop_data = False
         assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
 
         self.organization.usage["recordings"]["usage"] = 1099  # Under limit + buffer
@@ -188,6 +184,27 @@ class TestQuotaLimiting(BaseTest):
 
         self.organization.usage["recordings"]["usage"] = 1100  # Over limit + buffer
         assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) == 1612137599
+
+    @patch("ee.billing.quota_limiting.is_email_available", return_value=True)
+    @patch("ee.billing.quota_limiting.send_over_quota_but_not_dropped_email_to_cs.delay")
+    def test_over_quota_but_not_dropped_org(self, mock_email, mock_is_email_available):
+        self.organization.usage = None
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 90},
+            "recordings": {"usage": 100, "limit": 90},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.never_drop_data = True
+
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) is None
+
+        mock_is_email_available.assert_called_once()
+        mock_email.assert_called_once_with(self.organization.id)
+
+        self.organization.never_drop_data = False
 
     def test_sync_org_quota_limits(self):
         with freeze_time("2021-01-01T12:59:59Z"):
