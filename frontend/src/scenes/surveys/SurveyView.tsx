@@ -19,7 +19,6 @@ import { SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { NodeKind } from '~/queries/schema'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
@@ -257,7 +256,14 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { survey, dataTableQuery, surveyLoading, surveyMetricsQueries, surveyDataVizQuery } = useValues(surveyLogic)
+    const {
+        survey,
+        dataTableQuery,
+        surveyLoading,
+        surveyMetricsQueries,
+        surveyRatingQuery,
+        surveyMultipleChoiceQuery,
+    } = useValues(surveyLogic)
 
     return (
         <>
@@ -273,21 +279,13 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             )}
             {survey.questions[0].type === SurveyQuestionType.Rating && (
                 <div className="mb-4">
-                    <Query query={surveyDataVizQuery} />
+                    <Query query={surveyRatingQuery} />
                 </div>
             )}
             {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
                 survey.questions[0].type === SurveyQuestionType.MultipleChoice) && (
                 <div className="mb-4">
-                    <Query
-                        query={{
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`,
-                            },
-                        }}
-                    />
+                    <Query query={surveyMultipleChoiceQuery} />
                 </div>
             )}
             {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
