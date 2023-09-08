@@ -321,7 +321,7 @@ export const surveyLogic = kea<surveyLogicType>([
         hasTargetingFlag: [
             (s) => [s.survey],
             (survey): boolean => {
-                return !!survey.targeting_flag
+                return !!survey.targeting_flag || !!(survey.id === 'new' && survey.targeting_flag_filters)
             },
         ],
     }),
