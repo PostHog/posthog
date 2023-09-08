@@ -23,7 +23,7 @@ import { billingProductLogic } from './billingProductLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
-import { PlanComparisonModal } from './PlanComparisonModal'
+import { PlanComparisonModal } from './PlanComparison'
 
 export const getTierDescription = (
     tiers: BillingV2TierType[],
