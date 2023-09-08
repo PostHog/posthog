@@ -87,7 +87,7 @@ export function Products(): JSX.Element {
     return (
         <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">
             <div className="mb-8">
-                <h1 className="text-center text-4xl">Let's get started.</h1>
+                <h1 className="text-center text-4xl">Pick your first product.</h1>
                 <p className="text-center">
                     Pick your first product to get started with. You can set up any others you'd like later.
                 </p>
@@ -95,7 +95,7 @@ export function Products(): JSX.Element {
             {products.length > 0 ? (
                 <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
                     {products
-                        .filter((product) => !product.contact_support)
+                        .filter((product) => !product.contact_support && !product.inclusion_only)
                         .map((product) => (
                             <ProductCard product={product} key={product.type} />
                         ))}
