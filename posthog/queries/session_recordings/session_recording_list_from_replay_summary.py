@@ -62,7 +62,6 @@ def ttl_days(team: Team) -> int:
         is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_PLAYLISTS)
         ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
 
-        print(ttl_days, datetime.now(), settings.REPLAY_RETENTION_DAYS_MIN)
         # NOTE: The date we started reliably ingested data to blob storage
         DAYS_SINCE_BLOB_INGESTION = (datetime.now() - datetime(2023, 8, 1)).days
 
