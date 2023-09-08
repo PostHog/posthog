@@ -108,7 +108,7 @@ def parse_response(
 
 
 def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    diff = timedelta(days=6 if entity.math == WEEKLY_ACTIVE else 29)
+    diff = timedelta(days=7 if entity.math == WEEKLY_ACTIVE else 30)
 
     date_from: datetime.datetime
     if filter.date_from:

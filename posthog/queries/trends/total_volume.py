@@ -1,5 +1,5 @@
 import urllib.parse
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, List, Tuple, Union
 
 from posthog.clickhouse.query_tagging import tag_queries
@@ -256,9 +256,12 @@ class TrendsTotalVolume:
 
         return _parse
 
-    def _offset_date_from(self, point_datetime: datetime, filter: Filter) -> datetime | None:
+    def _offset_date_from(self, point_datetime: datetime, filter: Filter, entity: Entity) -> datetime | None:
         if filter.display == TRENDS_CUMULATIVE:
             return filter.date_from
+        elif entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+            # :TRICKY: We have to offset the date by one, as the final query already subtracts 7 days
+            return point_datetime + timedelta(days=1)
         else:
             return point_datetime
 
@@ -279,7 +282,7 @@ class TrendsTotalVolume:
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": self._offset_date_from(point_datetime, filter=filter),
+                "date_from": self._offset_date_from(point_datetime, filter=filter, entity=entity),
                 "date_to": self._offset_date_to(point_datetime, filter=filter, entity=entity, team=team),
                 "entity_order": entity.order,
             }
