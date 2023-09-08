@@ -1,7 +1,6 @@
 import time
 from uuid import uuid4
 
-
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.utils.timezone import now
@@ -176,7 +175,12 @@ class TestQuotaLimiting(BaseTest):
         self.organization.usage["events"]["todays_usage"] = 10
         assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) == 1612137599
 
+        self.organization.never_drop_data = True
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) is None
+
         self.organization.usage["events"]["limit"] = None
+        self.organization.never_drop_data = False
         assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
 
         self.organization.usage["recordings"]["usage"] = 1099  # Under limit + buffer
