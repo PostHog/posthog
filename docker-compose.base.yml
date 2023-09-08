@@ -35,7 +35,7 @@ services:
         restart: on-failure
 
     kafka:
-        image: bitnami/kafka:2.8.1-debian-10-r99
+        build: ./docker/kafka
         restart: on-failure
         depends_on:
             - zookeeper
