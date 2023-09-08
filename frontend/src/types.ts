@@ -3179,7 +3179,8 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: string[]
-    image: string
+    image: string | JSX.Element
+    docsLink: string
 }
 
 export enum SDKKey {
@@ -3198,4 +3199,27 @@ export enum SDKKey {
     GO = 'go',
     ELIXIR = 'elixir',
     API = 'api',
+    JAVA = 'java',
+    RUST = 'rust',
+    GOOGLE_TAG_MANAGER = 'google_tag_manager',
+    NUXT_JS = 'nuxtjs',
+    VUE_JS = 'vuejs',
+    SEGMENT = 'segment',
+    RUDDERSTACK = 'rudderstack',
+    DOCUSAURUS = 'docusaurus',
+    SHOPIFY = 'shopify',
+    WORDPRESS = 'wordpress',
+    SENTRY = 'sentry',
+    RETOOL = 'retool',
 }
+
+export enum SDKTag {
+    WEB = 'Web',
+    MOBILE = 'Mobile',
+    SERVER = 'Server',
+    INTEGRATION = 'Integration',
+    RECOMMENDED = 'Recommended',
+    OTHER = 'Other',
+}
+
+export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
