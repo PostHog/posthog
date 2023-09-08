@@ -63,10 +63,10 @@ def ttl_days(team: Team) -> int:
         ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
 
         # NOTE: The date we started reliably ingested data to blob storage
-        DAYS_SINCE_BLOB_INGESTION = (datetime.now() - datetime(2023, 8, 1)).days
+        days_since_blob_ingestion = (datetime.now() - datetime(2023, 8, 1)).days
 
-        if DAYS_SINCE_BLOB_INGESTION < ttl_days:
-            ttl_days = DAYS_SINCE_BLOB_INGESTION
+        if days_since_blob_ingestion < ttl_days:
+            ttl_days = days_since_blob_ingestion
 
     return ttl_days
 

@@ -626,17 +626,17 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         TEST_clear_cloud_cache()
         with self.is_cloud(True):
-            # Far enough in the future from DAYS_SINCE_BLOB_INGESTION but not paid
+            # Far enough in the future from `days_since_blob_ingestion` but not paid
             with freeze_time("2023-09-01T12:00:01Z"):
                 assert ttl_days(self.team) == 30
 
             self.team.organization.available_features = [AvailableFeature.RECORDINGS_PLAYLISTS]
 
-            # Far enough in the future from DAYS_SINCE_BLOB_INGESTION but paid
+            # Far enough in the future from `days_since_blob_ingestion` but paid
             with freeze_time("2023-12-01T12:00:01Z"):
                 assert ttl_days(self.team) == 90
 
-            # Not far enough in the future from DAYS_SINCE_BLOB_INGESTION
+            # Not far enough in the future from `days_since_blob_ingestion`
             with freeze_time("2023-09-05T12:00:01Z"):
                 assert ttl_days(self.team) == 35
 
@@ -1708,10 +1708,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
 
-        assert sorted(
-            [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
-        ) == [
+        assert sorted([sr["session_id"] for sr in session_recordings], key=lambda x: x[0],) == [
             my_custom_event_session_id,
             non_matching__event_session_id,
             page_view_session_id,
@@ -1735,10 +1732,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
 
-        assert sorted(
-            [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
-        ) == [
+        assert sorted([sr["session_id"] for sr in session_recordings], key=lambda x: x[0],) == [
             my_custom_event_session_id,
             page_view_session_id,
         ]
