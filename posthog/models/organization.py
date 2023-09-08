@@ -119,10 +119,8 @@ class Organization(UUIDModel):
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
     enforce_2fa: models.BooleanField = models.BooleanField(null=True, blank=True)
 
-    # Managed by Billing
+    ## Managed by Billing
     customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    # will be deprecated in favor of `available_product_features` once we're fully using that format in the frontend
-    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
@@ -132,6 +130,7 @@ class Organization(UUIDModel):
     # }
     # Also currently indicates if the organization is on billing V2 or not
     usage: models.JSONField = models.JSONField(null=True, blank=True)
+    never_drop_data: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
@@ -139,6 +138,9 @@ class Organization(UUIDModel):
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
+    available_features = ArrayField(
+        models.CharField(max_length=64, blank=False), blank=True, default=list
+    )  # DEPRECATED in favor of `available_product_features`
 
     objects: OrganizationManager = OrganizationManager()
 
