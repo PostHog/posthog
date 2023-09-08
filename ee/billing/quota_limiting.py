@@ -13,6 +13,7 @@ from posthog.event_usage import report_organization_action
 from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.tasks.email import send_over_quota_but_not_dropped_email_to_cs
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
     get_teams_with_billable_event_count_in_period,
@@ -101,6 +102,7 @@ def sync_org_quota_limits(organization: Organization):
 
         if quota_limited_until and organization.never_drop_data:
             quota_limited_until = None
+            send_over_quota_but_not_dropped_email_to_cs.delay(organization.id)
 
         if quota_limited_until:
             add_limited_team_tokens(resource, {x: quota_limited_until for x in team_tokens})

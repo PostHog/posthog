@@ -98,6 +98,24 @@ def send_email_verification(user_id: int, token: str) -> None:
 
 
 @app.task(max_retries=1)
+def send_over_quota_but_not_dropped_email_to_cs(organization_id: int) -> None:
+    organization: Organization = Organization.objects.get(pk=organization_id)
+    message = EmailMessage(
+        campaign_key=f"over_quota_but_not_dropped-{organization_id}-{timezone.now().timestamp()}",
+        subject=f"{organization.name} over quota, data not dropped",
+        template_name="over_quota_but_not_dropped",
+        template_context={
+            "preheader": "The organization is over their quota limit but data has not been dropped.",
+            "link": f"/admin/posthog/organization/{organization.pk}/change/",
+            "site_url": settings.SITE_URL,
+            "organization_name": organization.name,
+        },
+    )
+    message.add_recipient("sales@posthog.com")
+    message.send()
+
+
+@app.task(max_retries=1)
 def send_fatal_plugin_error(
     plugin_config_id: int, plugin_config_updated_at: Optional[str], error: str, is_system_error: bool
 ) -> None:
