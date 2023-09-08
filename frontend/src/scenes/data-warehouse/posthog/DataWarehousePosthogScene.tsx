@@ -5,6 +5,7 @@ import { databaseSceneLogic } from 'scenes/data-management/database/databaseScen
 import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
 import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
 import { useState } from 'react'
+import { ViewLinkForm } from '../ViewLinkModal'
 
 export const scene: SceneExport = {
     component: DataWarehousePosthogScene,
@@ -65,6 +66,8 @@ function TableToLinkModal({ isOpen, onClose }: TableToLinkModalProps): JSX.Eleme
             isOpen={isOpen}
             onClose={onClose}
             width={600}
-        />
+        >
+            <ViewLinkForm tableSelectable={true} />
+        </LemonModal>
     )
 }

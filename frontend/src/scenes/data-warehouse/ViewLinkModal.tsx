@@ -6,6 +6,7 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { Form, Field } from 'kea-forms'
 import { useActions, useValues } from 'kea'
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 
 export function ViewLinkModal(): JSX.Element {
     const { isFieldModalOpen } = useValues(viewLinkLogic)
@@ -24,14 +25,19 @@ export function ViewLinkModal(): JSX.Element {
             onClose={toggleFieldModal}
             width={600}
         >
-            <ViewLinkForm />
+            <ViewLinkForm tableSelectable={false} />
         </LemonModal>
     )
 }
 
-export function ViewLinkForm(): JSX.Element {
+interface ViewLinkFormProps {
+    tableSelectable: boolean
+}
+
+export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Element {
     const { viewOptions, toJoinKeyOptions, selectedView, selectedTable, fromJoinKeyOptions } = useValues(viewLinkLogic)
-    const { selectView, toggleFieldModal } = useActions(viewLinkLogic)
+    const { selectView, toggleFieldModal, selectTable } = useActions(viewLinkLogic)
+    const { tableOptions } = useValues(databaseSceneLogic)
 
     return (
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
@@ -39,7 +45,19 @@ export function ViewLinkForm(): JSX.Element {
                 <div className="flex flex-row w-full justify-between">
                     <div className="flex flex-col">
                         <span className="l4">Table</span>
-                        {selectedTable ? selectedTable.name : ''}
+                        {tableSelectable ? (
+                            <LemonSelect
+                                value={selectedTable}
+                                fullWidth
+                                options={tableOptions}
+                                onSelect={selectTable}
+                                placeholder="Select a table"
+                            />
+                        ) : selectedTable ? (
+                            selectedTable.name
+                        ) : (
+                            ''
+                        )}
                     </div>
                     <div className="w-50">
                         <span className="l4">View</span>
