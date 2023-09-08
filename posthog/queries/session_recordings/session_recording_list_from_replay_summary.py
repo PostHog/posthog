@@ -1,13 +1,13 @@
 import dataclasses
-import datetime
 import re
-from datetime import timedelta
-from typing import Any, Dict, List, NamedTuple, Tuple, Union
-from typing import Literal
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Literal, NamedTuple, Tuple, Union
+
+from django.conf import settings
 
 from posthog.client import sync_execute
-from posthog.constants import PropertyOperatorType
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.cloud_utils import is_cloud
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, AvailableFeature, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.action.util import format_entity_filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -162,7 +162,19 @@ class SessionIdEventsQuery(EventQuery):
         super().__init__(
             **kwargs,
         )
-        self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+
+        if is_cloud():
+            # NOTE: We use Playlists as a proxy to see if they are subbed to Recordings
+            is_paid = self._team.organization.is_feature_available(AvailableFeature.RECORDINGS_PLAYLISTS)
+            self.ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
+
+            # NOTE: The date we started reliably ingested data to blob storage
+            DAYS_SINCE_BLOB_INGESTION = (datetime.now() - datetime(2023, 8, 1)).days
+
+            if DAYS_SINCE_BLOB_INGESTION < self.ttl_days:
+                self.ttl_days = DAYS_SINCE_BLOB_INGESTION
+        else:
+            self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
 
     _raw_events_query = """
         SELECT
@@ -276,7 +288,7 @@ class SessionIdEventsQuery(EventQuery):
 
         base_params = {
             "team_id": self._team_id,
-            "clamped_to_storage_ttl": (datetime.datetime.now() - datetime.timedelta(days=self.ttl_days)),
+            "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
         }
 
         _, recording_start_time_params = _get_recording_start_time_clause(self._filter)
@@ -471,7 +483,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             "team_id": self._team_id,
             "limit": self.limit + 1,
             "offset": offset,
-            "clamped_to_storage_ttl": (datetime.datetime.now() - datetime.timedelta(days=self.ttl_days)),
+            "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
         }
 
         _, recording_start_time_params = _get_recording_start_time_clause(self._filter)
