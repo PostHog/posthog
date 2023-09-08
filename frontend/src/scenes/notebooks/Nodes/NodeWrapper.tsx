@@ -8,7 +8,7 @@ import {
 } from '@tiptap/react'
 import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
-import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconClose, IconDragHandle, IconFilter, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -28,7 +28,7 @@ import {
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
-    title: string | ((attributes: NotebookNodeAttributes<T>) => Promise<string>)
+    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string)
@@ -36,7 +36,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     // Sizing
     expandable?: boolean
     startExpanded?: boolean
-    resizeable?: boolean
+    resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     heightEstimate?: number | string
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
@@ -53,7 +53,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     selected,
     href,
     heightEstimate = '4rem',
-    resizeable = true,
+    resizeable: resizeableOrGenerator = true,
     startExpanded = false,
     expandable = true,
     expandOnClick = true,
@@ -78,12 +78,13 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         notebookLogic: mountedNotebookLogic,
         getPos,
         title: titleOrGenerator,
+        resizeable: resizeableOrGenerator,
         widgets,
         startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { title, expanded } = useValues(nodeLogic)
-    const { setExpanded, deleteNode } = useActions(nodeLogic)
+    const { title, resizeable, expanded } = useValues(nodeLogic)
+    const { setExpanded, deleteNode, setWidgetsVisible } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -161,6 +162,14 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                             icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                         />
                                     )}
+
+                                    {!!widgets.length && isEditable ? (
+                                        <LemonButton
+                                            onClick={() => setWidgetsVisible(true)}
+                                            size="small"
+                                            icon={<IconFilter />}
+                                        />
+                                    ) : null}
 
                                     {isEditable && (
                                         <LemonButton

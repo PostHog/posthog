@@ -52,6 +52,8 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         property = Property(**property)
     elif isinstance(property, list):
         properties = [property_to_expr(p, team) for p in property]
+        if len(properties) == 0:
+            return ast.Constant(value=True)
         if len(properties) == 1:
             return properties[0]
         return ast.And(exprs=properties)
