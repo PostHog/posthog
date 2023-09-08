@@ -464,3 +464,98 @@ convert_to_hex() {
         printf '%x' "'${char}"
     done
 }
+
+########################
+# Run command as a specific user and group (optional)
+# Arguments:
+#   $1 - USER(:GROUP) to switch to
+#   $2..$n - command to execute
+# Returns:
+#   Exit code of the specified command
+#########################
+run_as_user() {
+    run_chroot "$@"
+}
+
+########################
+# Execute command as a specific user and group (optional),
+# replacing the current process image
+# Arguments:
+#   $1 - USER(:GROUP) to switch to
+#   $2..$n - command to execute
+# Returns:
+#   Exit code of the specified command
+#########################
+exec_as_user() {
+    run_chroot --replace-process "$@"
+}
+
+########################
+# Run a command using chroot
+# Arguments:
+#   $1 - USER(:GROUP) to switch to
+#   $2..$n - command to execute
+# Flags:
+#   -r | --replace-process - Replace the current process image (optional)
+# Returns:
+#   Exit code of the specified command
+#########################
+run_chroot() {
+    local userspec
+    local user
+    local homedir
+    local replace=false
+    local -r cwd="$(pwd)"
+
+    # Parse and validate flags
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            -r | --replace-process)
+                replace=true
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                stderr_print "unrecognized flag $1"
+                return 1
+                ;;
+            *)
+                break
+                ;;
+        esac
+        shift
+    done
+
+    # Parse and validate arguments
+    if [[ "$#" -lt 2 ]]; then
+        echo "expected at least 2 arguments"
+        return 1
+    else
+        userspec=$1
+        shift
+
+        # userspec can optionally include the group, so we parse the user
+        user=$(echo "$userspec" | cut -d':' -f1)
+    fi
+
+    if ! am_i_root; then
+        error "Could not switch to '${userspec}': Operation not permitted"
+        return 1
+    fi
+
+    # Get the HOME directory for the user to switch, as chroot does
+    # not properly update this env and some scripts rely on it
+    homedir=$(eval echo "~${user}")
+    if [[ ! -d $homedir ]]; then
+        homedir="${HOME:-/}"
+    fi
+
+    # Obtaining value for "$@" indirectly in order to properly support shell parameter expansion
+    if [[ "$replace" = true ]]; then
+        exec chroot --userspec="$userspec" / bash -c "cd ${cwd}; export HOME=${homedir}; exec \"\$@\"" -- "$@"
+    else
+        chroot --userspec="$userspec" / bash -c "cd ${cwd}; export HOME=${homedir}; exec \"\$@\"" -- "$@"
+    fi
+}
