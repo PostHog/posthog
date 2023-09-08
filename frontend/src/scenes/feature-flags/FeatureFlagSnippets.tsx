@@ -166,7 +166,7 @@ export function GolangSnippet({
     const flagSnippet = groupType
         ? `${clientSuffix}${flagFunction}(
             FeatureFlagPayload{
-                Key:        '${flagKey}',
+                Key:        "${flagKey}",
                 DistinctId: "distinct-id",
                 Groups:     Groups{'${groupType.group_type}': '<${
               groupType.name_singular || 'group'
