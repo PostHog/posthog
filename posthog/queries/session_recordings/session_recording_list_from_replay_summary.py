@@ -16,6 +16,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import PersonOnEventsMode
+from posthog.models.team.team import Team
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
 
@@ -52,6 +53,23 @@ def _get_filter_by_provided_session_ids_clause(
         return "", {}
 
     return f'AND "{column_name}" in %(session_ids)s', {"session_ids": recording_filters.session_ids}
+
+
+def ttl_days(team: Team) -> int:
+    ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+    if is_cloud():
+        # NOTE: We use Playlists as a proxy to see if they are subbed to Recordings
+        is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_PLAYLISTS)
+        ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
+
+        print(ttl_days, datetime.now(), settings.REPLAY_RETENTION_DAYS_MIN)
+        # NOTE: The date we started reliably ingested data to blob storage
+        DAYS_SINCE_BLOB_INGESTION = (datetime.now() - datetime(2023, 8, 1)).days
+
+        if DAYS_SINCE_BLOB_INGESTION < ttl_days:
+            ttl_days = DAYS_SINCE_BLOB_INGESTION
+
+    return ttl_days
 
 
 class PersonsQuery(EventQuery):
@@ -163,18 +181,9 @@ class SessionIdEventsQuery(EventQuery):
             **kwargs,
         )
 
-        if is_cloud():
-            # NOTE: We use Playlists as a proxy to see if they are subbed to Recordings
-            is_paid = self._team.organization.is_feature_available(AvailableFeature.RECORDINGS_PLAYLISTS)
-            self.ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
-
-            # NOTE: The date we started reliably ingested data to blob storage
-            DAYS_SINCE_BLOB_INGESTION = (datetime.now() - datetime(2023, 8, 1)).days
-
-            if DAYS_SINCE_BLOB_INGESTION < self.ttl_days:
-                self.ttl_days = DAYS_SINCE_BLOB_INGESTION
-        else:
-            self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+    @property
+    def ttl_days(self):
+        return ttl_days(self._team)
 
     _raw_events_query = """
         SELECT
@@ -393,7 +402,10 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         super().__init__(
             **kwargs,
         )
-        self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+
+    @property
+    def ttl_days(self):
+        return ttl_days(self._team)
 
     _session_recordings_query: str = """
     SELECT

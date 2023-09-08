@@ -6,6 +6,8 @@ from django.utils.timezone import now
 from freezegun.api import freeze_time
 
 from posthog.clickhouse.client import sync_execute
+from posthog.cloud_utils import TEST_clear_cloud_cache
+from posthog.constants import AvailableFeature
 from posthog.models import Person, Cohort
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -14,6 +16,7 @@ from posthog.models.session_replay_event.sql import TRUNCATE_SESSION_REPLAY_EVEN
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
+    ttl_days,
 )
 from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
@@ -616,6 +619,26 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         # we want this to limit the amount of event data we query
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_id_one
+
+    @snapshot_clickhouse_queries
+    def test_ttl_days(self):
+        assert ttl_days(self.team) == 21
+
+        TEST_clear_cloud_cache()
+        with self.is_cloud(True):
+            # Far enough in the future from DAYS_SINCE_BLOB_INGESTION but not paid
+            with freeze_time("2023-09-01T12:00:01Z"):
+                assert ttl_days(self.team) == 30
+
+            self.team.organization.available_features = [AvailableFeature.RECORDINGS_PLAYLISTS]
+
+            # Far enough in the future from DAYS_SINCE_BLOB_INGESTION but paid
+            with freeze_time("2023-12-01T12:00:01Z"):
+                assert ttl_days(self.team) == 90
+
+            # Not far enough in the future from DAYS_SINCE_BLOB_INGESTION
+            with freeze_time("2023-09-05T12:00:01Z"):
+                assert ttl_days(self.team) == 35
 
     @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(
@@ -1685,7 +1708,10 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
 
-        assert sorted([sr["session_id"] for sr in session_recordings], key=lambda x: x[0],) == [
+        assert sorted(
+            [sr["session_id"] for sr in session_recordings],
+            key=lambda x: x[0],
+        ) == [
             my_custom_event_session_id,
             non_matching__event_session_id,
             page_view_session_id,
@@ -1709,7 +1735,10 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
 
-        assert sorted([sr["session_id"] for sr in session_recordings], key=lambda x: x[0],) == [
+        assert sorted(
+            [sr["session_id"] for sr in session_recordings],
+            key=lambda x: x[0],
+        ) == [
             my_custom_event_session_id,
             page_view_session_id,
         ]
