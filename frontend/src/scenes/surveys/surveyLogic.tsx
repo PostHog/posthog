@@ -55,7 +55,7 @@ export const defaultSurveyAppearance = {
     thankYouMessageHeader: 'Thank you for your feedback!',
 }
 
-const NEW_SURVEY: NewSurvey = {
+export const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',

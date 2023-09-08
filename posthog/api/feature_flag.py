@@ -1,9 +1,8 @@
 import json
 from typing import Any, Dict, List, Optional, cast
 
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Count
 from django.conf import settings
-from django.db.models.query_utils import Q
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -33,7 +32,6 @@ from posthog.models.feature_flag import (
     get_user_blast_radius,
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
-from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -70,6 +68,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     rollout_percentage = serializers.SerializerMethodField()
 
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
     analytics_dashboards = serializers.PrimaryKeyRelatedField(
@@ -100,6 +99,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "rollout_percentage",
             "ensure_experience_continuity",
             "experiment_set",
+            "surveys",
             "features",
             "rollback_conditions",
             "performed_rollback",
@@ -128,6 +128,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         from posthog.api.early_access_feature import MinimalEarlyAccessFeatureSerializer
 
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
+
+    def get_surveys(self, feature_flag: FeatureFlag) -> Dict:
+        from posthog.api.survey import SurveyAPISerializer
+
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
@@ -343,11 +348,12 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 .prefetch_related("experiment_set")
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
+                .prefetch_related("surveys_linked_flag")
             )
-            survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
-                "targeting_flag_id", flat=True
+
+            queryset = queryset.annotate(num_targeting_flags=Count("survey_targeting_flag")).filter(
+                num_targeting_flags=0
             )
-            queryset = queryset.exclude(Q(id__in=survey_targeting_flags))
 
         return queryset.select_related("created_by").order_by("-created_at")
 
