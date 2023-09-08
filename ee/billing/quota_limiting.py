@@ -14,9 +14,9 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    convert_team_usage_rows_to_dict,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_recording_count_in_period,
-    convert_team_usage_rows_to_dict,
 )
 from posthog.utils import get_current_day
 
@@ -98,6 +98,9 @@ def sync_org_quota_limits(organization: Organization):
 
     for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
         quota_limited_until = org_quota_limited_until(organization, resource)
+
+        if quota_limited_until and organization.never_drop_data:
+            quota_limited_until = None
 
         if quota_limited_until:
             add_limited_team_tokens(resource, {x: quota_limited_until for x in team_tokens})
