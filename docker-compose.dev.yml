@@ -46,6 +46,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: zookeeper
+        ports:
+            - '2181:2181'
 
     kafka:
         extends:
