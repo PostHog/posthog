@@ -24,8 +24,8 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     also_test_with_materialized_columns,
-    snapshot_clickhouse_queries,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 
