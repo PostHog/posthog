@@ -1244,7 +1244,7 @@ const sessionReplayEventTestCases: {
             click_count: 1,
             keypress_count: 0,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1260,7 +1260,7 @@ const sessionReplayEventTestCases: {
             click_count: 0,
             keypress_count: 1,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1316,7 +1316,7 @@ const sessionReplayEventTestCases: {
             click_count: 0,
             keypress_count: 1,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1381,7 +1381,7 @@ const sessionReplayEventTestCases: {
             click_count: 6,
             keypress_count: 0,
             mouse_activity_count: 6,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.000',
             last_timestamp: '2023-04-25 18:58:19.000',
             active_milliseconds: 6000, // can sum up the activity across windows
