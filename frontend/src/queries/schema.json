@@ -1888,12 +1888,41 @@
         "SavedInsightNode": {
             "additionalProperties": false,
             "properties": {
+                "embedded": {
+                    "description": "Query is embedded inside another bordered component",
+                    "type": "boolean"
+                },
+                "full": {
+                    "description": "Show with most visual options enabled. Used in insight scene.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "SavedInsightNode",
                     "type": "string"
                 },
                 "shortId": {
                     "$ref": "#/definitions/InsightShortId"
+                },
+                "showCorrelationTable": {
+                    "type": "boolean"
+                },
+                "showFilters": {
+                    "type": "boolean"
+                },
+                "showHeader": {
+                    "type": "boolean"
+                },
+                "showLastComputation": {
+                    "type": "boolean"
+                },
+                "showLastComputationRefresh": {
+                    "type": "boolean"
+                },
+                "showResults": {
+                    "type": "boolean"
+                },
+                "showTable": {
+                    "type": "boolean"
                 }
             },
             "required": ["kind", "shortId"],

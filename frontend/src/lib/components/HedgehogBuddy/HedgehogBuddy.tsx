@@ -396,7 +396,7 @@ export function HedgehogBuddy({
     onPositionChange?: (actor: HedgehogActor) => void
     popoverOverlay?: React.ReactNode
     // passed in as this might need to be the app's global dark mode setting or the toolbar's local one
-    isDarkModeOn?: boolean
+    isDarkModeOn: boolean
 }): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
@@ -423,7 +423,7 @@ export function HedgehogBuddy({
     }, [accessories])
 
     useEffect(() => {
-        actor.darkMode = !!isDarkModeOn
+        actor.darkMode = isDarkModeOn
     }, [isDarkModeOn])
 
     useEffect(() => {

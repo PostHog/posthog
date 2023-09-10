@@ -165,7 +165,7 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
 
 
 def relative_date_parse_with_delta_mapping(
-    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
 ) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
@@ -188,7 +188,7 @@ def relative_date_parse_with_delta_mapping(
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    parsed_dt = dt.datetime.now().astimezone(timezone_info)
+    parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping
@@ -240,8 +240,10 @@ def relative_date_parse_with_delta_mapping(
     return parsed_dt, delta_mapping
 
 
-def relative_date_parse(input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate)[0]
+def relative_date_parse(
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
+) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
 
 
 def get_git_branch() -> Optional[str]:
