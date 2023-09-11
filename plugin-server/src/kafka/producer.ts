@@ -6,7 +6,7 @@ import {
     MessageValue,
     NumberNullUndefined,
     ProducerGlobalConfig,
-} from 'node-rdkafka-acosom'
+} from 'node-rdkafka'
 
 import { getSpan } from '../sentry'
 import { status } from '../utils/status'

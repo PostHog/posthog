@@ -1,6 +1,6 @@
 import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
-import { TopicPartition } from 'node-rdkafka-acosom'
+import { TopicPartition } from 'node-rdkafka'
 
 import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'

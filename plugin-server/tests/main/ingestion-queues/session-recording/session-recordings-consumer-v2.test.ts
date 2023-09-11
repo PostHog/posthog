@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs'
-import { Message } from 'node-rdkafka-acosom'
+import { Message } from 'node-rdkafka'
 import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'

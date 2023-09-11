@@ -16,7 +16,7 @@
 //     KafkaJS consumer runner, which we assume will handle retries.
 
 import Redis from 'ioredis'
-import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
+import LibrdKafkaError from 'node-rdkafka/lib/error'
 
 import { defaultConfig } from '../../../src/config/config'
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'

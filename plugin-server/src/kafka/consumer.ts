@@ -7,7 +7,7 @@ import {
     Message,
     TopicPartition,
     TopicPartitionOffset,
-} from 'node-rdkafka-acosom'
+} from 'node-rdkafka'
 
 import { latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import { status } from '../utils/status'

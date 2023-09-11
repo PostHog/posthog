@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { Message, MessageHeader } from 'node-rdkafka-acosom'
+import { Message, MessageHeader } from 'node-rdkafka'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
