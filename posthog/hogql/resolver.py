@@ -60,6 +60,7 @@ class Resolver(CloningVisitor):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
+        self.current_view_depth: int = 0
         self.context = context
         self.database = context.database
         self.cte_counter = 0
@@ -212,9 +213,16 @@ class Resolver(CloningVisitor):
                 database_table = self.database.get_table(table_name)
 
                 if isinstance(database_table, SavedQuery):
+                    self.current_view_depth += 1
+
+                    if self.current_view_depth > self.context.max_view_depth:
+                        raise ResolverException("Nested views are not supported")
+
                     node.table = parse_select(str(database_table.query))
                     node.alias = table_alias or database_table.name
                     node = self.visit(node)
+
+                    self.current_view_depth -= 1
                     return node
 
                 if isinstance(database_table, LazyTable):

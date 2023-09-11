@@ -9,7 +9,7 @@ import {
 } from '@tiptap/react'
 import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
-import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconClose, IconDragHandle, IconFilter, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -85,7 +85,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { title, resizeable, expanded } = useValues(nodeLogic)
-    const { setExpanded, deleteNode } = useActions(nodeLogic)
+    const { setExpanded, deleteNode, setWidgetsVisible } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -163,6 +163,14 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                             icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                         />
                                     )}
+
+                                    {!!widgets.length && isEditable ? (
+                                        <LemonButton
+                                            onClick={() => setWidgetsVisible(true)}
+                                            size="small"
+                                            icon={<IconFilter />}
+                                        />
+                                    ) : null}
 
                                     {isEditable && (
                                         <LemonButton

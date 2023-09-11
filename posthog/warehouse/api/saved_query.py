@@ -1,11 +1,16 @@
 from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import filters, serializers, viewsets
+from rest_framework import filters, serializers, viewsets, exceptions
 from posthog.warehouse.models import DataWarehouseSavedQuery
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.hogql.database.database import serialize_fields, SerializedField
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_ast
+from posthog.hogql.metadata import is_valid_view
+from posthog.hogql.errors import HogQLException
 
 from posthog.models import User
 from typing import Any, List
@@ -48,6 +53,26 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(str(err))
         view.save()
         return view
+
+    def validate_query(self, query):
+        team_id = self.context["team_id"]
+
+        context = HogQLContext(team_id=team_id, enable_select_queries=True)
+        context.max_view_depth = 0
+        select_ast = parse_select(query["query"])
+        _is_valid_view = is_valid_view(select_ast)
+        if not _is_valid_view:
+            raise exceptions.ValidationError(detail="Ensure all fields are aliased")
+        try:
+            print_ast(node=select_ast, context=context, dialect="clickhouse", stack=None, settings=None)
+        except Exception as err:
+            if isinstance(err, ValueError) or isinstance(err, HogQLException):
+                error = str(err)
+                raise exceptions.ValidationError(detail=f"Invalid query: {error}")
+            else:
+                raise exceptions.ValidationError(detail=f"Unexpected f{err.__class__.__name__}")
+
+        return query
 
 
 class DataWarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

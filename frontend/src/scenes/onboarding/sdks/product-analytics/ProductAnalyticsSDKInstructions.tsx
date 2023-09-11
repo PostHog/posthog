@@ -1,4 +1,4 @@
-import { SDKKey } from '~/types'
+import { SDKInstructionsMap, SDKKey } from '~/types'
 import {
     JSWebInstructions,
     ProductAnalyticsAPIInstructions,
@@ -14,7 +14,7 @@ import {
     ProductAnalyticsRubyInstructions,
 } from '.'
 
-export const ProductAnalyticsSDKInstructions = {
+export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
     // add next, getsby, and others here
     [SDKKey.IOS]: ProductAnalyticsIOSInstructions,
