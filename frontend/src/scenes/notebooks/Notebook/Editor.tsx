@@ -13,7 +13,6 @@ import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExampl
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
@@ -30,6 +29,7 @@ import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } f
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
+import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -84,7 +84,6 @@ export function Editor({
             }),
             NotebookMarkLink,
             NotebookNodeBacklink,
-            NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,
             NotebookNodeReplayTimestamp,
@@ -94,6 +93,7 @@ export function Editor({
             NotebookNodeFlag,
             NotebookNodeExperiment,
             NotebookNodeEarlyAccessFeature,
+            NotebookNodeSurvey,
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,

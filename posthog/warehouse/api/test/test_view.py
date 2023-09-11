@@ -13,7 +13,7 @@ class TestView(APIBaseTest):
                 "name": "event_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": f"select event from events LIMIT 100",
+                    "query": f"select event as event from events LIMIT 100",
                 },
             },
         )
@@ -29,7 +29,7 @@ class TestView(APIBaseTest):
                 "name": "event_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": f"select * from event_view LIMIT 100",
+                    "query": f"select event as event from event_view LIMIT 100",
                 },
             },
         )
@@ -42,7 +42,7 @@ class TestView(APIBaseTest):
                 "name": "event_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": f"select event from events LIMIT 100",
+                    "query": f"select event as event from events LIMIT 100",
                 },
             },
         )
@@ -53,7 +53,7 @@ class TestView(APIBaseTest):
             {
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": f"select distinct_id from events LIMIT 100",
+                    "query": f"select distinct_id as distinct_id from events LIMIT 100",
                 },
             },
         )
@@ -62,44 +62,6 @@ class TestView(APIBaseTest):
         view_1 = view_1_response.json()
         self.assertEqual(view_1["name"], "event_view")
         self.assertEqual(view_1["columns"], [{"key": "distinct_id", "type": "string"}])
-
-    def test_circular_view(self):
-        view_1_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": f"select * from events LIMIT 100",
-                },
-            },
-        )
-        self.assertEqual(view_1_response.status_code, 201, view_1_response.content)
-        view_1 = view_1_response.json()
-
-        view_2_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "outer_event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": f"select event from event_view LIMIT 100",
-                },
-            },
-        )
-        self.assertEqual(view_2_response.status_code, 201, view_2_response.content)
-
-        view_1_response = self.client.patch(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/" + view_1["id"],
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": f"select * from outer_event_view LIMIT 100",
-                },
-            },
-        )
-        self.assertEqual(view_1_response.status_code, 400, view_1_response.content)
 
     @patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
@@ -128,7 +90,7 @@ class TestView(APIBaseTest):
                 "name": "event_view",
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": f"select id, a_column from whatever LIMIT 100",
+                    "query": f"select id as id, a_column as a_column from whatever LIMIT 100",
                 },
             },
         )

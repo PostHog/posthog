@@ -1,10 +1,12 @@
 import * as Sentry from '@sentry/node'
+import fs from 'fs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes, Consumer, KafkaJSProtocolError } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
+import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
@@ -63,6 +65,7 @@ export async function startPluginsServer(
 
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
+    runStartupProfiles(serverConfig)
 
     // Structure containing initialized clients for Postgres, Kafka, Redis, etc.
     let hub: Hub | undefined
@@ -405,6 +408,7 @@ export async function startPluginsServer(
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
                 consumerErrorBackoffMs: serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
                 batchingTimeoutMs: serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+                topicCreationTimeoutMs: serverConfig.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             })
             stopSessionRecordingEventsConsumer = stop
             joinSessionRecordingEventsConsumer = join
@@ -507,3 +511,26 @@ const kafkaProtocolErrors = new Counter({
     help: 'Kafka protocol errors encountered, by type',
     labelNames: ['type', 'code'],
 })
+
+function runStartupProfiles(config: PluginsServerConfig) {
+    if (config.STARTUP_PROFILE_CPU) {
+        status.info('🩺', `Collecting cpu profile...`)
+        v8Profiler.setGenerateType(1)
+        v8Profiler.startProfiling('startup', true)
+        setTimeout(() => {
+            const profile = v8Profiler.stopProfiling('startup')
+            fs.writeFileSync('./startup.cpuprofile', JSON.stringify(profile))
+            status.info('🩺', `Wrote cpu profile to disk`)
+            profile.delete()
+        }, config.STARTUP_PROFILE_DURATION_SECONDS * 1000)
+    }
+    if (config.STARTUP_PROFILE_HEAP) {
+        status.info('🩺', `Collecting heap profile...`)
+        v8Profiler.startSamplingHeapProfiling(config.STARTUP_PROFILE_HEAP_INTERVAL, config.STARTUP_PROFILE_HEAP_DEPTH)
+        setTimeout(() => {
+            const profile = v8Profiler.stopSamplingHeapProfiling()
+            fs.writeFileSync('./startup.heapprofile', JSON.stringify(profile))
+            status.info('🩺', `Wrote heap profile to disk`)
+        }, config.STARTUP_PROFILE_DURATION_SECONDS * 1000)
+    }
+}

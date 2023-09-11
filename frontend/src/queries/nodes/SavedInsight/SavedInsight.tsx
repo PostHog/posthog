@@ -32,7 +32,7 @@ export function SavedInsight({ query, context, cachedResults }: InsightProps): J
 
     return (
         <Query
-            query={{ kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) }}
+            query={{ ...query, kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) }}
             context={{ ...context, insightProps }}
         />
     )

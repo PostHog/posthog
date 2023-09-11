@@ -2101,6 +2101,9 @@ export interface SurveyAppearance {
     ratingButtonColor?: string
     ratingButtonHoverColor?: string
     whiteLabel?: boolean
+    displayThankYouMessage?: boolean
+    thankYouMessageHeader?: string
+    thankYouMessageDescription?: string
 }
 
 interface SurveyQuestionBase {
@@ -2588,8 +2591,6 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
-    /** First day of the week (0 = Sun, 1 = Mon, ...) */
-    week_start: number
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3034,6 +3035,7 @@ export enum NotebookNodeType {
     FeatureFlagCodeExample = 'ph-feature-flag-code-example',
     Experiment = 'ph-experiment',
     EarlyAccessFeature = 'ph-early-access-feature',
+    Survey = 'ph-survey',
     Person = 'ph-person',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
@@ -3123,10 +3125,25 @@ export type BatchExportDestinationSnowflake = {
     }
 }
 
+export type BatchExportDestinationBigQuery = {
+    type: 'BigQuery'
+    config: {
+        project_id: string
+        private_key: string
+        private_key_id: string
+        client_email: string
+        token_uri: string
+        dataset_id: string
+        table_id: string
+        exclude_events: string[]
+    }
+}
+
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake
     | BatchExportDestinationPostgres
+    | BatchExportDestinationBigQuery
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -3163,7 +3180,8 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: string[]
-    image: string
+    image: string | JSX.Element
+    docsLink: string
 }
 
 export enum SDKKey {
@@ -3182,4 +3200,27 @@ export enum SDKKey {
     GO = 'go',
     ELIXIR = 'elixir',
     API = 'api',
+    JAVA = 'java',
+    RUST = 'rust',
+    GOOGLE_TAG_MANAGER = 'google_tag_manager',
+    NUXT_JS = 'nuxtjs',
+    VUE_JS = 'vuejs',
+    SEGMENT = 'segment',
+    RUDDERSTACK = 'rudderstack',
+    DOCUSAURUS = 'docusaurus',
+    SHOPIFY = 'shopify',
+    WORDPRESS = 'wordpress',
+    SENTRY = 'sentry',
+    RETOOL = 'retool',
 }
+
+export enum SDKTag {
+    WEB = 'Web',
+    MOBILE = 'Mobile',
+    SERVER = 'Server',
+    INTEGRATION = 'Integration',
+    RECOMMENDED = 'Recommended',
+    OTHER = 'Other',
+}
+
+export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
