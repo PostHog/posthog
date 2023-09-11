@@ -14,7 +14,7 @@ import { notebookLogic } from './notebookLogic'
 import { urls } from 'scenes/urls'
 
 export function NotebookPopover(): JSX.Element {
-    const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, dropListeners } =
+    const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, dropProperties } =
         useValues(notebookPopoverLogic)
     const { setVisibility, setFullScreen, selectNotebook, setElementRef } = useActions(notebookPopoverLogic)
     const { createNotebook } = useActions(notebooksModel)
@@ -64,7 +64,7 @@ export function NotebookPopover(): JSX.Element {
             <div
                 className="NotebookPopover__content"
                 onClick={visibility !== 'visible' ? () => setVisibility('visible') : undefined}
-                {...dropListeners}
+                {...dropProperties}
             >
                 <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
                     <span className="flex items-center gap-1 text-primary-alt">

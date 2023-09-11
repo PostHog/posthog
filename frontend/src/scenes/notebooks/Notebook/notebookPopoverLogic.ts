@@ -1,7 +1,7 @@
 import { actions, kea, reducers, path, listeners, selectors } from 'kea'
 
 import { urlToAction } from 'kea-router'
-import { RefObject } from 'react'
+import { HTMLProps, RefObject } from 'react'
 import posthog from 'posthog-js'
 import { subscriptions } from 'kea-subscriptions'
 import { EditorFocusPosition } from './utils'
@@ -21,6 +21,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         setVisibility: (visibility: NotebookPopoverVisibility) => ({ visibility }),
         startDropMode: true,
         endDropMode: true,
+        setDropDistance: (distance: number) => ({ distance }),
     }),
 
     reducers(() => ({
@@ -70,12 +71,24 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
                 endDropMode: () => false,
             },
         ],
+        dropDistance: [
+            0,
+            {
+                startDropMode: () => -1,
+                endDropMode: () => -1,
+                setDropDistance: (_, { distance }) => distance,
+            },
+        ],
     })),
 
     selectors(({ cache, actions }) => ({
-        dropListeners: [
-            (s) => [s.dropMode],
-            (dropMode): { onDragEnter?: () => void; onDragLeave?: () => void } => {
+        dropProperties: [
+            (s) => [s.dropMode, s.visibility, s.dropDistance],
+            (
+                dropMode,
+                visibility,
+                dropDistance
+            ): Pick<HTMLProps<HTMLDivElement>, 'onDragEnter' | 'onDragLeave' | 'style'> => {
                 return dropMode
                     ? {
                           onDragEnter: () => {
@@ -92,6 +105,10 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
                                   cache.dragEntercount = 0
                                   actions.setVisibility('peek')
                               }
+                          },
+                          style: {
+                              // TODO: Tune this value
+                              transform: visibility === 'peek' ? `translateX(${(1 - dropDistance) * 100}%)` : undefined,
                           },
                       }
                     : {}
@@ -110,12 +127,25 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     listeners(({ cache, actions, values }) => ({
         startDropMode: () => {
             cache.dragEntercount = 0
+            cache.dragStart = null
             actions.setVisibility('peek')
+
+            cache.dragListener = (event: MouseEvent) => {
+                if (!cache.dragStart) {
+                    cache.dragStart = event.pageX
+                }
+
+                // The drop distnace is the percentage between where the drag started and where it now is
+                const dropDistance = (event.pageX - cache.dragStart) / window.innerWidth
+                actions.setDropDistance(dropDistance)
+            }
+            window.addEventListener('drag', cache.dragListener)
         },
         endDropMode: () => {
             if (values.visibility === 'peek') {
                 actions.setVisibility('hidden')
             }
+            window.removeEventListener('drag', cache.dragListener)
         },
     })),
 

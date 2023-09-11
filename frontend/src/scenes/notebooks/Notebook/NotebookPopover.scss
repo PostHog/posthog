@@ -60,6 +60,7 @@
 
     &--peek {
         .NotebookPopover__content {
+            transition: none; // NOTE: This shouldn't be none as it affects other transitions
             transform: translateX(calc(100% - 5rem));
             box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
         }
