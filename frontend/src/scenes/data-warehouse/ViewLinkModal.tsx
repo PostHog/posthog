@@ -8,7 +8,7 @@ import { useActions, useValues } from 'kea'
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 
-export function ViewLinkModal(): JSX.Element {
+export function ViewLinkModal({ tableSelectable }: { tableSelectable: boolean }): JSX.Element {
     const { isFieldModalOpen } = useValues(viewLinkLogic)
     const { toggleFieldModal } = useActions(viewLinkLogic)
 
@@ -25,7 +25,7 @@ export function ViewLinkModal(): JSX.Element {
             onClose={toggleFieldModal}
             width={600}
         >
-            <ViewLinkForm tableSelectable={false} />
+            <ViewLinkForm tableSelectable={tableSelectable} />
         </LemonModal>
     )
 }

@@ -106,8 +106,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                         from_join_key,
                     })
                     actions.toggleFieldModal()
-                    actions.loadDatabase()
-                    actions.loadViewLinks()
+                    // actions.loadDatabase()
+                    // actions.loadViewLinks()
                 }
             },
         },
@@ -178,10 +178,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 if (!selectedTable) {
                     return []
                 }
-                return selectedTable.columns.map((column) => ({
-                    value: column.key,
-                    label: <ViewLinkKeyLabel column={column} />,
-                }))
+                return selectedTable.columns
+                    .filter((column) => column.type !== 'view')
+                    .map((column) => ({
+                        value: column.key,
+                        label: <ViewLinkKeyLabel column={column} />,
+                    }))
             },
         ],
         mappedFromJoinKeyOptions: [
