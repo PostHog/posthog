@@ -34,7 +34,7 @@ export function LemonWidget({ title, collapsible = true, onClose, children }: Le
                         />
                     </>
                 ) : (
-                    <span className="flex-1">{title}</span>
+                    <span className="flex-1 text-primary-alt px-2">{title}</span>
                 )}
                 {onClose && <LemonButton status="danger" onClick={onClose} size="small" icon={<IconClose />} />}
             </Header>

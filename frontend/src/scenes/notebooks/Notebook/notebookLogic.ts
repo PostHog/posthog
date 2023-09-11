@@ -77,6 +77,7 @@ export const notebookLogic = kea<notebookLogicType>([
         exportJSON: true,
         showConflictWarning: true,
         onUpdateEditor: true,
+        setIsShowingSidebar: (showing: boolean) => ({ showing }),
         registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
@@ -160,6 +161,13 @@ export const notebookLogic = kea<notebookLogicType>([
             false,
             {
                 setEditable: (_, { editable }) => editable,
+            },
+        ],
+        isShowingSidebar: [
+            false,
+            {
+                setSelectedNodeId: () => false,
+                setIsShowingSidebar: (_, { showing }) => showing,
             },
         ],
     }),
@@ -326,10 +334,6 @@ export const notebookLogic = kea<notebookLogicType>([
                     )
                 }
             },
-        ],
-        isShowingSidebar: [
-            (s) => [s.selectedNodeLogic],
-            (selectedNodeLogic) => selectedNodeLogic?.values.isShowingWidgets,
         ],
     }),
     sharedListeners(({ values, actions }) => ({

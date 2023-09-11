@@ -15,7 +15,7 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 import { useMemo, useRef, useState } from 'react'
 import { fromParamsGivenUrl, uuid } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconSettings } from 'lib/lemon-ui/icons'
+import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
@@ -135,7 +135,6 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         {
             key: 'settings',
             label: 'Settings',
-            icon: <IconSettings />,
             Component: Settings,
         },
     ],

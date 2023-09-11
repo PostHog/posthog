@@ -15,7 +15,6 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 
 const HEIGHT = 500
@@ -102,7 +101,6 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         {
             key: 'settings',
             label: 'Settings',
-            icon: <IconSettings />,
             Component: Settings,
         },
     ],
