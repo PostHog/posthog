@@ -1,14 +1,14 @@
-import { NodeViewProps } from '@tiptap/core'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
+import { NotebookNodeViewProps } from '../Notebook/utils'
 
 const MAX_DEFAULT_HEIGHT = 1000
 
-const Component = (props: NodeViewProps): JSX.Element => {
+const Component = (props: NotebookNodeViewProps<NotebookNodeImageAttributes>): JSX.Element => {
     const { file, src, height } = props.node.attrs
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string>()
@@ -70,7 +70,12 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const NotebookNodeImage = createPostHogWidgetNode({
+type NotebookNodeImageAttributes = {
+    file?: File
+    src?: string
+}
+
+export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttributes>({
     nodeType: NotebookNodeType.Image,
     title: 'Image',
     Component,

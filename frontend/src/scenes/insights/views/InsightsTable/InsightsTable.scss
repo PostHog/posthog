@@ -1,7 +1,7 @@
 .insights-table.LemonTable--embedded {
     border-top: 1px solid var(--border);
 }
-.dashboard .insights-table {
+.InsightCard .insights-table {
     min-height: 100%;
     border-top: none;
 }
@@ -19,7 +19,7 @@
     .insights-label {
         &.editable {
             cursor: pointer;
-            .ant-typography {
+            .EntityFilterInfo {
                 color: var(--primary);
                 font-weight: 500;
             }

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { CloseOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
+import { IconClose } from 'lib/lemon-ui/icons'
 
 export function InfoWindow(): JSX.Element | null {
     const {
@@ -107,7 +107,7 @@ export function InfoWindow(): JSX.Element | null {
                         cursor: 'pointer',
                     }}
                 >
-                    <CloseOutlined />
+                    <IconClose />
                 </div>
             ) : null}
             {/* eslint-disable-next-line react/forbid-dom-props */}

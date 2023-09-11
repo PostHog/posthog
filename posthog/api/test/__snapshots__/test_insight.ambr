@@ -283,7 +283,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(8)
               UNION ALL SELECT toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -347,7 +347,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(8)
               UNION ALL SELECT toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -386,7 +386,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
@@ -412,7 +412,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
@@ -454,7 +454,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
@@ -480,7 +480,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
@@ -522,7 +522,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
@@ -564,7 +564,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
@@ -638,6 +638,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -649,6 +650,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -680,6 +682,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -691,6 +694,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -798,6 +802,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -809,6 +814,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -1018,6 +1024,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1029,6 +1036,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -1150,6 +1158,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1161,6 +1170,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -1269,6 +1279,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1280,6 +1291,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -1368,6 +1380,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1379,6 +1392,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -1471,6 +1485,24 @@
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.30
+  '
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id"
+  FROM "posthog_taggeditem"
+  WHERE "posthog_taggeditem"."insight_id" IN (1,
+                                              2,
+                                              3,
+                                              4,
+                                              5 /* ... */) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  '
+---
 # name: TestInsight.test_listing_insights_does_not_nplus1.4
   '
   SELECT "posthog_team"."id",
@@ -1484,6 +1516,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1495,6 +1528,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -1561,6 +1595,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1572,6 +1607,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -1637,6 +1673,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1648,6 +1685,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -1686,6 +1724,7 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
@@ -1697,6 +1736,7 @@
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",

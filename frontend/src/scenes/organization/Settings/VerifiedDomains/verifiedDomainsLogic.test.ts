@@ -1,4 +1,4 @@
-import { verifiedDomainsLogic } from './verifiedDomainsLogic'
+import { isSecureURL, verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { initKeaTests } from '~/test/init'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
@@ -53,6 +53,28 @@ describe('verifiedDomainsLogic', () => {
         initKeaTests()
         logic = verifiedDomainsLogic()
         logic.mount()
+    })
+
+    describe('isSecureURL', () => {
+        it('should return true for an https URL', () => {
+            expect(isSecureURL('https://www.example.com')).toEqual(true)
+            expect(isSecureURL('https://www.example.com/pathname?query=true#hash')).toEqual(true)
+            expect(isSecureURL('https://localhost:8080')).toEqual(true)
+            expect(isSecureURL('https://localhost:8080/pathname?query=true#hash')).toEqual(true)
+
+            expect(isSecureURL('http://www.example.com')).toEqual(false)
+            expect(isSecureURL('http://www.example.com/pathname?query=true#hash')).toEqual(false)
+            expect(isSecureURL('http://localhost:8080')).toEqual(false)
+            expect(isSecureURL('http://localhost:8080/pathname?query=true#hash')).toEqual(false)
+
+            expect(isSecureURL('www.example.com')).toEqual(false)
+            expect(isSecureURL('www.example.com/pathname?query=true#hash')).toEqual(false)
+            expect(isSecureURL('localhost:8080')).toEqual(false)
+            expect(isSecureURL('localhost:8080/pathname?query=true#hash')).toEqual(false)
+
+            expect(isSecureURL('notadomainorurl')).toEqual(false)
+            expect(isSecureURL('123456')).toEqual(false)
+        })
     })
 
     describe('values', () => {

@@ -46,6 +46,7 @@ class BreakdownType(str, Enum):
     event = "event"
     group = "group"
     session = "session"
+    hogql = "hogql"
 
 
 class ChartDisplayType(str, Enum):
@@ -177,16 +178,6 @@ class Response(BaseModel):
     results: List[EventType]
 
 
-class EventsQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    columns: List
-    hasMore: Optional[bool] = None
-    results: List[List]
-    types: List[str]
-
-
 class FilterLogicalOperator(str, Enum):
     AND = "AND"
     OR = "OR"
@@ -250,18 +241,6 @@ class HogQLNotice(BaseModel):
     fix: Optional[str] = None
     message: str
     start: Optional[float] = None
-
-
-class HogQLQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    clickhouse: Optional[str] = None
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    query: Optional[str] = None
-    results: Optional[List] = None
-    types: Optional[List] = None
 
 
 class IntervalType(str, Enum):
@@ -350,6 +329,14 @@ class PropertyOperator(str, Enum):
     max = "max"
 
 
+class QueryTiming(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    k: str = Field(..., description="Key. Shortened to 'k' to save on data.")
+    t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
+
+
 class RecordingDurationFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -382,8 +369,17 @@ class SavedInsightNode(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    embedded: Optional[bool] = Field(None, description="Query is embedded inside another bordered component")
+    full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in insight scene.")
     kind: str = Field("SavedInsightNode", const=True)
     shortId: str
+    showCorrelationTable: Optional[bool] = None
+    showFilters: Optional[bool] = None
+    showHeader: Optional[bool] = None
+    showLastComputation: Optional[bool] = None
+    showLastComputationRefresh: Optional[bool] = None
+    showResults: Optional[bool] = None
+    showTable: Optional[bool] = None
 
 
 class SessionPropertyFilter(BaseModel):
@@ -491,6 +487,17 @@ class EventPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
+class EventsQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    columns: List
+    hasMore: Optional[bool] = None
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
 class FeaturePropertyFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -565,13 +572,17 @@ class HogQLPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class HogQLQuery(BaseModel):
+class HogQLQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    kind: str = Field("HogQLQuery", const=True)
-    query: str
-    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
+    clickhouse: Optional[str] = None
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    query: Optional[str] = None
+    results: Optional[List] = None
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
 
 
 class LifecycleFilter(BaseModel):
@@ -731,14 +742,48 @@ class EventsQuery(BaseModel):
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
 
 
+class HogQLFilters(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    dateRange: Optional[DateRange] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
+
+
 class HogQLMetadata(BaseModel):
     class Config:
         extra = Extra.forbid
 
     expr: Optional[str] = None
+    filters: Optional[HogQLFilters] = None
     kind: str = Field("HogQLMetadata", const=True)
     response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
     select: Optional[str] = None
+
+
+class HogQLQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    filters: Optional[HogQLFilters] = None
+    kind: str = Field("HogQLQuery", const=True)
+    query: str
+    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
 
 
 class PersonsNode(BaseModel):
@@ -873,6 +918,7 @@ class DataTableNode(BaseModel):
     columns: Optional[List[str]] = Field(
         None, description="Columns shown in the table, unless the `source` provides them."
     )
+    embedded: Optional[bool] = Field(None, description="Uses the embedded version of LemonTable")
     expandable: Optional[bool] = Field(None, description="Can expand row to show raw event data (default: true)")
     full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in scenes.")
     hiddenColumns: Optional[List[str]] = Field(
@@ -894,10 +940,15 @@ class DataTableNode(BaseModel):
     showOpenEditorButton: Optional[bool] = Field(
         None, description="Show a button to open the current query as a new insight. (default: true)"
     )
+    showPersistentColumnConfigurator: Optional[bool] = Field(
+        None, description="Show a button to configure and persist the table's default columns if possible"
+    )
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
+    showResultsTable: Optional[bool] = Field(None, description="Show a results table")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
+    showTimings: Optional[bool] = Field(None, description="Show a detailed query timing breakdown")
     source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
         ..., description="Source of the events"
     )
@@ -1133,13 +1184,15 @@ class InsightVizNode(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    embedded: Optional[bool] = Field(None, description="Query is embedded inside another bordered component")
     full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in insight scene.")
     kind: str = Field("InsightVizNode", const=True)
     showCorrelationTable: Optional[bool] = None
+    showFilters: Optional[bool] = None
     showHeader: Optional[bool] = None
     showLastComputation: Optional[bool] = None
     showLastComputationRefresh: Optional[bool] = None
-    showLegendButton: Optional[bool] = None
+    showResults: Optional[bool] = None
     showTable: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 

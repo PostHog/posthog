@@ -1,15 +1,14 @@
-import { Plugin, PluginEvent, PluginMeta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { Plugin, PluginEvent, PluginMeta, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
 import { Hub, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
 import { isTestEnv } from '../../../utils/env-utils'
-import { status } from '../../../utils/status'
 import { stringClamp } from '../../../utils/utils'
 import { ExportEventsBuffer } from './utils/export-events-buffer'
 
 export const MAXIMUM_RETRIES = 3
 const EXPORT_BUFFER_BYTES_MINIMUM = 1
-const EXPORT_BUFFER_BYTES_DEFAULT = 1024 * 1024
+const EXPORT_BUFFER_BYTES_DEFAULT = 900 * 1024 // 900 KiB
 const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024
 const EXPORT_BUFFER_SECONDS_MINIMUM = 1
 const EXPORT_BUFFER_SECONDS_MAXIMUM = 600
@@ -90,6 +89,7 @@ export function upgradeExportEvents(
 
     meta.global.exportEventsWithRetry = async (
         payload: ExportEventsJobPayload,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         meta: PluginMeta<ExportEventsUpgrade>
     ) => {
         const start = new Date()
@@ -103,74 +103,22 @@ export function upgradeExportEvents(
                 teamId: pluginConfig.team_id,
                 pluginConfigId: pluginConfig.id,
                 category: 'exportEvents',
-                successes: payload.retriesPerformedSoFar == 0 ? payload.batch.length : 0,
-                successesOnRetry: payload.retriesPerformedSoFar == 0 ? 0 : payload.batch.length,
+                successes: payload.batch.length,
             })
         } catch (err) {
-            if (err instanceof RetryError) {
-                if (payload.retriesPerformedSoFar < MAXIMUM_RETRIES) {
-                    const nextRetrySeconds = 2 ** (payload.retriesPerformedSoFar + 1) * 3
-                    await meta.jobs
-                        .exportEventsWithRetry({ ...payload, retriesPerformedSoFar: payload.retriesPerformedSoFar + 1 })
-                        .runIn(nextRetrySeconds, 'seconds')
-
-                    status.info(
-                        '🚃',
-                        `Enqueued PluginConfig ${pluginConfig.id} (plugin=${pluginConfig.plugin_id}, team=${
-                            pluginConfig.team_id
-                        }) batch ${payload.batchId} for retry #${payload.retriesPerformedSoFar + 1} in ${Math.round(
-                            nextRetrySeconds
-                        )}s`
-                    )
-                    hub.statsd?.increment('plugin.export_events.retry_enqueued', {
-                        retry: `${payload.retriesPerformedSoFar + 1}`,
-                        plugin: pluginConfig.plugin?.name ?? '?',
-                        teamId: pluginConfig.team_id.toString(),
-                    })
-                    appRetriesCounter
-                        .labels({
-                            team_id: pluginConfig.team_id,
-                            plugin_id: pluginConfig.plugin_id,
-                        })
-                        .inc()
-                } else {
-                    status.info(
-                        '☠️',
-                        `Dropped PluginConfig ${pluginConfig.id} (plugin=${pluginConfig.plugin_id}, team=${pluginConfig.team_id}) batch ${payload.batchId} after retrying ${payload.retriesPerformedSoFar} times`
-                    )
-                    hub.statsd?.increment('plugin.export_events.retry_dropped', {
-                        retry: `${payload.retriesPerformedSoFar}`,
-                        plugin: pluginConfig.plugin?.name ?? '?',
-                        teamId: pluginConfig.team_id.toString(),
-                    })
-                    await hub.appMetrics.queueError(
-                        {
-                            teamId: pluginConfig.team_id,
-                            pluginConfigId: pluginConfig.id,
-                            category: 'exportEvents',
-                            failures: payload.batch.length,
-                        },
-                        {
-                            error: err,
-                            eventCount: payload.batch.length,
-                        }
-                    )
+            // We've disabled all retries as we move exportEvents to a new system
+            await hub.appMetrics.queueError(
+                {
+                    teamId: pluginConfig.team_id,
+                    pluginConfigId: pluginConfig.id,
+                    category: 'exportEvents',
+                    failures: payload.batch.length,
+                },
+                {
+                    error: err,
+                    eventCount: payload.batch.length,
                 }
-            } else {
-                await hub.appMetrics.queueError(
-                    {
-                        teamId: pluginConfig.team_id,
-                        pluginConfigId: pluginConfig.id,
-                        category: 'exportEvents',
-                        failures: payload.batch.length,
-                    },
-                    {
-                        error: err,
-                        eventCount: payload.batch.length,
-                    }
-                )
-                throw err
-            }
+            )
         }
     }
 

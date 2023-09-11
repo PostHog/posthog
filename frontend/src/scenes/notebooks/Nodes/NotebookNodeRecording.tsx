@@ -1,4 +1,3 @@
-import { NodeViewProps } from '@tiptap/core'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
@@ -15,18 +14,23 @@ import {
     SessionRecordingPreviewSkeleton,
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { IconSettings } from 'lib/lemon-ui/icons'
+import { JSONContent, NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
 
-const Component = (props: NodeViewProps): JSX.Element => {
+const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>): JSX.Element => {
     const id = props.node.attrs.id
+    const noInspector: boolean = props.node.attrs.noInspector
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
         autoPlay: false,
         mode: SessionRecordingPlayerMode.Notebook,
         noBorder: true,
+        noInspector: noInspector,
     }
 
     const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
@@ -51,9 +55,30 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const NotebookNodeRecording = createPostHogWidgetNode({
+export const Settings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeWidgetSettings<NotebookNodeRecordingAttributes>): JSX.Element => {
+    return (
+        <div className="p-3">
+            <LemonSwitch
+                onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
+                label="Hide Inspector"
+                checked={attributes.noInspector}
+                fullWidth={true}
+            />
+        </div>
+    )
+}
+
+type NotebookNodeRecordingAttributes = {
+    id: string
+    noInspector: boolean
+}
+
+export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
-    title: 'Session Replay',
+    title: 'Session replay',
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
@@ -63,18 +88,38 @@ export const NotebookNodeRecording = createPostHogWidgetNode({
         id: {
             default: null,
         },
-    },
-    pasteOptions: {
-        find: urls.replaySingle('') + '(.+)',
-        getAttributes: (match) => {
-            return { id: match[1] }
+        noInspector: {
+            default: false,
         },
     },
+    pasteOptions: {
+        find: urls.replaySingle('(.+)'),
+        getAttributes: async (match) => {
+            return { id: match[1], noInspector: false }
+        },
+    },
+    widgets: [
+        {
+            key: 'settings',
+            label: 'Settings',
+            icon: <IconSettings />,
+            Component: Settings,
+        },
+    ],
 })
 
 export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {
     return {
         sessionRecordingId: id,
         playerKey: `notebook-${id}`,
+    }
+}
+
+export function buildRecordingContent(sessionRecordingId: string): JSONContent {
+    return {
+        type: 'ph-recording',
+        attrs: {
+            id: sessionRecordingId,
+        },
     }
 }

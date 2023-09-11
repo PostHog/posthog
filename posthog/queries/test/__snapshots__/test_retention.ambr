@@ -22,12 +22,12 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                         pdi.person_id as target,
                         [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-06-10 00:00:00' , 'UTC')),
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'UTC')),
                               toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -108,12 +108,12 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT DISTINCT toStartOfMonth(toDateTime(e.timestamp), 'UTC') AS event_date,
+       (SELECT DISTINCT toStartOfMonth(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                         if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Month',
-                              toStartOfMonth(toDateTime('2020-01-10 00:00:00' , 'UTC')),
+                              toStartOfMonth(toDateTime('2020-01-10 00:00:00', 'UTC')),
                               toStartOfMonth(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -180,12 +180,12 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                         pdi.person_id as target,
                         [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-06-10 00:00:00' , 'UTC')),
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'UTC')),
                               toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -259,12 +259,12 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                         pdi.person_id as target,
                         [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-06-10 00:00:00' , 'UTC')),
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'UTC')),
                               toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -339,12 +339,12 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                         pdi.person_id as target,
                         [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-06-10 00:00:00' , 'UTC')),
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'UTC')),
                               toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -411,12 +411,12 @@
         GROUP BY target,
                  event_date),
           target_event_query as
-       (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'US/Pacific') AS event_date,
+       (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific')) AS event_date,
                         pdi.person_id as target,
                         [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-06-10 00:00:00' , 'US/Pacific')),
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'US/Pacific')),
                               toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific'))
                           )
                       ] as breakdown_values

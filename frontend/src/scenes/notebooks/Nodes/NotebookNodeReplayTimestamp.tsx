@@ -11,11 +11,11 @@ import clsx from 'clsx'
 import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
 import { LemonButton } from '@posthog/lemon-ui'
-import { openNotebook } from '../Notebook/notebooksListLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import { useMemo } from 'react'
+import { openNotebook } from '~/models/notebooksModel'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { shortId, findNodeLogic } = useValues(notebookLogic)
@@ -97,6 +97,11 @@ export const NotebookNodeReplayTimestamp = Node.create({
 
 export function formatTimestamp(time: number): string {
     return dayjs.duration(time, 'milliseconds').format('HH:mm:ss').replace(/^00:/, '').trim()
+}
+
+export interface NotebookNodeReplayTimestampAttrs {
+    playbackTime: number | null
+    sessionRecordingId: string
 }
 
 export function buildTimestampCommentContent(

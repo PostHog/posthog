@@ -1,15 +1,16 @@
 import { useState } from 'react'
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { FilterLogicalOperator, FilterType, AnyPropertyFilter, PropertyGroupFilter, PropertyOperator } from '~/types'
 import { useMountedLogic } from 'kea'
 import { PropertyGroupFilters } from './PropertyGroupFilters'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { cohortsModel } from '~/models/cohortsModel'
 
-export default {
+const meta: Meta<typeof PropertyGroupFilters> = {
     title: 'Filters/PropertyGroupFilters',
     component: PropertyGroupFilters,
-} as ComponentMeta<typeof PropertyGroupFilters>
+}
+export default meta
 
 const propertyFilters = [
     {

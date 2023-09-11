@@ -55,7 +55,7 @@ jobs:
         needs: changes
         name: Cypress preparation
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        timeout-minutes: 5
         outputs:
             chunks: ${{ steps.chunk.outputs.chunks }}
 
@@ -70,7 +70,7 @@ jobs:
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        timeout-minutes: 60
         needs: [chunks, changes]
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run

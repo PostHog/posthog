@@ -21,15 +21,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const {
-        survey,
-        dataTableQuery,
-        surveyLoading,
-        surveyPlugin,
-        surveyMetricsQueries,
-        surveyDataVizQuery,
-        showSurveyAppWarning,
-    } = useValues(surveyLogic)
+    const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
     // TODO: survey results logic
     // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
@@ -67,9 +59,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 </LemonButton>
                                                 <LemonDivider />
                                             </>
-                                            <LemonButton onClick={() => archiveSurvey()} fullWidth>
-                                                Archive
-                                            </LemonButton>
+                                            {survey.end_date && !survey.archived && (
+                                                <LemonButton onClick={() => archiveSurvey()} fullWidth>
+                                                    Archive
+                                                </LemonButton>
+                                            )}
                                             <LemonButton status="danger" fullWidth onClick={() => deleteSurvey(id)}>
                                                 Delete survey
                                             </LemonButton>
@@ -131,22 +125,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 ? {
                                       content: (
                                           <div>
-                                              {surveyMetricsQueries && (
-                                                  <div className="flex flex-row gap-4 mb-4">
-                                                      <div className="flex-1">
-                                                          <Query query={surveyMetricsQueries.surveysShown} />
-                                                      </div>
-                                                      <div className="flex-1">
-                                                          <Query query={surveyMetricsQueries.surveysDismissed} />
-                                                      </div>
-                                                  </div>
-                                              )}
-                                              {survey.questions[0].type === SurveyQuestionType.Rating && (
-                                                  <div className="mb-4">
-                                                      <Query query={surveyDataVizQuery} />
-                                                  </div>
-                                              )}
-                                              {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}
+                                              <SurveyResult />
                                           </div>
                                       ),
                                       key: 'results',
@@ -273,6 +252,44 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                 </>
             )}
         </div>
+    )
+}
+
+export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
+    const {
+        survey,
+        dataTableQuery,
+        surveyLoading,
+        surveyMetricsQueries,
+        surveyRatingQuery,
+        surveyMultipleChoiceQuery,
+    } = useValues(surveyLogic)
+
+    return (
+        <>
+            {surveyMetricsQueries && (
+                <div className="flex flex-row gap-4 mb-4">
+                    <div className="flex-1">
+                        <Query query={surveyMetricsQueries.surveysShown} />
+                    </div>
+                    <div className="flex-1">
+                        <Query query={surveyMetricsQueries.surveysDismissed} />
+                    </div>
+                </div>
+            )}
+            {survey.questions[0].type === SurveyQuestionType.Rating && (
+                <div className="mb-4">
+                    <Query query={surveyRatingQuery} />
+                </div>
+            )}
+            {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
+                survey.questions[0].type === SurveyQuestionType.MultipleChoice) && (
+                <div className="mb-4">
+                    <Query query={surveyMultipleChoiceQuery} />
+                </div>
+            )}
+            {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
+        </>
     )
 }
 

@@ -35,6 +35,7 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 from posthog.utils import PersonOnEventsMode
 
@@ -69,12 +70,16 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> ast.Expr:
-    context.database = context.database or create_hogql_database(context.team_id)
+    with context.timings.measure("create_hogql_database"):
+        context.database = context.database or create_hogql_database(context.team_id)
 
-    node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
+    with context.timings.measure("resolve_types"):
+        node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
-        node = resolve_property_types(node, context)
-        resolve_lazy_tables(node, stack, context)
+        with context.timings.measure("resolve_property_types"):
+            node = resolve_property_types(node, context)
+        with context.timings.measure("resolve_lazy_tables"):
+            resolve_lazy_tables(node, stack, context)
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
 
@@ -86,15 +91,15 @@ def print_prepared_ast(
     stack: Optional[List[ast.SelectQuery]] = None,
     settings: Optional[HogQLSettings] = None,
 ) -> str:
-    # _Printer also adds a team_id guard if printing clickhouse
-    return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
+    with context.timings.measure("printer"):
+        # _Printer also adds a team_id guard if printing clickhouse
+        return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
 
 
 @dataclass
 class JoinExprResponse:
     printed_sql: str
     where: Optional[ast.Expr] = None
-    cte: Optional[str] = None
 
 
 class _Printer(Visitor):
@@ -156,7 +161,6 @@ class _Printer(Visitor):
         where = node.where
 
         joined_tables = []
-        ctes = []
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.type is None:
@@ -165,8 +169,6 @@ class _Printer(Visitor):
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
-            if visited_join.cte:
-                ctes.append(visited_join.cte)
 
             # This is an expression we must add to the SELECT's WHERE clause to limit results, like the team ID guard.
             extra_where = visited_join.where
@@ -198,9 +200,19 @@ class _Printer(Visitor):
         having = self.visit(node.having) if node.having else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
+        array_join = ""
+        if node.array_join_op is not None:
+            if node.array_join_op not in ("ARRAY JOIN", "LEFT ARRAY JOIN", "INNER ARRAY JOIN"):
+                raise HogQLException(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
+            array_join = node.array_join_op
+            if len(node.array_join_list) == 0:
+                raise HogQLException(f"Invalid ARRAY JOIN without an array")
+            array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
+
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
             f"FROM {' '.join(joined_tables)}" if len(joined_tables) > 0 else None,
+            array_join,
             "PREWHERE " + prewhere if prewhere else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
@@ -230,8 +242,6 @@ class _Printer(Visitor):
 
         response = " ".join([clause for clause in clauses if clause])
 
-        response = f"WITH {', '.join(ctes)} {response}" if ctes else response
-
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
         if not part_of_select_union and not is_top_level_query:
             response = f"({response})"
@@ -243,7 +253,6 @@ class _Printer(Visitor):
         extra_where: Optional[ast.Expr] = None
 
         join_strings = []
-        cte = None
 
         if node.join_type is not None:
             join_strings.append(node.join_type)
@@ -268,12 +277,11 @@ class _Printer(Visitor):
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
 
-                # Always put S3 Tables in a CTE so joins can work when queried
-                if isinstance(table_type.table, S3Table):
-                    cte = f"{self._print_identifier(node.alias)} AS (SELECT * FROM {sql})"
-
-                    # The table is captured in a CTE so just print the table name in the final select
-                    sql = self._print_identifier(node.alias or table_type.table.name)
+                # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
+                if isinstance(table_type.table, S3Table) and (
+                    node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
+                ):
+                    sql = f"(SELECT * FROM {sql})"
             else:
                 sql = table_type.table.to_printed_hogql()
 
@@ -334,7 +342,7 @@ class _Printer(Visitor):
         if node.constraint is not None:
             join_strings.append(f"ON {self.visit(node.constraint)}")
 
-        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where, cte=cte)
+        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
@@ -426,6 +434,10 @@ class _Printer(Visitor):
             op = f"in({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotIn:
             op = f"notIn({left}, {right})"
+        elif node.op == ast.CompareOperationOp.GlobalIn:
+            op = f"globalIn({left}, {right})"
+        elif node.op == ast.CompareOperationOp.GlobalNotIn:
+            op = f"globalNotIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.Regex:
             op = f"match({left}, {right})"
             value_if_both_sides_are_null = True
@@ -622,7 +634,7 @@ class _Printer(Visitor):
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
                                 args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
                             else:
-                                args.append(f"toDateTime({self.visit(arg)})")
+                                args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
                         else:
                             args.append(self.visit(arg))
                 elif node.name == "concat":
@@ -668,6 +680,10 @@ class _Printer(Visitor):
                     ):
                         args.append("6")  # These two CH functions require the precision argument before timezone
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
+                if node.name == "toStartOfWeek" and len(node.args) == 1:
+                    # If week mode hasn't been specified, use the project's default.
+                    # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
+                    args.insert(1, self._get_week_start_day().clickhouse_mode)
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
 
@@ -956,8 +972,11 @@ class _Printer(Visitor):
         except ModuleNotFoundError:
             return None
 
-    def _get_timezone(self):
+    def _get_timezone(self) -> str:
         return self.context.database.get_timezone() if self.context.database else "UTC"
+
+    def _get_week_start_day(self) -> WeekStartDay:
+        return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_nullable(self, node: ast.Expr) -> bool:
         if isinstance(node, ast.Constant):

@@ -2,7 +2,6 @@ import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka-acosom'
-import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
@@ -11,6 +10,7 @@ import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { PostgresRouter } from '../../../utils/db/postgres'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { asyncTimeoutGuard } from '../../../utils/timing'
@@ -53,6 +53,13 @@ const gaugeLagMilliseconds = new Gauge({
     labelNames: ['partition'],
 })
 
+// NOTE: This gauge is important! It is used as our primary metric for scaling up / down
+const gaugeLag = new Gauge({
+    name: 'recording_blob_ingestion_lag',
+    help: 'A gauge of the lag in messages, taking into account in progress messages',
+    labelNames: ['partition'],
+})
+
 const gaugeOffsetCommitted = new Gauge({
     name: 'offset_manager_offset_committed',
     help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed.',
@@ -77,6 +84,12 @@ const counterKafkaMessageReceived = new Counter({
     labelNames: ['partition'],
 })
 
+type PartitionMetrics = {
+    lastMessageTimestamp?: number
+    lastMessageOffset?: number
+    lastKnownCommit?: number
+}
+
 export class SessionRecordingIngesterV2 {
     sessions: Record<string, SessionManager> = {}
     offsetHighWaterMarker: OffsetHighWaterMarker
@@ -84,15 +97,14 @@ export class SessionRecordingIngesterV2 {
     replayEventsIngester: ReplayEventsIngester
     batchConsumer?: BatchConsumer
     flushInterval: NodeJS.Timer | null = null
-    // the time at the most recent message of a particular partition
-    partitionNow: Record<number, number | null> = {}
-    partitionLastKnownCommit: Record<number, number | null> = {}
+    partitionAssignments: Record<number, PartitionMetrics> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
+    offsetsRefresher: BackgroundRefresher<Record<number, number>>
     recordingConsumerConfig: PluginsServerConfig
 
     constructor(
         private serverConfig: PluginsServerConfig,
-        private postgres: Pool,
+        private postgres: PostgresRouter,
         private objectStorage: ObjectStorage,
         private redisPool: RedisPool
     ) {
@@ -116,6 +128,35 @@ export class SessionRecordingIngesterV2 {
                 throw e
             }
         })
+
+        this.offsetsRefresher = new BackgroundRefresher(async () => {
+            const results = await Promise.all(
+                Object.keys(this.partitionAssignments).map(async (partition) => {
+                    return new Promise<[number, number]>((resolve, reject) => {
+                        if (!this.batchConsumer) {
+                            return reject('Not connected')
+                        }
+                        this.batchConsumer.consumer.queryWatermarkOffsets(
+                            KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+                            parseInt(partition),
+                            (err, offsets) => {
+                                if (err) {
+                                    status.error('🔥', 'Failed to query kafka watermark offsets', err)
+                                    return reject()
+                                }
+
+                                resolve([parseInt(partition), offsets.highOffset])
+                            }
+                        )
+                    })
+                })
+            )
+
+            return results.reduce((acc, [partition, highOffset]) => {
+                acc[partition] = highOffset
+                return acc
+            }, {} as Record<number, number>)
+        }, 5000)
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
@@ -167,7 +208,10 @@ export class SessionRecordingIngesterV2 {
         // If it is recoverable, we probably want to retry?
     }
 
-    public async parseKafkaMessage(message: Message): Promise<IncomingRecordingMessage | void> {
+    public async parseKafkaMessage(
+        message: Message,
+        getTeamFn: (s: string) => Promise<TeamId | null>
+    ): Promise<IncomingRecordingMessage | void> {
         const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
@@ -205,7 +249,7 @@ export class SessionRecordingIngesterV2 {
         const token = messagePayload.token
 
         if (token) {
-            teamId = await this.teamsRefresher.get().then((teams) => teams[token] || null)
+            teamId = await getTeamFn(token)
         }
 
         if (teamId == null) {
@@ -231,7 +275,7 @@ export class SessionRecordingIngesterV2 {
             },
 
             team_id: teamId,
-            distinct_id: event.properties.distinct_id,
+            distinct_id: messagePayload.distinct_id,
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
             events: event.properties.$snapshot_items,
@@ -254,20 +298,35 @@ export class SessionRecordingIngesterV2 {
                 for (const message of messages) {
                     const { partition, offset, timestamp } = message
 
-                    if (timestamp) {
+                    if (timestamp && this.partitionAssignments[partition]) {
+                        const metrics = this.partitionAssignments[partition]
+
                         // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                        counterKafkaMessageReceived.inc({ partition })
-                        this.partitionNow[partition] = timestamp
+                        metrics.lastMessageTimestamp = timestamp
                         // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-                        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
+                        metrics.lastKnownCommit = metrics.lastKnownCommit ?? offset
+                        metrics.lastMessageOffset = offset
+
+                        counterKafkaMessageReceived.inc({ partition })
+
                         gaugeLagMilliseconds
                             .labels({
                                 partition: partition.toString(),
                             })
                             .set(now() - timestamp)
+
+                        const offsetsByPartition = await this.offsetsRefresher.get()
+                        const highOffset = offsetsByPartition[partition]
+
+                        if (highOffset) {
+                            // NOTE: This is an important metric used by the autoscaler
+                            gaugeLag.set({ partition }, Math.max(0, highOffset - metrics.lastMessageOffset))
+                        }
                     }
 
-                    const recordingMessage = await this.parseKafkaMessage(message)
+                    const recordingMessage = await this.parseKafkaMessage(message, (token) =>
+                        this.teamsRefresher.get().then((teams) => teams[token] || null)
+                    )
                     if (recordingMessage) {
                         recordingMessages.push(recordingMessage)
                     }
@@ -341,6 +400,7 @@ export class SessionRecordingIngesterV2 {
             consumerErrorBackoffMs: this.recordingConsumerConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             fetchBatchSize: this.recordingConsumerConfig.SESSION_RECORDING_KAFKA_BATCH_SIZE,
             batchingTimeoutMs: this.recordingConsumerConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            topicCreationTimeoutMs: this.recordingConsumerConfig.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             autoCommit: false,
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)
@@ -362,6 +422,13 @@ export class SessionRecordingIngesterV2 {
                  * The assign_partitions indicates that the consumer group has new assignments.
                  * We don't need to do anything, but it is useful to log for debugging.
                  */
+
+                topicPartitions.forEach((topicPartition: TopicPartition) => {
+                    this.partitionAssignments[topicPartition.partition] = {}
+                })
+
+                await this.offsetsRefresher.refresh()
+
                 return
             }
 
@@ -380,21 +447,22 @@ export class SessionRecordingIngesterV2 {
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
-                await this.destroySessions(sessionsToDrop)
-
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugeSessionsHandled.remove()
 
                 topicPartitions.forEach((topicPartition: TopicPartition) => {
                     const partition = topicPartition.partition
 
+                    delete this.partitionAssignments[partition]
+                    gaugeLag.remove({ partition })
                     gaugeLagMilliseconds.remove({ partition })
                     gaugeOffsetCommitted.remove({ partition })
                     gaugeOffsetCommitFailed.remove({ partition })
                     this.offsetHighWaterMarker.revoke(topicPartition)
-                    this.partitionNow[partition] = null
-                    this.partitionLastKnownCommit[partition] = null
                 })
+
+                await this.destroySessions(sessionsToDrop)
+                await this.offsetsRefresher.refresh()
 
                 return
             }
@@ -430,7 +498,7 @@ export class SessionRecordingIngesterV2 {
         const promises: Promise<void>[] = []
         for (const [key, sessionManager] of Object.entries(this.sessions)) {
             // in practice, we will always have a values for latestKafkaMessageTimestamp,
-            const referenceTime = this.partitionNow[sessionManager.partition]
+            const referenceTime = this.partitionAssignments[sessionManager.partition]?.lastMessageTimestamp
             if (!referenceTime) {
                 status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
                     partition: sessionManager.partition,
@@ -516,7 +584,7 @@ export class SessionRecordingIngesterV2 {
                 ? potentiallyBlockingOffset
                 : offset
 
-        const lastKnownCommit = this.partitionLastKnownCommit[partition] || 0
+        const lastKnownCommit = this.partitionAssignments[partition]?.lastKnownCommit || 0
         // TODO: Check how long we have been blocked by any individual session and if it is too long then we should
         // capture an exception to figure out why
         if (lastKnownCommit >= highestOffsetToCommit) {
@@ -524,7 +592,9 @@ export class SessionRecordingIngesterV2 {
             return
         }
 
-        this.partitionLastKnownCommit[partition] = highestOffsetToCommit
+        if (this.partitionAssignments[partition]) {
+            this.partitionAssignments[partition].lastKnownCommit = highestOffsetToCommit
+        }
 
         status.info('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
             partition,

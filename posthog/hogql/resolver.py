@@ -14,7 +14,8 @@ from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
-
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.s3_table import S3Table
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -59,6 +60,7 @@ class Resolver(CloningVisitor):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
+        self.current_view_depth: int = 0
         self.context = context
         self.database = context.database
         self.cte_counter = 0
@@ -104,6 +106,9 @@ class Resolver(CloningVisitor):
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
+        new_node.array_join_op = node.array_join_op
+        if node.array_join_list:
+            new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         for expr in node.select or []:
@@ -208,9 +213,16 @@ class Resolver(CloningVisitor):
                 database_table = self.database.get_table(table_name)
 
                 if isinstance(database_table, SavedQuery):
+                    self.current_view_depth += 1
+
+                    if self.current_view_depth > self.context.max_view_depth:
+                        raise ResolverException("Nested views are not supported")
+
                     node.table = parse_select(str(database_table.query))
                     node.alias = table_alias or database_table.name
                     node = self.visit(node)
+
+                    self.current_view_depth -= 1
                     return node
 
                 if isinstance(database_table, LazyTable):
@@ -234,6 +246,16 @@ class Resolver(CloningVisitor):
                 if node.table_args is not None:
                     node.table_args = [self.visit(arg) for arg in node.table_args]
                 node.next_join = self.visit(node.next_join)
+
+                # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
+                if isinstance(node.type, ast.TableAliasType):
+                    is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
+                else:
+                    is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
+
+                if is_global:
+                    node.next_join.join_type = "GLOBAL JOIN"
+
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
 
@@ -470,6 +492,21 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and self._is_events_table(self.visit(node.left))
+            and self._is_s3_cluster(self.visit(node.right))
+        ):
+            return self.visit(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GlobalIn
+                    if node.op == ast.CompareOperationOp.In
+                    else ast.CompareOperationOp.GlobalNotIn,
+                    left=node.left,
+                    right=node.right,
+                )
+            )
+
         if node.op == ast.CompareOperationOp.InCohort:
             return self.visit(
                 ast.CompareOperation(
@@ -490,6 +527,33 @@ class Resolver(CloningVisitor):
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
         return node
+
+    def _is_events_table(self, node: ast.Expr) -> bool:
+        if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
+            if isinstance(node.type.table_type, ast.TableAliasType):
+                return isinstance(node.type.table_type.table_type.table, EventsTable)
+            if isinstance(node.type.table_type, ast.TableType):
+                return isinstance(node.type.table_type.table, EventsTable)
+        return False
+
+    def _is_s3_cluster(self, node: ast.Expr) -> bool:
+        if (
+            isinstance(node, ast.SelectQuery)
+            and node.select_from
+            and isinstance(node.select_from.type, ast.BaseTableType)
+        ):
+            if isinstance(node.select_from.type, ast.TableAliasType):
+                return isinstance(node.select_from.type.table_type.table, S3Table)
+            elif isinstance(node.select_from.type, ast.TableType):
+                return isinstance(node.select_from.type.table, S3Table)
+        return False
+
+    def _is_next_s3(self, node: Optional[ast.JoinExpr]):
+        if node is None:
+            return False
+        if isinstance(node.type, ast.TableAliasType):
+            return isinstance(node.type.table_type.table, S3Table)
+        return False
 
 
 def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:

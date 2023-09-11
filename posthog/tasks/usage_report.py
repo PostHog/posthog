@@ -28,7 +28,7 @@ from sentry_sdk import capture_exception
 from posthog import version_requirement
 from posthog.celery import app
 from posthog.client import sync_execute
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import FlagRequestType
 from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
@@ -151,9 +151,7 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
     has_license = False
 
     if settings.EE_AVAILABLE:
-        from ee.models.license import License
-
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         has_license = license is not None
 
     period_start, period_end = period
@@ -243,11 +241,10 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
 
     from ee.billing.billing_manager import BillingManager, build_billing_token
     from ee.billing.billing_types import BillingStatus
-    from ee.models.license import License
     from ee.settings import BILLING_SERVICE_URL
 
     try:
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         if not license or not license.is_v2_license:
             return
 
@@ -270,6 +267,8 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
 
         response_data: BillingStatus = response.json()
         BillingManager(license).update_org_details(organization, response_data)
+        # TODO: remove the following after 2023-09-01
+        BillingManager(license).update_billing_distinct_ids(organization)
 
     except Exception as err:
         logger.error(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
@@ -327,10 +326,23 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
 
 
 @timed_log()
-def get_teams_with_billable_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_billable_event_count_in_period(
+    begin: datetime, end: datetime, count_distinct: bool = False
+) -> List[Tuple[int, int]]:
+    # count only unique events
+    # Duplicate events will be eventually removed by ClickHouse and likely came from our library or pipeline.
+    # We shouldn't bill for these. However counting unique events is more expensive, and likely to fail on longer time ranges.
+    # So, we count uniques in small time periods only, controlled by the count_distinct parameter.
+    if count_distinct:
+        # Uses the same expression as the one used to de-duplicate events on the merge tree:
+        # https://github.com/PostHog/posthog/blob/master/posthog/models/event/sql.py#L92
+        distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
+    else:
+        distinct_expression = "1"
+
     result = sync_execute(
-        """
-        SELECT team_id, count(1) as count
+        f"""
+        SELECT team_id, count({distinct_expression}) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called'
         GROUP BY team_id
@@ -542,7 +554,9 @@ def send_all_org_usage_reports(
     try:
         all_data = dict(
             teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
-            teams_with_event_count_in_period=get_teams_with_billable_event_count_in_period(period_start, period_end),
+            teams_with_event_count_in_period=get_teams_with_billable_event_count_in_period(
+                period_start, period_end, count_distinct=True
+            ),
             teams_with_event_count_in_month=get_teams_with_billable_event_count_in_period(
                 period_start.replace(day=1), period_end
             ),

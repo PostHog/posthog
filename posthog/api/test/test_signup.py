@@ -11,6 +11,7 @@ from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
 
+from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
@@ -26,7 +27,7 @@ class TestSignupAPI(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         # Do not set up any test data
-        pass
+        TEST_clear_instance_license_cache()
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
@@ -475,15 +476,17 @@ class TestSignupAPI(APIBaseTest):
         self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
 
     @patch("posthoganalytics.capture")
+    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
     @pytest.mark.ee
     def test_social_signup_with_whitelisted_domain_on_cloud(
-        self, mock_identify, mock_sso_providers, mock_request, mock_capture
+        self, mock_identify, mock_sso_providers, mock_request, mock_update_distinct_ids, mock_capture
     ):
         with self.is_cloud(True):
             self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
+        assert mock_update_distinct_ids.called_once()
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -909,7 +912,8 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 0)
 
     @patch("posthoganalytics.capture")
-    def test_existing_user_can_sign_up_to_a_new_organization(self, mock_capture):
+    @patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
+    def test_existing_user_can_sign_up_to_a_new_organization(self, mock_update_distinct_ids, mock_capture):
         user = self._create_user("test+159@posthog.com", "test_password")
         new_org = Organization.objects.create(name="TestCo")
         new_team = Team.objects.create(organization=new_org)
@@ -920,6 +924,15 @@ class TestInviteSignupAPI(APIBaseTest):
         self.client.force_login(user)
 
         count = User.objects.count()
+
+        try:
+            from ee.models.license import License, LicenseManager
+        except ImportError:
+            pass
+        else:
+            super(LicenseManager, cast(LicenseManager, License.objects)).create(
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            )
 
         with self.is_cloud(True):
             response = self.client.post(f"/api/signup/{invite.id}/")
@@ -972,6 +985,9 @@ class TestInviteSignupAPI(APIBaseTest):
         # Assert that the user remains logged in
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Assert that the org's distinct IDs are sent to billing
+        mock_update_distinct_ids.assert_called_once_with(new_org)
 
     @patch("posthoganalytics.capture")
     def test_cannot_use_claim_invite_endpoint_to_update_user(self, mock_capture):

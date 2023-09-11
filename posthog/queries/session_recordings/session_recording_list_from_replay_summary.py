@@ -1,13 +1,13 @@
 import dataclasses
-import datetime
 import re
-from datetime import timedelta
-from typing import Any, Dict, List, NamedTuple, Tuple, Union
-from typing import Literal
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Literal, NamedTuple, Tuple, Union
+
+from django.conf import settings
 
 from posthog.client import sync_execute
-from posthog.constants import PropertyOperatorType
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.cloud_utils import is_cloud
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, AvailableFeature, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.action.util import format_entity_filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -16,6 +16,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import PersonOnEventsMode
+from posthog.models.team.team import Team
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
 
@@ -51,7 +52,23 @@ def _get_filter_by_provided_session_ids_clause(
     if recording_filters.session_ids is None:
         return "", {}
 
-    return f"AND {column_name} in %(session_ids)s", {"session_ids": recording_filters.session_ids}
+    return f'AND "{column_name}" in %(session_ids)s', {"session_ids": recording_filters.session_ids}
+
+
+def ttl_days(team: Team) -> int:
+    ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+    if is_cloud():
+        # NOTE: We use Playlists as a proxy to see if they are subbed to Recordings
+        is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_PLAYLISTS)
+        ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
+
+        # NOTE: The date we started reliably ingested data to blob storage
+        days_since_blob_ingestion = (datetime.now() - datetime(2023, 8, 1)).days
+
+        if days_since_blob_ingestion < ttl_days:
+            ttl_days = days_since_blob_ingestion
+
+    return ttl_days
 
 
 class PersonsQuery(EventQuery):
@@ -162,10 +179,14 @@ class SessionIdEventsQuery(EventQuery):
         super().__init__(
             **kwargs,
         )
-        self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+
+    @property
+    def ttl_days(self):
+        return ttl_days(self._team)
 
     _raw_events_query = """
         SELECT
+            {select_event_ids}
             {event_filter_having_events_select}
             `$session_id`
         FROM events e
@@ -269,13 +290,13 @@ class SessionIdEventsQuery(EventQuery):
             timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
         return timestamp_clause, timestamp_params
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self, select_event_ids: bool = False) -> Tuple[str, Dict[str, Any]]:
         if not self._determine_should_join_events():
             return "", {}
 
         base_params = {
             "team_id": self._team_id,
-            "clamped_to_storage_ttl": (datetime.datetime.now() - datetime.timedelta(days=self.ttl_days)),
+            "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
         }
 
         _, recording_start_time_params = _get_recording_start_time_clause(self._filter)
@@ -308,6 +329,7 @@ class SessionIdEventsQuery(EventQuery):
 
         return (
             self._raw_events_query.format(
+                select_event_ids="groupArray(uuid) as event_ids," if select_event_ids else "",
                 event_filter_where_conditions=event_filters.where_conditions,
                 event_filter_having_events_condition=event_filters.having_conditions,
                 event_filter_having_events_select=event_filters.having_select,
@@ -355,6 +377,14 @@ class SessionIdEventsQuery(EventQuery):
             person_id_params = {"person_uuid": self._filter.person_uuid}
         return person_id_clause, person_id_params
 
+    def matching_events(self) -> List[str]:
+        self._filter.hogql_context.person_on_events_mode = PersonOnEventsMode.DISABLED
+        query, query_params = self.get_query(select_event_ids=True)
+        query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
+        results = [row[0] for row in query_results]
+        # flatten and return results
+        return [item for sublist in results for item in sublist]
+
 
 class SessionRecordingListFromReplaySummary(EventQuery):
     # we have to implement this from EventQuery but don't need it
@@ -371,7 +401,10 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         super().__init__(
             **kwargs,
         )
-        self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+
+    @property
+    def ttl_days(self):
+        return ttl_days(self._team)
 
     _session_recordings_query: str = """
     SELECT
@@ -461,7 +494,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             "team_id": self._team_id,
             "limit": self.limit + 1,
             "offset": offset,
-            "clamped_to_storage_ttl": (datetime.datetime.now() - datetime.timedelta(days=self.ttl_days)),
+            "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
         }
 
         _, recording_start_time_params = _get_recording_start_time_clause(self._filter)

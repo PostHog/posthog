@@ -96,10 +96,7 @@ export const teamLogic = kea<teamLogicType>([
                         eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
                     })
 
-                    lemonToast.dismiss('updateCurrentTeam')
-                    lemonToast.success(message, {
-                        toastId: 'updateCurrentTeam',
-                    })
+                    lemonToast.success(message)
 
                     return patchedTeam
                 },
@@ -109,7 +106,7 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(() => ({
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
@@ -132,6 +129,11 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
         timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
+        /** 0 means Sunday, 1 means Monday. */
+        weekStartDay: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number => currentTeam?.week_start_day || 0,
+        ],
         isTeamTokenResetAvailable: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): boolean =>
@@ -196,7 +198,7 @@ export const teamLogic = kea<teamLogicType>([
                 return frequentMistakes
             },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
         deleteTeam: async ({ team }) => {
             try {
@@ -214,11 +216,10 @@ export const teamLogic = kea<teamLogicType>([
     events(({ actions }) => ({
         afterMount: () => {
             const appContext = getAppContext()
-            const contextualTeam = appContext?.current_team
-
+            const currentTeam = appContext?.current_team
             const switchedTeam = appContext?.switched_team
             if (switchedTeam) {
-                lemonToast.info(<>You've switched to&nbsp;project {contextualTeam?.name}</>, {
+                lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
                     button: {
                         label: 'Switch back',
                         action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
@@ -227,9 +228,9 @@ export const teamLogic = kea<teamLogicType>([
                 })
             }
 
-            if (contextualTeam) {
+            if (currentTeam) {
                 // If app context is available (it should be practically always) we can immediately know currentTeam
-                actions.loadCurrentTeamSuccess(contextualTeam)
+                actions.loadCurrentTeamSuccess(currentTeam)
             } else {
                 // If app context is not available, a traditional request is needed
                 actions.loadCurrentTeam()

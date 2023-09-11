@@ -3,8 +3,6 @@ import { Framework, PlatformType } from 'scenes/ingestion/types'
 import { API, MOBILE, BACKEND, WEB, thirdPartySources, THIRD_PARTY, ThirdPartySource } from './constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { PluginTypeWithConfig } from 'scenes/plugins/types'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
@@ -222,7 +220,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
         }),
         setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
         setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
-        openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
         completeOnboarding: true,
         setCurrentStep: (currentStep: string) => ({ currentStep }),
         sidebarStepClick: (step: string) => ({ step }),
@@ -284,19 +281,12 @@ export const ingestionLogic = kea<ingestionLogicType>([
             false as boolean,
             {
                 setInstructionsModal: (_, { isOpen }) => isOpen,
-                openThirdPartyPluginModal: () => true,
             },
         ],
         thirdPartyIntegrationSource: [
             null as ThirdPartySource | null,
             {
                 setThirdPartySource: (_, { sourceIndex }) => thirdPartySources[sourceIndex],
-            },
-        ],
-        thirdPartyPluginSource: [
-            null as PluginTypeWithConfig | null,
-            {
-                openThirdPartyPluginModal: (_, { plugin }) => plugin,
             },
         ],
         sidebarSteps: [
@@ -547,12 +537,9 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     !!values.currentTeam?.capture_performance_opt_in
                 )
             }
-            if (!!values.currentTeam?.autocapture_opt_out) {
+            if (values.currentTeam?.autocapture_opt_out) {
                 eventUsageLogic.actions.reportIngestionAutocaptureToggled(!!values.currentTeam?.autocapture_opt_out)
             }
-        },
-        openThirdPartyPluginModal: ({ plugin }) => {
-            pluginsLogic.actions.editPlugin(plugin.id)
         },
         setPlatform: ({ platform }) => {
             eventUsageLogic.actions.reportIngestionSelectPlatformType(platform)

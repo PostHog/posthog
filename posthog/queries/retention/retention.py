@@ -23,6 +23,7 @@ class Retention:
         self._base_uri = base_uri
 
     def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        filter.team = team
         retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team)
         if filter.breakdowns:
             return self.process_breakdown_table_result(retention_by_breakdown, filter)
@@ -108,8 +109,10 @@ class Retention:
                     for day in range(filter.total_intervals - first_day)
                 ],
                 "label": "{} {}".format(filter.period, first_day),
-                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]).replace(
-                    tzinfo=pytz.timezone(team.timezone)
+                "date": pytz.timezone(team.timezone).localize(
+                    (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]).replace(
+                        tzinfo=None
+                    )
                 ),
                 "people_url": construct_url(first_day),
             }

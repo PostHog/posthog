@@ -1,6 +1,6 @@
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
   '
-  /* user_id:55 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:51 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -81,7 +81,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-06 00:00:00', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-06 00:00:00', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(6)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN

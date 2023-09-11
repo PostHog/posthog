@@ -4,6 +4,9 @@
 
 .NotebookFloatingButton__plus {
     border-radius: 1rem;
-    min-height: 0.25rem;
-    padding: 0.25rem !important; // NOTE - yuck
+    min-width: 2rem;
+
+    .LemonButton__icon {
+        margin: 0 auto;
+    }
 }

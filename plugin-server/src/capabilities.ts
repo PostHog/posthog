@@ -21,6 +21,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingIngestion: true,
                 sessionRecordingBlobIngestion: true,
                 transpileFrontendApps: true,
+                preflightSchedules: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion:

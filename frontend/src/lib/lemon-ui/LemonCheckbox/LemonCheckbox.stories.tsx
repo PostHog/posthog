@@ -1,16 +1,19 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 
-export default {
+type Story = StoryObj<typeof LemonCheckbox>
+const meta: Meta<typeof LemonCheckbox> = {
     title: 'Lemon UI/Lemon Checkbox',
     component: LemonCheckbox,
-} as ComponentMeta<typeof LemonCheckbox>
+    tags: ['autodocs'],
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonCheckbox> = (props: LemonCheckboxProps) => {
+const Template: StoryFn<typeof LemonCheckbox> = (props: LemonCheckboxProps) => {
     return <LemonCheckbox {...props} />
 }
 
-export const Basic = Template.bind({})
+export const Basic: Story = Template.bind({})
 Basic.args = {
     label: 'Check this out',
 }
@@ -32,22 +35,22 @@ export const Overview = (): JSX.Element => {
     )
 }
 
-export const Disabled = Template.bind({})
+export const Disabled: Story = Template.bind({})
 Disabled.args = {
     label: "You can't check this out",
     disabled: true,
 }
 
-export const DisabledWithReason = Template.bind({})
+export const DisabledWithReason: Story = Template.bind({})
 DisabledWithReason.args = {
     label: "You can't check this out",
     disabledReason: 'This is not the way to Amarillo',
 }
 
-export const NoLabel = Template.bind({})
+export const NoLabel: Story = Template.bind({})
 NoLabel.args = {}
 
-export const Bordered = Template.bind({})
+export const Bordered: Story = Template.bind({})
 Bordered.args = {
     label: 'A border makes for good visual separation if there is other content neighboring a checkbox. Probably not used as part of a form.',
     bordered: true,

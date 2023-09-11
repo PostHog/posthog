@@ -226,11 +226,11 @@ $_lifecycle_dormant: $_danger;
     --lifecycle-dormant-hover: #{darken($_lifecycle_dormant, 20%)};
 
     // Funnels
+    // TODO: unify with lib/colors.ts, getGraphColors()
     --funnel-default: var(--primary);
     --funnel-background: var(--border-light);
-    --funnel-axis-zero: var(--default);
-    --funnel-axis: var(--border-bold);
-    --funnel-axis-label: var(--muted);
+    --funnel-axis: var(--border);
+    --funnel-grid: #ddd;
     --antd-table-background-dark: #fafafa;
 
     // Session Recording
@@ -318,4 +318,8 @@ $_lifecycle_dormant: $_danger;
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
     --modal-backdrop-color: rgba(0, 0, 0, 0.2);
     --modal-transition-time: 200ms;
+
+    // Notebooks
+    --notebook-popover-transition-properties: 150ms cubic-bezier(0, 0.5, 0.5, 1);
+    --notebook-sidebar-width: 27rem;
 }

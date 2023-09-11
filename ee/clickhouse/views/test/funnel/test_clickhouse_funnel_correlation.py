@@ -34,7 +34,8 @@ class FunnelCorrelationTest(BaseTest):
             team_id=self.team.pk,
             request=FunnelCorrelationRequest(date_to="2020-04-04", events=json.dumps([])),
         )
-        assert response.status_code == 401
+        assert response.status_code == 403
+        assert response.json() == self.unauthenticated_response()
 
     def test_event_correlation_endpoint_picks_up_events_for_odds_ratios(self):
         with freeze_time("2020-01-01"):

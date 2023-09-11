@@ -18,17 +18,16 @@ const toolbarParams: ToolbarParams = {
     userEmail: 'foobar@posthog.com',
 }
 
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/Toolbar',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
         testOptions: { skip: true }, // This story is not valuable to snapshot as is
     },
-} as Meta
-
-function useToolbarStyles(): void {
+}
+export default meta
+export function useToolbarStyles(): void {
     useEffect(() => {
         const head = document.getElementsByTagName('head')[0]
         const shadowRoot = window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot

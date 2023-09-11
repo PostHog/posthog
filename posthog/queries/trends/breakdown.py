@@ -61,10 +61,11 @@ from posthog.queries.trends.util import (
     correct_result_for_sampling,
     enumerate_time_range,
     get_active_user_params,
+    offset_time_series_date_by_interval,
     parse_response,
     process_math,
 )
-from posthog.queries.util import get_person_properties_mode
+from posthog.queries.util import get_interval_func_ch, get_person_properties_mode, get_start_of_interval_sql
 from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 
@@ -129,7 +130,6 @@ class TrendsBreakdown:
         parsed_date_to, date_to_params = query_date_range.date_to
         num_intervals = query_date_range.num_intervals
         seconds_in_interval = TIME_IN_SECONDS[self.filter.interval]
-        interval_annotation = query_date_range.interval_annotation
 
         date_params.update(date_from_params)
         date_params.update(date_to_params)
@@ -225,6 +225,7 @@ class TrendsBreakdown:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
             if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                interval_func = get_interval_func_ch(self.filter.interval)
                 active_user_format_params, active_user_query_params = get_active_user_params(
                     self.filter, self.entity, self.team_id
                 )
@@ -238,7 +239,11 @@ class TrendsBreakdown:
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
+                    date_to_truncated=get_start_of_interval_sql(
+                        self.filter.interval, team=self.team, source="%(date_to)s"
+                    ),
+                    interval_func=interval_func,
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
@@ -307,7 +312,7 @@ class TrendsBreakdown:
                     sessions_join=sessions_join_condition,
                     person_id_alias=self._person_id_alias,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
@@ -327,7 +332,7 @@ class TrendsBreakdown:
                     sessions_join=sessions_join_condition,
                     person_id_alias=self._person_id_alias,
                     aggregate_operation=cummulative_aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
                     **breakdown_filter_params,
@@ -341,7 +346,7 @@ class TrendsBreakdown:
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
                     sample_clause=sample_clause,
@@ -354,7 +359,7 @@ class TrendsBreakdown:
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     aggregator=self.actor_aggregator,
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
@@ -367,14 +372,20 @@ class TrendsBreakdown:
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
 
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
-                interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql
+                num_intervals=num_intervals,
+                inner_sql=inner_sql,
+                date_from_truncated=get_start_of_interval_sql(
+                    self.filter.interval, team=self.team, source="%(date_from)s"
+                ),
+                date_to_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team, source="%(date_to)s"),
+                interval_func=get_interval_func_ch(self.filter.interval),
             )
             self.params.update({"seconds_in_interval": seconds_in_interval, "num_intervals": num_intervals})
             return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
@@ -556,7 +567,7 @@ class TrendsBreakdown:
                 parsed_result.update(
                     {
                         "persons_urls": self._get_persons_url(
-                            filter, entity, self.team_id, stats[0], result_descriptors["breakdown_value"]
+                            filter, entity, self.team, stats[0], result_descriptors["breakdown_value"]
                         )
                     }
                 )
@@ -571,27 +582,33 @@ class TrendsBreakdown:
         return _parse
 
     def _get_persons_url(
-        self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime], breakdown_value: Union[str, int]
+        self,
+        filter: Filter,
+        entity: Entity,
+        team: Team,
+        point_dates: List[datetime],
+        breakdown_value: Union[str, int],
     ) -> List[Dict[str, Any]]:
         persons_url = []
         cache_invalidation_key = generate_short_id()
-        for date in dates:
-            date_in_utc = datetime(
-                date.year,
-                date.month,
-                date.day,
-                getattr(date, "hour", 0),
-                getattr(date, "minute", 0),
-                getattr(date, "second", 0),
-                tzinfo=getattr(date, "tzinfo", pytz.UTC),
+        for point_date in point_dates:
+            point_datetime = datetime(
+                point_date.year,
+                point_date.month,
+                point_date.day,
+                getattr(point_date, "hour", 0),
+                getattr(point_date, "minute", 0),
+                getattr(point_date, "second", 0),
+                tzinfo=getattr(point_date, "tzinfo", pytz.UTC),
             ).astimezone(pytz.UTC)
+
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
-                "date_to": date_in_utc,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else point_datetime,
+                "date_to": offset_time_series_date_by_interval(point_datetime, filter=filter, team=team),
                 "breakdown_value": breakdown_value,
                 "breakdown_type": filter.breakdown_type or "event",
             }
@@ -599,7 +616,7 @@ class TrendsBreakdown:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
+                    "url": f"api/projects/{team.pk}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                 }
             )
         return persons_url
@@ -678,7 +695,7 @@ class TrendsBreakdown:
             return (
                 f"""
                     INNER JOIN ({query}) {SessionQuery.SESSION_TABLE_ALIAS}
-                    ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}."$session_id" = e."$session_id"
                 """,
                 session_params,
             )

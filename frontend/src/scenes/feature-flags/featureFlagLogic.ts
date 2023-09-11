@@ -17,6 +17,8 @@ import {
     FeatureFlagGroupType,
     UserBlastRadiusType,
     DashboardBasicType,
+    NewEarlyAccessFeatureType,
+    EarlyAccessFeatureType,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -37,6 +39,7 @@ import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -88,38 +91,6 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
         },
     ],
 }
-
-export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
-    events: [
-        {
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
-            type: 'events',
-            properties: defaultPropertyOnFlag(flagKey),
-        },
-    ],
-})
-
-export const defaultPropertyOnFlag = (flagKey: string): AnyPropertyFilter[] => [
-    {
-        key: '$feature/' + flagKey,
-        type: PropertyFilterType.Event,
-        value: ['false'],
-        operator: PropertyOperator.IsNot,
-    },
-    {
-        key: '$feature/' + flagKey,
-        type: PropertyFilterType.Event,
-        value: 'is_set',
-        operator: PropertyOperator.IsSet,
-    },
-    {
-        key: '$feature_flag',
-        type: PropertyFilterType.Event,
-        value: flagKey,
-        operator: PropertyOperator.Exact,
-    },
-]
 
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
@@ -243,6 +214,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setTotalUsers: (count: number) => ({ count }),
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
+        enrichUsageDashboard: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -433,9 +405,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         },
                     }
                 },
+                createEarlyAccessFeatureSuccess: (state, { newEarlyAccessFeature }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        features: [...(state.features || []), newEarlyAccessFeature],
+                    }
+                },
             },
         ],
-
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
         isEditingFlag: [
             false,
@@ -475,9 +455,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
-                        const retrievedFlag: FeatureFlagType = await api.get(
-                            `api/projects/${values.currentTeamId}/feature_flags/${props.id}`
-                        )
+                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch (e) {
                         actions.setFeatureFlagMissing()
@@ -536,6 +514,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        // used to generate a new early access feature
+        // but all subsequent operations after generation should occur via the earlyAccessFeatureLogic
+        newEarlyAccessFeature: [
+            null as EarlyAccessFeatureType | null,
+            {
+                createEarlyAccessFeature: async () => {
+                    const updatedEarlyAccessFeature = {
+                        ...NEW_EARLY_ACCESS_FEATURE,
+                        name: `Early access: ${values.featureFlag.key}`,
+                        feature_flag_id: values.featureFlag.id,
+                    }
+                    return await api.earlyAccessFeatures.create(updatedEarlyAccessFeature as NewEarlyAccessFeatureType)
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -547,6 +540,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (props.id) {
                 await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
                 actions.loadFeatureFlag()
+            }
+        },
+        enrichUsageDashboard: async (_, breakpoint) => {
+            if (props.id) {
+                await breakpoint(1000) // in ms
+                await api.create(
+                    `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
+                )
             }
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
@@ -803,6 +804,69 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return dashboards.filter((dashboard: DashboardBasicType) => {
                     return featureFlag.analytics_dashboards?.includes(dashboard.id)
                 })
+            },
+        ],
+        recordingFilterForFlag: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                const flagKey = featureFlag?.key
+                if (!flagKey) {
+                    return {}
+                }
+
+                const defaultEntityFilterOnFlag: Partial<FilterType> = {
+                    events: [
+                        {
+                            id: '$feature_flag_called',
+                            name: '$feature_flag_called',
+                            type: 'events',
+                            properties: [
+                                {
+                                    key: '$feature/' + flagKey,
+                                    type: PropertyFilterType.Event,
+                                    value: ['false'],
+                                    operator: PropertyOperator.IsNot,
+                                },
+                                {
+                                    key: '$feature/' + flagKey,
+                                    type: PropertyFilterType.Event,
+                                    value: 'is_set',
+                                    operator: PropertyOperator.IsSet,
+                                },
+                                {
+                                    key: '$feature_flag',
+                                    type: PropertyFilterType.Event,
+                                    value: flagKey,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                }
+
+                if (featureFlag.has_enriched_analytics) {
+                    return {
+                        events: [
+                            {
+                                id: '$feature_interaction',
+                                type: 'events',
+                                order: 0,
+                                name: '$feature_interaction',
+                                properties: [
+                                    { key: 'feature_flag', value: [flagKey], operator: 'exact', type: 'event' },
+                                ],
+                            },
+                        ],
+                    }
+                } else {
+                    return defaultEntityFilterOnFlag
+                }
+            },
+        ],
+        hasEarlyAccessFeatures: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return (featureFlag?.features?.length || 0) > 0
             },
         ],
     }),

@@ -8,7 +8,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
@@ -77,26 +77,31 @@ const featureFlagActionsMapping: Record<
                     .forEach((groupAfter: FeatureFlagGroupType) => {
                         const { properties, rollout_percentage = null } = groupAfter
 
-                        if (properties?.length > 0) {
-                            const newButtons = properties.map((property, idx) => {
-                                return (
-                                    <>
-                                        {' '}
-                                        {idx === 0 && (
-                                            <span>
-                                                <strong>{rollout_percentage ?? 100}%</strong> of{' '}
-                                            </span>
-                                        )}
-                                        <PropertyFilterButton key={property.key} item={property} />
-                                    </>
-                                )
-                            })
+                        if ((properties?.length || 0) > 0) {
+                            const nonEmptyProperties = properties as AnyPropertyFilter[] // above check ensures this is not null
+                            const newButtons =
+                                nonEmptyProperties.map((property, idx) => {
+                                    return (
+                                        <>
+                                            {' '}
+                                            {idx === 0 && (
+                                                <span>
+                                                    <strong>{rollout_percentage ?? 100}%</strong> of{' '}
+                                                </span>
+                                            )}
+                                            <PropertyFilterButton key={property.key} item={property} />
+                                        </>
+                                    )
+                                }) || []
                             newButtons[0] = (
                                 <>
                                     <span>
                                         <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
-                                    <PropertyFilterButton key={properties[0].key} item={properties[0]} />
+                                    <PropertyFilterButton
+                                        key={nonEmptyProperties[0].key}
+                                        item={nonEmptyProperties[0]}
+                                    />
                                 </>
                             )
                             groupAdditions.push(...newButtons)
@@ -244,6 +249,7 @@ const featureFlagActionsMapping: Record<
     performed_rollback: () => null,
     can_edit: () => null,
     analytics_dashboards: () => null,
+    has_enriched_analytics: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

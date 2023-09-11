@@ -35,6 +35,7 @@ runs:
           shell: bash
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
+              export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
               docker compose -f docker-compose.dev.yml down
               docker compose -f docker-compose.dev.yml up -d
 
@@ -102,13 +103,29 @@ runs:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
-          run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest hogvm posthog -m "not async_migrations" \
+          run: | # async_migrations covered in ci-async-migrations.yml
+              pytest ${{
+                  inputs.person-on-events == 'true'
+                  && './posthog/clickhouse/ ./posthog/hogql/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
+                  || 'hogvm posthog'
+              }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
+                  --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
-        - name: Run Decide read replica tests
+        - name: Run EE tests
+          if: ${{ inputs.segment == 'EE' }}
+          env:
+              PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
+              GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
+          shell: bash
+          run: | # async_migrations covered in ci-async-migrations.yml
+              pytest ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
+                  --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
+                  --durations=100 --durations-min=1.0 \
+                  $PYTEST_ARGS
+
+        - name: Run /decide read replica tests
           if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
           env:
               POSTHOG_DB_NAME: posthog
@@ -121,24 +138,3 @@ runs:
               pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
-
-        - name: Run EE tests
-          if: ${{ inputs.segment == 'EE' }}
-          env:
-              PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
-              GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
-          shell: bash
-          run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest ee -m "not async_migrations" \
-                  --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
-                  $PYTEST_ARGS
-
-        # Post-tests
-
-        - name: Upload updated timing data as artifacts
-          uses: actions/upload-artifact@v2
-          if: ${{ inputs.segment == 'EE' && inputs.person-on-events != 'true'}}
-          with:
-              name: timing_data-${{ inputs.group }}
-              path: .test_durations

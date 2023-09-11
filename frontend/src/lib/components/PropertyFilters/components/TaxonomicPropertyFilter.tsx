@@ -94,10 +94,7 @@ export function TaxonomicPropertyFilter({
 
     const taxonomicFilter = (
         <TaxonomicFilter
-            groupType={propertyFilterTypeToTaxonomicFilterType(
-                filter?.type,
-                isGroupPropertyFilter(filter) ? filter.group_type_index : undefined
-            )}
+            groupType={filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined}
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
