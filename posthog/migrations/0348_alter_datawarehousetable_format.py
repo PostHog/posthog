@@ -13,8 +13,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="datawarehousetable",
             name="format",
-            field=models.CharField(
-                choices=[("CSV", "CSV"), ("Parquet", "Parquet"), ("JSONEachRow", "JSON")], max_length=128
-            ),
+            field=models.CharField(choices=[("CSV", "CSV"), ("Parquet", "Parquet"), ("JSON", "JSON")], max_length=128),
         ),
     ]
