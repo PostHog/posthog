@@ -40,7 +40,8 @@ export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
-        setSearchQuery: () => {
+        setSearchQuery: async (_, breakpoint) => {
+            await breakpoint(300)
             actions.loadAllNotebooks()
             actions.loadContainingNotebooks()
         },

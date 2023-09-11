@@ -12,6 +12,7 @@ import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
 import { notebookLogic } from './notebookLogic'
 import { urls } from 'scenes/urls'
+import { NotebookPopoverDropzone } from './NotebookPopoverDropzone'
 
 export function NotebookPopover(): JSX.Element {
     const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, dropProperties, dropMode } =
@@ -67,8 +68,8 @@ export function NotebookPopover(): JSX.Element {
                 {...dropProperties}
             >
                 {dropMode ? (
-                    <div className="NotebookPopover__content__dropper">
-                        <p>Wat</p>
+                    <div className="NotebookPopover__content__dropper mb-4">
+                        <NotebookPopoverDropzone />
                     </div>
                 ) : null}
 
