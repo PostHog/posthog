@@ -4,9 +4,9 @@ import { NotebookListItemType, NotebookNodeType } from '~/types'
 
 import api from 'lib/api'
 
-import type { notebookAddButtonLogicType } from './notebookAddButtonLogicType'
+import type { notebookSelectButtonLogicType } from './notebookSelectButtonLogicType'
 
-export interface NotebookAddButtonLogicProps {
+export interface NotebookSelectButtonLogicProps {
     resource: {
         attrs: Record<string, any>
         type: NotebookNodeType
@@ -15,9 +15,9 @@ export interface NotebookAddButtonLogicProps {
     visible?: boolean
 }
 
-export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'NotebookAddButton', 'multiNotebookAddButtonLogic', key]),
-    props({} as NotebookAddButtonLogicProps),
+export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'NotebookSelectButton', 'multiNotebookSelectButtonLogic', key]),
+    props({} as NotebookSelectButtonLogicProps),
     key((props) => JSON.stringify(props.resource)),
     actions({
         setShowPopover: (visible: boolean) => ({ visible }),

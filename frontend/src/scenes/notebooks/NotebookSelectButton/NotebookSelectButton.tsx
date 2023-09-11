@@ -2,9 +2,9 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
 import { IconJournalPlus, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import {
-    NotebookAddButtonLogicProps,
-    notebookAddButtonLogic,
-} from 'scenes/notebooks/NotebookAddButton/notebookAddButtonLogic'
+    NotebookSelectButtonLogicProps,
+    notebookSelectButtonLogic,
+} from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 import { BindLogic, BuiltLogic, useActions, useValues } from 'kea'
 import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { dayjs } from 'lib/dayjs'
@@ -19,7 +19,7 @@ import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-type NotebookAddButtonProps = NotebookAddButtonLogicProps &
+type NotebookSelectButtonProps = NotebookSelectButtonLogicProps &
     Omit<LemonButtonProps, 'onClick'> &
     Pick<LemonMenuProps, 'visible'> & {
         newNotebookTitle?: string
@@ -52,10 +52,10 @@ function NotebooksChoiceList(props: {
     )
 }
 
-function NotebooksChoicePopoverBody(props: NotebookAddButtonProps): JSX.Element {
+function NotebooksChoicePopoverBody(props: NotebookSelectButtonProps): JSX.Element {
     const { resource, newNotebookTitle } = props
-    const { notebooksLoading, containingNotebooks, allNotebooks, searchQuery } = useValues(notebookAddButtonLogic)
-    const { setShowPopover, setSearchQuery, loadContainingNotebooks } = useActions(notebookAddButtonLogic)
+    const { notebooksLoading, containingNotebooks, allNotebooks, searchQuery } = useValues(notebookSelectButtonLogic)
+    const { setShowPopover, setSearchQuery, loadContainingNotebooks } = useActions(notebookSelectButtonLogic)
     const { createNotebook } = useActions(notebooksModel)
 
     const openAndAddToNotebook = async (notebookShortId: string, exists: boolean): Promise<void> => {
@@ -157,13 +157,13 @@ function NotebooksChoicePopoverBody(props: NotebookAddButtonProps): JSX.Element 
     )
 }
 
-function NotebookAddButtonPopover({
+function NotebookSelectButtonPopover({
     // so we can pass props to the button below, without passing visible to it
     visible,
     ...props
-}: NotebookAddButtonProps): JSX.Element {
+}: NotebookSelectButtonProps): JSX.Element {
     const { children } = props
-    const logic = notebookAddButtonLogic({ ...props, visible })
+    const logic = notebookSelectButtonLogic({ ...props, visible })
     const { showPopover, notebooksLoading, containingNotebooks } = useValues(logic)
     const { setShowPopover } = useActions(logic)
 
@@ -177,7 +177,7 @@ function NotebookAddButtonPopover({
                 actionable
                 overlay={
                     <div className="max-w-160">
-                        <BindLogic logic={notebookAddButtonLogic} props={props}>
+                        <BindLogic logic={notebookSelectButtonLogic} props={props}>
                             <NotebooksChoicePopoverBody {...props} />
                         </BindLogic>
                     </div>
@@ -202,7 +202,7 @@ function NotebookAddButtonPopover({
     )
 }
 
-export function NotebookAddButton({ ...props }: NotebookAddButtonProps): JSX.Element {
+export function NotebookSelectButton({ ...props }: NotebookSelectButtonProps): JSX.Element {
     // if nodeLogic is available then the button is on a resource that _is already and currently in a notebook_
     const nodeLogic = useNotebookNode()
 
@@ -221,7 +221,7 @@ export function NotebookAddButton({ ...props }: NotebookAddButtonProps): JSX.Ele
                     {props.children ?? 'Add to notebook'}
                 </LemonButton>
             ) : (
-                <NotebookAddButtonPopover {...props} />
+                <NotebookSelectButtonPopover {...props} />
             )}
         </FlaggedFeature>
     )

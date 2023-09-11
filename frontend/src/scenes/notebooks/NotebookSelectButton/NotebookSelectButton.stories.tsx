@@ -1,13 +1,13 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { NotebookNodeType } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export default {
     title: 'Scenes-App/Notebooks/Components/Notebook Add Button',
-    component: NotebookAddButton,
-} as Meta<typeof NotebookAddButton>
+    component: NotebookSelectButton,
+} as Meta<typeof NotebookSelectButton>
 
 const allNotebooks = [
     {
@@ -18,7 +18,7 @@ const allNotebooks = [
     { title: 'an empty notebook', short_id: 'ghi' },
 ]
 
-const Template: StoryFn<typeof NotebookAddButton> = (props) => {
+const Template: StoryFn<typeof NotebookSelectButton> = (props) => {
     useFeatureFlags([FEATURE_FLAGS.NOTEBOOKS])
     useStorybookMocks({
         get: {
@@ -49,7 +49,7 @@ const Template: StoryFn<typeof NotebookAddButton> = (props) => {
     return (
         // the button has its dropdown showing and so needs a container that will include the pop-over
         <div className={'min-h-100'}>
-            <NotebookAddButton resource={props.resource} visible={props.visible} />
+            <NotebookSelectButton resource={props.resource} visible={props.visible} />
         </div>
     )
 }
