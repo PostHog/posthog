@@ -80,8 +80,9 @@ export const Settings = ({
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.showHogQLEditor = true
             modifiedQuery.showResultsTable = false
-            modifiedQuery.showReload = true
-        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showReload = false
+            modifiedQuery.showElapsedTime = false
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = true
             modifiedQuery.showResults = false
             modifiedQuery.embedded = true

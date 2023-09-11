@@ -137,6 +137,11 @@
         position: sticky;
         align-self: flex-start;
         top: 65px;
+
+        &__content {
+            max-height: calc(100vh - 220px);
+            overflow: scroll;
+        }
     }
 
     .LemonTable__content > table > thead {
