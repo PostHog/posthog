@@ -25,22 +25,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const {
-        survey,
-        dataTableQuery,
-        surveyLoading,
-        surveyPlugin,
-        surveyMetricsQueries,
-        surveyDataVizQuery,
-        showSurveyAppWarning,
-    } = useValues(surveyLogic)
+    const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
     // TODO: survey results logic
     // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { editPlugin } = useActions(pluginsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     useEffect(() => {
@@ -138,56 +129,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 ? {
                                       content: (
                                           <div>
-                                              {surveyMetricsQueries && (
-                                                  <div className="flex flex-row gap-4 mb-4">
-                                                      <div className="flex-1">
-                                                          <Query query={surveyMetricsQueries.surveysShown} />
-                                                      </div>
-                                                      <div className="flex-1">
-                                                          <Query query={surveyMetricsQueries.surveysDismissed} />
-                                                      </div>
-                                                  </div>
-                                              )}
-                                              {survey.questions[0].type === SurveyQuestionType.Rating && (
-                                                  <div className="mb-4">
-                                                      <Query query={surveyDataVizQuery} />
-                                                      {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] &&
-                                                          survey.questions[0].scale === 10 && (
-                                                              <>
-                                                                  <LemonDivider className="my-4" />
-                                                                  <h2>NPS Score</h2>
-                                                                  <SurveyNPSResults survey={survey as Survey} />
-                                                              </>
-                                                          )}
-                                                  </div>
-                                              )}
-                                              {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
-                                                  survey.questions[0].type === SurveyQuestionType.MultipleChoice) && (
-                                                  <div className="mb-4">
-                                                      {survey.questions[0].type === SurveyQuestionType.SingleChoice ? (
-                                                          <Query
-                                                              query={{
-                                                                  kind: NodeKind.DataTableNode,
-                                                                  source: {
-                                                                      kind: NodeKind.HogQLQuery,
-                                                                      query: `select count(), properties.$survey_response as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`,
-                                                                  },
-                                                              }}
-                                                          />
-                                                      ) : (
-                                                          <Query
-                                                              query={{
-                                                                  kind: NodeKind.DataTableNode,
-                                                                  source: {
-                                                                      kind: NodeKind.HogQLQuery,
-                                                                      query: `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`,
-                                                                  },
-                                                              }}
-                                                          />
-                                                      )}
-                                                  </div>
-                                              )}
-                                              {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}
+                                              <SurveyResult />
                                           </div>
                                       ),
                                       key: 'results',
@@ -314,6 +256,52 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                 </>
             )}
         </div>
+    )
+}
+
+export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
+    const {
+        survey,
+        dataTableQuery,
+        surveyLoading,
+        surveyMetricsQueries,
+        surveyRatingQuery,
+        surveyMultipleChoiceQuery,
+    } = useValues(surveyLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return (
+        <>
+            {surveyMetricsQueries && (
+                <div className="flex flex-row gap-4 mb-4">
+                    <div className="flex-1">
+                        <Query query={surveyMetricsQueries.surveysShown} />
+                    </div>
+                    <div className="flex-1">
+                        <Query query={surveyMetricsQueries.surveysDismissed} />
+                    </div>
+                </div>
+            )}
+            {survey.questions[0].type === SurveyQuestionType.Rating && (
+                <div className="mb-4">
+                    <Query query={surveyRatingQuery} />
+                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] && survey.questions[0].scale === 10 && (
+                        <>
+                            <LemonDivider className="my-4" />
+                            <h2>NPS Score</h2>
+                            <SurveyNPSResults survey={survey as Survey} />
+                        </>
+                    )}
+                </div>
+            )}
+            {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
+                survey.questions[0].type === SurveyQuestionType.MultipleChoice) && (
+                <div className="mb-4">
+                    <Query query={surveyMultipleChoiceQuery} />
+                </div>
+            )}
+            {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
+        </>
     )
 }
 

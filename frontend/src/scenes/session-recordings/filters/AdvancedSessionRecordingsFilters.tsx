@@ -60,7 +60,8 @@ export const AdvancedSessionRecordingsFilters = ({
                         { key: 'Custom', values: [] },
                         { key: 'Last 24 hours', values: ['-24h'] },
                         { key: 'Last 7 days', values: ['-7d'] },
-                        { key: 'Last 21 days', values: ['-21d'] },
+                        { key: 'Last 30 days', values: ['-30d'] },
+                        { key: 'All time', values: ['-90d'] },
                     ]}
                     dropdownPlacement="bottom-start"
                 />

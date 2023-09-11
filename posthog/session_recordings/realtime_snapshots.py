@@ -38,6 +38,10 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
         key = get_key(team_id, session_id)
         encoded_snapshots = redis.zrange(key, 0, -1, withscores=True)
 
+        # We always publish as it could be that a rebalance has occured and the consumer doesn't know it should be
+        # sending data to redis
+        redis.publish(SUBSCRIPTION_CHANNEL, json.dumps({"team_id": team_id, "session_id": session_id}))
+
         if not encoded_snapshots and attempt_count < ATTEMPT_MAX:
             logger.info(
                 "No realtime snapshots found, publishing subscription and retrying",

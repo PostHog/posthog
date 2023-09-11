@@ -35,6 +35,8 @@ class HogQLContext:
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
+    # How many nested views do we support on this query?
+    max_view_depth: int = 1
 
     # Warnings returned with the metadata query
     warnings: List["HogQLNotice"] = field(default_factory=list)
