@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0348_alter_datawarehousetable_format"),
+        ("posthog", "0347_add_bigquery_export_type"),
     ]
 
     operations = [
