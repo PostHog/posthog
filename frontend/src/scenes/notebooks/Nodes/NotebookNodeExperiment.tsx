@@ -19,7 +19,7 @@ import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const { experiment, experimentLoading, isExperimentRunning } = useValues(experimentLogic({ experimentId: id }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
