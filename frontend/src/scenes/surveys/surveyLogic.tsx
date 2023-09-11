@@ -51,6 +51,8 @@ export const defaultSurveyAppearance = {
     submitButtonText: 'Submit',
     descriptionTextColor: '#4b4b52',
     whiteLabel: false,
+    displayThankYouMessage: true,
+    thankYouMessageHeader: 'Thank you for your feedback!',
 }
 
 const NEW_SURVEY: NewSurvey = {

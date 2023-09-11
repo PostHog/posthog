@@ -222,7 +222,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             onClick={saveAsView}
                             type="primary"
                             center
-                            disabledReason={!isValidView && 'All fields must have an alias'}
+                            disabledReason={
+                                hasErrors
+                                    ? error ?? 'Query has errors'
+                                    : !isValidView
+                                    ? 'All fields must have an alias'
+                                    : ''
+                            }
                             data-attr="hogql-query-editor-save-as-view"
                         >
                             {'Save as View'}

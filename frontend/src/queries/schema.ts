@@ -123,6 +123,13 @@ export interface HogQLQueryResponse {
     results?: any[]
     types?: any[]
     columns?: any[]
+    timings?: QueryTiming[]
+}
+
+/** Filters object that will be converted to a HogQL {filters} placeholder */
+export interface HogQLFilters {
+    properties?: AnyPropertyFilter[]
+    dateRange?: DateRange
 }
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
@@ -194,12 +201,18 @@ export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
 }
-
+export interface QueryTiming {
+    /** Key. Shortened to 'k' to save on data. */
+    k: string
+    /** Time in seconds. Shortened to 't' to save on data. */
+    t: number
+}
 export interface EventsQueryResponse {
     columns: any[]
     types: string[]
     results: any[][]
     hasMore?: boolean
+    timings?: QueryTiming[]
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -295,6 +308,8 @@ export interface DataTableNode extends Node {
     showReload?: boolean
     /** Show the time it takes to run a query */
     showElapsedTime?: boolean
+    /** Show a detailed query timing breakdown */
+    showTimings?: boolean
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
     /** Show a button to configure and persist the table's default columns if possible */
@@ -317,17 +332,19 @@ export interface DataTableNode extends Node {
 
 // Saved insight node
 
-export interface SavedInsightNode extends Node {
+export interface SavedInsightNode extends Node, InsightVizNodeViewProps {
     kind: NodeKind.SavedInsightNode
     shortId: InsightShortId
 }
 
 // Insight viz node
 
-export interface InsightVizNode extends Node {
+export interface InsightVizNode extends Node, InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
+}
 
+interface InsightVizNodeViewProps {
     /** Show with most visual options enabled. Used in insight scene. */
     full?: boolean
     showHeader?: boolean

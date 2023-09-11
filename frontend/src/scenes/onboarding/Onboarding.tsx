@@ -1,6 +1,6 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -9,6 +9,8 @@ import { SDKs } from './sdks/SDKs'
 import { OnboardingProductIntro } from './OnboardingProductIntro'
 import { OnboardingStep } from './OnboardingStep'
 import { ProductKey } from '~/types'
+import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -18,65 +20,57 @@ export const scene: SceneExport = {
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { onboardingStep } = useValues(onboardingLogic)
     const { setTotalOnboardingSteps } = useActions(onboardingLogic)
+    const { product } = useValues(onboardingLogic)
+    const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
-        setTotalOnboardingSteps(Array.isArray(children) ? children.length : 1)
+        createAllSteps()
     }, [children])
 
-    if (!Array.isArray(children)) {
-        return children as JSX.Element
+    useEffect(() => {
+        setTotalOnboardingSteps(allSteps.length)
+    }, [allSteps])
+
+    if (!product || !children) {
+        return <></>
     }
-    return children ? (children[onboardingStep - 1] as JSX.Element) : <></>
+
+    const createAllSteps = (): void => {
+        const ProductIntro = <OnboardingProductIntro product={product} />
+        if (Array.isArray(children)) {
+            setAllSteps([ProductIntro, ...children])
+        } else {
+            setAllSteps([ProductIntro, children as JSX.Element])
+        }
+        setTotalOnboardingSteps(Array.isArray(children) ? children.length : 1)
+    }
+
+    return (allSteps[onboardingStep - 1] as JSX.Element) || <></>
 }
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
-    const { product } = useValues(onboardingLogic)
-
-    return product ? (
+    return (
         <OnboardingWrapper>
-            <OnboardingProductIntro product={product} />
-            <SDKs usersAction="collecting events" />
+            <SDKs usersAction="collecting events" sdkInstructionMap={ProductAnalyticsSDKInstructions} />
             <OnboardingStep title="my onboarding step" subtitle="my onboarding subtitle">
                 <div>my onboarding content</div>
             </OnboardingStep>
         </OnboardingWrapper>
-    ) : (
-        <></>
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
-    const { product } = useValues(onboardingLogic)
-
-    return product ? (
+    return (
         <OnboardingWrapper>
-            <OnboardingProductIntro product={product} />
-            <SDKs usersAction="recording sessions" />
+            <SDKs
+                usersAction="recording sessions"
+                sdkInstructionMap={SessionReplaySDKInstructions}
+                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library."
+            />
         </OnboardingWrapper>
-    ) : (
-        <></>
     )
 }
 const FeatureFlagsOnboarding = (): JSX.Element => {
-    const { product } = useValues(onboardingLogic)
-
-    return product ? (
-        <OnboardingWrapper>
-            <OnboardingProductIntro product={product} />
-            <SDKs usersAction="loading flags" />
-        </OnboardingWrapper>
-    ) : (
-        <></>
-    )
-}
-
-const getOnboarding = (productKey: string): JSX.Element => {
-    const onboardingViews = {
-        [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
-        [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
-        [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
-    }
-    const OnboardingView = onboardingViews[productKey]
-    return OnboardingView ? <OnboardingView /> : <></>
+    return <OnboardingWrapper>{/* <SDKs usersAction="loading flags" /> */}</OnboardingWrapper>
 }
 
 export function Onboarding(): JSX.Element | null {
@@ -89,5 +83,15 @@ export function Onboarding(): JSX.Element | null {
         }
     }, [])
 
-    return product ? getOnboarding(product.type) : null
+    if (!product) {
+        return <></>
+    }
+    const onboardingViews = {
+        [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
+        [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
+        [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
+    }
+    const OnboardingView = onboardingViews[product.type]
+
+    return <OnboardingView />
 }

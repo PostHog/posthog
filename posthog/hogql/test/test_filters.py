@@ -6,7 +6,7 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.visitor import clear_locations
-from posthog.schema import HogQLFilters, EventPropertyFilter, PersonPropertyFilter
+from posthog.schema import HogQLFilters, EventPropertyFilter, PersonPropertyFilter, DateRange
 from posthog.test.base import BaseTest
 
 
@@ -33,7 +33,7 @@ class TestFilters(BaseTest):
 
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
-            HogQLFilters(dateFrom="2020-02-02"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
             self.team,
         )
         self.assertEqual(
@@ -42,7 +42,9 @@ class TestFilters(BaseTest):
         )
 
         select = replace_filters(
-            self._parse_select("SELECT event FROM events where {filters}"), HogQLFilters(dateTo="2020-02-02"), self.team
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(dateRange=DateRange(date_to="2020-02-02")),
+            self.team,
         )
         self.assertEqual(
             self._print_ast(select),
