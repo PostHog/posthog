@@ -52,7 +52,7 @@ function NotebooksChoiceList(props: {
     )
 }
 
-function NotebooksChoicePopoverBody(props: NotebookSelectButtonProps): JSX.Element {
+export function NotebookSelectList(props: NotebookSelectButtonProps): JSX.Element {
     const { resource, newNotebookTitle } = props
     const { notebooksLoading, containingNotebooks, allNotebooks, searchQuery } = useValues(notebookSelectButtonLogic)
     const { setShowPopover, setSearchQuery, loadContainingNotebooks } = useActions(notebookSelectButtonLogic)
@@ -178,7 +178,7 @@ function NotebookSelectButtonPopover({
                 overlay={
                     <div className="max-w-160">
                         <BindLogic logic={notebookSelectButtonLogic} props={props}>
-                            <NotebooksChoicePopoverBody {...props} />
+                            <NotebookSelectList {...props} />
                         </BindLogic>
                     </div>
                 }
