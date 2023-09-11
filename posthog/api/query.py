@@ -209,7 +209,11 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     elif query_kind == "HogQLQuery":
         hogql_query = HogQLQuery.parse_obj(query_json)
         response = execute_hogql_query(
-            query=hogql_query.query, team=team, query_type="HogQLQuery", default_limit=default_limit
+            query_type="HogQLQuery",
+            query=hogql_query.query,
+            team=team,
+            filters=hogql_query.filters,
+            default_limit=default_limit,
         )
         return _unwrap_pydantic_dict(response)
     elif query_kind == "HogQLMetadata":

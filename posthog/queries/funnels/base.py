@@ -533,7 +533,7 @@ class ClickhouseFunnelBase(ABC):
         return step_cols
 
     def _build_step_query(self, entity: Entity, index: int, entity_name: str, step_prefix: str) -> str:
-        filters = self._build_filters(entity, index)
+        filters = self._build_filters(entity, index, entity_name)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action()
             for action_step_event in action.get_step_events():
@@ -565,11 +565,11 @@ class ClickhouseFunnelBase(ABC):
             content_sql = f"event = %({event_param_key})s {filters}"
         return content_sql
 
-    def _build_filters(self, entity: Entity, index: int) -> str:
+    def _build_filters(self, entity: Entity, index: int, entity_name: str) -> str:
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self._team.pk,
             property_group=entity.property_groups,
-            prepend=str(index),
+            prepend=f"_{entity_name}_{index}",
             person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias="person_id",
             hogql_context=self._filter.hogql_context,

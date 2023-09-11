@@ -54,7 +54,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
-                {
+                response
+                | {
                     "columns": ["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"],
                     "hasMore": False,
                     "results": [
@@ -80,7 +81,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
-                {
+                response
+                | {
                     "columns": ["count()", "event"],
                     "hasMore": False,
                     "types": ["UInt64", "String"],
@@ -94,7 +96,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
-                {
+                response
+                | {
                     "columns": ["count()", "event"],
                     "hasMore": False,
                     "types": ["UInt64", "String"],

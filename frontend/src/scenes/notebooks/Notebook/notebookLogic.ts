@@ -18,7 +18,7 @@ import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } fr
 
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from a utils file
-import { JSONContent, NotebookEditor, Node } from './utils'
+import { JSONContent, NotebookEditor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
@@ -28,6 +28,7 @@ import {
     buildTimestampCommentContent,
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
+import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
 
 const SYNC_DELAY = 1000
 
@@ -75,9 +76,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         exportJSON: true,
         showConflictWarning: true,
-        updatePreviousAndNextNodes: true,
-        setPreviousNode: (node: Node | null) => ({ node }),
-        setNextNode: (node: Node | null) => ({ node }),
+        onUpdateEditor: true,
         registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
@@ -104,7 +103,7 @@ export const notebookLogic = kea<notebookLogicType>([
     reducers({
         localContent: [
             null as JSONContent | null,
-            { persist: true },
+            { persist: true, prefix: NOTEBOOKS_VERSION },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
@@ -157,18 +156,6 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
             },
         ],
-        previousNode: [
-            null as Node | null,
-            {
-                setPreviousNode: (_, { node }) => node,
-            },
-        ],
-        nextNode: [
-            null as Node | null,
-            {
-                setNextNode: (_, { node }) => node,
-            },
-        ],
         isEditable: [
             false,
             {
@@ -181,7 +168,6 @@ export const notebookLogic = kea<notebookLogicType>([
             null as NotebookType | null,
             {
                 loadNotebook: async () => {
-                    // NOTE: This is all hacky and temporary until we have a backend
                     let response: NotebookType | null
 
                     if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
@@ -201,12 +187,14 @@ export const notebookLogic = kea<notebookLogicType>([
                         throw new Error('Notebook not found')
                     }
 
+                    const notebook = migrate(response)
+
                     if (!values.notebook) {
                         // If this is the first load we need to override the content fully
-                        values.editor?.setContent(response.content)
+                        values.editor?.setContent(notebook.content)
                     }
 
-                    return response
+                    return notebook
                 },
 
                 saveNotebook: async ({ notebook }) => {
@@ -341,9 +329,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         isShowingSidebar: [
             (s) => [s.selectedNodeLogic],
-            (selectedNodeLogic) => {
-                return !!selectedNodeLogic?.values.widgets.length
-            },
+            (selectedNodeLogic) => selectedNodeLogic?.values.isShowingWidgets,
         ],
     }),
     sharedListeners(({ values, actions }) => ({
@@ -432,7 +418,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             const jsonContent = values.editor.getJSON()
             actions.setLocalContent(jsonContent)
-            actions.updatePreviousAndNextNodes()
+            actions.onUpdateEditor()
         },
 
         setEditable: ({ editable }) => {
@@ -466,13 +452,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     actions.scrollToSelection()
                 }
 
-                actions.updatePreviousAndNextNodes()
-            }
-        },
-        updatePreviousAndNextNodes: () => {
-            if (values.editor) {
-                actions.setPreviousNode(values.editor.getPreviousNode())
-                actions.setNextNode(values.editor.getNextNode())
+                actions.onUpdateEditor()
             }
         },
         scrollToSelection: () => {

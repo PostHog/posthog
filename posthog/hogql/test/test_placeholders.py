@@ -1,11 +1,15 @@
 from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.test.base import BaseTest
 
 
 class TestParser(BaseTest):
+    def test_find_placeholders(self):
+        expr = parse_expr("{foo} and {bar}")
+        self.assertEqual(sorted(find_placeholders(expr)), sorted(["foo", "bar"]))
+
     def test_replace_placeholders_simple(self):
         expr = parse_expr("{foo}")
         self.assertEqual(

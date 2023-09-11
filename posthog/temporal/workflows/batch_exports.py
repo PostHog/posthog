@@ -1,11 +1,13 @@
 import collections.abc
 import csv
 import datetime as dt
+import gzip
 import json
 import tempfile
 import typing
 from string import Template
 
+import brotli
 from temporalio import workflow
 
 SELECT_QUERY_TEMPLATE = Template(
@@ -21,17 +23,35 @@ SELECT_QUERY_TEMPLATE = Template(
         AND COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
+        $exclude_events
     $order_by
     $format
     """
 )
 
 
-async def get_rows_count(client, team_id: int, interval_start: str, interval_end: str) -> int:
+async def get_rows_count(
+    client,
+    team_id: int,
+    interval_start: str,
+    interval_end: str,
+    exclude_events: collections.abc.Iterable[str] | None = None,
+) -> int:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+
+    if exclude_events:
+        exclude_events_statement = "AND event NOT IN {exclude_events}"
+        events_to_exclude_tuple = tuple(exclude_events)
+    else:
+        exclude_events_statement = ""
+        events_to_exclude_tuple = ()
+
     query = SELECT_QUERY_TEMPLATE.substitute(
-        fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count", order_by="", format=""
+        fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
+        order_by="",
+        format="",
+        exclude_events=exclude_events_statement,
     )
 
     count = await client.read_query(
@@ -40,6 +60,7 @@ async def get_rows_count(client, team_id: int, interval_start: str, interval_end
             "team_id": team_id,
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
+            "exclude_events": events_to_exclude_tuple,
         },
     )
 
@@ -68,14 +89,27 @@ elements_chain
 
 
 def get_results_iterator(
-    client, team_id: int, interval_start: str, interval_end: str
+    client,
+    team_id: int,
+    interval_start: str,
+    interval_end: str,
+    exclude_events: collections.abc.Iterable[str] | None = None,
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+
+    if exclude_events:
+        exclude_events_statement = "AND event NOT IN {exclude_events}"
+        events_to_exclude_tuple = tuple(exclude_events)
+    else:
+        exclude_events_statement = ""
+        events_to_exclude_tuple = ()
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=FIELDS,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
+        exclude_events=exclude_events_statement,
     )
 
     for batch in client.stream_query_as_arrow(
@@ -84,6 +118,7 @@ def get_results_iterator(
             "team_id": team_id,
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
+            "exclude_events": events_to_exclude_tuple,
         },
     ):
         yield from iter_batch_records(batch)
@@ -182,6 +217,10 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
     elif interval == "day":
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
+    elif interval == "every-5-minutes":
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(minutes=5)
+    elif interval == "every-10-minutes":
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(minutes=10)
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
@@ -204,6 +243,7 @@ class BatchExportTemporaryFile:
         self,
         mode: str = "w+b",
         buffering=-1,
+        compression: str | None = None,
         encoding: str | None = None,
         newline: str | None = None,
         suffix: str | None = None,
@@ -222,10 +262,12 @@ class BatchExportTemporaryFile:
             dir=dir,
             errors=errors,
         )
+        self.compression = compression
         self.bytes_total = 0
         self.records_total = 0
         self.bytes_since_last_reset = 0
         self.records_since_last_reset = 0
+        self._brotli_compressor = None
 
     def __getattr__(self, name):
         """Pass get attr to underlying tempfile.NamedTemporaryFile."""
@@ -240,11 +282,37 @@ class BatchExportTemporaryFile:
         """Context-manager protocol exit method."""
         return self._file.__exit__(exc, value, tb)
 
+    @property
+    def brotli_compressor(self):
+        if self._brotli_compressor is None:
+            self._brotli_compressor = brotli.Compressor()
+        return self._brotli_compressor
+
+    def compress(self, content: bytes | str) -> bytes:
+        if isinstance(content, str):
+            encoded = content.encode("utf-8")
+        else:
+            encoded = content
+
+        match self.compression:
+            case "gzip":
+                return gzip.compress(encoded)
+            case "brotli":
+                self.brotli_compressor.process(encoded)
+                return self.brotli_compressor.flush()
+            case None:
+                return encoded
+            case _:
+                raise ValueError(f"Unsupported compression: '{self.compression}'")
+
     def write(self, content: bytes | str):
         """Write bytes to underlying file keeping track of how many bytes were written."""
-        if "b" in self.mode and isinstance(content, str):
-            content = content.encode("utf-8")
-        result = self._file.write(content)
+        compressed_content = self.compress(content)
+
+        if "b" in self.mode:
+            result = self._file.write(compressed_content)
+        else:
+            result = self._file.write(compressed_content.decode("utf-8"))
 
         self.bytes_total += result
         self.bytes_since_last_reset += result
@@ -315,6 +383,18 @@ class BatchExportTemporaryFile:
             escapechar=escapechar,
             quoting=quoting,
         )
+
+    def rewind(self):
+        """Rewind the file before reading it."""
+        if self.compression == "brotli":
+            result = self._file.write(self.brotli_compressor.finish())
+
+            self.bytes_total += result
+            self.bytes_since_last_reset += result
+
+            self._brotli_compressor = None
+
+        self._file.seek(0)
 
     def reset(self):
         """Reset underlying file by truncating it.

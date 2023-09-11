@@ -390,16 +390,17 @@ export function HedgehogBuddy({
     onClick: _onClick,
     onPositionChange,
     popoverOverlay,
+    isDarkModeOn,
 }: {
     actorRef?: MutableRefObject<HedgehogActor | undefined>
     onClose: () => void
     onClick?: () => void
     onPositionChange?: (actor: HedgehogActor) => void
     popoverOverlay?: React.ReactNode
+    // passed in because toolbar needs to check this differently than the app
+    isDarkModeOn: boolean
 }): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
-
-    const { isDarkModeOn } = useValues(themeLogic)
 
     if (!actorRef.current) {
         actorRef.current = new HedgehogActor()
@@ -538,6 +539,11 @@ export function HedgehogBuddy({
 export function HedgehogBuddyWithLogic(): JSX.Element {
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
-    return hedgehogModeEnabled ? <HedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} /> : <></>
+    return hedgehogModeEnabled ? (
+        <HedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} isDarkModeOn={isDarkModeOn} />
+    ) : (
+        <></>
+    )
 }

@@ -5,7 +5,11 @@ import { notebookLogic } from './notebookLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 
 export const NotebookSidebar = (): JSX.Element | null => {
-    const { selectedNodeLogic, isShowingSidebar } = useValues(notebookLogic)
+    const { selectedNodeLogic, isShowingSidebar, isEditable } = useValues(notebookLogic)
+
+    if (!isEditable) {
+        return null
+    }
 
     return (
         <div
@@ -19,17 +23,17 @@ export const NotebookSidebar = (): JSX.Element | null => {
 }
 
 export const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element | null => {
-    const { widgets, nodeAttributes } = useValues(logic)
-    const { updateAttributes } = useActions(logic)
+    const { widgets, nodeAttributes, isShowingWidgets } = useValues(logic)
+    const { updateAttributes, setWidgetsVisible } = useActions(logic)
 
-    if (widgets.length === 0) {
+    if (!isShowingWidgets) {
         return null
     }
 
     return (
         <div className="NotebookNodeSettings__widgets space-y-2 w-full">
             {widgets.map(({ key, label, Component }) => (
-                <LemonWidget key={key} title={label}>
+                <LemonWidget key={key} title={label} onClose={() => setWidgetsVisible(false)}>
                     <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
                 </LemonWidget>
             ))}
