@@ -1100,24 +1100,6 @@ describe('PersonState.update()', () => {
             })
         })
 
-        it('stops $identify if $anon_distinct_id is illegal: ``', async () => {
-            const person = await personState({
-                event: '$identify',
-                distinct_id: 'some_distinct_id',
-                properties: {
-                    $anon_distinct_id: '',
-                },
-            }).handleIdentifyOrAlias()
-
-            expect(person).toEqual(undefined)
-            const persons = await fetchPostgresPersonsH()
-            expect(persons.length).toEqual(0)
-
-            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: '',
-            })
-        })
-
         it.each(illegalIds)('stops $identify if $anon_distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
                 event: '$identify',

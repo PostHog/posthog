@@ -25,14 +25,9 @@ export const mergeFinalFailuresCounter = new Counter({
 
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
-const BASE_ILLEGAL_IDS = [
-    '',
-    '[object Object]'.toLowerCase(),
-    'NaN'.toLowerCase(),
-    'none',
-    'null',
-    '0',
-    'undefined',
+// used to prevent identify from being used with generic IDs
+// that we can safely assume stem from a bug or mistake
+const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'anonymous',
     'guest',
     'distinctid',
@@ -44,16 +39,33 @@ const BASE_ILLEGAL_IDS = [
     'true',
     'false',
 ]
+
+const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
+
 // we have seen illegal ids received but wrapped in double quotes
 // to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
-const SINGLE_QUOTED_ILLEGAL_IDS = BASE_ILLEGAL_IDS.map((id) => `'${id}'`)
-const DOUBLE_QUOTED_ILLEGAL_IDS = BASE_ILLEGAL_IDS.map((id) => `"${id}"`)
+const singleQuoteIds = (ids: string[]) => ids.map((id) => `'${id}'`)
+const doubleQuoteIds = (ids: string[]) => ids.map((id) => `"${id}"`)
 
-const ILLEGAL_IDS = new Set(BASE_ILLEGAL_IDS.concat(SINGLE_QUOTED_ILLEGAL_IDS).concat(DOUBLE_QUOTED_ILLEGAL_IDS))
+// some ids are illegal regardless of casing
+// while others are illegal only when cased
+// so, for example, we want to forbid `NaN` but not `nan`
+// but, we will forbid `uNdEfInEd` and `undefined`
+const CASE_INSENSITIVE_ILLEGAL_IDS = new Set(
+    BARE_CASE_INSENSITIVE_ILLEGAL_IDS.concat(singleQuoteIds(BARE_CASE_INSENSITIVE_ILLEGAL_IDS)).concat(
+        doubleQuoteIds(BARE_CASE_INSENSITIVE_ILLEGAL_IDS)
+    )
+)
+
+const CASE_SENSITIVE_ILLEGAL_IDS = new Set(
+    BARE_CASE_SENSITIVE_ILLEGAL_IDS.concat(singleQuoteIds(BARE_CASE_SENSITIVE_ILLEGAL_IDS)).concat(
+        doubleQuoteIds(BARE_CASE_SENSITIVE_ILLEGAL_IDS)
+    )
+)
 
 const isDistinctIdIllegal = (id: string): boolean => {
     const trimmed = id.trim()
-    return trimmed === '' || ILLEGAL_IDS.has(trimmed.toLowerCase())
+    return trimmed === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
 }
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
