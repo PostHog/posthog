@@ -49,7 +49,7 @@ const BASE_ILLEGAL_IDS = [
 const SINGLE_QUOTED_ILLEGAL_IDS = BASE_ILLEGAL_IDS.map((id) => `'${id}'`)
 const DOUBLE_QUOTED_ILLEGAL_IDS = BASE_ILLEGAL_IDS.map((id) => `"${id}"`)
 
-export const ILLEGAL_IDS = new Set(BASE_ILLEGAL_IDS.concat(SINGLE_QUOTED_ILLEGAL_IDS).concat(DOUBLE_QUOTED_ILLEGAL_IDS))
+const ILLEGAL_IDS = new Set(BASE_ILLEGAL_IDS.concat(SINGLE_QUOTED_ILLEGAL_IDS).concat(DOUBLE_QUOTED_ILLEGAL_IDS))
 
 const isDistinctIdIllegal = (id: string): boolean => {
     const trimmed = id.trim()

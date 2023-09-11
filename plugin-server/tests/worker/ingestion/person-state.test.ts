@@ -7,7 +7,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
-import { ageInMonthsLowCardinality, ILLEGAL_IDS, PersonState } from '../../../src/worker/ingestion/person-state'
+import { ageInMonthsLowCardinality, PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
 
@@ -1081,7 +1081,7 @@ describe('PersonState.update()', () => {
             hub.statsd = { increment: jest.fn() } as any
         })
 
-        const illegalIds = Array.from(ILLEGAL_IDS.values())
+        const illegalIds = ['', '   ', 'null', 'undefined', '"undefined"', '[object Object]', '"[object Object]"']
         it.each(illegalIds)('stops $identify if current distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
                 event: '$identify',
