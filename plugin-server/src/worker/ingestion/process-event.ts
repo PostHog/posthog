@@ -281,6 +281,7 @@ export interface SummarizedSessionRecordingEvent {
     console_warn_count: number
     console_error_count: number
     size: number
+    event_count: number
 }
 
 export const createSessionReplayEvent = (
@@ -355,6 +356,7 @@ export const createSessionReplayEvent = (
         console_warn_count: consoleWarnCount,
         console_error_count: consoleErrorCount,
         size: Buffer.byteLength(JSON.stringify(events), 'utf8'),
+        event_count: events.length,
     }
 
     return data

@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     size SimpleAggregateFunction(sum, Int64),
     -- this allows us to count the number of messages received in a session
     -- often very useful in incidents or debugging
-    message_count SimpleAggregateFunction(sum, Int64)
+    message_count SimpleAggregateFunction(sum, Int64),
     -- this allows us to count the number of snapshot events received in a session
     -- often very useful in incidents or debugging
     -- because we batch events we expect message_count to be lower than event_count
