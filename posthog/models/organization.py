@@ -130,7 +130,7 @@ class Organization(UUIDModel):
     # }
     # Also currently indicates if the organization is on billing V2 or not
     usage: models.JSONField = models.JSONField(null=True, blank=True)
-    never_drop_data: models.BooleanField = models.BooleanField(default=False)
+    never_drop_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
