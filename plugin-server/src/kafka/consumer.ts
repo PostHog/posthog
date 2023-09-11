@@ -67,7 +67,7 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
     // case, no such message exists).
     //
     // Further, we are not guaranteed to have messages from all of the
-    // partitions assigned to this consumer group member, event if there
+    // partitions assigned to this consumer group member, even if there
     // are partitions with messages to be consumed. This is because
     // librdkafka will only fetch messages from a partition if there is
     // space in the internal partition queue. If the queue is full, it
@@ -87,13 +87,35 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
          * When rebalancing starts the consumer receives ERR_REVOKED_PARTITIONS
          * And when the balancing is completed the new assignments are received with ERR__ASSIGN_PARTITIONS
          */
+        const logIfConnected = (consumer: RdKafkaConsumer, error: Error) => {
+            // Ignore exceptions if we are not connected
+            if (consumer.isConnected()) {
+                status.error('📝️', 'librdkafka rebalance error', { error })
+            }
+        }
+
         if (error.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
             status.info('📝️', 'librdkafka rebalance, partitions assigned', { assignments })
+            try {
+                consumer.assign(assignments)
+            } catch (e) {
+                logIfConnected(consumer, e)
+            }
         } else if (error.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
             status.info('📝️', 'librdkafka rebalance started, partitions revoked', { assignments })
+            try {
+                consumer.unassign()
+            } catch (e) {
+                logIfConnected(consumer, e)
+            }
         } else {
             // We had a "real" error
             status.error('⚠️', 'rebalance_error', { error })
+            try {
+                consumer.unassign()
+            } catch (e) {
+                logIfConnected(consumer, e)
+            }
         }
 
         latestOffsetTimestampGauge.reset()
