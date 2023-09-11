@@ -2,8 +2,10 @@ import posthog from 'posthog-js'
 import { useActions } from 'kea'
 import { useCallback, useRef } from 'react'
 
-import { Editor as TTEditor } from '@tiptap/core'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { Node as ProseMirrorNode } from '@tiptap/pm/model'
+
+import { Editor as TTEditor, TextSerializer } from '@tiptap/core'
+import { EditorContent, useEditor } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
@@ -25,7 +27,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
-import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
+import { EditorFocusPosition, EditorRange, JSONContent, Node, NotebookEditor } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
@@ -182,6 +184,49 @@ export function Editor({
 
             onCreate({
                 getJSON: () => editor.getJSON(),
+                getText: () => {
+                    const titleSerializer: TextSerializer = (props): string => props.node.attrs?.title || ''
+                    const customNodeTextSerializers: Record<NotebookNodeType, TextSerializer> = {
+                        'ph-backlink': titleSerializer,
+                        'ph-early-access-feature': titleSerializer,
+                        'ph-experiment': titleSerializer,
+                        'ph-feature-flag': titleSerializer,
+                        'ph-feature-flag-code-example': titleSerializer,
+                        'ph-image': (props: { node: ProseMirrorNode }): string => {
+                            return props.node.attrs?.file?.name || ''
+                        },
+                        'ph-insight': titleSerializer,
+                        'ph-person': (props: { node: ProseMirrorNode }): string => {
+                            const personTitle = props.node.attrs?.title || ''
+                            const personId = props.node.attrs?.id || ''
+                            return `${personTitle} ${personId}`
+                        },
+                        'ph-query': (props: { node: ProseMirrorNode }): string => {
+                            return props.node.attrs?.query?.source?.query || ''
+                        },
+                        'ph-recording': (props: { node: ProseMirrorNode }): string => {
+                            // allow search using the session id
+                            return props.node.attrs?.id || ''
+                        },
+                        'ph-recording-playlist': (props: { node: ProseMirrorNode }): string => {
+                            // TODO does a playlist report any title that has been set here?
+                            return props.node.attrs?.title || ''
+                        },
+                        'ph-replay-timestamp': (props: { node: ProseMirrorNode }): string => {
+                            // any comment is reported as text from its paragraph component
+                            return props.node.attrs?.sessionRecordingId || ''
+                        },
+                        'ph-survey': (props: { node: ProseMirrorNode }): string => {
+                            // TODO we could look up other survey text... e.g. any questions asked
+                            return props.node.attrs?.title || ''
+                        },
+                    }
+
+                    return editor.getText({
+                        blockSeparator: ' ',
+                        textSerializers: customNodeTextSerializers,
+                    })
+                },
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),

@@ -54,6 +54,7 @@ export type NotebookNodeWidget = {
 
 export interface NotebookEditor {
     getJSON: () => JSONContent
+    getText: () => string
     getSelectedNode: () => Node | null
     getAdjacentNodes: (pos: number) => { previous: Node | null; next: Node | null }
     setEditable: (editable: boolean) => void

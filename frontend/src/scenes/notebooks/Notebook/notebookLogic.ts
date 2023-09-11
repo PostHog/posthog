@@ -70,9 +70,10 @@ export const notebookLogic = kea<notebookLogicType>([
         onEditorUpdate: true,
         onEditorSelectionUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
+        setLocalTextContent: (textContent: string) => ({ textContent }),
         clearLocalContent: true,
         loadNotebook: true,
-        saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        saveNotebook: (notebook: Pick<NotebookType, 'content' | 'textContent' | 'title'>) => ({ notebook }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         exportJSON: true,
         showConflictWarning: true,
@@ -106,6 +107,14 @@ export const notebookLogic = kea<notebookLogicType>([
             { persist: true, prefix: NOTEBOOKS_VERSION },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
+                clearLocalContent: () => null,
+            },
+        ],
+        localTextContent: [
+            null as string | null,
+            { persist: true, prefix: NOTEBOOKS_VERSION },
+            {
+                setLocalTextContent: (_, { textContent }) => textContent,
                 clearLocalContent: () => null,
             },
         ],
@@ -174,6 +183,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         response = {
                             ...values.scratchpadNotebook,
                             content: {},
+                            textContent: '',
                             version: 0,
                         }
                     } else if (props.shortId.startsWith('template-')) {
@@ -206,6 +216,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
                             content: notebook.content,
+                            textContent: values.localTextContent,
                             title: notebook.title,
                         })
 
@@ -238,6 +249,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
                     const response = await api.notebooks.create({
                         content: values.content || values.notebook.content,
+                        textContent: values.localTextContent,
                         title: values.title || values.notebook.title,
                     })
 
@@ -407,6 +419,7 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!values.isLocalOnly && values.content && !values.notebookLoading) {
                 actions.saveNotebook({
                     content: values.content,
+                    textContent: values.localTextContent,
                     title: values.title,
                 })
             }
@@ -417,7 +430,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
             const jsonContent = values.editor.getJSON()
+            const textContent = values.editor.getText()
+
             actions.setLocalContent(jsonContent)
+            actions.setLocalTextContent(textContent)
             actions.onUpdateEditor()
         },
 
