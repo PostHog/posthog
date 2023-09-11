@@ -5,6 +5,7 @@ from uuid import UUID
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from freezegun.api import freeze_time
+from unittest.case import skip
 
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -257,3 +258,45 @@ class TestPersonIntegration(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(data.get("results")[0].get("count"), 2)
         self.assertEqual([item["name"] for item in data.get("results")[0].get("people")], ["u_11", "u_10"])
+
+    @skip("see PR 17356")
+    def test_weekly_active_users_breakdown(self):
+        for d in range(10, 18):  # create a person and event for each day 10. Sep - 17. Sep
+            _create_person(team_id=self.team.pk, distinct_ids=[f"a_{d}"])
+            _create_person(team_id=self.team.pk, distinct_ids=[f"b_{d}"])
+            _create_event(
+                event="pageview",
+                distinct_id=f"a_{d}",
+                properties={"some_prop": "a"},
+                team=self.team,
+                timestamp=datetime(2023, 9, d, 00, 42),
+            )
+            _create_event(
+                event="pageview",
+                distinct_id=f"b_{d}",
+                properties={"some_prop": "b"},
+                team=self.team,
+                timestamp=datetime(2023, 9, d, 00, 42),
+            )
+        flush_persons_and_events()
+
+        # request weekly active users in the following week
+        filter = {
+            "insight": "TRENDS",
+            "date_from": "2023-09-17T13:37:00",
+            "date_to": "2023-09-24T13:37:00",
+            "events": json.dumps([{"id": "pageview", "math": "weekly_active"}]),
+            "breakdown": "some_prop",
+        }
+        insight_response = self.client.get(f"/api/projects/{self.team.pk}/insights/trend", data=filter)
+        insight_response = (insight_response.json()).get("result")
+
+        self.assertEqual(insight_response[0].get("labels")[5], "22-Sep-2023")
+        # self.assertEqual(insight_response[0].get("data")[5], 2)
+
+        persons_url = insight_response[0].get("persons_urls")[5].get("url")
+        response = self.client.get("/" + persons_url)
+
+        data = response.json()
+        # self.assertEqual(data.get("results")[0].get("count"), 2)
+        self.assertEqual([item["name"] for item in data.get("results")[0].get("people")], ["a_17", "a_16"])
