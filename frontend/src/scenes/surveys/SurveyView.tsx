@@ -10,15 +10,19 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useState, useEffect } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Query } from '~/queries/Query/Query'
-import { defaultSurveyAppearance, surveyLogic } from './surveyLogic'
+import { defaultSurveyAppearance, surveyEventName, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 import { SurveyAppearance } from './SurveyAppearance'
-import { SurveyQuestionType, SurveyType } from '~/types'
+import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { NodeKind } from '~/queries/schema'
+import { dayjs } from 'lib/dayjs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
@@ -264,6 +268,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyRatingQuery,
         surveyMultipleChoiceQuery,
     } = useValues(surveyLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -280,6 +285,13 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             {survey.questions[0].type === SurveyQuestionType.Rating && (
                 <div className="mb-4">
                     <Query query={surveyRatingQuery} />
+                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] && survey.questions[0].scale === 10 && (
+                        <>
+                            <LemonDivider className="my-4" />
+                            <h2>NPS Score</h2>
+                            <SurveyNPSResults survey={survey as Survey} />
+                        </>
+                    )}
                 </div>
             )}
             {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
@@ -297,3 +309,72 @@ const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',
     opt_in_site_apps: true // <--- Add this line
 })`
+
+function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
+    return (
+        <Query
+            query={{
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
+                        date_to: dayjs().format('YYYY-MM-DD'),
+                    },
+                    series: [
+                        {
+                            event: surveyEventName,
+                            kind: NodeKind.EventsNode,
+                            custom_name: 'Promoters',
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$survey_response',
+                                    operator: PropertyOperator.Exact,
+                                    value: [9, 10],
+                                },
+                            ],
+                        },
+                        {
+                            event: surveyEventName,
+                            kind: NodeKind.EventsNode,
+                            custom_name: 'Passives',
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$survey_response',
+                                    operator: PropertyOperator.Exact,
+                                    value: [7, 8],
+                                },
+                            ],
+                        },
+                        {
+                            event: surveyEventName,
+                            kind: NodeKind.EventsNode,
+                            custom_name: 'Detractors',
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$survey_response',
+                                    operator: PropertyOperator.Exact,
+                                    value: [1, 2, 3, 4, 5, 6],
+                                },
+                            ],
+                        },
+                    ],
+                    properties: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$survey_id',
+                            operator: PropertyOperator.Exact,
+                            value: survey.id,
+                        },
+                    ],
+                    trendsFilter: {
+                        formula: '(A / (A+B+C) * 100) - (C / (A+B+C)* 100)',
+                    },
+                },
+            }}
+        />
+    )
+}
