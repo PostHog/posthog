@@ -3019,7 +3019,7 @@ export type NotebookListItemType = {
 export type NotebookType = NotebookListItemType & {
     content: JSONContent // TODO: Type this better
     // used for e.g. to power text-based search
-    textContent: string | null
+    text_content: string | null
     version: number
 }
 

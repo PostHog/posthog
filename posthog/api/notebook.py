@@ -74,6 +74,7 @@ class NotebookSerializer(serializers.ModelSerializer):
             "short_id",
             "title",
             "content",
+            "text_content",
             "version",
             "deleted",
             "created_at",

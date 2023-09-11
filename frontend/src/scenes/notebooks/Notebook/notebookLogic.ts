@@ -73,7 +73,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setLocalTextContent: (textContent: string) => ({ textContent }),
         clearLocalContent: true,
         loadNotebook: true,
-        saveNotebook: (notebook: Pick<NotebookType, 'content' | 'textContent' | 'title'>) => ({ notebook }),
+        saveNotebook: (notebook: Pick<NotebookType, 'content' | 'text_content' | 'title'>) => ({ notebook }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         exportJSON: true,
         showConflictWarning: true,
@@ -183,7 +183,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         response = {
                             ...values.scratchpadNotebook,
                             content: {},
-                            textContent: '',
+                            text_content: null,
                             version: 0,
                         }
                     } else if (props.shortId.startsWith('template-')) {
@@ -216,7 +216,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
                             content: notebook.content,
-                            textContent: values.localTextContent,
+                            text_content: values.localTextContent,
                             title: notebook.title,
                         })
 
@@ -249,7 +249,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
                     const response = await api.notebooks.create({
                         content: values.content || values.notebook.content,
-                        textContent: values.localTextContent,
+                        text_content: values.localTextContent,
                         title: values.title || values.notebook.title,
                     })
 
