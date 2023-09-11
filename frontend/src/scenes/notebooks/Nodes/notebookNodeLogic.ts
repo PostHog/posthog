@@ -16,6 +16,7 @@ import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
+    CustomNotebookNodeAttributes,
     JSONContent,
     Node,
     NotebookNode,
@@ -51,7 +52,7 @@ async function renderTitle(
 
 const computeResizeable = (
     resizeable: NotebookNodeLogicProps['resizeable'],
-    attrs: NotebookNodeLogicProps['nodeAttributes']
+    attrs: NotebookNodeLogicProps['attributes']
 ): boolean => (typeof resizeable === 'function' ? resizeable(attrs) : resizeable)
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -171,7 +172,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
         const renderedTitle = await renderTitle(logic.props.title, logic.props.attributes)
         logic.actions.setTitle(renderedTitle)
-        const resizeable = computeResizeable(logic.props.resizeable, logic.props.nodeAttributes)
+        const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
         logic.actions.setResizeable(resizeable)
         logic.actions.updateAttributes({ title: renderedTitle })
     }),
