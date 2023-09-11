@@ -5,29 +5,42 @@ import {
     NotebookSelectButtonLogicProps,
     notebookSelectButtonLogic,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
-import { BindLogic, BuiltLogic, useActions, useValues } from 'kea'
-import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { NotebookListItemType, NotebookTarget } from '~/types'
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
-import { Popover } from 'lib/lemon-ui/Popover'
+import { Popover, PopoverProps } from 'lib/lemon-ui/Popover'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ReactChild, useEffect } from 'react'
 
-type NotebookSelectButtonProps = NotebookSelectButtonLogicProps &
-    Omit<LemonButtonProps, 'onClick'> &
-    Pick<LemonMenuProps, 'visible'> & {
+export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
+    newNotebookTitle?: string
+    onNotebookOpened?: (
+        notebookLogic: BuiltLogic<notebookLogicType>,
+        nodeLogic?: BuiltLogic<notebookNodeLogicType>
+    ) => void
+}
+
+export type NotebookSelectPopoverProps = NotebookSelectProps &
+    Partial<PopoverProps> & {
+        children?: ReactChild
+    }
+
+export type NotebookSelectButtonProps = NotebookSelectProps &
+    Omit<LemonButtonProps, 'onClick' | 'children'> & {
         newNotebookTitle?: string
         onNotebookOpened?: (
             notebookLogic: BuiltLogic<notebookLogicType>,
             nodeLogic?: BuiltLogic<notebookNodeLogicType>
         ) => void
         onClick?: () => void
+        children?: ReactChild
     }
 
 function NotebooksChoiceList(props: {
@@ -52,15 +65,17 @@ function NotebooksChoiceList(props: {
     )
 }
 
-export function NotebookSelectList(props: NotebookSelectButtonProps): JSX.Element {
+export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
+    const logic = notebookSelectButtonLogic({ ...props })
+
     const { resource, newNotebookTitle } = props
-    const { notebooksLoading, containingNotebooks, allNotebooks, searchQuery } = useValues(notebookSelectButtonLogic)
-    const { setShowPopover, setSearchQuery, loadContainingNotebooks } = useActions(notebookSelectButtonLogic)
+    const { notebooksLoading, containingNotebooks, allNotebooks, searchQuery } = useValues(logic)
+    const { setShowPopover, setSearchQuery, loadContainingNotebooks } = useActions(logic)
     const { createNotebook } = useActions(notebooksModel)
 
     const openAndAddToNotebook = async (notebookShortId: string, exists: boolean): Promise<void> => {
         await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
-            if (!exists) {
+            if (!exists && props.resource) {
                 theNotebookLogic.actions.insertAfterLastNode([props.resource])
             }
             props.onNotebookOpened?.(theNotebookLogic)
@@ -70,10 +85,12 @@ export function NotebookSelectList(props: NotebookSelectButtonProps): JSX.Elemen
     const openNewNotebook = (): void => {
         const title = newNotebookTitle ?? `Notes ${dayjs().format('DD/MM')}`
 
-        createNotebook(title, NotebookTarget.Popover, [resource], (theNotebookLogic) => {
-            props.onNotebookOpened?.(theNotebookLogic)
-            loadContainingNotebooks()
-        })
+        if (resource) {
+            createNotebook(title, NotebookTarget.Popover, [resource], (theNotebookLogic) => {
+                props.onNotebookOpened?.(theNotebookLogic)
+                loadContainingNotebooks()
+            })
+        }
 
         setShowPopover(false)
     }
@@ -157,71 +174,75 @@ export function NotebookSelectList(props: NotebookSelectButtonProps): JSX.Elemen
     )
 }
 
-function NotebookSelectButtonPopover({
+export function NotebookSelectPopover({
     // so we can pass props to the button below, without passing visible to it
     visible,
+    resource,
+    children,
     ...props
-}: NotebookSelectButtonProps): JSX.Element {
-    const { children } = props
-    const logic = notebookSelectButtonLogic({ ...props, visible })
-    const { showPopover, notebooksLoading, containingNotebooks } = useValues(logic)
+}: NotebookSelectPopoverProps): JSX.Element {
+    const logic = notebookSelectButtonLogic({ ...props, resource, visible })
+    const { showPopover } = useValues(logic)
     const { setShowPopover } = useActions(logic)
 
     return (
-        <IconWithCount count={containingNotebooks.length ?? 0} showZero={false}>
-            <Popover
-                visible={!!showPopover}
-                onClickOutside={() => {
-                    setShowPopover(false)
-                }}
-                actionable
-                overlay={
-                    <div className="max-w-160">
-                        <BindLogic logic={notebookSelectButtonLogic} props={props}>
-                            <NotebookSelectList {...props} />
-                        </BindLogic>
-                    </div>
-                }
-            >
-                <LemonButton
-                    icon={<IconJournalPlus />}
-                    sideIcon={null}
-                    {...props}
-                    active={showPopover}
-                    loading={notebooksLoading}
-                    onClick={() => {
-                        props.onClick?.()
-                        setShowPopover(!showPopover)
-                    }}
-                    data-attr={'notebooks-add-button'}
-                >
-                    {children ?? 'Add to notebook'}
-                </LemonButton>
-            </Popover>
-        </IconWithCount>
+        <Popover
+            visible={!!showPopover}
+            onClickOutside={() => setShowPopover(false)}
+            actionable
+            overlay={
+                <div className="max-w-160">
+                    <NotebookSelectList {...props} />
+                </div>
+            }
+            {...props}
+        >
+            <span onClick={() => setShowPopover(true)}>{children}</span>
+        </Popover>
     )
 }
 
-export function NotebookSelectButton({ ...props }: NotebookSelectButtonProps): JSX.Element {
+export function NotebookSelectButton({ children, ...props }: NotebookSelectButtonProps): JSX.Element {
     // if nodeLogic is available then the button is on a resource that _is already and currently in a notebook_
     const nodeLogic = useNotebookNode()
+    const logic = notebookSelectButtonLogic({ ...props })
+    const { showPopover, notebooksLoading, containingNotebooks } = useValues(logic)
+    const { loadContainingNotebooks } = useActions(logic)
+
+    useEffect(() => {
+        if (!nodeLogic) {
+            loadContainingNotebooks()
+        }
+    }, [nodeLogic])
+
+    const button = (
+        <LemonButton
+            icon={<IconJournalPlus />}
+            data-attr={nodeLogic ? 'notebooks-add-button-in-a-notebook' : 'notebooks-add-button'}
+            sideIcon={null}
+            {...props}
+            active={showPopover}
+            loading={notebooksLoading}
+            onClick={() => {
+                props.onClick?.()
+                if (nodeLogic) {
+                    // If we are in a Notebook then we just call the callback directly
+                    props.onNotebookOpened?.(nodeLogic.props.notebookLogic, nodeLogic)
+                }
+            }}
+        >
+            {children ?? 'Add to notebook'}
+        </LemonButton>
+    )
 
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
             {nodeLogic ? (
-                <LemonButton
-                    icon={<IconJournalPlus />}
-                    data-attr={'notebooks-add-button-in-a-notebook'}
-                    {...props}
-                    onClick={() => {
-                        props.onClick?.()
-                        props.onNotebookOpened?.(nodeLogic.props.notebookLogic, nodeLogic)
-                    }}
-                >
-                    {props.children ?? 'Add to notebook'}
-                </LemonButton>
+                button
             ) : (
-                <NotebookSelectButtonPopover {...props} />
+                <IconWithCount count={containingNotebooks.length ?? 0} showZero={false}>
+                    <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
+                </IconWithCount>
             )}
         </FlaggedFeature>
     )

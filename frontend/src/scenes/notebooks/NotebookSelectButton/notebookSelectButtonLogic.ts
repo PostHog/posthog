@@ -1,4 +1,4 @@
-import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { NotebookListItemType, NotebookNodeType } from '~/types'
 
@@ -7,7 +7,7 @@ import api from 'lib/api'
 import type { notebookSelectButtonLogicType } from './notebookSelectButtonLogicType'
 
 export interface NotebookSelectButtonLogicProps {
-    resource: {
+    resource?: {
         attrs: Record<string, any>
         type: NotebookNodeType
     }
@@ -18,7 +18,7 @@ export interface NotebookSelectButtonLogicProps {
 export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
     path((key) => ['scenes', 'session-recordings', 'NotebookSelectButton', 'multiNotebookSelectButtonLogic', key]),
     props({} as NotebookSelectButtonLogicProps),
-    key((props) => JSON.stringify(props.resource)),
+    key((props) => JSON.stringify(props.resource || 'load')),
     actions({
         setShowPopover: (visible: boolean) => ({ visible }),
         setSearchQuery: (query: string) => ({ query }),
@@ -45,6 +45,13 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             actions.loadAllNotebooks()
             actions.loadContainingNotebooks()
         },
+
+        setShowPopover: async ({ visible }) => {
+            if (visible) {
+                actions.loadAllNotebooks()
+                actions.loadContainingNotebooks()
+            }
+        },
     })),
     loaders(({ props, values }) => ({
         allNotebooks: [
@@ -64,7 +71,9 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                 loadContainingNotebooks: async (_, breakpoint) => {
                     breakpoint(100)
                     const response = await api.notebooks.list(
-                        [{ type: props.resource.type, attrs: { id: props.resource.attrs?.id } }],
+                        props.resource
+                            ? [{ type: props.resource.type, attrs: { id: props.resource.attrs?.id } }]
+                            : undefined,
                         undefined,
                         values.searchQuery ?? undefined
                     )
@@ -73,12 +82,6 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                 },
             },
         ],
-    })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadAllNotebooks()
-            actions.loadContainingNotebooks()
-        },
     })),
     selectors(() => ({
         notebooksLoading: [
