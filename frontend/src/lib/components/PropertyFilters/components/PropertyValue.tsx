@@ -205,6 +205,9 @@ export function PropertyValue({
                 setInput('')
                 setValue('')
             }}
+            onChange={(val) => {
+                setInput(toString(val))
+            }}
             onSelect={(val, option) => {
                 setInput(option.title)
                 setValue(toString(val))
