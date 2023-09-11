@@ -27,7 +27,6 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 export interface NewSurvey
     extends Pick<
         Survey,
-        | 'id'
         | 'name'
         | 'description'
         | 'type'
@@ -40,6 +39,7 @@ export interface NewSurvey
         | 'archived'
         | 'appearance'
     > {
+    id: 'new'
     linked_flag_id: number | undefined
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
@@ -51,6 +51,8 @@ export const defaultSurveyAppearance = {
     submitButtonText: 'Submit',
     descriptionTextColor: '#4b4b52',
     whiteLabel: false,
+    displayThankYouMessage: true,
+    thankYouMessageHeader: 'Thank you for your feedback!',
 }
 
 const NEW_SURVEY: NewSurvey = {
@@ -74,73 +76,6 @@ export const surveyEventName = 'survey sent'
 
 const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
-export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
-    const surveyDataQuery: DataTableNode = {
-        kind: NodeKind.DataTableNode,
-        source: {
-            kind: NodeKind.EventsQuery,
-            select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
-            orderBy: ['timestamp DESC'],
-            where: [`event == 'survey sent' or event == '${survey.name} survey sent'`],
-            after: survey.created_at,
-            properties: [
-                {
-                    type: PropertyFilterType.Event,
-                    key: '$survey_id',
-                    operator: PropertyOperator.Exact,
-                    value: survey.id,
-                },
-            ],
-        },
-        propertiesViaUrl: true,
-        showExport: true,
-        showReload: true,
-        showEventFilter: true,
-        showPropertyFilter: true,
-    }
-    return surveyDataQuery
-}
-
-export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries => {
-    const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
-    const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
-    return {
-        surveysShown: {
-            kind: NodeKind.DataTableNode,
-            source: { kind: NodeKind.HogQLQuery, query: surveysShownHogqlQuery },
-        },
-        surveysDismissed: {
-            kind: NodeKind.DataTableNode,
-            source: { kind: NodeKind.HogQLQuery, query: surveysDismissedHogqlQuery },
-        },
-    }
-}
-
-export const getSurveyDataVizQuery = (survey: Survey): InsightVizNode => {
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.TrendsQuery,
-            dateRange: {
-                date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
-                date_to: dayjs().format('YYYY-MM-DD'),
-            },
-            properties: [
-                {
-                    type: PropertyFilterType.Event,
-                    key: '$survey_id',
-                    operator: PropertyOperator.Exact,
-                    value: survey.id,
-                },
-            ],
-            series: [{ event: surveyEventName, kind: NodeKind.EventsNode }],
-            trendsFilter: { display: ChartDisplayType.ActionsBarValue },
-            breakdown: { breakdown: '$survey_response', breakdown_type: 'event' },
-        },
-        showTable: true,
-    }
-}
-
 export interface SurveyLogicProps {
     id: string | 'new'
 }
@@ -151,9 +86,9 @@ export interface SurveyMetricsQueries {
 }
 
 export const surveyLogic = kea<surveyLogicType>([
-    path(['scenes', 'surveys', 'surveyLogic']),
     props({} as SurveyLogicProps),
     key(({ id }) => id),
+    path((key) => ['scenes', 'surveys', 'surveyLogic', key]),
     connect(() => ({
         actions: [
             surveysLogic,
@@ -177,10 +112,6 @@ export const surveyLogic = kea<surveyLogicType>([
         stopSurvey: true,
         archiveSurvey: true,
         resumeSurvey: true,
-        setDataTableQuery: (query: DataTableNode) => ({ query }),
-        setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
-        setSurveyDataVizQuery: (surveyDataVizQuery: InsightVizNode) => ({ surveyDataVizQuery }),
-        setHasTargetingFlag: (hasTargetingFlag: boolean) => ({ hasTargetingFlag }),
     }),
     loaders(({ props, actions }) => ({
         survey: {
@@ -211,16 +142,6 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     listeners(({ actions }) => ({
-        loadSurveySuccess: ({ survey }) => {
-            if (survey.start_date && survey.id !== 'new') {
-                actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
-                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
-                actions.setSurveyDataVizQuery(getSurveyDataVizQuery(survey as Survey))
-            }
-            if (survey.targeting_flag) {
-                actions.setHasTargetingFlag(true)
-            }
-        },
         createSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
@@ -235,8 +156,6 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
-            actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
-            actions.setDataTableQuery(getSurveyDataQuery(survey))
             actions.loadSurveys()
             actions.reportSurveyLaunched(survey)
         },
@@ -257,30 +176,6 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
-            },
-        ],
-        dataTableQuery: [
-            null as DataTableNode | null,
-            {
-                setDataTableQuery: (_, { query }) => query,
-            },
-        ],
-        surveyMetricsQueries: [
-            null as SurveyMetricsQueries | null,
-            {
-                setSurveyMetricsQueries: (_, { surveyMetricsQueries }) => surveyMetricsQueries,
-            },
-        ],
-        surveyDataVizQuery: [
-            null as InsightVizNode | null,
-            {
-                setSurveyDataVizQuery: (_, { surveyDataVizQuery }) => surveyDataVizQuery,
-            },
-        ],
-        hasTargetingFlag: [
-            false,
-            {
-                setHasTargetingFlag: (_, { hasTargetingFlag }) => hasTargetingFlag,
             },
         ],
     }),
@@ -316,6 +211,117 @@ export const surveyLogic = kea<surveyLogicType>([
                     !pluginsLoading &&
                     !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
                 )
+            },
+        ],
+        dataTableQuery: [
+            (s) => [s.survey],
+            (survey): DataTableNode | null => {
+                if (survey.id === 'new') {
+                    return null
+                }
+                const createdAt = (survey as Survey).created_at
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
+                        orderBy: ['timestamp DESC'],
+                        where: [`event == 'survey sent' or event == '${survey.name} survey sent'`],
+                        after: createdAt,
+                        properties: [
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$survey_id',
+                                operator: PropertyOperator.Exact,
+                                value: survey.id,
+                            },
+                        ],
+                    },
+                    propertiesViaUrl: true,
+                    showExport: true,
+                    showReload: true,
+                    showEventFilter: true,
+                    showPropertyFilter: true,
+                    showTimings: false,
+                }
+            },
+        ],
+        surveyMetricsQueries: [
+            (s) => [s.survey],
+            (survey): SurveyMetricsQueries | null => {
+                const surveyId = survey.id
+                if (surveyId === 'new') {
+                    return null
+                }
+
+                const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
+                const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
+                return {
+                    surveysShown: {
+                        kind: NodeKind.DataTableNode,
+                        source: { kind: NodeKind.HogQLQuery, query: surveysShownHogqlQuery },
+                    },
+                    surveysDismissed: {
+                        kind: NodeKind.DataTableNode,
+                        source: { kind: NodeKind.HogQLQuery, query: surveysDismissedHogqlQuery },
+                    },
+                }
+            },
+        ],
+        surveyRatingQuery: [
+            (s) => [s.survey],
+            (survey): InsightVizNode | null => {
+                if (survey.id === 'new') {
+                    return null
+                }
+                const createdAt = (survey as Survey).created_at
+
+                return {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        dateRange: {
+                            date_from: dayjs(createdAt).format('YYYY-MM-DD'),
+                            date_to: dayjs().format('YYYY-MM-DD'),
+                        },
+                        properties: [
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$survey_id',
+                                operator: PropertyOperator.Exact,
+                                value: survey.id,
+                            },
+                        ],
+                        series: [{ event: surveyEventName, kind: NodeKind.EventsNode }],
+                        trendsFilter: { display: ChartDisplayType.ActionsBarValue },
+                        breakdown: { breakdown: '$survey_response', breakdown_type: 'event' },
+                    },
+                    showTable: true,
+                }
+            },
+        ],
+        surveyMultipleChoiceQuery: [
+            (s) => [s.survey],
+            (survey): DataTableNode | null => {
+                const singleChoiceQuery = `select count(), properties.$survey_response as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`
+                const multipleChoiceQuery = `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query:
+                            survey.questions[0].type === SurveyQuestionType.SingleChoice
+                                ? singleChoiceQuery
+                                : multipleChoiceQuery,
+                    },
+                }
+            },
+        ],
+        hasTargetingFlag: [
+            (s) => [s.survey],
+            (survey): boolean => {
+                return !!survey.targeting_flag || !!(survey.id === 'new' && survey.targeting_flag_filters)
             },
         ],
     }),

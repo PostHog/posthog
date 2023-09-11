@@ -17,16 +17,13 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
-import { notebookLogic } from '../Notebook/notebookLogic'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const { experiment, experimentLoading, isExperimentRunning } = useValues(experimentLogic({ experimentId: id }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
-
-    const { nextNode } = useValues(notebookLogic)
 
     // experiment progress details
     const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })

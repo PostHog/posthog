@@ -1,3 +1,4 @@
+import { buildIntegerMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import {
     eachBatchParallelIngestion,
@@ -192,6 +193,41 @@ describe('eachBatchX', () => {
                 'kafka_queue.each_batch_async_handlers_on_event',
                 expect.any(Date)
             )
+        })
+        it('parses elements when useful', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
+                { ...pluginConfig39, plugin_id: 60 },
+                { ...pluginConfig39, plugin_id: 33 },
+            ])
+            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
+            await eachBatchAppsOnEventHandlers(
+                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
+                queue
+            )
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                elementsList: [{ attributes: {}, order: 0, tag_name: 'random' }],
+                properties: {
+                    $ip: '127.0.0.1',
+                },
+            })
+        })
+        it('skips elements parsing when not useful', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
+                { ...pluginConfig39, plugin_id: 60 },
+                { ...pluginConfig39, plugin_id: 100 },
+            ])
+            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
+            await eachBatchAppsOnEventHandlers(
+                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
+                queue
+            )
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                properties: {
+                    $ip: '127.0.0.1',
+                },
+            })
         })
     })
 

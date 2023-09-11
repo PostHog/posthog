@@ -29,6 +29,7 @@ export const startBatchConsumer = async ({
     consumerErrorBackoffMs,
     fetchBatchSize,
     batchingTimeoutMs,
+    topicCreationTimeoutMs,
     eachBatch,
     autoCommit = true,
     queuedMinMessages = 100000,
@@ -43,6 +44,7 @@ export const startBatchConsumer = async ({
     consumerErrorBackoffMs: number
     fetchBatchSize: number
     batchingTimeoutMs: number
+    topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     autoCommit?: boolean
     queuedMinMessages?: number
@@ -130,7 +132,7 @@ export const startBatchConsumer = async ({
     // on consuming, possibly similar to
     // https://github.com/confluentinc/confluent-kafka-dotnet/issues/1366.
     const adminClient = createAdminClient(connectionConfig)
-    await ensureTopicExists(adminClient, topic)
+    await ensureTopicExists(adminClient, topic, topicCreationTimeoutMs)
     adminClient.disconnect()
 
     // The consumer has an internal pre-fetching queue that sequentially pools

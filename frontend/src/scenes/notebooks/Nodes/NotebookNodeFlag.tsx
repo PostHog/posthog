@@ -13,12 +13,11 @@ import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import api from 'lib/api'
-import { notebookLogic } from '../Notebook/notebookLogic'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
 import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const {
         featureFlag,
         featureFlagLoading,
@@ -27,10 +26,8 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
         newEarlyAccessFeatureLoading,
     } = useValues(featureFlagLogic({ id }))
     const { createEarlyAccessFeature } = useActions(featureFlagLogic({ id }))
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
-
-    const { nextNode } = useValues(notebookLogic)
 
     const { shouldDisableInsertEarlyAccessFeature } = useValues(notebookNodeFlagLogic({ id, insertAfter }))
 
