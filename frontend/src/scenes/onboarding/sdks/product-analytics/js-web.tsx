@@ -36,9 +36,8 @@ function JSEventSnippet(): JSX.Element {
 export function JSWebInstructions(): JSX.Element {
     return (
         <>
-            <h1>Connect your web app or product</h1>
             <div className="flex items-center">
-                <h2>Option 1. Code snippet</h2>
+                <h3>Option 1. Code snippet</h3>
                 <div
                     style={{
                         marginLeft: 10,
@@ -67,11 +66,11 @@ export function JSWebInstructions(): JSX.Element {
                 </Link>
                 .
             </p>
-            <h3>Install the snippet</h3>
+            <h4>Install the snippet</h4>
             <p>
                 Insert this snippet in your website within the <code>&lt;head&gt;</code> tag. <JSSnippet />
             </p>
-            <h3>Send events </h3>
+            <h4>Send events </h4>
             <p>Visit your site and click around to generate some initial events.</p>
             <LemonDivider thick dashed className="my-4" />
             <div className="flex items-center">
@@ -88,17 +87,17 @@ export function JSWebInstructions(): JSX.Element {
                 </Link>
                 .
             </p>
-            <h3>Install the package</h3>
+            <h4>Install the package</h4>
             <JSInstallSnippet />
-            <h3>
+            <h4>
                 Configure &amp; initialize (see more{' '}
                 <Link to="https://posthog.com/docs/integrations/js-integration#config" target="_blank">
                     configuration options
                 </Link>
                 )
-            </h3>
+            </h4>
             <JSSetupSnippet />
-            <h3>Send your first event</h3>
+            <h4>Send your first event</h4>
             <JSEventSnippet />
         </>
     )

@@ -68,9 +68,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 </LemonButton>
                                                 <LemonDivider />
                                             </>
-                                            <LemonButton onClick={() => archiveSurvey()} fullWidth>
-                                                Archive
-                                            </LemonButton>
+                                            {survey.end_date && !survey.archived && (
+                                                <LemonButton onClick={() => archiveSurvey()} fullWidth>
+                                                    Archive
+                                                </LemonButton>
+                                            )}
                                             <LemonButton status="danger" fullWidth onClick={() => deleteSurvey(id)}>
                                                 Delete survey
                                             </LemonButton>
@@ -150,15 +152,27 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                               {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
                                                   survey.questions[0].type === SurveyQuestionType.MultipleChoice) && (
                                                   <div className="mb-4">
-                                                      <Query
-                                                          query={{
-                                                              kind: NodeKind.DataTableNode,
-                                                              source: {
-                                                                  kind: NodeKind.HogQLQuery,
-                                                                  query: `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`,
-                                                              },
-                                                          }}
-                                                      />
+                                                      {survey.questions[0].type === SurveyQuestionType.SingleChoice ? (
+                                                          <Query
+                                                              query={{
+                                                                  kind: NodeKind.DataTableNode,
+                                                                  source: {
+                                                                      kind: NodeKind.HogQLQuery,
+                                                                      query: `select count(), properties.$survey_response as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`,
+                                                                  },
+                                                              }}
+                                                          />
+                                                      ) : (
+                                                          <Query
+                                                              query={{
+                                                                  kind: NodeKind.DataTableNode,
+                                                                  source: {
+                                                                      kind: NodeKind.HogQLQuery,
+                                                                      query: `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`,
+                                                                  },
+                                                              }}
+                                                          />
+                                                      )}
                                                   </div>
                                               )}
                                               {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}

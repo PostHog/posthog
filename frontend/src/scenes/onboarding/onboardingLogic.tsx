@@ -21,6 +21,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
         setProductKey: (productKey: string | null) => ({ productKey }),
         setOnboardingStep: (onboardingStep: number) => ({ onboardingStep }),
         incrementOnboardingStep: true,
+        decrementOnboardingStep: true,
         setTotalOnboardingSteps: (totalOnboardingSteps: number) => ({ totalOnboardingSteps }),
         completeOnboarding: true,
     },
@@ -42,6 +43,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
             {
                 setOnboardingStep: (_, { onboardingStep }) => onboardingStep,
                 incrementOnboardingStep: (state) => state + 1,
+                decrementOnboardingStep: (state) => state - 1,
             },
         ],
         totalOnboardingSteps: [

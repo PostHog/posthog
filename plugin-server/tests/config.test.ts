@@ -1,4 +1,4 @@
-import { getDefaultConfig, overrideWithEnv } from '../src/config/config'
+import { buildIntegerMatcher, getDefaultConfig, overrideWithEnv } from '../src/config/config'
 
 describe('config', () => {
     test('overrideWithEnv 1', () => {
@@ -62,5 +62,32 @@ describe('config', () => {
             const config = overrideWithEnv(getDefaultConfig(), env)
             expect(config.DATABASE_URL).toEqual('my_db_url')
         })
+    })
+})
+
+describe('buildIntegerMatcher', () => {
+    test('empty input', () => {
+        const matcher = buildIntegerMatcher('', false)
+        expect(matcher(2)).toBe(false)
+    })
+    test('ignores star star when not allowed', () => {
+        const matcher = buildIntegerMatcher('*', false)
+        expect(matcher(2)).toBe(false)
+    })
+    test('matches star when allowed', () => {
+        const matcher = buildIntegerMatcher('*', true)
+        expect(matcher(2)).toBe(true)
+    })
+    test('can match on a single value', () => {
+        const matcher = buildIntegerMatcher('2', true)
+        expect(matcher(2)).toBe(true)
+        expect(matcher(3)).toBe(false)
+    })
+    test('can match on several values', () => {
+        const matcher = buildIntegerMatcher('2,3,4', true)
+        expect(matcher(2)).toBe(true)
+        expect(matcher(3)).toBe(true)
+        expect(matcher(4)).toBe(true)
+        expect(matcher(5)).toBe(false)
     })
 })

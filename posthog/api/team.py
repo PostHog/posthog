@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from posthog.api.geoip import get_geoip_properties
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
@@ -28,6 +29,7 @@ from posthog.permissions import (
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
+from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -200,6 +202,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
+
+        if "week_start_day" not in validated_data:
+            country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
+            if country_code:
+                week_start_day_for_user_ip_location = get_week_start_for_country_code(country_code)
+                # get_week_start_for_country_code() also returns 6 for countries where the week starts on Saturday,
+                # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
+                validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
+
         if validated_data.get("is_demo", False):
             team = Team.objects.create(**validated_data, organization=organization)
             cache_key = f"is_generating_demo_data_{team.pk}"
@@ -207,6 +218,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             create_data_for_demo_team.delay(team.pk, request.user.pk, cache_key)
         else:
             team = Team.objects.create_with_data(**validated_data, organization=organization)
+
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()

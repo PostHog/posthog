@@ -112,7 +112,7 @@
     .NotebookSidebar {
         position: relative;
         width: 0px;
-        margin-top: 3.5rem; // Account for title
+        margin-top: 3.6rem; // Account for title
         transition: width var(--notebook-popover-transition-properties);
 
         .NotebookSidebar__content {
