@@ -13,6 +13,9 @@ const meta: Meta<typeof Lettermark> = {
                     'Lettermarks are used as visual, icon-like representations of actors (project members, organizations, query steps, cohort criteria groups, etc) in the product. Lettermarks should vary between the 8 variants we have shown below. Ideally the same colour is not placed next to each other',
             },
         },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
     },
     tags: ['autodocs'],
 }

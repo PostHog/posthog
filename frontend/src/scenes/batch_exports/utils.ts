@@ -24,5 +24,9 @@ export function humanizeDestination(destination: BatchExportDestination): string
         return `postgresql://${destination.config.user}:***@${destination.config.host}:${destination.config.port}/${destination.config.database}`
     }
 
+    if (destination.type === 'BigQuery') {
+        return `bigquery:${destination.config.project_id}:${destination.config.dataset_id}:${destination.config.table_id}`
+    }
+
     return 'Unknown'
 }

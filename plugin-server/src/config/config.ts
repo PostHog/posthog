@@ -126,6 +126,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
 
+        STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
+        STARTUP_PROFILE_CPU: false,
+        STARTUP_PROFILE_HEAP: false,
+        STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
+        STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
+
         SESSION_RECORDING_KAFKA_HOSTS: undefined,
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
         SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,
