@@ -14,7 +14,7 @@ import { notebookLogic } from './notebookLogic'
 import { urls } from 'scenes/urls'
 
 export function NotebookPopover(): JSX.Element {
-    const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, dropProperties } =
+    const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, dropProperties, dropMode } =
         useValues(notebookPopoverLogic)
     const { setVisibility, setFullScreen, selectNotebook, setElementRef } = useActions(notebookPopoverLogic)
     const { createNotebook } = useActions(notebooksModel)
@@ -66,59 +66,67 @@ export function NotebookPopover(): JSX.Element {
                 onClick={visibility !== 'visible' ? () => setVisibility('visible') : undefined}
                 {...dropProperties}
             >
-                <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
-                    <span className="flex items-center gap-1 text-primary-alt">
-                        <NotebookListMini
-                            selectedNotebookId={selectedNotebook}
-                            onSelectNotebook={(notebook) => selectNotebook(notebook.short_id)}
-                            onNewNotebook={() => createNotebook()}
-                        />
-                    </span>
-                    <span className="flex items-center gap-1 px-1">
-                        {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
+                {dropMode ? (
+                    <div className="NotebookPopover__content__dropper">
+                        <p>Wat</p>
+                    </div>
+                ) : null}
 
-                        <LemonButton
-                            size="small"
-                            to={urls.notebook(selectedNotebook)}
-                            onClick={() => setVisibility('hidden')}
-                            status="primary-alt"
-                            icon={<IconLink />}
-                            tooltip="Go to Notebook"
-                            tooltipPlacement="left"
-                        />
+                <div className="NotebookPopover__content__card">
+                    <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
+                        <span className="flex items-center gap-1 text-primary-alt">
+                            <NotebookListMini
+                                selectedNotebookId={selectedNotebook}
+                                onSelectNotebook={(notebook) => selectNotebook(notebook.short_id)}
+                                onNewNotebook={() => createNotebook()}
+                            />
+                        </span>
+                        <span className="flex items-center gap-1 px-1">
+                            {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
-                        <NotebookExpandButton status="primary-alt" size="small" />
+                            <LemonButton
+                                size="small"
+                                to={urls.notebook(selectedNotebook)}
+                                onClick={() => setVisibility('hidden')}
+                                status="primary-alt"
+                                icon={<IconLink />}
+                                tooltip="Go to Notebook"
+                                tooltipPlacement="left"
+                            />
 
-                        <LemonButton
-                            size="small"
-                            onClick={() => setFullScreen(!fullScreen)}
-                            status="primary-alt"
-                            active={fullScreen}
-                            icon={<IconFullScreen />}
-                            tooltip="Toggle full screen"
-                            tooltipPlacement="left"
-                        />
+                            <NotebookExpandButton status="primary-alt" size="small" />
 
-                        <LemonButton
-                            size="small"
-                            onClick={() => setVisibility('hidden')}
-                            status="primary-alt"
-                            icon={<IconChevronRight />}
-                            tooltip="Hide Notebook Sidebar"
-                            tooltipPlacement="left"
-                        />
-                    </span>
-                </header>
+                            <LemonButton
+                                size="small"
+                                onClick={() => setFullScreen(!fullScreen)}
+                                status="primary-alt"
+                                active={fullScreen}
+                                icon={<IconFullScreen />}
+                                tooltip="Toggle full screen"
+                                tooltipPlacement="left"
+                            />
 
-                <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">
-                    {shownAtLeastOnce && (
-                        <Notebook
-                            key={selectedNotebook}
-                            shortId={selectedNotebook}
-                            editable={isEditable}
-                            initialAutofocus={initialAutofocus}
-                        />
-                    )}
+                            <LemonButton
+                                size="small"
+                                onClick={() => setVisibility('hidden')}
+                                status="primary-alt"
+                                icon={<IconChevronRight />}
+                                tooltip="Hide Notebook Sidebar"
+                                tooltipPlacement="left"
+                            />
+                        </span>
+                    </header>
+
+                    <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">
+                        {shownAtLeastOnce && (
+                            <Notebook
+                                key={selectedNotebook}
+                                shortId={selectedNotebook}
+                                editable={isEditable}
+                                initialAutofocus={initialAutofocus}
+                            />
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
