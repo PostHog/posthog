@@ -336,7 +336,8 @@
       console_log_count Int64,
       console_warn_count Int64,
       console_error_count Int64,
-      size Int64
+      size Int64,
+      event_count Int64
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -922,7 +923,8 @@
       console_log_count Int64,
       console_warn_count Int64,
       console_error_count Int64,
-      size Int64
+      size Int64,
+      event_count Int64
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -1345,8 +1347,12 @@
       console_error_count SimpleAggregateFunction(sum, Int64),
       -- this column allows us to estimate the amount of data that is being ingested
       size SimpleAggregateFunction(sum, Int64),
-      -- this allows us to count the number of events in a session
+      -- this allows us to count the number of messages received in a session
       -- often very useful in incidents or debugging
+      message_count SimpleAggregateFunction(sum, Int64)
+      -- this allows us to count the number of snapshot events received in a session
+      -- often very useful in incidents or debugging
+      -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
@@ -1381,9 +1387,9 @@
   sum(console_warn_count) as console_warn_count,
   sum(console_error_count) as console_error_count,
   sum(size) as size,
-  -- we can count the number of kafka messages
-  -- as a proxy for the number of events
-  count(*) as event_count
+  -- we can count the number of kafka messages instead of sending it explicitly
+  count(*) as message_count,
+  sum(event_count) as event_count
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -1615,8 +1621,12 @@
       console_error_count SimpleAggregateFunction(sum, Int64),
       -- this column allows us to estimate the amount of data that is being ingested
       size SimpleAggregateFunction(sum, Int64),
-      -- this allows us to count the number of events in a session
+      -- this allows us to count the number of messages received in a session
       -- often very useful in incidents or debugging
+      message_count SimpleAggregateFunction(sum, Int64)
+      -- this allows us to count the number of snapshot events received in a session
+      -- often very useful in incidents or debugging
+      -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
@@ -2236,8 +2246,12 @@
       console_error_count SimpleAggregateFunction(sum, Int64),
       -- this column allows us to estimate the amount of data that is being ingested
       size SimpleAggregateFunction(sum, Int64),
-      -- this allows us to count the number of events in a session
+      -- this allows us to count the number of messages received in a session
       -- often very useful in incidents or debugging
+      message_count SimpleAggregateFunction(sum, Int64)
+      -- this allows us to count the number of snapshot events received in a session
+      -- often very useful in incidents or debugging
+      -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
