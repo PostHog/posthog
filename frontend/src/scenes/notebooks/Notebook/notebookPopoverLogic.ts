@@ -110,6 +110,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     listeners(({ cache, actions, values }) => ({
         startDropMode: () => {
             cache.dragEntercount = 0
+
             actions.setVisibility('peek')
         },
         endDropMode: () => {
