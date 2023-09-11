@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     name: build and publish capture image
-    runs-on: ubuntu-latest
+    runs-on: buildjet-8vcpu-ubuntu-2204-arm
     steps:
 
       - name: Check Out Repo
