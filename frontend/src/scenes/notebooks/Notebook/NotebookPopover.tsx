@@ -45,7 +45,7 @@ export function NotebookPopover(): JSX.Element {
         }
     }, [ref.current])
 
-    const isEditable = visibility !== 'hidden' && !notebook?.is_template
+    const editable = visibility !== 'hidden' && !notebook?.is_template
 
     return (
         <div
@@ -115,7 +115,7 @@ export function NotebookPopover(): JSX.Element {
                         <Notebook
                             key={selectedNotebook}
                             shortId={selectedNotebook}
-                            editable={isEditable}
+                            editable={editable}
                             initialAutofocus={initialAutofocus}
                         />
                     )}
