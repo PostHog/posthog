@@ -3,8 +3,8 @@ import threading
 from datetime import datetime, timedelta
 from itertools import accumulate
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+from zoneinfo import ZoneInfo
 
-import pytz
 from dateutil import parser
 from django.db.models.query import Prefetch
 from sentry_sdk import push_scope
@@ -79,7 +79,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             latest_date = cached_result[0]["days"][len(cached_result[0]["days"]) - 1]
 
             parsed_latest_date = parser.parse(latest_date)
-            parsed_latest_date = parsed_latest_date.replace(tzinfo=pytz.timezone(team.timezone))
+            parsed_latest_date = parsed_latest_date.replace(tzinfo=ZoneInfo(team.timezone))
             _is_present = is_filter_date_present(filter, parsed_latest_date)
         else:
             _is_present = False
