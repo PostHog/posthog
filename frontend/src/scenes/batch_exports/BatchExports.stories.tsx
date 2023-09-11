@@ -32,6 +32,8 @@ export default {
                             prefix: 'my-prefix',
                             aws_access_key_id: 'my-access-key-id',
                             aws_secret_access_key: '',
+                            compression: null,
+                            exclude_events: [],
                         },
                     },
                     start_at: null,

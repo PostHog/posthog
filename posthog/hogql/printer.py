@@ -70,12 +70,16 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> ast.Expr:
-    context.database = context.database or create_hogql_database(context.team_id)
+    with context.timings.measure("create_hogql_database"):
+        context.database = context.database or create_hogql_database(context.team_id)
 
-    node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
+    with context.timings.measure("resolve_types"):
+        node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
-        node = resolve_property_types(node, context)
-        resolve_lazy_tables(node, stack, context)
+        with context.timings.measure("resolve_property_types"):
+            node = resolve_property_types(node, context)
+        with context.timings.measure("resolve_lazy_tables"):
+            resolve_lazy_tables(node, stack, context)
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
 
@@ -87,8 +91,9 @@ def print_prepared_ast(
     stack: Optional[List[ast.SelectQuery]] = None,
     settings: Optional[HogQLSettings] = None,
 ) -> str:
-    # _Printer also adds a team_id guard if printing clickhouse
-    return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
+    with context.timings.measure("printer"):
+        # _Printer also adds a team_id guard if printing clickhouse
+        return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
 
 
 @dataclass

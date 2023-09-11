@@ -1,5 +1,5 @@
 import datetime as dt
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
 from asgiref.sync import async_to_sync
@@ -50,6 +50,8 @@ class S3BatchExportInputs:
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     data_interval_end: str | None = None
+    compression: str | None = None
+    exclude_events: list[str] | None = None
 
 
 @dataclass
@@ -88,10 +90,29 @@ class PostgresBatchExportInputs:
     data_interval_end: str | None = None
 
 
+@dataclass
+class BigQueryBatchExportInputs:
+    """Inputs for BigQuery export workflow."""
+
+    batch_export_id: str
+    team_id: int
+    project_id: str
+    dataset_id: str
+    private_key: str
+    private_key_id: str
+    token_uri: str
+    client_email: str
+    interval: str = "hour"
+    table_id: str = "events"
+    data_interval_end: str | None = None
+    exclude_events: list[str] | None = None
+
+
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
+    "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
 }
 
 
@@ -277,6 +298,9 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         paused=batch_export.paused,
     )
 
+    destination_config_fields = set(field.name for field in fields(workflow_inputs))
+    destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
+
     temporal = sync_connect()
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -286,7 +310,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     team_id=batch_export.team.id,
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
-                    **batch_export.destination.config,
+                    **destination_config,
                 )
             ),
             id=str(batch_export.id),

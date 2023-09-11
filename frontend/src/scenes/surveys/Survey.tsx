@@ -60,7 +60,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, setHasTargetingFlag } = useActions(surveyLogic)
+    const { loadSurvey, editingSurvey, setSurveyValue } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
@@ -102,7 +102,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <LemonInput data-attr="survey-name" />
                     </Field>
                     <Field name="description" label="Description (optional)">
-                        <LemonTextArea data-attr="survey-description" />
+                        <LemonTextArea data-attr="survey-description" minRows={2} />
                     </Field>
                     <Field name="type" label="Display mode" className="w-max">
                         <LemonSelect
@@ -147,7 +147,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     </Field>
                                 )}
                                 <Field name="description" label="Question description (optional)">
-                                    <LemonTextArea value={question.description || ''} />
+                                    <LemonTextArea value={question.description || ''} minRows={2} />
                                 </Field>
                                 {question.type === SurveyQuestionType.Rating && (
                                     <div className="flex flex-col gap-2">
@@ -248,6 +248,39 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             </Group>
                         )
                     )}
+                    <LemonDivider />
+                    <Field name="appearance" label="Thank you message (optional)">
+                        {({ value, onChange }) => (
+                            <>
+                                <LemonCheckbox
+                                    label="Display thank you message"
+                                    checked={value.displayThankYouMessage}
+                                    onChange={(checked) => onChange({ ...value, displayThankYouMessage: checked })}
+                                />
+                                {value.displayThankYouMessage && (
+                                    <>
+                                        <PureField label="Thank you header">
+                                            <LemonInput
+                                                value={value.thankYouMessageHeader}
+                                                onChange={(val) => onChange({ ...value, thankYouMessageHeader: val })}
+                                                placeholder="ex: Thank you for your feedback!"
+                                            />
+                                        </PureField>
+                                        <PureField label="Thank you description">
+                                            <LemonTextArea
+                                                value={value.thankYouMessageDescription}
+                                                onChange={(val) =>
+                                                    onChange({ ...value, thankYouMessageDescription: val })
+                                                }
+                                                minRows={2}
+                                                placeholder="ex: We really appreciate it."
+                                            />
+                                        </PureField>
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </Field>
                     <LemonDivider className="my-2" />
                     <PureField label="Targeting (optional)">
                         <span className="text-muted">
@@ -341,7 +374,9 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         type="secondary"
                                         className="w-max"
-                                        onClick={() => setHasTargetingFlag(true)}
+                                        onClick={() => {
+                                            setSurveyValue('targeting_flag_filters', { groups: [] })
+                                        }}
                                     >
                                         Add user targeting
                                     </LemonButton>
@@ -356,7 +391,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                 type="secondary"
                                                 status="danger"
                                                 className="w-max"
-                                                onClick={() => setHasTargetingFlag(false)}
+                                                onClick={() => {
+                                                    setSurveyValue('targeting_flag_filters', undefined)
+                                                    setSurveyValue('targeting_flag', null)
+                                                }}
                                             >
                                                 Remove all user properties
                                             </LemonButton>
@@ -432,7 +470,7 @@ export function SurveyReleaseSummary({
 }): JSX.Element {
     return (
         <div className="flex flex-col mt-2 gap-2">
-            <div className="font-semibold">Release conditions</div>
+            <div className="font-semibold">Release conditions summary</div>
             <span className="text-muted">
                 By default surveys will be released to everyone unless targeting options are set.
             </span>
