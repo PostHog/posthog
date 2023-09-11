@@ -1,5 +1,6 @@
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { commonOrganizationId } from '../../helpers/plugins'
@@ -31,7 +32,12 @@ describe('OrganizationManager()', () => {
             expect(organization!.name).toEqual('TEST ORG')
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
-            await hub.db.postgresQuery("UPDATE posthog_organization SET name = 'Updated Name!'", undefined, 'testTag')
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                "UPDATE posthog_organization SET name = 'Updated Name!'",
+                undefined,
+                'testTag'
+            )
 
             jest.mocked(hub.postgres.query).mockClear()
 
@@ -55,8 +61,10 @@ describe('OrganizationManager()', () => {
 
     describe('hasAvailableFeature()', () => {
         beforeEach(async () => {
-            await hub.db.postgresQuery(
-                `UPDATE posthog_organization SET available_features = array['some_feature']`,
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_organization
+                 SET available_features = array ['some_feature']`,
                 undefined,
                 ''
             )

@@ -9,12 +9,10 @@ import {
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
-import { NotebookNodeType, NotebookNodeWidgetSettings } from '~/types'
+import { NotebookNodeType } from '~/types'
 
-/* eslint-disable @typescript-eslint/no-empty-interface */
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
-/* eslint-enable @typescript-eslint/no-empty-interface */
 
 export {
     ChainedCommands as EditorCommands,
@@ -22,15 +20,24 @@ export {
     FocusPosition as EditorFocusPosition,
 } from '@tiptap/core'
 
-export type NotebookNodeAttributes = Record<string, any>
-type NotebookNode<T extends NotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
-    attrs: T & {
-        nodeId: string
-        height?: string | number
-    }
+export type CustomNotebookNodeAttributes = Record<string, any>
+
+export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
+    nodeId: string
+    title: string | ((attributes: T) => Promise<string>)
+    height?: string | number
 }
 
-export type NotebookNodeViewProps<T extends NotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
+type NotebookNode<T extends CustomNotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
+    attrs: NotebookNodeAttributes<T>
+}
+
+export type NotebookNodeWidgetSettings<T extends CustomNotebookNodeAttributes> = {
+    attributes: NotebookNodeAttributes<T>
+    updateAttributes: (attributes: Partial<T>) => void
+}
+
+export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
     node: NotebookNode<T>
 }
 
@@ -38,12 +45,14 @@ export type NotebookNodeWidget = {
     key: string
     label: string
     icon: JSX.Element
-    Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings) => JSX.Element
+    // using 'any' here shouldn't be necessary but I couldn't figure out how to set a generic on the notebookNodeLogic props
+    Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings<any>) => JSX.Element
 }
 
 export interface NotebookEditor {
     getJSON: () => JSONContent
     getSelectedNode: () => Node | null
+    getAdjacentNodes: (pos: number) => { previous: Node | null; next: Node | null }
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     setSelection: (position: number) => void

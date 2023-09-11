@@ -92,7 +92,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
                     : nameSortedDashboards,
         ],
         currentDashboards: [
-            (s) => [s.filteredDashboards, (_, props) => props.insight],
+            (s, p) => [s.filteredDashboards, p.insight],
             (filteredDashboards, insight: InsightModel): DashboardBasicType[] =>
                 filteredDashboards.filter((d) => insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)),
         ],

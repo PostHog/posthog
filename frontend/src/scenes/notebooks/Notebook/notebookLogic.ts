@@ -28,6 +28,7 @@ import {
     buildTimestampCommentContent,
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
+import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
 
 const SYNC_DELAY = 1000
 
@@ -59,10 +60,10 @@ export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
-    connect({
+    connect(() => ({
         values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [notebooksModel, ['receiveNotebookUpdate']],
-    }),
+    })),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
         editorIsReady: true,
@@ -75,6 +76,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         exportJSON: true,
         showConflictWarning: true,
+        onUpdateEditor: true,
         registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
@@ -101,7 +103,7 @@ export const notebookLogic = kea<notebookLogicType>([
     reducers({
         localContent: [
             null as JSONContent | null,
-            { persist: true },
+            { persist: true, prefix: NOTEBOOKS_VERSION },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
@@ -135,18 +137,25 @@ export const notebookLogic = kea<notebookLogicType>([
         nodeLogics: [
             {} as Record<string, BuiltLogic<notebookNodeLogicType>>,
             {
-                registerNodeLogic: (state, { nodeLogic }) => ({
-                    ...state,
-                    [nodeLogic.props.nodeId]: nodeLogic,
-                }),
+                registerNodeLogic: (state, { nodeLogic }) => {
+                    if (nodeLogic.props.nodeId === null) {
+                        return state
+                    } else {
+                        return {
+                            ...state,
+                            [nodeLogic.props.nodeId]: nodeLogic,
+                        }
+                    }
+                },
                 unregisterNodeLogic: (state, { nodeLogic }) => {
                     const newState = { ...state }
-                    delete newState[nodeLogic.props.nodeId]
+                    if (nodeLogic.props.nodeId !== null) {
+                        delete newState[nodeLogic.props.nodeId]
+                    }
                     return newState
                 },
             },
         ],
-
         isEditable: [
             false,
             {
@@ -159,7 +168,6 @@ export const notebookLogic = kea<notebookLogicType>([
             null as NotebookType | null,
             {
                 loadNotebook: async () => {
-                    // NOTE: This is all hacky and temporary until we have a backend
                     let response: NotebookType | null
 
                     if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
@@ -179,12 +187,14 @@ export const notebookLogic = kea<notebookLogicType>([
                         throw new Error('Notebook not found')
                     }
 
+                    const notebook = migrate(response)
+
                     if (!values.notebook) {
                         // If this is the first load we need to override the content fully
-                        values.editor?.setContent(response.content)
+                        values.editor?.setContent(notebook.content)
                     }
 
-                    return response
+                    return notebook
                 },
 
                 saveNotebook: async ({ notebook }) => {
@@ -319,9 +329,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         isShowingSidebar: [
             (s) => [s.selectedNodeLogic],
-            (selectedNodeLogic) => {
-                return !!selectedNodeLogic?.values.widgets.length
-            },
+            (selectedNodeLogic) => selectedNodeLogic?.values.isShowingWidgets,
         ],
     }),
     sharedListeners(({ values, actions }) => ({
@@ -410,6 +418,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             const jsonContent = values.editor.getJSON()
             actions.setLocalContent(jsonContent)
+            actions.onUpdateEditor()
         },
 
         setEditable: ({ editable }) => {
@@ -435,11 +444,15 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         onEditorSelectionUpdate: () => {
-            const node = values.editor?.getSelectedNode()
-            actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
+            if (values.editor) {
+                const node = values.editor.getSelectedNode()
+                actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
 
-            if (node?.attrs.nodeId) {
-                actions.scrollToSelection()
+                if (node?.attrs.nodeId) {
+                    actions.scrollToSelection()
+                }
+
+                actions.onUpdateEditor()
             }
         },
         scrollToSelection: () => {

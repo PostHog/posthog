@@ -15,7 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode } from '~/queries/schema'
+import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode, QueryTiming } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
@@ -28,6 +28,7 @@ import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/in
 import { teamLogic } from 'scenes/teamLogic'
 import equal from 'fast-deep-equal'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
+import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
 
 export interface DataNodeLogicProps {
     key: string
@@ -39,6 +40,14 @@ export interface DataNodeLogicProps {
 }
 
 const AUTOLOAD_INTERVAL = 30000
+
+const queryEqual = (a: DataNode, b: DataNode): boolean => {
+    if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
+        return compareInsightQuery(a, b, true)
+    } else {
+        return objectsEqual(a, b)
+    }
+}
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
@@ -54,7 +63,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!objectsEqual(props.query, oldProps.query)) {
+        if (!queryEqual(props.query, oldProps.query)) {
             if (!props.cachedResults || (isInsightQueryNode(props.query) && !props.cachedResults['result'])) {
                 actions.loadData()
             } else {
@@ -418,6 +427,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
 
                 return disabledReason
+            },
+        ],
+        timings: [
+            (s) => [s.response],
+            (response): QueryTiming[] | null => {
+                return response && 'timings' in response ? response.timings : null
             },
         ],
     }),

@@ -1270,7 +1270,8 @@ def retention_test_factory(retention):
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
             )
 
-            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.timezone("US/Pacific")))
+            self.assertEqual(result_pacific[0]["date"], pytz.timezone("US/Pacific").localize(datetime(2020, 6, 10)))
+            self.assertEqual(result_pacific[0]["date"].isoformat(), "2020-06-10T00:00:00-07:00")
 
             self.assertEqual(
                 pluck(result, "values", "count"),

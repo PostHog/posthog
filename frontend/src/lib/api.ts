@@ -44,6 +44,7 @@ import {
     Survey,
     TeamType,
     UserType,
+    DataWarehouseViewLink,
     BatchExportConfiguration,
     BatchExportRun,
     NotebookNodeType,
@@ -414,11 +415,11 @@ class ApiRequest {
     }
 
     // # Feature flags
-    public featureFlags(teamId: TeamType['id']): ApiRequest {
+    public featureFlags(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feature_flags')
     }
 
-    public featureFlag(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
+    public featureFlag(id: FeatureFlagType['id'], teamId?: TeamType['id']): ApiRequest {
         if (!id) {
             throw new Error('Must provide an ID for the feature flag to construct the URL')
         }
@@ -452,7 +453,7 @@ class ApiRequest {
 
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_table')
+        return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
     }
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
@@ -460,10 +461,18 @@ class ApiRequest {
 
     // # Warehouse view
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_query')
+        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
+    // # Warehouse view link
+    public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_view_link')
+    }
+    public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -602,7 +611,41 @@ const ensureProjectIdNotInvalid = (url: string): void => {
     }
 }
 
+function getSessionId(): string | undefined {
+    // get_session_id is not always present e.g. in the toolbar
+    // but our typing in the SDK doesn't make this clear
+    // TODO when the SDK makes this safe this check can be simplified
+    if (typeof posthog?.get_session_id !== 'function') {
+        return undefined
+    }
+    return posthog.get_session_id()
+}
+
 const api = {
+    insights: {
+        loadInsight(
+            shortId: InsightModel['short_id'],
+            basic?: boolean
+        ): Promise<PaginatedResponse<Partial<InsightModel>>> {
+            return new ApiRequest()
+                .insights()
+                .withQueryString(
+                    toParams({
+                        short_id: encodeURIComponent(shortId),
+                        include_query_insights: true,
+                        basic: basic,
+                    })
+                )
+                .get()
+        },
+    },
+
+    featureFlags: {
+        async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
+            return await new ApiRequest().featureFlag(id).get()
+        },
+    },
+
     actions: {
         async get(actionId: ActionType['id']): Promise<ActionType> {
             return await new ApiRequest().actionsDetail(actionId).get()
@@ -1441,6 +1484,27 @@ const api = {
         },
     },
 
+    dataWarehouseViewLinks: {
+        async list(): Promise<PaginatedResponse<DataWarehouseViewLink>> {
+            return await new ApiRequest().dataWarehouseViewLinks().get()
+        },
+        async get(viewLinkId: DataWarehouseViewLink['id']): Promise<DataWarehouseViewLink> {
+            return await new ApiRequest().dataWarehouseViewLink(viewLinkId).get()
+        },
+        async create(data: Partial<DataWarehouseViewLink>): Promise<DataWarehouseViewLink> {
+            return await new ApiRequest().dataWarehouseViewLinks().create({ data })
+        },
+        async delete(viewId: DataWarehouseViewLink['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseViewLink(viewId).delete()
+        },
+        async update(
+            viewId: DataWarehouseViewLink['id'],
+            data: Pick<DataWarehouseViewLink, 'saved_query_id' | 'from_join_key' | 'table' | 'to_join_key'>
+        ): Promise<DataWarehouseViewLink> {
+            return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
+        },
+    },
+
     subscriptions: {
         async get(subscriptionId: SubscriptionType['id']): Promise<SubscriptionType> {
             return await new ApiRequest().subscription(subscriptionId).get()
@@ -1515,6 +1579,7 @@ const api = {
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
+
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         options?: ApiMethodOptions,
@@ -1544,8 +1609,7 @@ const api = {
             response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
-                    // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
-                    // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                 },
             })
         } catch (e) {
@@ -1570,8 +1634,7 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
-                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1603,8 +1666,7 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
-                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1630,8 +1692,7 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
-                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
             },
         })
 

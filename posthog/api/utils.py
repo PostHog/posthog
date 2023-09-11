@@ -1,6 +1,8 @@
+from ipaddress import ip_address
 import json
 import re
 from enum import Enum, auto
+import socket
 from typing import List, Literal, Optional, Union, Tuple
 from uuid import UUID
 
@@ -10,6 +12,7 @@ from django.db.models import QuerySet
 from rest_framework import request, status
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
+import urllib.parse
 
 from posthog.constants import EventDefinitionType
 from posthog.exceptions import RequestParsingError, generate_exception_response
@@ -17,7 +20,8 @@ from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.utils import cors_response, load_data_from_request
+from posthog.utils import load_data_from_request
+from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
 
@@ -295,3 +299,26 @@ def parse_bool(value: Union[str, List[str]]) -> bool:
     if value == "true":
         return True
     return False
+
+
+def raise_if_user_provided_url_unsafe(url: str):
+    """Raise if the provided URL seems unsafe, otherwise do nothing."""
+    parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)
+    if not parsed_url.hostname:
+        raise ValueError("No hostname")
+    if parsed_url.scheme == "http":
+        port = 80
+    elif parsed_url.scheme == "https":
+        port = 443
+    else:
+        raise ValueError("Scheme must be either HTTP or HTTPS")
+    if parsed_url.port is not None and parsed_url.port != port:
+        raise ValueError("Port does not match scheme")
+    # Disallow if hostname resolves to a private (internal) IP address
+    try:
+        addrinfo = socket.getaddrinfo(parsed_url.hostname, port)
+    except socket.gaierror:
+        raise ValueError("Invalid hostname")
+    for _, _, _, _, sockaddr in addrinfo:
+        if ip_address(sockaddr[0]).is_private:  # Prevent addressing internal services
+            raise ValueError("Invalid hostname")
