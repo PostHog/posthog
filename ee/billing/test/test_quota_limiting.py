@@ -3,6 +3,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
+from django.core.cache import cache
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -203,6 +204,30 @@ class TestQuotaLimiting(BaseTest):
 
         mock_is_email_available.assert_called_once()
         mock_email.assert_called_once_with(self.organization.id)
+
+        self.organization.never_drop_data = False
+
+    @patch("ee.billing.quota_limiting.is_email_available", return_value=True)
+    @patch("ee.billing.quota_limiting.send_over_quota_but_not_dropped_email_to_cs.delay")
+    def test_over_quota_but_not_dropped_org_already_emailed(self, mock_email, mock_is_email_available):
+        self.organization.usage = None
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+        cache.set(
+            f"@posthog/quota-overage-no-drop-emailed/{self.organization.id}", timezone.now(), timeout=60 * 60 * 24 * 7
+        )
+
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 90},
+            "recordings": {"usage": 100, "limit": 90},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.never_drop_data = True
+
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) is None
+
+        mock_is_email_available.assert_not_called()
+        mock_email.assert_not_called()
 
         self.organization.never_drop_data = False
 

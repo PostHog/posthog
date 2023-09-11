@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
 
 import dateutil.parser
+from django.core.cache import cache
 from django.db.models import Q
 from django.utils import timezone
 from sentry_sdk import capture_exception
@@ -23,6 +24,8 @@ from posthog.tasks.usage_report import (
 from posthog.utils import get_current_day
 
 QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
+QUOTA_OVERAGE_NO_DROP_EMAILED_CACHE_KEY = "@posthog/quota-overage-no-drop-emailed/"
+QUOTA_OVERAGE_NO_DROP_EMAILED_CACHE_TIMEOUT = 60 * 60 * 24 * 7  # 7 days, 604800 seconds
 
 
 class QuotaResource(Enum):
@@ -62,6 +65,19 @@ def list_limited_team_tokens(resource: QuotaResource) -> List[str]:
     return [x.decode("utf-8") for x in results]
 
 
+def add_quota_overage_no_drop_cache_item(organization_id: int) -> None:
+    now = timezone.now()
+    cache.set(
+        f"{QUOTA_OVERAGE_NO_DROP_EMAILED_CACHE_KEY}{organization_id}",
+        now,
+        timeout=QUOTA_OVERAGE_NO_DROP_EMAILED_CACHE_TIMEOUT,
+    )
+
+
+def get_quota_overage_no_drop_cache_item(organization_id: int) -> bool:
+    return cache.get(f"{QUOTA_OVERAGE_NO_DROP_EMAILED_CACHE_KEY}{organization_id}", False)
+
+
 class UsageCounters(TypedDict):
     events: int
     recordings: int
@@ -83,8 +99,10 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
 
     if is_quota_limited and organization.never_drop_data:
-        if is_email_available():
-            send_over_quota_but_not_dropped_email_to_cs.delay(organization.id)
+        if not get_quota_overage_no_drop_cache_item(organization.id):
+            add_quota_overage_no_drop_cache_item(organization.id)
+            if is_email_available():
+                send_over_quota_but_not_dropped_email_to_cs.delay(organization.id)
         return None
 
     if is_quota_limited and billing_period_end:
