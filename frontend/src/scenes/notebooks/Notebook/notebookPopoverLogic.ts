@@ -7,7 +7,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { EditorFocusPosition } from './utils'
 
 import type { notebookPopoverLogicType } from './notebookPopoverLogicType'
-import { NotebookPopoverVisibility } from '~/types'
+import { NotebookNodeResource, NotebookPopoverVisibility } from '~/types'
 
 export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
 
@@ -22,6 +22,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         startDropMode: true,
         endDropMode: true,
         setDropDistance: (distance: number) => ({ distance }),
+        setDroppedResource: (resource: NotebookNodeResource | string | null) => ({ resource }),
     }),
 
     reducers(() => ({
@@ -77,6 +78,13 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
                 startDropMode: () => -1,
                 endDropMode: () => -1,
                 setDropDistance: (_, { distance }) => distance,
+            },
+        ],
+        droppedResource: [
+            null as NotebookNodeResource | string | null,
+            {
+                setVisibility: (state, { visibility }) => (visibility === 'hidden' ? null : state),
+                setDroppedResource: (_, { resource }) => resource,
             },
         ],
     })),

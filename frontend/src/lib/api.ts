@@ -49,6 +49,7 @@ import {
     BatchExportRun,
     NotebookNodeType,
     UserBasicType,
+    NotebookNodeResource,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -1326,7 +1327,7 @@ const api = {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(
-            contains?: { type: NotebookNodeType; attrs: Record<string, string> }[],
+            contains?: NotebookNodeResource[],
             createdBy?: UserBasicType['uuid'],
             search?: string
         ): Promise<PaginatedResponse<NotebookType>> {

@@ -1,16 +1,13 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType, NotebookNodeType } from '~/types'
+import { NotebookListItemType, NotebookNodeResource } from '~/types'
 
 import api from 'lib/api'
 
 import type { notebookSelectButtonLogicType } from './notebookSelectButtonLogicType'
 
 export interface NotebookSelectButtonLogicProps {
-    resource?: {
-        attrs: Record<string, any>
-        type: NotebookNodeType
-    }
+    resource?: NotebookNodeResource
     // allows callers (e.g. storybook) to control starting visibility of the popover
     visible?: boolean
 }

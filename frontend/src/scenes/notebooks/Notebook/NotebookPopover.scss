@@ -40,6 +40,10 @@
         transition: transform var(--notebook-popover-transition-properties),
             width var(--notebook-popover-transition-properties);
 
+        > * + * {
+            margin-top: 1rem;
+        }
+
         .NotebookPopover__content__card {
             flex: 1;
             display: flex;
@@ -117,5 +121,12 @@
         border-color: var(--primary);
         color: var(--primary);
         height: 8rem;
+    }
+
+    &--dropped {
+        opacity: 1;
+        border-color: var(--success);
+        color: var(--success);
+        height: 100%;
     }
 }
