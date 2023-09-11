@@ -106,27 +106,35 @@
     align-items: center;
     padding: 1rem;
 
-    font-weight: 700;
-    font-size: 1rem;
-    color: var(--muted-alt);
-    text-align: center;
-
     transition: all 150ms;
     height: 4rem;
-
     opacity: 0.75;
+
+    .NotebookPopoverDropzone__message {
+        font-weight: 700;
+        font-size: 1rem;
+        color: var(--muted-alt);
+        text-align: center;
+        pointer-events: none;
+    }
+
+    .NotebookPopoverDropzone__dropped {
+        overflow: hidden;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
 
     &--active {
         opacity: 1;
         border-color: var(--primary);
-        color: var(--primary);
         height: 8rem;
     }
 
     &--dropped {
         opacity: 1;
-        border-color: var(--success);
-        color: var(--success);
         height: 100%;
+        justify-content: flex-start;
+        align-items: initial;
     }
 }

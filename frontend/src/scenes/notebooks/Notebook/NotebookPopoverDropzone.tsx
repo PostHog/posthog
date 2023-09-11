@@ -3,6 +3,7 @@ import { DragEventHandler, useState } from 'react'
 import { notebookPopoverLogic } from './notebookPopoverLogic'
 import { useActions, useValues } from 'kea'
 import { NotebookNodeType } from '~/types'
+import { NotebookSelectList } from '../NotebookSelectButton/NotebookSelectButton'
 
 export function NotebookPopoverDropzone(): JSX.Element | null {
     const [isDragActive, setIsDragActive] = useState(false)
@@ -48,9 +49,12 @@ export function NotebookPopoverDropzone(): JSX.Element | null {
             onDrop={onDrop}
         >
             {droppedResource ? (
-                <div className="NotebookPopoverDropzone__dropped">Dropped!</div>
+                <div className="NotebookPopoverDropzone__dropped">
+                    <h2>Add dropped resource to...</h2>
+                    <NotebookSelectList />
+                </div>
             ) : (
-                <>Drop here for a different Notebook</>
+                <div className="NotebookPopoverDropzone__message">Drop here for a different Notebook</div>
             )}
         </div>
     )

@@ -96,19 +96,20 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     }
 
     return (
-        <div className="space-y-2 flex flex-col">
-            <LemonInput
-                type="search"
-                placeholder="Search notebooks..."
-                value={searchQuery}
-                onChange={(s) => setSearchQuery(s)}
-                fullWidth
-            />
-            <LemonButton fullWidth icon={<IconPlus />} onClick={openNewNotebook}>
-                New notebook
-            </LemonButton>
-            <LemonDivider className="my-1" />
-            <div>
+        <div className="space-y-2 flex flex-col flex-1 h-full overflow-hidden">
+            <div className="border-b space-y-2 flex-0">
+                <LemonInput
+                    type="search"
+                    placeholder="Search notebooks..."
+                    value={searchQuery}
+                    onChange={(s) => setSearchQuery(s)}
+                    fullWidth
+                />
+                <LemonButton fullWidth icon={<IconPlus />} onClick={openNewNotebook}>
+                    New notebook
+                </LemonButton>
+            </div>
+            <div className="overflow-y-auto flex-1">
                 {notebooksLoading && allNotebooks.length === 0 && containingNotebooks.length === 0 ? (
                     <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
                         {notebooksLoading ? (
