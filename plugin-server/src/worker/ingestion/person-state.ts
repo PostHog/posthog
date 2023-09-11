@@ -258,7 +258,7 @@ export class PersonState {
                     this.teamId,
                     this.timestamp
                 )
-            } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
+            } else if (this.event.event === '$identify' && '$anon_distinct_id' in this.eventProperties) {
                 return await this.merge(
                     String(this.eventProperties['$anon_distinct_id']),
                     this.distinctId,

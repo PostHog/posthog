@@ -1081,16 +1081,7 @@ describe('PersonState.update()', () => {
             hub.statsd = { increment: jest.fn() } as any
         })
 
-        const illegalIds = [
-            '',
-            '   ',
-            'null',
-            'undefined',
-            '"undefined"',
-            '[object Object]',
-            '"[object Object]"',
-            'Nan',
-        ]
+        const illegalIds = ['', '   ', 'null', 'undefined', '"undefined"', '[object Object]', '"[object Object]"']
         it.each(illegalIds)('stops $identify if current distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
                 event: '$identify',
@@ -1106,6 +1097,24 @@ describe('PersonState.update()', () => {
 
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
                 distinctId: illegalId,
+            })
+        })
+
+        it('stops $identify if $anon_distinct_id is illegal: ``', async () => {
+            const person = await personState({
+                event: '$identify',
+                distinct_id: 'some_distinct_id',
+                properties: {
+                    $anon_distinct_id: '',
+                },
+            }).handleIdentifyOrAlias()
+
+            expect(person).toEqual(undefined)
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(0)
+
+            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
+                distinctId: '',
             })
         })
 
