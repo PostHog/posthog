@@ -50,7 +50,11 @@ const campaignParams = new Set([
     'fbclid',
     'msclkid',
 ])
-const initialParams = new Set([
+const initialAndLatestParams = new Set([
+    '$app_build',
+    '$app_name',
+    '$app_namespace',
+    '$app_version',
     '$browser',
     '$browser_version',
     '$device_type',
@@ -60,16 +64,22 @@ const initialParams = new Set([
     '$referring_domain',
     '$referrer',
 ])
-const combinedParams = new Set([...campaignParams, ...initialParams])
+const combinedParams = new Set([...campaignParams, ...initialAndLatestParams])
 
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
     const propertiesCopy = { ...properties }
-    const maybeSet = Object.entries(properties).filter(([key]) => campaignParams.has(key))
 
     const maybeSetInitial = Object.entries(properties)
         .filter(([key]) => combinedParams.has(key))
         .map(([key, value]) => [`$initial_${key.replace('$', '')}`, value])
+
+    const maybeSetLast = Object.entries(properties)
+        .filter(([key]) => combinedParams.has(key))
+        .map(([key, value]) => [`$last_${key.replace('$', '')}`, value])
+
+    const maybeSet = Object.entries(properties).filter(([key]) => campaignParams.has(key))
+
     if (Object.keys(maybeSet).length > 0) {
         propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
     }
