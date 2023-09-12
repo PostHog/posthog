@@ -72,7 +72,7 @@ ALTER_SESSION_REPLAY_ADD_EVENT_COUNT_COLUMN = """
         ADD COLUMN IF NOT EXISTS message_count SimpleAggregateFunction(sum, Int64),
         ADD COLUMN IF NOT EXISTS event_count SimpleAggregateFunction(sum, Int64),
         -- fly by addition so that we can track lag in the data the same way as for other tables
-        ADD COLUMN IF NOT EXISTS _timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+        ADD COLUMN IF NOT EXISTS _timestamp SimpleAggregateFunction(max, DateTime)
 """
 
 ADD_EVENT_COUNT_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (

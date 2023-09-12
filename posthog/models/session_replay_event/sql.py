@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- often very useful in incidents or debugging
     -- because we batch events we expect message_count to be lower than event_count
     event_count SimpleAggregateFunction(sum, Int64),
-    _timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+    _timestamp SimpleAggregateFunction(max, DateTime)
 ) ENGINE = {engine}
 """
 
@@ -131,7 +131,7 @@ sum(size) as size,
 -- we can count the number of kafka messages instead of sending it explicitly
 count(*) as message_count,
 sum(event_count) as event_count,
-max(_timestamp) DateTime
+max(_timestamp) DateTime as _timestamp
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
