@@ -142,7 +142,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
                     cache.dragStart = event.pageX
                 }
 
-                // The drop distnace is the percentage between where the drag started and where it now is
+                // The drop distance is the percentage between where the drag started and where it now is
                 const dropDistance = (event.pageX - cache.dragStart) / window.innerWidth
                 actions.setDropDistance(dropDistance)
             }
