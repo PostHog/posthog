@@ -18,6 +18,8 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactChild, useEffect } from 'react'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
