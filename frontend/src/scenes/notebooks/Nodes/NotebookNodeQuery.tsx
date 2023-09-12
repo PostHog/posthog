@@ -11,6 +11,8 @@ import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 
+import './NotebookNodeQuery.scss'
+
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
     source: {
@@ -35,7 +37,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
             modifiedQuery.embedded = true
-        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = false
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
@@ -75,8 +77,9 @@ export const Settings = ({
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.showHogQLEditor = true
             modifiedQuery.showResultsTable = false
-            modifiedQuery.showReload = true
-        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showReload = false
+            modifiedQuery.showElapsedTime = false
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = true
             modifiedQuery.showResults = false
             modifiedQuery.embedded = true
@@ -111,7 +114,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         let title = 'HogQL'
         if (NodeKind.SavedInsightNode === query.kind) {
             const response = await api.insights.loadInsight(query.shortId)
-            title = response.results[0].name || 'Saved insight'
+            title = response.results[0].name?.length
+                ? response.results[0].name
+                : response.results[0].derived_name || 'Saved insight'
         } else if (NodeKind.DataTableNode === query.kind) {
             if (query.source.kind) {
                 title = query.source.kind.replace('Node', '').replace('Query', '')
