@@ -11,7 +11,6 @@ import {
 import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
-import { formatTimestamp } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
@@ -114,11 +113,7 @@ export const textContent = (node: any): string => {
         'ph-query': customOrTitleSerializer,
         'ph-recording': customOrTitleSerializer,
         'ph-recording-playlist': customOrTitleSerializer,
-        'ph-replay-timestamp': (props): string => {
-            // timestamp is not a block so `getText` does not add a separator.
-            // we need to add it manually
-            return `${formatTimestamp(props.node.attrs.playbackTime) || '00:00'}:\n`
-        },
+        'ph-replay-timestamp': customOrTitleSerializer,
         'ph-survey': customOrTitleSerializer,
     }
 

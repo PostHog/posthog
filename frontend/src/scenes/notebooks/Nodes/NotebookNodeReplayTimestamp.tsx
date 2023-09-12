@@ -1,5 +1,5 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
+import { callOrReturn, getExtensionField, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType, NotebookTarget } from '~/types'
 import {
     sessionRecordingPlayerLogic,
@@ -74,6 +74,25 @@ export const NotebookNodeReplayTimestamp = Node.create({
     inline: true,
     group: 'inline',
     atom: true,
+
+    serializedText:
+        () =>
+        (attrs: { playbackTime: number }): string => {
+            // timestamp is not a block so `getText` does not add a separator.
+            // we need to add it manually
+            return `${formatTimestamp(attrs.playbackTime) || '00:00'}:\n`
+        },
+
+    extendNodeSchema(extension) {
+        const context = {
+            name: extension.name,
+            options: extension.options,
+            storage: extension.storage,
+        }
+        return {
+            serializedText: callOrReturn(getExtensionField(extension, 'serializedText', context)),
+        }
+    },
 
     addAttributes() {
         return {
