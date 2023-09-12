@@ -70,15 +70,20 @@ const combinedParams = new Set([...campaignParams, ...initialAndLatestParams])
 export function personInitialAndUTMProperties(properties: Properties): Properties {
     const propertiesCopy = { ...properties }
 
-    const maybeSetInitial = Object.entries(properties)
+    // all potential params are checked for $initial_ values and added to $set_once
+    const maybeSetInitial: [string, any][] = Object.entries(properties)
         .filter(([key]) => combinedParams.has(key))
         .map(([key, value]) => [`$initial_${key.replace('$', '')}`, value])
 
-    const maybeSetLast = Object.entries(properties)
-        .filter(([key]) => combinedParams.has(key))
+    // ONLY non-campaign params are checked for $last_ values are added to $set
+    const maybeSetLast: [string, any][] = Object.entries(properties)
+        .filter(([key]) => initialAndLatestParams.has(key))
         .map(([key, value]) => [`$last_${key.replace('$', '')}`, value])
 
-    const maybeSet = Object.entries(properties).filter(([key]) => campaignParams.has(key))
+    // campaign values are added to $set separately (this is how they were previously handled so kept for backwards compatibility)
+    const maybeSetCampaign: [string, any][] = Object.entries(properties).filter(([key]) => campaignParams.has(key))
+
+    const maybeSet = [...maybeSetLast, ...maybeSetCampaign]
 
     if (Object.keys(maybeSet).length > 0) {
         propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
