@@ -87,7 +87,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         if len(property.values) == 1:
             return property_to_expr(property.values[0], team)
 
-        if property.type == PropertyOperatorType.AND:
+        if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND:
             return ast.And(exprs=[property_to_expr(p, team) for p in property.values])
         else:
             return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])
