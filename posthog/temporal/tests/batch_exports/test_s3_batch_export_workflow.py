@@ -44,6 +44,7 @@ TEST_ROOT_BUCKET = "test-batch-exports"
 
 
 def check_valid_credentials() -> bool:
+    """Check if there are valid AWS credentials in the environment."""
     sts = boto3.client("sts")
     try:
         sts.get_caller_identity()
@@ -143,7 +144,7 @@ def assert_events_in_s3(
     itertools.product([None, "gzip", "brotli"], [None, ["test-exclude"]]),
 )
 async def test_insert_into_s3_activity_puts_data_into_s3(
-    bucket_name, s3_client, activity_environment, compression, encryption, exclude_events
+    bucket_name, s3_client, activity_environment, compression, exclude_events
 ):
     """Test that the insert_into_s3_activity function puts data into S3."""
 
@@ -281,7 +282,6 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         aws_secret_access_key="object_storage_root_password",
         compression=compression,
         exclude_events=exclude_events,
-        encryption=encryption,
     )
 
     with override_settings(
