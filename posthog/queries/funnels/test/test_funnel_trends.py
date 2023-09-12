@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta
 
-import pytz
+from zoneinfo import ZoneInfo
 from freezegun.api import freeze_time
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
@@ -113,43 +113,43 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     "reached_to_step_count": 0,
                     "conversion_rate": 0,
                     "reached_from_step_count": 1,
-                    "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=pytz.UTC),
+                    "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=pytz.UTC),
+                    "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=pytz.UTC),
+                    "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=pytz.UTC),
+                    "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=pytz.UTC),
+                    "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=pytz.UTC),
+                    "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=pytz.UTC),
+                    "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
             ],
         )
@@ -531,8 +531,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["reached_to_step_count"], 0)
         self.assertEqual(day["conversion_rate"], 0)
         self.assertEqual(
-            day["timestamp"].replace(tzinfo=pytz.UTC),
-            (datetime(now.year, now.month, now.day) - timedelta(1)).replace(tzinfo=pytz.UTC),
+            day["timestamp"].replace(tzinfo=ZoneInfo("UTC")),
+            (datetime(now.year, now.month, now.day) - timedelta(1)).replace(tzinfo=ZoneInfo("UTC")),
         )
 
         day = results[1]  # today
@@ -540,7 +540,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["reached_to_step_count"], 1)
         self.assertEqual(day["conversion_rate"], 100)
         self.assertEqual(
-            day["timestamp"].replace(tzinfo=pytz.UTC), datetime(now.year, now.month, now.day).replace(tzinfo=pytz.UTC)
+            day["timestamp"].replace(tzinfo=ZoneInfo("UTC")),
+            datetime(now.year, now.month, now.day).replace(tzinfo=ZoneInfo("UTC")),
         )
 
     def test_two_runs_by_single_user_in_one_period(self):

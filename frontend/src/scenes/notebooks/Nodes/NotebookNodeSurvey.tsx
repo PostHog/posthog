@@ -16,7 +16,7 @@ import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
 import api from 'lib/api'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const { survey, surveyLoading, hasTargetingFlag } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)

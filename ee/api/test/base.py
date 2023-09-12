@@ -1,7 +1,7 @@
 import datetime
 from typing import Dict, Optional, cast
 
-import pytz
+from zoneinfo import ZoneInfo
 
 from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from ee.models.license import License, LicenseManager
@@ -30,7 +30,7 @@ class LicensedTestMixin:
             cls.license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key=cls.CONFIG_LICENSE_KEY,
                 plan=cls.CONFIG_LICENSE_PLAN,
-                valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=pytz.UTC),
+                valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
             )
             if hasattr(cls, "organization") and cls.organization:  # type: ignore
                 cls.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES  # type: ignore

@@ -18,7 +18,7 @@ import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const {
         featureFlag,
         featureFlagLoading,
