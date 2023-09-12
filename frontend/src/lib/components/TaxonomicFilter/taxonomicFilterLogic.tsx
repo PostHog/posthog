@@ -23,6 +23,7 @@ import {
     PersonType,
     PluginType,
     PropertyDefinition,
+    NotebookType,
 } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
@@ -418,6 +419,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
+                    },
+                    {
+                        name: 'Notebooks',
+                        searchPlaceholder: 'notebooks',
+                        type: TaxonomicFilterGroupType.Notebooks,
+                        value: 'notebooks',
+                        endpoint: `api/projects/${teamId}/notebooks/`,
+                        getName: (notebook: NotebookType) => {
+                            return notebook.title || 'Untitled'
+                        },
+                        getValue: (notebook: NotebookType) => notebook.short_id,
+                        getPopoverHeader: () => 'Notebooks',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

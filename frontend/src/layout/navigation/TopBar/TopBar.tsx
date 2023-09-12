@@ -60,6 +60,7 @@ export function TopBar(): JSX.Element {
                                 TaxonomicFilterGroupType.Plugins,
                                 TaxonomicFilterGroupType.Experiments,
                                 TaxonomicFilterGroupType.Dashboards,
+                                TaxonomicFilterGroupType.Notebooks,
                                 ...groupNamesTaxonomicTypes,
                             ]}
                         />

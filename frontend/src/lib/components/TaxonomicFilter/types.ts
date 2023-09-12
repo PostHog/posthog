@@ -83,6 +83,7 @@ export enum TaxonomicFilterGroupType {
     GroupNamesPrefix = 'name_groups',
     Sessions = 'sessions',
     HogQLExpression = 'hogql_expression',
+    Notebooks = 'notebooks',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

@@ -2,7 +2,16 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
-import { IconGauge, IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
+import {
+    IconGauge,
+    IconBarChart,
+    IconFlag,
+    IconExperiment,
+    IconLive,
+    IconPerson,
+    IconCohort,
+    IconJournal,
+} from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
@@ -22,6 +31,7 @@ const ICON_MAP = {
     events: <IconLive width="1em" height="1em" />,
     persons: <IconPerson />,
     cohorts: <IconCohort />,
+    notebooks: <IconJournal />,
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
@@ -67,6 +77,8 @@ function backlinkHref(id: string, type: TaxonomicFilterGroupType): string {
         return urls.experiment(id)
     } else if (type === TaxonomicFilterGroupType.Dashboards) {
         return urls.dashboard(id)
+    } else if (type === TaxonomicFilterGroupType.Notebooks) {
+        return urls.notebook(id)
     }
     return ''
 }
@@ -137,6 +149,16 @@ export const NotebookNodeBacklink = Node.create({
                     const id = match[1]
                     const dashboard = await api.dashboards.get(Number(id))
                     return { id: id, type: TaxonomicFilterGroupType.Dashboards, title: dashboard.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.notebook('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const notebook = await api.notebooks.get(id)
+                    return { id: id, type: TaxonomicFilterGroupType.Notebooks, title: notebook.title }
                 },
             }),
         ]

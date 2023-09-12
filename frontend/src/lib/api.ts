@@ -1348,7 +1348,7 @@ const api = {
                 q = { ...q, created_by: createdBy }
             }
             if (search) {
-                q = { ...q, s: search }
+                q = { ...q, search: search }
             }
             return await apiRequest.withQueryString(q).get()
         },
