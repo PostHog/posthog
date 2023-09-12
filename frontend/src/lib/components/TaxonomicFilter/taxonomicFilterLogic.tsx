@@ -426,9 +426,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         type: TaxonomicFilterGroupType.Notebooks,
                         value: 'notebooks',
                         endpoint: `api/projects/${teamId}/notebooks/`,
-                        getName: (notebook: NotebookType) => {
-                            return notebook.title || 'Untitled'
-                        },
+                        getName: (notebook: NotebookType) => notebook.title || `Notebook ${notebook.short_id}`,
                         getValue: (notebook: NotebookType) => notebook.short_id,
                         getPopoverHeader: () => 'Notebooks',
                     },
