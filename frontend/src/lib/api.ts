@@ -47,7 +47,6 @@ import {
     DataWarehouseViewLink,
     BatchExportConfiguration,
     BatchExportRun,
-    NotebookNodeType,
     UserBasicType,
     NotebookNodeResource,
 } from '~/types'
