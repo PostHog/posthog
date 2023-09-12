@@ -2,8 +2,6 @@ import posthog from 'posthog-js'
 import { useActions } from 'kea'
 import { useCallback, useRef } from 'react'
 
-import { Node as ProseMirrorNode } from '@tiptap/pm/model'
-
 import { Editor as TTEditor, TextSerializer } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
@@ -84,6 +82,20 @@ export function Editor({
                     }
                 },
             }),
+            // Extension.create({
+            //     extendNodeSchema(extension) {
+            //         debugger
+            //         const context = {
+            //             name: extension.name,
+            //             options: extension.options,
+            //             storage: extension.storage,
+            //         }
+
+            //         return {
+            //             allowGapCursor: callOrReturn(getExtensionField(extension, 'allowGapCursor', context)) ?? null,
+            //         }
+            //     },
+            // }),
             NotebookMarkLink,
             NotebookNodeBacklink,
             NotebookNodeQuery,
@@ -185,41 +197,24 @@ export function Editor({
             onCreate({
                 getJSON: () => editor.getJSON(),
                 getText: () => {
-                    const titleSerializer: TextSerializer = (props): string => props.node.attrs?.title || ''
+                    const titleSerializer: TextSerializer = (props): string => {
+                        props.node.type.spec.serializedText(props.node.attrs)
+                        return props.node.attrs?.title || ''
+                    }
                     const customNodeTextSerializers: Record<NotebookNodeType, TextSerializer> = {
                         'ph-backlink': titleSerializer,
                         'ph-early-access-feature': titleSerializer,
                         'ph-experiment': titleSerializer,
                         'ph-feature-flag': titleSerializer,
                         'ph-feature-flag-code-example': titleSerializer,
-                        'ph-image': (props: { node: ProseMirrorNode }): string => {
-                            return props.node.attrs?.file?.name || ''
-                        },
+                        'ph-image': titleSerializer,
                         'ph-insight': titleSerializer,
-                        'ph-person': (props: { node: ProseMirrorNode }): string => {
-                            const personTitle = props.node.attrs?.title || ''
-                            const personId = props.node.attrs?.id || ''
-                            return `${personTitle} ${personId}`
-                        },
-                        'ph-query': (props: { node: ProseMirrorNode }): string => {
-                            return props.node.attrs?.query?.source?.query || ''
-                        },
-                        'ph-recording': (props: { node: ProseMirrorNode }): string => {
-                            // allow search using the session id
-                            return props.node.attrs?.id || ''
-                        },
-                        'ph-recording-playlist': (props: { node: ProseMirrorNode }): string => {
-                            // TODO does a playlist report any title that has been set here?
-                            return props.node.attrs?.title || ''
-                        },
-                        'ph-replay-timestamp': (props: { node: ProseMirrorNode }): string => {
-                            // any comment is reported as text from its paragraph component
-                            return props.node.attrs?.sessionRecordingId || ''
-                        },
-                        'ph-survey': (props: { node: ProseMirrorNode }): string => {
-                            // TODO we could look up other survey text... e.g. any questions asked
-                            return props.node.attrs?.title || ''
-                        },
+                        'ph-person': titleSerializer,
+                        'ph-query': titleSerializer,
+                        'ph-recording': titleSerializer,
+                        'ph-recording-playlist': titleSerializer,
+                        'ph-replay-timestamp': titleSerializer,
+                        'ph-survey': titleSerializer,
                     }
 
                     return editor.getText({

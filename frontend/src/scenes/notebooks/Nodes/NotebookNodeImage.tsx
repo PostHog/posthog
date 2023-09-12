@@ -79,6 +79,7 @@ export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttrib
     nodeType: NotebookNodeType.Image,
     title: 'Image',
     Component,
+    serializedText: ({ file }) => (file ? file.name : 'Image'),
     heightEstimate: 400,
     minHeight: 100,
     resizeable: true,
