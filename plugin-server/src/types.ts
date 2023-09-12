@@ -21,7 +21,7 @@ import { VM } from 'vm2'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
-import { PostgresRouter } from './utils/db/postgres' /** Re-export Element from scaffolding, for backwards compat. */
+import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
@@ -33,8 +33,7 @@ import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-man
 import { LazyPluginVM } from './worker/vm/lazy'
 import { PromiseManager } from './worker/vm/promise-manager'
 
-/** Re-export Element from scaffolding, for backwards compat. */
-export { Element } from '@posthog/plugin-scaffold'
+export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
@@ -189,6 +188,7 @@ export interface PluginsServerConfig {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
@@ -200,6 +200,13 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
+
+    // dump profiles to disk, covering the first N seconds of runtime
+    STARTUP_PROFILE_DURATION_SECONDS: number
+    STARTUP_PROFILE_CPU: boolean
+    STARTUP_PROFILE_HEAP: boolean
+    STARTUP_PROFILE_HEAP_INTERVAL: number
+    STARTUP_PROFILE_HEAP_DEPTH: number
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string

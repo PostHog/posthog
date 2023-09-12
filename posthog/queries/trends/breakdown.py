@@ -4,7 +4,7 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.forms import ValidationError
 
 from posthog.constants import (
@@ -294,7 +294,6 @@ class TrendsBreakdown:
             )
 
         else:
-
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
             if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
@@ -476,7 +475,6 @@ class TrendsBreakdown:
         return breakdown_value
 
     def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
-
         multi_if_conditionals = []
         values_arr = []
 
@@ -599,8 +597,8 @@ class TrendsBreakdown:
                 getattr(point_date, "hour", 0),
                 getattr(point_date, "minute", 0),
                 getattr(point_date, "second", 0),
-                tzinfo=getattr(point_date, "tzinfo", pytz.UTC),
-            ).astimezone(pytz.UTC)
+                tzinfo=getattr(point_date, "tzinfo", ZoneInfo("UTC")),
+            ).astimezone(ZoneInfo("UTC"))
 
             filter_params = filter.to_params()
             extra_params = {
