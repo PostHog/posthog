@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional, cast
 
-from django.db.models import QuerySet, Count
+from django.db.models import QuerySet, Q
 from django.conf import settings
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -32,6 +32,7 @@ from posthog.models.feature_flag import (
     get_user_blast_radius,
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -132,7 +133,8 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     def get_surveys(self, feature_flag: FeatureFlag) -> Dict:
         from posthog.api.survey import SurveyAPISerializer
 
-        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data  # type: ignore
+        # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
@@ -351,9 +353,10 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 .prefetch_related("surveys_linked_flag")
             )
 
-            queryset = queryset.annotate(num_targeting_flags=Count("survey_targeting_flag")).filter(
-                num_targeting_flags=0
+            survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
+                "targeting_flag_id", flat=True
             )
+            queryset = queryset.exclude(Q(id__in=survey_targeting_flags))
 
         return queryset.select_related("created_by").order_by("-created_at")
 
@@ -440,6 +443,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             .prefetch_related("experiment_set")
             .prefetch_related("features")
             .prefetch_related("analytics_dashboards")
+            .prefetch_related("surveys_linked_flag")
             .select_related("created_by")
             .order_by("-created_at")
         )
