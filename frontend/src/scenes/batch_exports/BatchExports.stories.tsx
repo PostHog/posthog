@@ -34,6 +34,8 @@ export default {
                             aws_secret_access_key: '',
                             compression: null,
                             exclude_events: [],
+                            encryption: null,
+                            kms_key_id: null,
                         },
                     },
                     start_at: null,
