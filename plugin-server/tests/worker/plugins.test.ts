@@ -30,21 +30,18 @@ jest.mock('../../src/worker/plugins/loadPlugin', () => {
 })
 jest.setTimeout(20_000)
 
-// TODO: remove the PLUGINS_LAZY_VM if or when we migrate to it.
+// TODO: remove the PLUGIN_VM_LAZY_START if or when we migrate to it.
 describe.each([[true], [false]])('plugins', (lazyLoadVms) => {
     let hub: Hub
     let closeHub: () => Promise<void>
-    const originalLazyLoadVms = process.env.PLUGINS_LAZY_VM
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
+        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log, PLUGIN_VM_LAZY_START: lazyLoadVms })
         console.warn = jest.fn() as any
         await resetTestDatabase()
-        process.env.PLUGINS_LAZY_VM = lazyLoadVms ? 'true' : 'false'
     })
 
     afterEach(async () => {
-        process.env.PLUGINS_LAZY_VM = originalLazyLoadVms
         await closeHub()
     })
 

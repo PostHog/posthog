@@ -27,7 +27,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         } else {
             pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
 
-            if (process.env.PLUGINS_LAZY_VM !== 'true') {
+            if (!hub.PLUGIN_VM_LAZY_START) {
                 // For anything other than the ingestion pods or overflow pods, we need to
                 // load everything. We don't explicitly check for capabilities
                 // here rather we use the env var such that we can verify that
