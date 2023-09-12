@@ -105,16 +105,6 @@ export class ReplayEventsIngester {
             return drop('producer_not_ready')
         }
 
-        if (event.replayIngestionConsumer !== 'v2') {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_replay_events',
-                    drop_cause: 'not_target_consumer',
-                })
-                .inc()
-            return
-        }
-
         if (
             await this.offsetHighWaterMarker.isBelowHighWaterMark(
                 event.metadata,
