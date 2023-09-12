@@ -85,6 +85,9 @@ class S3MultiPartUploadState(typing.NamedTuple):
     parts: list[dict[str, str | int]]
 
 
+Part = dict[str, str | int]
+
+
 class S3MultiPartUpload:
     """An S3 multi-part upload."""
 
@@ -94,8 +97,8 @@ class S3MultiPartUpload:
         self.key = key
         self.encryption = encryption
         self.kms_key_id = kms_key_id
-        self.upload_id = None
-        self.parts = []
+        self.upload_id: str | None = None
+        self.parts: list[Part] = []
 
     def to_state(self) -> S3MultiPartUploadState:
         """Produce state tuple that can be used to resume this S3MultiPartUpload."""
@@ -132,9 +135,10 @@ class S3MultiPartUpload:
             Key=self.key,
             **optional_kwargs,
         )
-        self.upload_id = multipart_response["UploadId"]
+        upload_id: str = multipart_response["UploadId"]
+        self.upload_id = upload_id
 
-        return self.upload_id
+        return upload_id
 
     def continue_from_state(self, state: S3MultiPartUploadState):
         """Continue this S3MultiPartUpload from a previous state."""
