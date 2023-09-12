@@ -40,7 +40,7 @@ export const openNotebook = async (
     if (popoverLogic?.values.visibility === 'visible') {
         popoverLogic?.actions.selectNotebook(notebookId)
     } else {
-        router.actions.push(urls.notebookEdit(notebookId))
+        router.actions.push(urls.notebook(notebookId))
     }
 
     popoverLogic?.actions.setInitialAutofocus(focus)

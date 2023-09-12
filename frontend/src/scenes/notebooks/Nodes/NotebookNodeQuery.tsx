@@ -3,10 +3,9 @@ import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { useValues } from 'kea'
 import { InsightShortId, NotebookNodeType } from '~/types'
-import { useJsonNodeState } from './utils'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
+import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -26,7 +25,7 @@ const DEFAULT_QUERY: QuerySchema = {
 }
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const [query] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
+    const { query } = props.attributes
     const { expanded } = useValues(notebookNodeLogic)
 
     const modifiedQuery = useMemo(() => {
@@ -57,7 +56,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <Query query={modifiedQuery} uniqueKey={props.node.attrs.nodeId} />
+            <Query query={modifiedQuery} uniqueKey={props.attributes.nodeId} />
         </div>
     )
 }
@@ -69,11 +68,9 @@ type NotebookNodeQueryAttributes = {
 export const Settings = ({
     attributes,
     updateAttributes,
-}: NotebookNodeWidgetSettings<NotebookNodeQueryAttributes>): JSX.Element => {
-    const [query, setQuery] = useJsonNodeState<QuerySchema>(attributes, updateAttributes, 'query')
-
+}: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...attributes.query }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -89,14 +86,19 @@ export const Settings = ({
         }
 
         return modifiedQuery
-    }, [query])
+    }, [attributes.query])
 
     return (
         <div className="p-3">
             <Query
                 query={modifiedQuery}
                 setQuery={(t) => {
-                    setQuery({ ...query, source: (t as DataTableNode | InsightVizNode).source } as QuerySchema)
+                    updateAttributes({
+                        query: {
+                            ...attributes.query,
+                            source: (t as DataTableNode | InsightVizNode).source,
+                        } as QuerySchema,
+                    })
                 }}
                 readOnly={false}
                 uniqueKey={attributes.nodeId}
