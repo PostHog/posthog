@@ -348,7 +348,7 @@ def pg_row_count():
                     pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events"]
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events", "session_replay_events"]
 
 
 @app.task(ignore_result=True)
@@ -473,7 +473,7 @@ def graphile_worker_queue_size():
                 labelnames=["task_identifier"],
                 registry=registry,
             )
-            for (task_identifier, count, oldest) in cursor.fetchall():
+            for task_identifier, count, oldest in cursor.fetchall():
                 seen_task_identifier.add(task_identifier)
                 waiting_jobs_gauge.labels(task_identifier=task_identifier).set(count)
                 processing_lag_gauge.labels(task_identifier=task_identifier).set(time.time() - float(oldest))
@@ -568,7 +568,7 @@ def clickhouse_part_count():
             labelnames=["table"],
             registry=registry,
         )
-        for (table, parts) in rows:
+        for table, parts in rows:
             parts_count_gauge.labels(table=table).set(parts)
             statsd.gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
 
@@ -597,7 +597,7 @@ def clickhouse_mutation_count():
             labelnames=["table"],
             registry=registry,
         )
-    for (table, muts) in rows:
+    for table, muts in rows:
         mutations_count_gauge.labels(table=table).set(muts)
         statsd.gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
 
