@@ -15,7 +15,7 @@ import {
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-onevent'
 import {
     eachBatchWebhooksHandlers,
-    groupIntoBatches as groupIntoBatchesWebhooks,
+    groupIntoBatchesHelper,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
 import {
     ClickHouseTimestamp,
@@ -335,7 +335,7 @@ describe('eachBatchX', () => {
             ])
             // teamIDs 1,3,10 should return false, others true
             const toProcess = jest.fn((teamId) => teamId !== 1 && teamId !== 3 && teamId !== 10)
-            const result = groupIntoBatchesWebhooks(batch.batch.messages, 5, toProcess)
+            const result = groupIntoBatchesHelper(batch.batch.messages, 5, toProcess)
             expect(result).toEqual([
                 {
                     eventBatch: expect.arrayContaining([
@@ -373,7 +373,7 @@ describe('eachBatchX', () => {
             ])
             // make sure that if the last message would be a new batch and if it's going to be excluded we
             // still get the last batch as empty with the right offsite and timestamp
-            const result2 = groupIntoBatchesWebhooks(batch.batch.messages, 7, toProcess)
+            const result2 = groupIntoBatchesHelper(batch.batch.messages, 7, toProcess)
             expect(result2).toEqual([
                 {
                     eventBatch: expect.arrayContaining([

@@ -16,7 +16,7 @@ import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-export function groupIntoBatches(
+export function groupIntoBatchesHelper(
     array: KafkaMessage[],
     batchSize: number,
     shouldProcess: (teamId: number) => boolean
@@ -50,7 +50,7 @@ export function groupIntoBatches(
     return result
 }
 
-export async function eachBatchHandler(
+export async function eachBatchHandlerHelper(
     payload: EachBatchPayload,
     statsd: StatsD | undefined,
     concurrency: number,
@@ -123,13 +123,13 @@ export async function eachBatchWebhooksHandlers(
     statsd: StatsD | undefined,
     concurrency: number
 ): Promise<void> {
-    await eachBatchHandler(
+    await eachBatchHandlerHelper(
         payload,
         statsd,
         concurrency,
         'async_handlers_webhooks',
         // actionMatcher has a cache that tells us if the team has any webhooks or not
-        (array, batchSize) => groupIntoBatches(array, batchSize, actionMatcher.hasWebhooks),
+        (array, batchSize) => groupIntoBatchesHelper(array, batchSize, actionMatcher.hasWebhooks),
         (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, statsd)
     )
 }
