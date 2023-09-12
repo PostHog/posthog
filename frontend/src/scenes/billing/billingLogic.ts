@@ -167,7 +167,9 @@ export const billingLogic = kea<billingLogicType>([
                     return {
                         status: 'error',
                         title: 'Usage limit exceeded',
-                        message: `You have exceeded the usage limit for ${productOverLimit.name}. Please upgrade your plan or data loss may occur.`,
+                        message: `You have exceeded the usage limit for ${productOverLimit.name}. Please ${
+                            productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'
+                        } or data loss may occur.`,
                     }
                 }
 
