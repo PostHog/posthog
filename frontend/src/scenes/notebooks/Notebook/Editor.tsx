@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 import { useActions } from 'kea'
 import { useCallback, useRef } from 'react'
 
-import { Editor as TTEditor, TextSerializer } from '@tiptap/core'
+import { Editor as TTEditor } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
@@ -25,7 +25,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
-import { EditorFocusPosition, EditorRange, JSONContent, Node, NotebookEditor } from './utils'
+import { EditorFocusPosition, EditorRange, JSONContent, Node, NotebookEditor, textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
@@ -183,34 +183,7 @@ export function Editor({
             onCreate({
                 getJSON: () => editor.getJSON(),
                 getText: () => {
-                    const customOrTitleSerializer: TextSerializer = (props): string => {
-                        return props.node.type.spec.serializedText(props.node.attrs) || props.node.attrs?.title || ''
-                    }
-
-                    const customNodeTextSerializers: Record<NotebookNodeType, TextSerializer> = {
-                        'ph-backlink': customOrTitleSerializer,
-                        'ph-early-access-feature': customOrTitleSerializer,
-                        'ph-experiment': customOrTitleSerializer,
-                        'ph-feature-flag': customOrTitleSerializer,
-                        'ph-feature-flag-code-example': customOrTitleSerializer,
-                        'ph-image': customOrTitleSerializer,
-                        'ph-insight': customOrTitleSerializer,
-                        'ph-person': customOrTitleSerializer,
-                        'ph-query': customOrTitleSerializer,
-                        'ph-recording': customOrTitleSerializer,
-                        'ph-recording-playlist': customOrTitleSerializer,
-                        'ph-replay-timestamp': (): string => {
-                            // any comment is reported as text from its paragraph component
-                            // and this is linked to a recording which implicitly makes the timestamp searchable by ID
-                            return ''
-                        },
-                        'ph-survey': customOrTitleSerializer,
-                    }
-
-                    return editor.getText({
-                        blockSeparator: ' ',
-                        textSerializers: customNodeTextSerializers,
-                    })
+                    return textContent(editor.state.doc)
                 },
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),

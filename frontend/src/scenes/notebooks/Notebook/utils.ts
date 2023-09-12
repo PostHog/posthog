@@ -6,10 +6,12 @@ import {
     getText,
     JSONContent as TTJSONContent,
     Range as EditorRange,
+    TextSerializer,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
+import { formatTimestamp } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
@@ -87,12 +89,42 @@ export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     return false
 }
 
-const textContent = (node: any): string => {
-    return getText(node, {
-        blockSeparator: ' ',
-        textSerializers: {
-            [NotebookNodeType.ReplayTimestamp]: ({ node }) => `${node.attrs.playbackTime || '00:00'}: `,
+export const textContent = (node: any): string => {
+    // any node that is created using `createPostHogWidgetNode`
+    // may have a custom serializedText function defined
+    const customOrTitleSerializer: TextSerializer = (props): string => {
+        // TipTap chooses whether to add a separator based on a couple of factors
+        // but, we always want a separator since this text is for search purposes
+        const serializedText = props.node.type.spec.serializedText(props.node.attrs) || props.node.attrs?.title || ''
+        if (serializedText.length > 0 && serializedText[serializedText.length - 1] !== '\n') {
+            return serializedText + '\n'
+        }
+        return serializedText
+    }
+
+    const customNodeTextSerializers: Record<NotebookNodeType, TextSerializer> = {
+        'ph-backlink': customOrTitleSerializer,
+        'ph-early-access-feature': customOrTitleSerializer,
+        'ph-experiment': customOrTitleSerializer,
+        'ph-feature-flag': customOrTitleSerializer,
+        'ph-feature-flag-code-example': customOrTitleSerializer,
+        'ph-image': customOrTitleSerializer,
+        'ph-insight': customOrTitleSerializer,
+        'ph-person': customOrTitleSerializer,
+        'ph-query': customOrTitleSerializer,
+        'ph-recording': customOrTitleSerializer,
+        'ph-recording-playlist': customOrTitleSerializer,
+        'ph-replay-timestamp': (props): string => {
+            // timestamp is not a block so `getText` does not add a separator.
+            // we need to add it manually
+            return `${formatTimestamp(props.node.attrs.playbackTime) || '00:00'}:\n`
         },
+        'ph-survey': customOrTitleSerializer,
+    }
+
+    return getText(node, {
+        blockSeparator: '\n',
+        textSerializers: customNodeTextSerializers,
     })
 }
 
