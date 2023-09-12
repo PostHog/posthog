@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Dict, Optional
+from zoneinfo import ZoneInfo
 
-import pytz
 from rest_framework.exceptions import ValidationError
 from ee.clickhouse.queries.experiments.trend_experiment_result import (
     uses_count_per_property_value_aggregation,
@@ -32,7 +32,6 @@ class ClickhouseSecondaryExperimentResult:
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
     ):
-
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
 
@@ -40,9 +39,9 @@ class ClickhouseSecondaryExperimentResult:
         # while start and end date are in UTC.
         # so we need to convert them to the project timezone
         if team.timezone:
-            start_date_in_project_timezone = experiment_start_date.astimezone(pytz.timezone(team.timezone))
+            start_date_in_project_timezone = experiment_start_date.astimezone(ZoneInfo(team.timezone))
             end_date_in_project_timezone = (
-                experiment_end_date.astimezone(pytz.timezone(team.timezone)) if experiment_end_date else None
+                experiment_end_date.astimezone(ZoneInfo(team.timezone)) if experiment_end_date else None
             )
 
         query_filter = filter.shallow_clone(
@@ -67,7 +66,6 @@ class ClickhouseSecondaryExperimentResult:
         self.query_filter = query_filter
 
     def get_results(self):
-
         if self.query_filter.insight == INSIGHT_TRENDS:
             trend_results = Trends().run(self.query_filter, self.team)
             variants = self.get_trend_count_data_for_variants(trend_results)

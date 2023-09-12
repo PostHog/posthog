@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 from typing import Any, Dict, Optional, Union
 
-import pytz
 from zoneinfo import ZoneInfo
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -77,10 +76,7 @@ def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] 
         # Then we convert it back to UTC (08:00 in UTC)
         if timestamp.tzinfo and timestamp.tzinfo != ZoneInfo("UTC"):
             raise ValidationError(detail="You must pass a timestamp with no timezone or UTC")
-        timestamp = (
-            pytz.timezone(convert_to_timezone).localize(timestamp.replace(tzinfo=None)).astimezone(ZoneInfo("UTC"))
-        )
-
+        timestamp = timestamp.replace(tzinfo=ZoneInfo(convert_to_timezone)).astimezone(ZoneInfo("UTC"))
     return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
