@@ -5,7 +5,7 @@ from typing import TypedDict
 from uuid import UUID, uuid4
 
 import pytest
-import pytz
+from zoneinfo import ZoneInfo
 from kafka import KafkaProducer
 
 from posthog.clickhouse.client import sync_execute
@@ -35,9 +35,9 @@ def test_can_insert_person_overrides():
         old_person_id = uuid4()
         override_person_id = uuid4()
         oldest_event_string = "2020-01-01 00:00:00"
-        oldest_event = datetime.fromisoformat(oldest_event_string).replace(tzinfo=pytz.UTC)
+        oldest_event = datetime.fromisoformat(oldest_event_string).replace(tzinfo=ZoneInfo("UTC"))
         merged_at_string = "2020-01-02 00:00:00"
-        merged_at = datetime.fromisoformat(merged_at_string).replace(tzinfo=pytz.UTC)
+        merged_at = datetime.fromisoformat(merged_at_string).replace(tzinfo=ZoneInfo("UTC"))
         message = {
             "team_id": 1,
             "old_person_id": str(old_person_id),
@@ -82,7 +82,7 @@ def test_can_insert_person_overrides():
         [result] = results
         created_at, *the_rest = result
         assert the_rest == [1, old_person_id, override_person_id, oldest_event, merged_at, 2]
-        assert created_at > datetime.now(tz=pytz.UTC) - timedelta(seconds=10)
+        assert created_at > datetime.now(tz=ZoneInfo("UTC")) - timedelta(seconds=10)
     finally:
         producer.close()
 

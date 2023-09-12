@@ -4,6 +4,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Set, Union
 
 import pytz
+from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
@@ -47,7 +48,7 @@ def create_event(
         timestamp = timezone.now()
     assert timestamp is not None
 
-    timestamp = isoparse(timestamp) if isinstance(timestamp, str) else timestamp.astimezone(pytz.utc)
+    timestamp = isoparse(timestamp) if isinstance(timestamp, str) else timestamp.astimezone(ZoneInfo("UTC"))
 
     elements_chain = ""
     if elements and len(elements) > 0:
@@ -89,7 +90,9 @@ def format_clickhouse_timestamp(
     if default is None:
         default = timezone.now()
     parsed_datetime = (
-        isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
+        isoparse(raw_timestamp)
+        if isinstance(raw_timestamp, str)
+        else (raw_timestamp or default).astimezone(ZoneInfo("UTC"))
     )
     return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
 
@@ -110,7 +113,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
     inserts = []
     params: Dict[str, Any] = {}
     for index, event in enumerate(events):
-        datetime64_default_timestamp = timezone.now().astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+        datetime64_default_timestamp = timezone.now().astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
         timestamp = event.get("timestamp") or dt.datetime.now()
         if isinstance(timestamp, str):
             timestamp = isoparse(timestamp)
@@ -119,7 +122,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             team_timezone = event["team"].timezone if event.get("team") else "UTC"
             timestamp = pytz.timezone(team_timezone).localize(timestamp)
         # Format for ClickHouse
-        timestamp = timestamp.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+        timestamp = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
 
         elements_chain = ""
         if event.get("elements") and len(event["elements"]) > 0:

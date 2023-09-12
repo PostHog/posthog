@@ -4,7 +4,7 @@ from unittest.mock import patch
 import dns.resolver
 import dns.rrset
 import pytest
-import pytz
+from zoneinfo import ZoneInfo
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -133,7 +133,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         instance = OrganizationDomain.objects.get(id=response_data["id"])
         self.assertEqual(instance.domain, "the.posthog.com")
-        self.assertEqual(instance.verified_at, datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=pytz.UTC))
+        self.assertEqual(instance.verified_at, datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=ZoneInfo("UTC")))
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
 
@@ -200,7 +200,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response_data["verified_at"], self.domain.verified_at.strftime("%Y-%m-%dT%H:%M:%SZ"))
         self.assertEqual(response_data["is_verified"], True)
 
-        self.assertEqual(self.domain.verified_at, datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=pytz.UTC))
+        self.assertEqual(self.domain.verified_at, datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=ZoneInfo("UTC")))
         self.assertEqual(self.domain.is_verified, True)
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
@@ -220,7 +220,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response_data["verified_at"], None)
         self.assertEqual(self.domain.verified_at, None)
         self.assertEqual(
-            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=pytz.UTC)
+            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC"))
         )
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
@@ -240,7 +240,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response_data["verified_at"], None)
         self.assertEqual(self.domain.verified_at, None)
         self.assertEqual(
-            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=pytz.UTC)
+            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC"))
         )
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
@@ -262,7 +262,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response_data["verified_at"], None)
         self.assertEqual(self.domain.verified_at, None)
         self.assertEqual(
-            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=pytz.UTC)
+            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC"))
         )
 
     def test_cannot_request_verification_for_verified_domains(self):
