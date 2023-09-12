@@ -438,7 +438,7 @@ async def test_s3_export_workflow_with_minio_bucket(
 
 @pytest.mark.skipif(
     "S3_TEST_BUCKET" not in os.environ or not check_valid_credentials(),
-    reason="Google credentials not set in environment",
+    reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
 )
 @pytest.mark.django_db
 @pytest.mark.asyncio
