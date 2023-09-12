@@ -70,7 +70,9 @@ ADD_SIZE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_SIZE
 ALTER_SESSION_REPLAY_ADD_EVENT_COUNT_COLUMN = """
     ALTER TABLE {table_name} on CLUSTER '{cluster}'
         ADD COLUMN IF NOT EXISTS message_count SimpleAggregateFunction(sum, Int64),
-        ADD COLUMN IF NOT EXISTS event_count SimpleAggregateFunction(sum, Int64)
+        ADD COLUMN IF NOT EXISTS event_count SimpleAggregateFunction(sum, Int64),
+        -- fly by addition so that we can track lag in the data the same way as for other tables
+        ADD COLUMN IF NOT EXISTS _timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
 """
 
 ADD_EVENT_COUNT_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (

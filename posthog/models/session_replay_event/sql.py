@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     console_warn_count Int64,
     console_error_count Int64,
     size Int64,
-    event_count Int64
+    event_count Int64,
+    _timestamp DateTime
 ) ENGINE = {engine}
 """
 
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- this allows us to count the number of snapshot events received in a session
     -- often very useful in incidents or debugging
     -- because we batch events we expect message_count to be lower than event_count
-    event_count SimpleAggregateFunction(sum, Int64)
+    event_count SimpleAggregateFunction(sum, Int64),
+    _timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
 ) ENGINE = {engine}
 """
 
@@ -128,7 +130,8 @@ sum(console_error_count) as console_error_count,
 sum(size) as size,
 -- we can count the number of kafka messages instead of sending it explicitly
 count(*) as message_count,
-sum(event_count) as event_count
+sum(event_count) as event_count,
+max(_timestamp) DateTime
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
