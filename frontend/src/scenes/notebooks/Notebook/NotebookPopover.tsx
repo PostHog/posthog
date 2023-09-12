@@ -21,7 +21,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
     const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
 
-    const isEditable = visibility !== 'hidden' && !notebook?.is_template
+    const editable = visibility !== 'hidden' && !notebook?.is_template
 
     if (droppedResource) {
         return null
@@ -77,7 +77,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
                     <Notebook
                         key={selectedNotebook}
                         shortId={selectedNotebook}
-                        editable={isEditable}
+                        editable={editable}
                         initialAutofocus={initialAutofocus}
                     />
                 )}

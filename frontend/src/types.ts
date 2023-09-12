@@ -3021,11 +3021,6 @@ export type NotebookType = NotebookListItemType & {
     version: number
 }
 
-export enum NotebookMode {
-    View = 'view',
-    Edit = 'edit',
-}
-
 export enum NotebookNodeType {
     Insight = 'ph-insight',
     Query = 'ph-query',

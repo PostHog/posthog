@@ -4,7 +4,7 @@ from contextlib import ExitStack
 from typing import Dict, List, Optional, Union
 from uuid import UUID
 
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
@@ -124,12 +124,12 @@ def create_person(
     if isinstance(timestamp, str):
         timestamp = isoparse(timestamp)
     else:
-        timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.astimezone(ZoneInfo("UTC"))
 
     if created_at is None:
         created_at = timestamp
     else:
-        created_at = created_at.astimezone(pytz.utc)
+        created_at = created_at.astimezone(ZoneInfo("UTC"))
 
     data = {
         "id": str(uuid),
