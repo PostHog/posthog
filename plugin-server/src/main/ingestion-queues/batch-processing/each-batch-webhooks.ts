@@ -17,10 +17,10 @@ import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 require('@sentry/tracing')
 
 // exporting only for testing
-export function groupIntoBatchesWebhooks(
+export function groupIntoBatchesByUsage(
     array: KafkaMessage[],
     batchSize: number,
-    actionMatcher: ActionMatcher
+    shouldProcess: (teamId: number) => boolean
 ): { eventBatch: RawClickHouseEvent[]; lastOffset: string; lastTimestamp: string }[] {
     // Most events will not trigger a webhook call, so we want to filter them out as soon as possible
     // to achieve the highest effective concurrency when executing the actual HTTP calls.
@@ -32,7 +32,7 @@ export function groupIntoBatchesWebhooks(
     let currentCount = 0
     array.forEach((message, index) => {
         const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
-        if (actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
+        if (shouldProcess(clickHouseEvent.team_id)) {
             currentBatch.push(clickHouseEvent)
             currentCount++
         } else {
@@ -69,7 +69,9 @@ export async function eachBatchWebhooksHandlers(
     const transaction = Sentry.startTransaction({ name: `eachBatchWebhooks` })
 
     try {
-        const batchesWithOffsets = groupIntoBatchesWebhooks(batch.messages, concurrency, actionMatcher)
+        const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, (teamId) =>
+            actionMatcher.hasWebhooks(teamId)
+        )
 
         statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, { key: key })
         statsd?.histogram('ingest_event_batching.batch_count', batchesWithOffsets.length, { key: key })
