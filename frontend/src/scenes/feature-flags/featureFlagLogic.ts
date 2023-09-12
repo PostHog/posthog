@@ -17,6 +17,8 @@ import {
     FeatureFlagGroupType,
     UserBlastRadiusType,
     DashboardBasicType,
+    NewEarlyAccessFeatureType,
+    EarlyAccessFeatureType,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -37,6 +39,7 @@ import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -402,9 +405,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         },
                     }
                 },
+                createEarlyAccessFeatureSuccess: (state, { newEarlyAccessFeature }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        features: [...(state.features || []), newEarlyAccessFeature],
+                    }
+                },
             },
         ],
-
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
         isEditingFlag: [
             false,
@@ -444,9 +455,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
-                        const retrievedFlag: FeatureFlagType = await api.get(
-                            `api/projects/${values.currentTeamId}/feature_flags/${props.id}`
-                        )
+                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch (e) {
                         actions.setFeatureFlagMissing()
@@ -502,6 +511,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 loadSentryStats: async () => {
                     return await api.get(`api/sentry_stats/`)
+                },
+            },
+        ],
+        // used to generate a new early access feature
+        // but all subsequent operations after generation should occur via the earlyAccessFeatureLogic
+        newEarlyAccessFeature: [
+            null as EarlyAccessFeatureType | null,
+            {
+                createEarlyAccessFeature: async () => {
+                    const updatedEarlyAccessFeature = {
+                        ...NEW_EARLY_ACCESS_FEATURE,
+                        name: `Early access: ${values.featureFlag.key}`,
+                        feature_flag_id: values.featureFlag.id,
+                    }
+                    return await api.earlyAccessFeatures.create(updatedEarlyAccessFeature as NewEarlyAccessFeatureType)
                 },
             },
         ],
@@ -837,6 +861,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 } else {
                     return defaultEntityFilterOnFlag
                 }
+            },
+        ],
+        hasEarlyAccessFeatures: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return (featureFlag?.features?.length || 0) > 0
             },
         ],
     }),

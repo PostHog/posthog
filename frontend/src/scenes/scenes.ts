@@ -224,6 +224,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         layout: 'plain',
     },
+    [Scene.Onboarding]: {
+        projectBased: true,
+        layout: 'plain',
+    },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch Toolbar',
@@ -438,6 +442,7 @@ export const routes: Record<string, Scene> = {
     [urls.appMetrics(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appHistoricalExports(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appHistory(':pluginConfigId')]: Scene.AppMetrics,
+    [urls.appLogs(':pluginConfigId')]: Scene.AppMetrics,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
@@ -466,6 +471,7 @@ export const routes: Record<string, Scene> = {
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.products()]: Scene.Products,
+    [urls.onboarding(':productKey')]: Scene.Onboarding,
     [urls.verifyEmail()]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
@@ -475,5 +481,4 @@ export const routes: Record<string, Scene> = {
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.notebook(':shortId')]: Scene.Notebook,
-    [urls.notebookEdit(':shortId')]: Scene.Notebook,
 }

@@ -1,29 +1,53 @@
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { databaseSceneLogic, DatabaseSceneRow } from 'scenes/data-management/database/databaseSceneLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { DatabaseTable } from './DatabaseTable'
+import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function DatabaseTablesContainer(): JSX.Element {
     const { filteredTables, databaseLoading } = useValues(databaseSceneLogic)
+    const { toggleFieldModal, selectTable } = useActions(viewLinkLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
-        <DatabaseTables
-            tables={filteredTables}
-            loading={databaseLoading}
-            renderRow={(row: DatabaseSceneRow) => {
-                return (
-                    <div className="px-4 py-3">
-                        <div className="mt-2">
-                            <span className="card-secondary">Columns</span>
-                            <DatabaseTable table={row.name} tables={filteredTables} />
+        <>
+            <DatabaseTables
+                tables={filteredTables}
+                loading={databaseLoading}
+                renderRow={(row: DatabaseSceneRow) => {
+                    return (
+                        <div className="px-4 py-3">
+                            <div className="mt-2">
+                                <span className="card-secondary">Columns</span>
+                                <DatabaseTable table={row.name} tables={filteredTables} />
+                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                                    <div className="w-full flex justify-end">
+                                        <LemonButton
+                                            className="mt-2"
+                                            type="primary"
+                                            onClick={() => {
+                                                selectTable(row)
+                                                toggleFieldModal()
+                                            }}
+                                        >
+                                            Add link to view
+                                        </LemonButton>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                )
-            }}
-        />
+                    )
+                }}
+            />
+            <ViewLinkModal tableSelectable={false} />
+        </>
     )
 }
 

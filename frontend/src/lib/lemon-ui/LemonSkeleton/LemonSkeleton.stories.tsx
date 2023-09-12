@@ -16,6 +16,9 @@ const meta: Meta<typeof LemonSkeleton> = {
 Skeleton screens are used to indicate that a screen is loading, are perceived as being shorter in duration when compared against a blank screen (our control) and a spinner — but not by much`,
             },
         },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
     },
     tags: ['autodocs'],
 }

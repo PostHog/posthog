@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
 from freezegun import freeze_time
 
@@ -147,8 +147,8 @@ class TestReceiveSummarizedSessionReplays(ClickhouseTestMixin, BaseTest):
                 session_id,
                 self.team.pk,
                 str(self.user.distinct_id),
-                datetime(2023, 4, 27, 10, 0, 0, 309000, tzinfo=pytz.UTC),
-                datetime(2023, 4, 27, 19, 20, 24, 597000, tzinfo=pytz.UTC),
+                datetime(2023, 4, 27, 10, 0, 0, 309000, tzinfo=ZoneInfo("UTC")),
+                datetime(2023, 4, 27, 19, 20, 24, 597000, tzinfo=ZoneInfo("UTC")),
                 33624,
                 "https://first-url-ingested.com",
                 6,

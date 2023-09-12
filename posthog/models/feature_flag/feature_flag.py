@@ -149,6 +149,10 @@ class FeatureFlag(models.Model):
 
         parsed_conditions = []
         for condition in self.conditions:
+            if condition.get("variant"):
+                # variant overrides are not supported for cohort expansion.
+                return self.conditions
+
             cohort_condition = False
             props = condition.get("properties", [])
             cohort_group_rollout = condition.get("rollout_percentage")
