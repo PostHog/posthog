@@ -53,6 +53,8 @@ botocore-stubs==1.29.130
     # via boto3-stubs
 brotli==1.0.9
     # via -r requirements.in
+cachetools==5.3.1
+    # via google-auth
 celery==4.4.7
     # via
     #   -r requirements.in
@@ -319,7 +321,7 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
-psycopg2-binary==2.8.6
+psycopg2-binary==2.9.7
     # via -r requirements.in
 ptyprocess==0.6.0
     # via pexpect
