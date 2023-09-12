@@ -41,7 +41,9 @@ export const Widgets = ({
         <div className="NotebookNodeSettings__widgets space-y-2 w-full">
             {widgets.map(({ key, label, Component }) => (
                 <LemonWidget key={key} title={label} collapsible={false} onClose={onClose}>
-                    <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
+                    <div className="NotebookNodeSettings__widgets__content">
+                        <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
+                    </div>
                 </LemonWidget>
             ))}
         </div>

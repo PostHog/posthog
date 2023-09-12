@@ -6,6 +6,7 @@ from unittest.mock import patch, ANY
 from urllib.parse import parse_qsl, urlparse
 
 import pytz
+from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
@@ -1631,8 +1632,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             {
-                "date_from": datetime(2020, 11, 1, 12, tzinfo=pytz.UTC),
-                "date_to": datetime(2020, 11, 1, 13, tzinfo=pytz.UTC),
+                "date_from": datetime(2020, 11, 1, 12, tzinfo=ZoneInfo("UTC")),
+                "date_to": datetime(2020, 11, 1, 13, tzinfo=ZoneInfo("UTC")),
                 "entity_id": "event_name",
                 "entity_math": None,
                 "entity_order": None,
@@ -1687,8 +1688,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             {
-                "date_from": datetime(2020, 11, 1, tzinfo=pytz.UTC),
-                "date_to": datetime(2020, 11, 1, 23, 59, 59, 999999, tzinfo=pytz.UTC),
+                "date_from": datetime(2020, 11, 1, tzinfo=ZoneInfo("UTC")),
+                "date_to": datetime(2020, 11, 1, 23, 59, 59, 999999, tzinfo=ZoneInfo("UTC")),
                 "entity_id": "event_name",
                 "entity_math": None,
                 "entity_order": None,
@@ -3837,8 +3838,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             {
                 "breakdown_type": "event",
                 "breakdown_value": "Safari",
-                "date_from": datetime(2020, 11, 1, 12, tzinfo=pytz.UTC),
-                "date_to": datetime(2020, 11, 1, 13, tzinfo=pytz.UTC),
+                "date_from": datetime(2020, 11, 1, 12, tzinfo=ZoneInfo("UTC")),
+                "date_to": datetime(2020, 11, 1, 13, tzinfo=ZoneInfo("UTC")),
                 "entity_id": "event_name",
                 "entity_math": None,
                 "entity_type": "events",

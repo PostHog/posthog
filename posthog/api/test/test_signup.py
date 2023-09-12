@@ -5,7 +5,7 @@ from unittest import mock
 from unittest.mock import ANY, patch
 
 import pytest
-import pytz
+from zoneinfo import ZoneInfo
 from django.core import mail
 from django.urls.base import reverse
 from django.utils import timezone
@@ -733,7 +733,7 @@ class TestInviteSignupAPI(APIBaseTest):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+59@posthog.com", organization=self.organization
         )
-        invite.created_at = datetime.datetime(2020, 12, 1, tzinfo=pytz.UTC)
+        invite.created_at = datetime.datetime(2020, 12, 1, tzinfo=ZoneInfo("UTC"))
         invite.save()
 
         response = self.client.get(f"/api/signup/{invite.id}/")
@@ -1132,7 +1132,7 @@ class TestInviteSignupAPI(APIBaseTest):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+799@posthog.com", organization=self.organization
         )
-        invite.created_at = datetime.datetime(2020, 3, 3, tzinfo=pytz.UTC)
+        invite.created_at = datetime.datetime(2020, 3, 3, tzinfo=ZoneInfo("UTC"))
         invite.save()
 
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "test_password"})
