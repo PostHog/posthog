@@ -34,7 +34,9 @@ export const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> })
         <div className="NotebookNodeSettings__widgets space-y-2 w-full">
             {widgets.map(({ key, label, Component }) => (
                 <LemonWidget key={key} title={label} onClose={() => setWidgetsVisible(false)}>
-                    <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
+                    <div className="NotebookNodeSettings__widgets__content">
+                        <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
+                    </div>
                 </LemonWidget>
             ))}
         </div>

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List
 from unittest.mock import MagicMock, call, patch
 
-import pytz
+from zoneinfo import ZoneInfo
 from freezegun import freeze_time
 
 from ee.tasks.subscriptions import (
@@ -58,9 +58,9 @@ class TestSubscriptionsTasks(APIBaseTest):
             create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user, deleted=True),
         ]
         # Modify a subscription to have its target time at least an hour ahead
-        subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=pytz.UTC)
+        subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=ZoneInfo("UTC"))
         subscriptions[2].save()
-        assert subscriptions[2].next_delivery_date == datetime(2022, 2, 2, 10, 0).replace(tzinfo=pytz.UTC)
+        assert subscriptions[2].next_delivery_date == datetime(2022, 2, 2, 10, 0).replace(tzinfo=ZoneInfo("UTC"))
 
         schedule_all_subscriptions()
 

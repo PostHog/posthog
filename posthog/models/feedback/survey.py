@@ -24,7 +24,7 @@ class Survey(UUIDModel):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="surveys_linked_flag",
-        related_query_name="survey",
+        related_query_name="survey_linked_flag",
     )
     targeting_flag: models.ForeignKey = models.ForeignKey(
         "posthog.FeatureFlag",
@@ -32,7 +32,7 @@ class Survey(UUIDModel):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="surveys_targeting_flag",
-        related_query_name="survey",
+        related_query_name="survey_targeting_flag",
     )
     type: models.CharField = models.CharField(max_length=40, choices=SurveyType.choices)
 
