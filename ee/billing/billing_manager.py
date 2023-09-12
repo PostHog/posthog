@@ -250,7 +250,7 @@ class BillingManager:
 
         never_drop_data = data.get("never_drop_data", None)
         if never_drop_data != organization.never_drop_data:
-            organization.never_drop_data = data["never_drop_data"]
+            organization.never_drop_data = never_drop_data
             org_modified = True
 
         if org_modified:
