@@ -5,7 +5,6 @@ from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch, ANY
 from urllib.parse import parse_qsl, urlparse
 
-import pytz
 from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.cache import cache
@@ -5604,7 +5603,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-05T08:01:01",
         )
 
-        query_time = pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 5, 10, 1, 1))
+        query_time = datetime(2020, 1, 5, 10, 1, 1, tzinfo=ZoneInfo(self.team.timezone))
         utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600  # type: ignore
         utc_offset_sign = "-" if utc_offset_hours < 0 else "+"
         with freeze_time(query_time):
@@ -5798,7 +5797,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-06T00:30:01",  # Shouldn't be included anywhere
         )
 
-        with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 5, 5, 0))):
+        with freeze_time(datetime(2020, 1, 5, 5, 0, tzinfo=ZoneInfo(self.team.timezone))):
             response = Trends().run(
                 Filter(data={"date_from": "-7d", "events": [{"id": "sign up", "name": "sign up"}]}, team=self.team),
                 self.team,
@@ -6014,7 +6013,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         # TRICKY: This is the previous UTC day in Asia/Tokyo
-        with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 26, 3, 0))):
+        with freeze_time(datetime(2020, 1, 26, 3, 0, tzinfo=ZoneInfo(self.team.timezone))):
             # Total volume query
             response_sunday = Trends().run(
                 Filter(
@@ -6035,7 +6034,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         # TRICKY: This is the previous UTC day in Asia/Tokyo
-        with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 26, 3, 0))):
+        with freeze_time(datetime(2020, 1, 26, 3, 0, tzinfo=ZoneInfo(self.team.timezone))):
             # Total volume query
             response_monday = Trends().run(
                 Filter(
