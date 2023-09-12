@@ -10,7 +10,6 @@ import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from '~/types'
-import { dayjs } from 'lib/dayjs'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -60,7 +59,6 @@ export function PlayerMetaLinks(): JSX.Element {
                         icon={<IconComment />}
                         resource={{ type: NotebookNodeType.Recording, attrs: { id: sessionRecordingId } }}
                         onClick={() => setPause()}
-                        newNotebookTitle={`Notes ${dayjs().format('DD/MM')}`}
                         onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
                             const time = getCurrentPlayerTime() * 1000
 

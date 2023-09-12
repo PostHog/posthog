@@ -34,11 +34,6 @@ export type NotebookSelectPopoverProps = NotebookSelectProps &
 
 export type NotebookSelectButtonProps = NotebookSelectProps &
     Omit<LemonButtonProps, 'onClick' | 'children'> & {
-        newNotebookTitle?: string
-        onNotebookOpened?: (
-            notebookLogic: BuiltLogic<notebookLogicType>,
-            nodeLogic?: BuiltLogic<notebookNodeLogicType>
-        ) => void
         onClick?: () => void
         children?: ReactChild
     }
@@ -69,8 +64,9 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     const logic = notebookSelectButtonLogic({ ...props })
 
     const { resource, newNotebookTitle } = props
-    const { notebooksLoading, containingNotebooks, allNotebooks, searchQuery } = useValues(logic)
-    const { setShowPopover, setSearchQuery, loadContainingNotebooks, loadAllNotebooks } = useActions(logic)
+    const { notebooksLoading, notebooksContainingResource, notebooksNotContainingResource, searchQuery } =
+        useValues(logic)
+    const { setShowPopover, setSearchQuery, loadNotebooksContainingResource, loadAllNotebooks } = useActions(logic)
     const { createNotebook } = useActions(notebooksModel)
 
     const openAndAddToNotebook = async (notebookShortId: string, exists: boolean): Promise<void> => {
@@ -88,7 +84,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
         if (resource) {
             createNotebook(title, NotebookTarget.Popover, [resource], (theNotebookLogic) => {
                 props.onNotebookOpened?.(theNotebookLogic)
-                loadContainingNotebooks()
+                loadNotebooksContainingResource()
             })
         }
 
@@ -97,7 +93,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
 
     useEffect(() => {
         if (props.resource) {
-            loadContainingNotebooks()
+            loadNotebooksContainingResource()
         }
         loadAllNotebooks()
     }, [])
@@ -117,7 +113,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                 </LemonButton>
             </div>
             <div className="overflow-y-auto flex-1">
-                {notebooksLoading && allNotebooks.length === 0 && containingNotebooks.length === 0 ? (
+                {notebooksLoading && !notebooksNotContainingResource.length && !notebooksContainingResource.length ? (
                     <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
                         {notebooksLoading ? (
                             'Loading...'
@@ -133,7 +129,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                             <>
                                 <h5>Continue in</h5>
                                 <NotebooksChoiceList
-                                    notebooks={containingNotebooks}
+                                    notebooks={notebooksContainingResource}
                                     emptyState={
                                         searchQuery.length ? 'No matching notebooks' : 'Not already in any notebooks'
                                     }
@@ -147,7 +143,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                         ) : null}
                         <h5>Add to</h5>
                         <NotebooksChoiceList
-                            notebooks={allNotebooks}
+                            notebooks={notebooksNotContainingResource}
                             emptyState={searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"}
                             onClick={async (notebookShortId) => {
                                 setShowPopover(false)
@@ -192,12 +188,12 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
     // if nodeLogic is available then the button is on a resource that _is already and currently in a notebook_
     const nodeLogic = useNotebookNode()
     const logic = notebookSelectButtonLogic({ ...props })
-    const { showPopover, notebooksLoading, containingNotebooks } = useValues(logic)
-    const { loadContainingNotebooks } = useActions(logic)
+    const { showPopover, notebooksLoading, notebooksContainingResource } = useValues(logic)
+    const { loadNotebooksContainingResource } = useActions(logic)
 
     useEffect(() => {
         if (!nodeLogic) {
-            loadContainingNotebooks()
+            loadNotebooksContainingResource()
         }
     }, [nodeLogic])
 
@@ -226,7 +222,7 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
             {nodeLogic ? (
                 button
             ) : (
-                <IconWithCount count={containingNotebooks.length ?? 0} showZero={false}>
+                <IconWithCount count={notebooksContainingResource.length ?? 0} showZero={false}>
                     <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
                 </IconWithCount>
             )}

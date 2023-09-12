@@ -19,7 +19,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
     actions({
         setShowPopover: (visible: boolean) => ({ visible }),
         setSearchQuery: (query: string) => ({ query }),
-        loadContainingNotebooks: true,
+        loadNotebooksContainingResource: true,
         loadAllNotebooks: true,
     }),
     reducers(({ props }) => ({
@@ -40,7 +40,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
         setSearchQuery: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadAllNotebooks()
-            actions.loadContainingNotebooks()
+            actions.loadNotebooksContainingResource()
         },
     })),
     loaders(({ props, values }) => ({
@@ -55,11 +55,14 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                 },
             },
         ],
-        containingNotebooks: [
+        notebooksContainingResource: [
             [] as NotebookListItemType[],
             {
-                loadContainingNotebooks: async (_, breakpoint) => {
+                loadNotebooksContainingResource: async (_, breakpoint) => {
                     breakpoint(100)
+                    if (!props.resource) {
+                        return []
+                    }
                     const response = await api.notebooks.list(
                         props.resource
                             ? [{ type: props.resource.type, attrs: { id: props.resource.attrs?.id } }]
@@ -74,9 +77,15 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
         ],
     })),
     selectors(() => ({
+        notebooksNotContainingResource: [
+            (s) => [s.allNotebooks, s.notebooksContainingResource],
+            (allNotebooks, notebooksContainingResource) =>
+                allNotebooks.filter((notebook) => !notebooksContainingResource.find((n) => n.id === notebook.id)),
+        ],
         notebooksLoading: [
-            (s) => [s.allNotebooksLoading, s.containingNotebooksLoading],
-            (allNotebooksLoading, containingNotebooksLoading) => allNotebooksLoading || containingNotebooksLoading,
+            (s) => [s.allNotebooksLoading, s.notebooksContainingResourceLoading],
+            (allNotebooksLoading, notebooksContainingResourceLoading) =>
+                allNotebooksLoading || notebooksContainingResourceLoading,
         ],
     })),
 ])
