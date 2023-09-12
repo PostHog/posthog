@@ -28,24 +28,27 @@ export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T &
     height?: string | number
 }
 
-type NotebookNode<T extends CustomNotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
-    attrs: NotebookNodeAttributes<T>
-}
+// NOTE: Pushes users to use the parsed "attributes" instead
+export type NotebookNode = Omit<PMNode, 'attrs'>
 
-export type NotebookNodeWidgetSettings<T extends CustomNotebookNodeAttributes> = {
+export type NotebookNodeAttributeProperties<T extends CustomNotebookNodeAttributes> = {
     attributes: NotebookNodeAttributes<T>
-    updateAttributes: (attributes: Partial<T>) => void
+    updateAttributes: (attributes: Partial<NotebookNodeAttributes<T>>) => void
 }
 
-export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
-    node: NotebookNode<T>
-}
+export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit<
+    NodeViewProps,
+    'node' | 'updateAttributes'
+> &
+    NotebookNodeAttributeProperties<T> & {
+        node: NotebookNode
+    }
 
 export type NotebookNodeWidget = {
     key: string
     label: string
     // using 'any' here shouldn't be necessary but I couldn't figure out how to set a generic on the notebookNodeLogic props
-    Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings<any>) => JSX.Element
+    Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
 }
 
 export interface NotebookEditor {

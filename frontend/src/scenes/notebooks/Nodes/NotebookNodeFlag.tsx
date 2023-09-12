@@ -17,7 +17,7 @@ import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature
 import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const {
         featureFlag,
         featureFlagLoading,

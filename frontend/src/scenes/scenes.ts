@@ -481,5 +481,4 @@ export const routes: Record<string, Scene> = {
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.notebook(':shortId')]: Scene.Notebook,
-    [urls.notebookEdit(':shortId')]: Scene.Notebook,
 }
