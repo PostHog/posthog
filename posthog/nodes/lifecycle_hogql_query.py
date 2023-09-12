@@ -4,9 +4,9 @@ from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import Team
+from posthog.models import Team, Action
 from posthog.nodes.query_date_range import QueryDateRange
 from posthog.schema import LifecycleQuery
 
@@ -88,10 +88,29 @@ def run_lifecycle_query(
     query_date_range = QueryDateRange(date_range=query.dateRange, team=team, interval=query.interval, now=now_dt)
     time_filter, date_from, date_to = create_time_filter(query_date_range, interval=interval)
     event_filter.append(time_filter)
-    # TODO: add test account filters
 
     if query.properties is not None and query.properties != []:
         event_filter.append(property_to_expr(query.properties, team))
+
+    for serie in query.series or []:
+        if serie.kind == "ActionsNode":
+            action = Action.objects.get(pk=int(serie.id), team=team)
+            event_filter.append(action_to_expr(action))
+        elif serie.kind == "EventsNode":
+            if serie.event is not None:
+                event_filter.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=str(serie.event)),
+                    )
+                )
+        else:
+            raise ValueError(f"Invalid serie kind: {serie.kind}")
+        if serie.properties is not None and serie.properties != []:
+            event_filter.append(property_to_expr(serie.properties, team))
+
+    # TODO: add test account filters
 
     if len(event_filter) == 0:
         event_filter = ast.Constant(value=True)
