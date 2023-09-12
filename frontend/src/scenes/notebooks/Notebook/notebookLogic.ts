@@ -166,7 +166,6 @@ export const notebookLogic = kea<notebookLogicType>([
         isShowingSidebar: [
             false,
             {
-                setSelectedNodeId: () => false,
                 setIsShowingSidebar: (_, { showing }) => showing,
             },
         ],
