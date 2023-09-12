@@ -15,7 +15,13 @@ from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
-from posthog.schema import PropertyOperator
+from posthog.schema import (
+    PropertyOperator,
+    PropertyGroupFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilterValue,
+    EventPropertyFilter,
+)
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -57,11 +63,30 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         if len(properties) == 1:
             return properties[0]
         return ast.And(exprs=properties)
+    elif isinstance(property, EventPropertyFilter):
+        if property.value is None:
+            # Property filter that's not completely filled in the frontend. Will just not affect results.
+            return ast.Constant(value=True)
+        property = Property(key=property.key, operator=property.operator.value, value=property.value, type="event")
     elif isinstance(property, Property):
         pass
-    elif isinstance(property, PropertyGroup):
-        if property.type != PropertyOperatorType.AND and property.type != PropertyOperatorType.OR:
+    elif (
+        isinstance(property, PropertyGroup)
+        or isinstance(property, PropertyGroupFilter)
+        or isinstance(property, PropertyGroupFilterValue)
+    ):
+        if (
+            isinstance(property, PropertyGroup)
+            and property.type != PropertyOperatorType.AND
+            and property.type != PropertyOperatorType.OR
+        ):
             raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
+        if (
+            (isinstance(property, PropertyGroupFilter) or isinstance(property, PropertyGroupFilterValue))
+            and property.type != FilterLogicalOperator.AND
+            and property.type != FilterLogicalOperator.OR
+        ):
+            raise NotImplementedException(f'PropertyGroupFilter of unknown type "{property.type}"')
 
         if len(property.values) == 0:
             return ast.Constant(value=True)

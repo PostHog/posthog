@@ -4,6 +4,7 @@ from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.nodes.query_date_range import QueryDateRange
@@ -82,10 +83,22 @@ def run_lifecycle_query(
     one_interval_period = parse_expr(f"toInterval{interval.capitalize()}(1)")
     number_interval_period = parse_expr(f"toInterval{interval.capitalize()}(number)")
 
-    query_date_range = QueryDateRange(date_range=query.dateRange, team=team, interval=query.interval, now=now_dt)
+    event_filter = []
 
+    query_date_range = QueryDateRange(date_range=query.dateRange, team=team, interval=query.interval, now=now_dt)
     time_filter, date_from, date_to = create_time_filter(query_date_range, interval=interval)
-    event_filter = time_filter  # TODO: add all other filters
+    event_filter.append(time_filter)
+    # TODO: add test account filters
+
+    if query.properties is not None and query.properties != []:
+        event_filter.append(property_to_expr(query.properties, team))
+
+    if len(event_filter) == 0:
+        event_filter = ast.Constant(value=True)
+    elif len(event_filter) == 1:
+        event_filter = event_filter[0]
+    else:
+        event_filter = ast.And(exprs=event_filter)
 
     placeholders = {
         "interval": ast.Constant(value=interval),
