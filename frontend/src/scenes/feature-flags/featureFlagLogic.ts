@@ -533,12 +533,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as EarlyAccessFeatureType | null,
             {
                 createEarlyAccessFeature: async () => {
-                    const updatedEarlyAccessFeature = {
+                    const newEarlyAccessFeature = {
                         ...NEW_EARLY_ACCESS_FEATURE,
                         name: `Early access: ${values.featureFlag.key}`,
                         feature_flag_id: values.featureFlag.id,
                     }
-                    return await api.earlyAccessFeatures.create(updatedEarlyAccessFeature as NewEarlyAccessFeatureType)
+                    return await api.earlyAccessFeatures.create(newEarlyAccessFeature as NewEarlyAccessFeatureType)
                 },
             },
         ],
@@ -548,7 +548,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as Survey | null,
             {
                 createSurvey: async () => {
-                    const updatedSurvey = {
+                    const newSurvey = {
                         ...NEW_SURVEY,
                         name: `Survey: ${values.featureFlag.key}`,
                         linked_flag_id: values.featureFlag.id,
@@ -559,7 +559,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             },
                         ],
                     }
-                    return await api.surveys.create(updatedSurvey as NewSurvey)
+                    return await api.surveys.create(newSurvey as NewSurvey)
                 },
             },
         ],
@@ -916,7 +916,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         hasSurveys: [
             (s) => [s.featureFlag],
             (featureFlag) => {
-                return (featureFlag?.surveys?.length || 0) > 0
+                return featureFlag?.surveys && featureFlag.surveys.length > 0
             },
         ],
     }),
