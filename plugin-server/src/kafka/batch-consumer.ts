@@ -1,11 +1,12 @@
 import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka-acosom'
-import { exponentialBuckets, Histogram } from 'prom-client'
+import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { status } from '../utils/status'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
     commitOffsetsForMessages,
     consumeMessages,
+    countPartitionsPerTopic,
     createKafkaConsumer,
     disconnectConsumer,
     instrumentConsumerMetrics,
@@ -181,6 +182,10 @@ export const startBatchConsumer = async ({
                     continue
                 }
 
+                for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
+                    kafkaAbsolutePartitionCount.labels({ topic }).set(count)
+                }
+
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
                 if (!messages.length) {
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
@@ -277,4 +282,10 @@ const consumedMessageSizeBytes = new Histogram({
     help: 'Size of consumed message value in bytes',
     labelNames: ['topic', 'groupId', 'messageType'],
     buckets: exponentialBuckets(1, 8, 4).map((bucket) => bucket * 1024),
+})
+
+const kafkaAbsolutePartitionCount = new Gauge({
+    name: 'kafka_absolute_partition_count',
+    help: 'Number of partitions assigned to this consumer. (Absolute value from the consumer state.)',
+    labelNames: ['topic'],
 })

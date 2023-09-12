@@ -112,17 +112,7 @@ export function Surveys(): JSX.Element {
                                     title: 'Status',
                                     width: 100,
                                     render: function Render(_, survey: Survey) {
-                                        const statusColors = {
-                                            running: 'success',
-                                            draft: 'default',
-                                            complete: 'completion',
-                                        } as Record<ProgressStatus, LemonTagType>
-                                        const status = getSurveyStatus(survey)
-                                        return (
-                                            <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }}>
-                                                {status.toUpperCase()}
-                                            </LemonTag>
-                                        )
+                                        return <StatusTag survey={survey} />
                                     },
                                 },
                                 {
@@ -241,5 +231,19 @@ export function Surveys(): JSX.Element {
                 </>
             )}
         </div>
+    )
+}
+
+export function StatusTag({ survey }: { survey: Survey }): JSX.Element {
+    const statusColors = {
+        running: 'success',
+        draft: 'default',
+        complete: 'completion',
+    } as Record<ProgressStatus, LemonTagType>
+    const status = getSurveyStatus(survey)
+    return (
+        <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }}>
+            {status.toUpperCase()}
+        </LemonTag>
     )
 }

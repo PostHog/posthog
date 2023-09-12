@@ -185,5 +185,4 @@ export const urls = {
             tab: 'notebooks',
         }).url,
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
-    notebookEdit: (shortId: string): string => `/notebooks/${shortId}/edit`,
 }

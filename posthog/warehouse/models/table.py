@@ -8,6 +8,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     IntegerDatabaseField,
     DateTimeDatabaseField,
+    DateDatabaseField,
     StringJSONDatabaseField,
     BooleanDatabaseField,
     StringArrayDatabaseField,
@@ -20,6 +21,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "String": StringDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
+    "Date": DateDatabaseField,
     "UInt8": IntegerDatabaseField,
     "UInt16": IntegerDatabaseField,
     "UInt32": IntegerDatabaseField,
@@ -47,6 +49,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"
         Parquet = "Parquet", "Parquet"
+        JSON = "JSONEachRow", "JSON"
 
     name: models.CharField = models.CharField(max_length=128)
     format: models.CharField = models.CharField(max_length=128, choices=TableFormat.choices)

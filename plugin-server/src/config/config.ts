@@ -116,6 +116,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
         HISTORICAL_EXPORTS_ENABLED: true,
         HISTORICAL_EXPORTS_MAX_RETRY_COUNT: 15,
@@ -125,6 +126,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
+
+        STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
+        STARTUP_PROFILE_CPU: false,
+        STARTUP_PROFILE_HEAP: false,
+        STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
+        STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
 
         SESSION_RECORDING_KAFKA_HOSTS: undefined,
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,

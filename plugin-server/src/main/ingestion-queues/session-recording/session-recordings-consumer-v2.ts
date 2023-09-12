@@ -279,7 +279,6 @@ export class SessionRecordingIngesterV2 {
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
             events: event.properties.$snapshot_items,
-            replayIngestionConsumer: event.properties?.$snapshot_consumer ?? 'v1',
         }
 
         return recordingMessage
