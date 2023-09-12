@@ -1,3 +1,4 @@
+import re
 from typing import Dict, Any, Optional
 
 from django.utils.timezone import datetime
@@ -6,32 +7,15 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
 from posthog.models import Team, Action
 from posthog.nodes.query_date_range import QueryDateRange
-from posthog.schema import LifecycleQuery
+from posthog.schema import LifecycleQuery, IntervalType
 
 
-def create_time_filter(date_range: QueryDateRange, interval: str) -> (ast.Expr, ast.Expr, ast.Expr):
-    # don't need timezone here, as HogQL will use the project timezone automatically
-    date_from_s = f"assumeNotNull(toDateTime('{date_range.date_from}'))"
-    date_from = parse_expr(date_from_s)
-    date_to_s = f"assumeNotNull(toDateTime('{date_range.date_to}'))"
-    date_to = parse_expr(date_to_s)
-
-    # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
-    # TODO use placeholders, for some reason I couldn't get this to work properly
-    time_filter = parse_expr(
-        f"""
-    (timestamp >= dateTrunc('{interval}', {date_from_s}) - INTERVAL 1 {interval})
-    AND
-    (timestamp < dateTrunc('{interval}', {date_to_s}) + INTERVAL 1 {interval})
-    """
-    )
-
-    return time_filter, date_from, date_to
-
-
-def create_events_query(interval: str, event_filter: ast.Expr, sampling_factor: Optional[float] = None):
+def create_events_query(
+    interval: str, event_filter: ast.Expr, timings: HogQLTimings, sampling_factor: Optional[float] = None
+):
     one_interval_period = parse_expr(f"toInterval{interval.capitalize()}(1)")
 
     if not event_filter:
@@ -64,6 +48,7 @@ def create_events_query(interval: str, event_filter: ast.Expr, sampling_factor: 
             GROUP BY person_id
         """,
         placeholders=placeholders,
+        timings=timings,
     )
 
     if sampling_factor is not None and (isinstance(sampling_factor, float) or isinstance(sampling_factor, int)):
@@ -73,51 +58,86 @@ def create_events_query(interval: str, event_filter: ast.Expr, sampling_factor: 
     return events_query
 
 
+def assume_not_null(expr: ast.Expr) -> ast.Expr:
+    return ast.Call(name="assumeNotNull", args=[expr])
+
+
+def to_datetime(expr: ast.Expr) -> ast.Expr:
+    return ast.Call(name="toDateTime", args=[expr])
+
+
 def run_lifecycle_query(
     team: Team,
     query: LifecycleQuery,
 ) -> Dict[str, Any]:
     now_dt = datetime.now()
-
-    try:
-        interval = query.interval.name
-    except AttributeError:
-        interval = "day"
-    if interval not in ["minute", "hour", "day", "week", "month", "quarter", "year"]:
+    timings = HogQLTimings()
+    interval = query.interval or IntervalType.day
+    if not isinstance(interval, IntervalType) or re.match(r"[^a-z]", interval.name):
         raise ValueError(f"Invalid interval: {interval}")
-    one_interval_period = parse_expr(f"toInterval{interval.capitalize()}(1)")
-    number_interval_period = parse_expr(f"toInterval{interval.capitalize()}(number)")
+    interval_period = interval.name.capitalize()
+    one_interval_period = ast.Call(name=f"toInterval{interval_period}", args=[ast.Constant(value=1)])
+    number_interval_period = ast.Call(name=f"toInterval{interval_period}", args=[ast.Field(chain=["number"])])
 
     event_filter = []
+    with timings.measure("date_range"):
+        query_date_range = QueryDateRange(date_range=query.dateRange, team=team, interval=query.interval, now=now_dt)
+        date_from = assume_not_null(to_datetime(ast.Constant(value=query_date_range.date_from)))
+        date_to = assume_not_null(to_datetime(ast.Constant(value=query_date_range.date_to)))
+        event_filter.append(
+            parse_expr(
+                "timestamp >= dateTrunc({interval}, {date_from}) - {one_interval}",
+                {
+                    "interval": ast.Constant(value=interval.name),
+                    "one_interval": one_interval_period,
+                    "date_from": date_from,
+                },
+                timings=timings,
+            )
+        )
+        event_filter.append(
+            parse_expr(
+                "timestamp < dateTrunc({interval}, {date_to}) + {one_interval}",
+                {
+                    "interval": ast.Constant(value=interval.name),
+                    "one_interval": one_interval_period,
+                    "date_to": date_to,
+                },
+                timings=timings,
+            )
+        )
 
-    query_date_range = QueryDateRange(date_range=query.dateRange, team=team, interval=query.interval, now=now_dt)
-    time_filter, date_from, date_to = create_time_filter(query_date_range, interval=interval)
-    event_filter.append(time_filter)
+    with timings.measure("properties"):
+        if query.properties is not None and query.properties != []:
+            event_filter.append(property_to_expr(query.properties, team))
 
-    if query.properties is not None and query.properties != []:
-        event_filter.append(property_to_expr(query.properties, team))
-
-    for serie in query.series or []:
-        if serie.kind == "ActionsNode":
-            action = Action.objects.get(pk=int(serie.id), team=team)
-            event_filter.append(action_to_expr(action))
-        elif serie.kind == "EventsNode":
-            if serie.event is not None:
-                event_filter.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=str(serie.event)),
+    with timings.measure("series_filters"):
+        for serie in query.series or []:
+            if serie.kind == "ActionsNode":
+                action = Action.objects.get(pk=int(serie.id), team=team)
+                event_filter.append(action_to_expr(action))
+            elif serie.kind == "EventsNode":
+                if serie.event is not None:
+                    event_filter.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value=str(serie.event)),
+                        )
                     )
-                )
-        else:
-            raise ValueError(f"Invalid serie kind: {serie.kind}")
-        if serie.properties is not None and serie.properties != []:
-            event_filter.append(property_to_expr(serie.properties, team))
+            else:
+                raise ValueError(f"Invalid serie kind: {serie.kind}")
+            if serie.properties is not None and serie.properties != []:
+                event_filter.append(property_to_expr(serie.properties, team))
 
-    if query.filterTestAccounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
-        for property in team.test_account_filters:
-            event_filter.append(property_to_expr(property, team))
+    with timings.measure("test_account_filters"):
+        if (
+            query.filterTestAccounts
+            and isinstance(team.test_account_filters, list)
+            and len(team.test_account_filters) > 0
+        ):
+            for property in team.test_account_filters:
+                event_filter.append(property_to_expr(property, team))
 
     if len(event_filter) == 0:
         event_filter = ast.Constant(value=True)
@@ -127,7 +147,7 @@ def run_lifecycle_query(
         event_filter = ast.And(exprs=event_filter)
 
     placeholders = {
-        "interval": ast.Constant(value=interval),
+        "interval": ast.Constant(value=interval.name),
         "one_interval_period": one_interval_period,
         "number_interval_period": number_interval_period,
         "event_filter": event_filter,
@@ -135,63 +155,66 @@ def run_lifecycle_query(
         "date_to": date_to,
     }
 
-    events_query = create_events_query(
-        interval=interval, event_filter=event_filter, sampling_factor=query.samplingFactor
-    )
+    with timings.measure("events_query"):
+        events_query = create_events_query(
+            interval=interval.name, event_filter=event_filter, sampling_factor=query.samplingFactor, timings=timings
+        )
 
-    periods = parse_select(
-        """
-            SELECT (
-                dateTrunc({interval}, {date_to}) - {number_interval_period}
-            ) AS start_of_period
-            FROM numbers(
-                dateDiff(
-                    {interval},
-                    dateTrunc({interval}, {date_from}),
-                    dateTrunc({interval}, {date_to} + {one_interval_period})
+    with timings.measure("periods_query"):
+        periods = parse_select(
+            """
+                SELECT (
+                    dateTrunc({interval}, {date_to}) - {number_interval_period}
+                ) AS start_of_period
+                FROM numbers(
+                    dateDiff(
+                        {interval},
+                        dateTrunc({interval}, {date_from}),
+                        dateTrunc({interval}, {date_to} + {one_interval_period})
+                    )
                 )
-            )
-        """,
-        placeholders=placeholders,
-    )
+            """,
+            placeholders=placeholders,
+        )
 
-    lifecycle_sql = parse_select(
-        """
-            SELECT groupArray(start_of_period) AS date,
-                   groupArray(counts) AS total,
-                   status
-            FROM (
-                SELECT
-                    status = 'dormant' ? negate(sum(counts)) : negate(negate(sum(counts))) as counts,
-                    start_of_period,
-                    status
+    with timings.measure("lifecycle_query"):
+        lifecycle_sql = parse_select(
+            """
+                SELECT groupArray(start_of_period) AS date,
+                       groupArray(counts) AS total,
+                       status
                 FROM (
                     SELECT
-                        periods.start_of_period as start_of_period,
-                        0 AS counts,
+                        status = 'dormant' ? negate(sum(counts)) : negate(negate(sum(counts))) as counts,
+                        start_of_period,
                         status
-                    FROM {periods} as periods
-                    CROSS JOIN (
-                        SELECT status
-                        FROM (SELECT 1)
-                        ARRAY JOIN ['new', 'returning', 'resurrecting', 'dormant'] as status
-                    ) as sec
-                    ORDER BY status, start_of_period
-                    UNION ALL
-                    SELECT
-                        start_of_period, count(DISTINCT person_id) AS counts, status
-                    FROM {events_query}
+                    FROM (
+                        SELECT
+                            periods.start_of_period as start_of_period,
+                            0 AS counts,
+                            status
+                        FROM {periods} as periods
+                        CROSS JOIN (
+                            SELECT status
+                            FROM (SELECT 1)
+                            ARRAY JOIN ['new', 'returning', 'resurrecting', 'dormant'] as status
+                        ) as sec
+                        ORDER BY status, start_of_period
+                        UNION ALL
+                        SELECT
+                            start_of_period, count(DISTINCT person_id) AS counts, status
+                        FROM {events_query}
+                        GROUP BY start_of_period, status
+                    )
+                    WHERE start_of_period <= dateTrunc({interval}, {date_to})
+                        AND start_of_period >= dateTrunc({interval}, {date_from})
                     GROUP BY start_of_period, status
+                    ORDER BY start_of_period ASC
                 )
-                WHERE start_of_period <= dateTrunc({interval}, {date_to})
-                    AND start_of_period >= dateTrunc({interval}, {date_from})
-                GROUP BY start_of_period, status
-                ORDER BY start_of_period ASC
-            )
-            GROUP BY status
-        """,
-        {**placeholders, "periods": periods, "events_query": events_query},
-    )
+                GROUP BY status
+            """,
+            {**placeholders, "periods": periods, "events_query": events_query},
+        )
 
     response = execute_hogql_query(
         team=team,
@@ -202,8 +225,8 @@ def run_lifecycle_query(
     res = []
     for val in response.results:
         counts = val[1]
-        labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if interval == "hour" else "")) for item in val[0]]
-        days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if interval == "hour" else "")) for item in val[0]]
+        labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if interval.name == "hour" else "")) for item in val[0]]
+        days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if interval.name == "hour" else "")) for item in val[0]]
 
         label = "{} - {}".format("", val[2])  # entity.name
         additional_values = {"label": label, "status": val[2]}
