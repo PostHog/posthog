@@ -101,6 +101,7 @@ export const textContent = (node: any): string => {
         return serializedText
     }
 
+    // we want the type system to complain if we forget to add a custom serializer
     const customNodeTextSerializers: Record<NotebookNodeType, TextSerializer> = {
         'ph-backlink': customOrTitleSerializer,
         'ph-early-access-feature': customOrTitleSerializer,
