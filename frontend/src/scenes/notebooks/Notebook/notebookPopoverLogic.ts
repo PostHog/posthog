@@ -81,7 +81,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
             },
         ],
         droppedResource: [
-            'TODO REMOVE' as NotebookNodeResource | string | null,
+            null as NotebookNodeResource | string | null,
             {
                 setVisibility: (state, { visibility }) => (visibility === 'hidden' ? null : state),
                 setDroppedResource: (_, { resource }) => resource,

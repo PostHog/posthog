@@ -42,13 +42,6 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             actions.loadAllNotebooks()
             actions.loadContainingNotebooks()
         },
-
-        setShowPopover: async ({ visible }) => {
-            if (visible) {
-                actions.loadAllNotebooks()
-                actions.loadContainingNotebooks()
-            }
-        },
     })),
     loaders(({ props, values }) => ({
         allNotebooks: [

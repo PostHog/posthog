@@ -4,6 +4,8 @@ import { notebookPopoverLogic } from './notebookPopoverLogic'
 import { useActions, useValues } from 'kea'
 import { NotebookNodeType } from '~/types'
 import { NotebookSelectList } from '../NotebookSelectButton/NotebookSelectButton'
+import { notebookLogicType } from './notebookLogicType'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function NotebookPopoverDropzone(): JSX.Element | null {
     const [isDragActive, setIsDragActive] = useState(false)
@@ -33,6 +35,15 @@ export function NotebookPopoverDropzone(): JSX.Element | null {
         )
     }
 
+    const onNotebookOpened = (notebookLogic: notebookLogicType): void => {
+        setDroppedResource(null)
+        if (droppedResource) {
+            typeof droppedResource !== 'string'
+                ? notebookLogic.actions.insertAfterLastNode(droppedResource)
+                : notebookLogic.actions.pasteAfterLastNode(droppedResource)
+        }
+    }
+
     if (!dropMode && !droppedResource) {
         return null
     }
@@ -50,8 +61,13 @@ export function NotebookPopoverDropzone(): JSX.Element | null {
         >
             {droppedResource ? (
                 <div className="NotebookPopoverDropzone__dropped">
-                    <h2>Add dropped resource to...</h2>
-                    <NotebookSelectList />
+                    <div className="flex items-start justify-between">
+                        <h2>Add dropped resource to...</h2>
+                        <LemonButton size="small" onClick={() => setDroppedResource(null)}>
+                            Cancel
+                        </LemonButton>
+                    </div>
+                    <NotebookSelectList onNotebookOpened={onNotebookOpened} />
                 </div>
             ) : (
                 <div className="NotebookPopoverDropzone__message">Drop here for a different Notebook</div>

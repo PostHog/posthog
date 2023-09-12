@@ -17,6 +17,7 @@ import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactChild, useEffect } from 'react'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -69,7 +70,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
 
     const { resource, newNotebookTitle } = props
     const { notebooksLoading, containingNotebooks, allNotebooks, searchQuery } = useValues(logic)
-    const { setShowPopover, setSearchQuery, loadContainingNotebooks } = useActions(logic)
+    const { setShowPopover, setSearchQuery, loadContainingNotebooks, loadAllNotebooks } = useActions(logic)
     const { createNotebook } = useActions(notebooksModel)
 
     const openAndAddToNotebook = async (notebookShortId: string, exists: boolean): Promise<void> => {
@@ -93,6 +94,13 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
 
         setShowPopover(false)
     }
+
+    useEffect(() => {
+        if (props.resource) {
+            loadContainingNotebooks()
+        }
+        loadAllNotebooks()
+    }, [])
 
     return (
         <div className="space-y-2 flex flex-col flex-1 h-full overflow-hidden">
@@ -121,17 +129,11 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     </div>
                 ) : (
                     <>
-                        {containingNotebooks.length ? (
+                        {resource ? (
                             <>
                                 <h5>Continue in</h5>
                                 <NotebooksChoiceList
-                                    notebooks={containingNotebooks.filter((notebook) => {
-                                        // notebook comment logic doesn't know anything about backend filtering 🤔
-                                        return (
-                                            searchQuery.length === 0 ||
-                                            notebook.title?.toLowerCase().includes(searchQuery.toLowerCase())
-                                        )
-                                    })}
+                                    notebooks={containingNotebooks}
                                     emptyState={
                                         searchQuery.length ? 'No matching notebooks' : 'Not already in any notebooks'
                                     }
@@ -140,33 +142,18 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                                         await openAndAddToNotebook(notebookShortId, true)
                                     }}
                                 />
+                                <LemonDivider />
                             </>
                         ) : null}
-                        {allNotebooks.length > containingNotebooks.length && (
-                            <>
-                                <h5>Add to</h5>
-                                <NotebooksChoiceList
-                                    notebooks={allNotebooks.filter((notebook) => {
-                                        // TODO follow-up on filtering after https://github.com/PostHog/posthog/pull/17027
-                                        const isInExisting = containingNotebooks.some(
-                                            (containingNotebook) => containingNotebook.short_id === notebook.short_id
-                                        )
-                                        return (
-                                            !isInExisting &&
-                                            (searchQuery.length === 0 ||
-                                                notebook.title?.toLowerCase().includes(searchQuery.toLowerCase()))
-                                        )
-                                    })}
-                                    emptyState={
-                                        searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"
-                                    }
-                                    onClick={async (notebookShortId) => {
-                                        setShowPopover(false)
-                                        await openAndAddToNotebook(notebookShortId, false)
-                                    }}
-                                />
-                            </>
-                        )}
+                        <h5>Add to</h5>
+                        <NotebooksChoiceList
+                            notebooks={allNotebooks}
+                            emptyState={searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"}
+                            onClick={async (notebookShortId) => {
+                                setShowPopover(false)
+                                await openAndAddToNotebook(notebookShortId, false)
+                            }}
+                        />
                     </>
                 )}
             </div>
@@ -177,11 +164,10 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
 export function NotebookSelectPopover({
     // so we can pass props to the button below, without passing visible to it
     visible,
-    resource,
     children,
     ...props
 }: NotebookSelectPopoverProps): JSX.Element {
-    const logic = notebookSelectButtonLogic({ ...props, resource, visible })
+    const logic = notebookSelectButtonLogic({ ...props, visible })
     const { showPopover } = useValues(logic)
     const { setShowPopover } = useActions(logic)
 

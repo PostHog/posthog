@@ -182,6 +182,7 @@ export function Editor({
 
             onCreate({
                 getJSON: () => editor.getJSON(),
+                getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
@@ -198,6 +199,10 @@ export function Editor({
                         editor.chain().focus().insertContentAt(endPosition, content).run()
                         editor.commands.scrollIntoView()
                     }
+                },
+                pasteContent: (position: number, text: string) => {
+                    editor?.chain().focus().setTextSelection(position).run()
+                    editor?.view.pasteText(text)
                 },
                 findNode: (position: number) => findNode(editor, position),
                 findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
