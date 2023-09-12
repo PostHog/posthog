@@ -84,7 +84,7 @@ export async function eachBatchHandlerHelper(
     const loggingKey = `each_batch_${key}`
     const { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload = payload
 
-    const transaction = Sentry.startTransaction({ name: `eachBatchWebhooks` })
+    const transaction = Sentry.startTransaction({ name: `eachBatch${stats_key}` })
 
     try {
         const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
