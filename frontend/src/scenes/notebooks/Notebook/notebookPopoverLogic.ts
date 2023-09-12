@@ -115,7 +115,6 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
                               }
                           },
                           style: {
-                              // TODO: Tune this value
                               transform: visibility === 'peek' ? `translateX(${(1 - dropDistance) * 100}%)` : undefined,
                           },
                       }

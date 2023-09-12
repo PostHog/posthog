@@ -80,7 +80,9 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
         notebooksNotContainingResource: [
             (s) => [s.allNotebooks, s.notebooksContainingResource],
             (allNotebooks, notebooksContainingResource) =>
-                allNotebooks.filter((notebook) => !notebooksContainingResource.find((n) => n.id === notebook.id)),
+                allNotebooks.filter(
+                    (notebook) => !notebooksContainingResource.find((n) => n.short_id === notebook.short_id)
+                ),
         ],
         notebooksLoading: [
             (s) => [s.allNotebooksLoading, s.notebooksContainingResourceLoading],
