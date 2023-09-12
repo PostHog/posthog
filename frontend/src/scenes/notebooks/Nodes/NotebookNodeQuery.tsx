@@ -123,6 +123,12 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             } else {
                 title = 'Data exploration'
             }
+        } else if (NodeKind.InsightVizNode === query.kind) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Insight'
+            }
         }
         return Promise.resolve(title)
     },
