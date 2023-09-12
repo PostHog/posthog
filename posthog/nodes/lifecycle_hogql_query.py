@@ -110,7 +110,9 @@ def run_lifecycle_query(
         if serie.properties is not None and serie.properties != []:
             event_filter.append(property_to_expr(serie.properties, team))
 
-    # TODO: add test account filters
+    if query.filterTestAccounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
+        for property in team.test_account_filters:
+            event_filter.append(property_to_expr(property, team))
 
     if len(event_filter) == 0:
         event_filter = ast.Constant(value=True)
