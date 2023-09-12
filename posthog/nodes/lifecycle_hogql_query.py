@@ -189,4 +189,4 @@ def run_lifecycle_query(
             }
         )
 
-    return {"result": res}
+    return {"result": res, "timings": response.timings}
