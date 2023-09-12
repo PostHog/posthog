@@ -76,4 +76,9 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
             return { id: match[1] }
         },
     },
+    serializedText: () => (attrs) => {
+        const personTitle = attrs?.title || ''
+        const personId = attrs?.id || ''
+        return `${personTitle} ${personId}`.trim()
+    },
 })

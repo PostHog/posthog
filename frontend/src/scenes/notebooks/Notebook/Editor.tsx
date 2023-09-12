@@ -2,8 +2,6 @@ import posthog from 'posthog-js'
 import { useActions } from 'kea'
 import { useCallback, useRef } from 'react'
 
-import { Node as ProseMirrorNode } from '@tiptap/pm/model'
-
 import { Editor as TTEditor, TextSerializer } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
@@ -185,41 +183,28 @@ export function Editor({
             onCreate({
                 getJSON: () => editor.getJSON(),
                 getText: () => {
-                    const titleSerializer: TextSerializer = (props): string => props.node.attrs?.title || ''
+                    const customOrTitleSerializer: TextSerializer = (props): string => {
+                        return props.node.type.spec.serializedText(props.node.attrs) || props.node.attrs?.title || ''
+                    }
+
                     const customNodeTextSerializers: Record<NotebookNodeType, TextSerializer> = {
-                        'ph-backlink': titleSerializer,
-                        'ph-early-access-feature': titleSerializer,
-                        'ph-experiment': titleSerializer,
-                        'ph-feature-flag': titleSerializer,
-                        'ph-feature-flag-code-example': titleSerializer,
-                        'ph-image': (props: { node: ProseMirrorNode }): string => {
-                            return props.node.attrs?.file?.name || ''
-                        },
-                        'ph-insight': titleSerializer,
-                        'ph-person': (props: { node: ProseMirrorNode }): string => {
-                            const personTitle = props.node.attrs?.title || ''
-                            const personId = props.node.attrs?.id || ''
-                            return `${personTitle} ${personId}`
-                        },
-                        'ph-query': (props: { node: ProseMirrorNode }): string => {
-                            return props.node.attrs?.query?.source?.query || ''
-                        },
-                        'ph-recording': (props: { node: ProseMirrorNode }): string => {
-                            // allow search using the session id
-                            return props.node.attrs?.id || ''
-                        },
-                        'ph-recording-playlist': (props: { node: ProseMirrorNode }): string => {
-                            // TODO does a playlist report any title that has been set here?
-                            return props.node.attrs?.title || ''
-                        },
-                        'ph-replay-timestamp': (props: { node: ProseMirrorNode }): string => {
+                        'ph-backlink': customOrTitleSerializer,
+                        'ph-early-access-feature': customOrTitleSerializer,
+                        'ph-experiment': customOrTitleSerializer,
+                        'ph-feature-flag': customOrTitleSerializer,
+                        'ph-feature-flag-code-example': customOrTitleSerializer,
+                        'ph-image': customOrTitleSerializer,
+                        'ph-insight': customOrTitleSerializer,
+                        'ph-person': customOrTitleSerializer,
+                        'ph-query': customOrTitleSerializer,
+                        'ph-recording': customOrTitleSerializer,
+                        'ph-recording-playlist': customOrTitleSerializer,
+                        'ph-replay-timestamp': (): string => {
                             // any comment is reported as text from its paragraph component
-                            return props.node.attrs?.sessionRecordingId || ''
+                            // and this is linked to a recording which implicitly makes the timestamp searchable by ID
+                            return ''
                         },
-                        'ph-survey': (props: { node: ProseMirrorNode }): string => {
-                            // TODO we could look up other survey text... e.g. any questions asked
-                            return props.node.attrs?.title || ''
-                        },
+                        'ph-survey': customOrTitleSerializer,
                     }
 
                     return editor.getText({

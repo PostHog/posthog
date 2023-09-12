@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import api from 'lib/api'
 
 import './NotebookNodeQuery.scss'
+import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -154,5 +155,18 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
                 },
             }
         },
+    },
+    serializedText: () => (attrs) => {
+        let text = ''
+        const q = attrs.query
+        if (containsHogQLQuery(q)) {
+            if (isHogQLQuery(q)) {
+                text = q.query
+            }
+            if (isNodeWithSource(q)) {
+                text = isHogQLQuery(q.source) ? q.source.query : ''
+            }
+        }
+        return text
     },
 })

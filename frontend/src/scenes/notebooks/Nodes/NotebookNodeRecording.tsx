@@ -106,6 +106,9 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
             Component: Settings,
         },
     ],
+    serializedText: () => (attrs) => {
+        return attrs.id
+    },
 })
 
 export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {
