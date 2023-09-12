@@ -5,7 +5,7 @@ import { NotebookNodeType } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export default {
-    title: 'Scenes-App/Notebooks/Components/Notebook Add Button',
+    title: 'Scenes-App/Notebooks/Components/Notebook Select Button',
     component: NotebookSelectButton,
 } as Meta<typeof NotebookSelectButton>
 
