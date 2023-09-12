@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from django.utils.timezone import datetime
 
@@ -31,7 +31,7 @@ def create_time_filter(date_range: QueryDateRange, interval: str) -> (ast.Expr, 
     return time_filter, date_from, date_to
 
 
-def create_events_query(interval: str, event_filter: ast.Expr):
+def create_events_query(interval: str, event_filter: ast.Expr, sampling_factor: Optional[float] = None):
     one_interval_period = parse_expr(f"toInterval{interval.capitalize()}(1)")
 
     if not event_filter:
@@ -65,6 +65,11 @@ def create_events_query(interval: str, event_filter: ast.Expr):
         """,
         placeholders=placeholders,
     )
+
+    if sampling_factor is not None and (isinstance(sampling_factor, float) or isinstance(sampling_factor, int)):
+        sample_expr = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=sampling_factor)))
+        events_query.select_from.sample = sample_expr
+
     return events_query
 
 
@@ -130,7 +135,9 @@ def run_lifecycle_query(
         "date_to": date_to,
     }
 
-    events_query = create_events_query(interval=interval, event_filter=event_filter)
+    events_query = create_events_query(
+        interval=interval, event_filter=event_filter, sampling_factor=query.samplingFactor
+    )
 
     periods = parse_select(
         """
