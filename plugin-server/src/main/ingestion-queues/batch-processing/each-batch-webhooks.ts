@@ -59,9 +59,27 @@ export async function eachBatchWebhooksHandlers(
     statsd: StatsD | undefined,
     concurrency: number
 ): Promise<void> {
+    await eachBatchHandlerHelper(
+        payload,
+        (teamId) => actionMatcher.hasWebhooks(teamId),
+        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, statsd),
+        statsd,
+        concurrency,
+        'webhooks'
+    )
+}
+
+export async function eachBatchHandlerHelper(
+    payload: EachBatchPayload,
+    shouldProcess: (teamId: number) => boolean,
+    eachMessageHandler: (event: RawClickHouseEvent) => Promise<void>,
+    statsd: StatsD | undefined,
+    concurrency: number,
+    stats_key: string
+): Promise<void> {
     // similar to eachBatch function in each-batch.ts, but without the dependency on the KafkaJSIngestionConsumer
     // & handling the different batching return type
-    const key = 'async_handlers_webhooks'
+    const key = `async_handlers_${stats_key}`
     const batchStartTimer = new Date()
     const loggingKey = `each_batch_${key}`
     const { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload = payload
@@ -69,9 +87,7 @@ export async function eachBatchWebhooksHandlers(
     const transaction = Sentry.startTransaction({ name: `eachBatchWebhooks` })
 
     try {
-        const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, (teamId) =>
-            actionMatcher.hasWebhooks(teamId)
-        )
+        const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
 
         statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, { key: key })
         statsd?.histogram('ingest_event_batching.batch_count', batchesWithOffsets.length, { key: key })
@@ -90,9 +106,7 @@ export async function eachBatchWebhooksHandlers(
             }
 
             await Promise.all(
-                eventBatch.map((event: RawClickHouseEvent) =>
-                    eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, statsd).finally(() => heartbeat())
-                )
+                eventBatch.map((event: RawClickHouseEvent) => eachMessageHandler(event).finally(() => heartbeat()))
             )
 
             resolveOffset(lastOffset)
