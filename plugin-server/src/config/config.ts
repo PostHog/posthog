@@ -116,6 +116,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        PLUGIN_LOAD_CONCURRENCY: 50,
         KAFKAJS_LOG_LEVEL: 'WARN',
         HISTORICAL_EXPORTS_ENABLED: true,
         HISTORICAL_EXPORTS_MAX_RETRY_COUNT: 15,

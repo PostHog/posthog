@@ -1,3 +1,5 @@
+import { rateLimit } from 'prom-utils'
+
 import { Hub, StatelessVmMap } from '../../types'
 import { LazyPluginVM } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
@@ -7,9 +9,9 @@ import { teardownPlugins } from './teardown'
 
 export async function setupPlugins(hub: Hub): Promise<void> {
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(hub)
-    const pluginVMLoadPromises: Array<Promise<any>> = []
     const statelessVms = {} as StatelessVmMap
 
+    const limiter = rateLimit(hub.PLUGIN_LOAD_CONCURRENCY)
     const timer = new Date()
 
     for (const [id, pluginConfig] of pluginConfigs) {
@@ -26,7 +28,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
             pluginConfig.vm = statelessVms[plugin.id]
         } else {
             pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
-            pluginVMLoadPromises.push(loadPlugin(hub, pluginConfig))
+            await limiter.add(loadPlugin(hub, pluginConfig)) // Will block if PLUGIN_LOAD_CONCURRENCY is reached
 
             if (prevConfig) {
                 void teardownPlugins(hub, prevConfig)
@@ -38,7 +40,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         }
     }
 
-    await Promise.all(pluginVMLoadPromises)
+    await limiter.finish()
     hub.statsd?.timing('setup_plugins.success', timer)
 
     hub.plugins = plugins

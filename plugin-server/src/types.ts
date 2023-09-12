@@ -188,6 +188,7 @@ export interface PluginsServerConfig {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    PLUGIN_LOAD_CONCURRENCY: number // concurrency of the queue executing loadPlugin calls, to reduce heap usage spikes
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number

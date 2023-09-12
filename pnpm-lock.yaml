@@ -203,6 +203,9 @@ dependencies:
   prettier:
     specifier: ^2.8.8
     version: 2.8.8
+  prom-utils:
+    specifier: ^0.5.0
+    version: 0.5.0
   prop-types:
     specifier: ^15.7.2
     version: 15.8.1
@@ -7531,7 +7534,6 @@ packages:
 
   /base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
-    dev: true
 
   /bcrypt-pbkdf@1.0.2:
     resolution: {integrity: sha512-qeFIXtP4MSoi6NLqO12WfqARWWuCKi2Rn/9hJLEmtB5yTNr9DqFWkJRCf2qShWzPeAMRnOgCrq0sg/KLv5ES9w==}
@@ -7678,7 +7680,6 @@ packages:
     dependencies:
       base64-js: 1.5.1
       ieee754: 1.2.1
-    dev: true
 
   /bytes@3.0.0:
     resolution: {integrity: sha512-pMhOfFDPiv9t5jjIXkHosWmkSyQbvsgEVNkz0ERHbuLh2T/7j4Mqqpz523Fe8MVY89KC6Sh/QfS2sM+SjgFDcw==}
@@ -11261,7 +11262,6 @@ packages:
 
   /ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
-    dev: true
 
   /ignore@4.0.6:
     resolution: {integrity: sha512-cyFDKrqc/YdcWFniJhzI42+AzS+gNwmUzOSFcRCQYwySuBBBy/KjuxWLZ/FHEH6Moq1NizMOBWyTcv8O4OZIMg==}
@@ -12993,7 +12993,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
@@ -14018,6 +14018,12 @@ packages:
     resolution: {integrity: sha512-NuAESUOUMrlIXOfHKzD6bpPu3tYt3xvjNdRIQ+FeT0lNb4K8WR70CaDxhuNguS2XG+GjkyMwOzsN5ZktImfhLA==}
     engines: {node: '>= 0.4'}
 
+  /object-sizeof@1.6.3:
+    resolution: {integrity: sha512-LGtilAKuDGKCcvu1Xg3UvAhAeJJlFmblo3faltmOQ80xrGwAHxnauIXucalKdTEksHp/Pq9tZGz1hfyEmjFJPQ==}
+    dependencies:
+      buffer: 5.7.1
+    dev: false
+
   /object.assign@4.1.4:
     resolution: {integrity: sha512-1mxKf0e58bvyjSCtKYY4sRe9itRk3PJpquJOjeIkz885CczcI4IvJJDLPS72oowuSh+pBxUFROpX+TU++hxhZQ==}
     engines: {node: '>= 0.4'}
@@ -15007,6 +15013,15 @@ packages:
     resolution: {integrity: sha512-7PiHtLll5LdnKIMw100I+8xJXR5gW2QwWYkT6iJva0bXitZKa/XMrSbdmg3r2Xnaidz9Qumd0VPaMrZlF9V9sA==}
     engines: {node: '>=0.4.0'}
     dev: true
+
+  /prom-utils@0.5.0:
+    resolution: {integrity: sha512-wYxl4DItbHzdP17PuMhJ3dx/87q92YyK35pkdnIpHIM1j7O71y6FBRN4/vuBqKzZQve6fF8nFtwvHqgt8tdEdQ==}
+    dependencies:
+      debug: 4.3.4(supports-color@8.1.1)
+      object-sizeof: 1.6.3
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
 
   /promise@7.3.1:
     resolution: {integrity: sha512-nolQXZ/4L+bP/UGlkfaIujX9BKxGwmQ9OT4mOt5yvy8iK1h3wqTEJCijzGANTCCl9nWjY41juyAn2K3Q1hLLTg==}
