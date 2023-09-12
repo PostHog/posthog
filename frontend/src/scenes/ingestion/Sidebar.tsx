@@ -42,7 +42,7 @@ export function Sidebar(): JSX.Element {
                     {currentOrganization?.teams && currentOrganization.teams.length > 1 && (
                         <>
                             <LemonButtonWithDropdown
-                                icon={<Lettermark name={currentOrganization?.name} />}
+                                icon={<Lettermark name={currentOrganization.name} />}
                                 onClick={() => toggleProjectSwitcher()}
                                 dropdown={{
                                     visible: isProjectSwitcherShown,

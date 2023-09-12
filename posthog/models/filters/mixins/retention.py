@@ -90,7 +90,7 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
 
         date_to = date_to + self.period_increment
         if self.period == "Hour":
-            return date_to
+            return date_to.replace(minute=0, second=0, microsecond=0)
         else:
             return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
 

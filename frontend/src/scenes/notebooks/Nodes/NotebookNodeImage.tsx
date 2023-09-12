@@ -9,7 +9,7 @@ import { NotebookNodeViewProps } from '../Notebook/utils'
 const MAX_DEFAULT_HEIGHT = 1000
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeImageAttributes>): JSX.Element => {
-    const { file, src, height } = props.node.attrs
+    const { file, src, height } = props.attributes
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string>()
 
