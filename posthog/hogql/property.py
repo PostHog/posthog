@@ -20,7 +20,6 @@ from posthog.schema import (
     PropertyGroupFilter,
     FilterLogicalOperator,
     PropertyGroupFilterValue,
-    EventPropertyFilter,
 )
 
 
@@ -63,11 +62,6 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         if len(properties) == 1:
             return properties[0]
         return ast.And(exprs=properties)
-    elif isinstance(property, EventPropertyFilter):
-        if property.value is None:
-            # Property filter that's not completely filled in the frontend. Will just not affect results.
-            return ast.Constant(value=True)
-        property = Property(key=property.key, operator=property.operator.value, value=property.value, type="event")
     elif isinstance(property, Property):
         pass
     elif (
