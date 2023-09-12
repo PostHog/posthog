@@ -59,13 +59,12 @@ export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
 export function countPartitionsPerTopic(assignments: Assignment[]): Map<string, number> {
     const partitionsPerTopic = new Map()
     for (const assignment of assignments) {
-        if (assignment.topic in partitionsPerTopic) {
+        if (partitionsPerTopic.has(assignment.topic)) {
             partitionsPerTopic.set(assignment.topic, partitionsPerTopic.get(assignment.topic) + 1)
         } else {
             partitionsPerTopic.set(assignment.topic, 1)
         }
     }
-
     return partitionsPerTopic
 }
 
