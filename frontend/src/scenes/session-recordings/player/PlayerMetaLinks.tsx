@@ -8,9 +8,8 @@ import { IconComment, IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from '~/types'
-import { dayjs } from 'lib/dayjs'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -55,12 +54,11 @@ export function PlayerMetaLinks(): JSX.Element {
         <div className="flex flex-row gap-1 items-center justify-end">
             {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
-                    <NotebookAddButton
+                    <NotebookSelectButton
                         size="small"
                         icon={<IconComment />}
                         resource={{ type: NotebookNodeType.Recording, attrs: { id: sessionRecordingId } }}
                         onClick={() => setPause()}
-                        newNotebookTitle={`Notes ${dayjs().format('DD/MM')}`}
                         onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
                             const time = getCurrentPlayerTime() * 1000
 
@@ -74,7 +72,7 @@ export function PlayerMetaLinks(): JSX.Element {
                         }}
                     >
                         Comment
-                    </NotebookAddButton>
+                    </NotebookSelectButton>
 
                     <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
                         <span>Share</span>
