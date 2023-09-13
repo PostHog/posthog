@@ -121,7 +121,7 @@ def get_breakdown_prop_values(
     if session_query.is_used:
         session_query_clause, sessions_join_params = session_query.get_query()
         sessions_join_clause = f"""
-                INNER JOIN ({session_query_clause}) AS {SessionQuery.SESSION_TABLE_ALIAS} ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                INNER JOIN ({session_query_clause}) AS {SessionQuery.SESSION_TABLE_ALIAS} ON {SessionQuery.SESSION_TABLE_ALIAS}."$session_id" = e."$session_id"
         """
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk,

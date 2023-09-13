@@ -1,10 +1,12 @@
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.models import Team
 from posthog.schema import HogQLMetadataResponse, HogQLMetadata, HogQLNotice
+from posthog.hogql import ast
 
 
 def get_hogql_metadata(
@@ -13,6 +15,7 @@ def get_hogql_metadata(
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
+        isValidView=False,
         inputExpr=query.expr,
         inputSelect=query.select,
         errors=[],
@@ -26,7 +29,17 @@ def get_hogql_metadata(
             translate_hogql(query.expr, context=context)
         elif isinstance(query.select, str):
             context = HogQLContext(team_id=team.pk, enable_select_queries=True)
-            print_ast(parse_select(query.select), context=context, dialect="clickhouse")
+
+            select_ast = parse_select(query.select)
+            if query.filters:
+                select_ast = replace_filters(select_ast, query.filters, team)
+            _is_valid_view = is_valid_view(select_ast)
+            response.isValidView = _is_valid_view
+            print_ast(
+                select_ast,
+                context=context,
+                dialect="clickhouse",
+            )
         else:
             raise ValueError("Either expr or select must be provided")
         response.warnings = context.warnings
@@ -45,3 +58,11 @@ def get_hogql_metadata(
             response.errors.append(HogQLNotice(message=f"Unexpected f{e.__class__.__name__}"))
 
     return response
+
+
+def is_valid_view(select_query: ast.SelectQuery | ast.SelectUnionQuery) -> bool:
+    for field in select_query.select:
+        if not isinstance(field, ast.Alias):
+            return False
+
+    return True

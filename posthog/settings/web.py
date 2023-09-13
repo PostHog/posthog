@@ -8,6 +8,7 @@ from corsheaders.defaults import default_headers
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 # django-axes settings to lockout after too many attempts
 
@@ -36,6 +37,11 @@ DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", 
 # A range: "2:5" -- represents team IDs 2, 3, 4, 5
 # The string "all" -- represents all team IDs
 DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
+
+# Decide skip hash key overrides
+DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
+    "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
+)
 
 # Application definition
 
@@ -213,7 +219,7 @@ USE_TZ = True
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist"), os.path.join(BASE_DIR, "posthog/year_in_posthog/images")]
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
 
@@ -222,7 +228,7 @@ LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
-CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
+CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 REST_FRAMEWORK = {
@@ -233,7 +239,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
@@ -244,6 +250,7 @@ REST_FRAMEWORK = {
         "posthog.rate_limit.BurstRateThrottle",
         "posthog.rate_limit.SustainedRateThrottle",
     ],
+    # The default STRICT_JSON fails the whole request if the data can't be strictly JSON-serialized
     "STRICT_JSON": False,
 }
 if DEBUG:

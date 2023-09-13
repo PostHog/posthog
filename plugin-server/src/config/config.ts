@@ -1,4 +1,4 @@
-import { LogLevel, PluginsServerConfig, stringToPluginServerMode } from '../types'
+import { LogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -16,6 +16,9 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/posthog'
             : '',
+        DATABASE_READONLY_URL: '',
+        PLUGIN_STORAGE_DATABASE_URL: '',
+        POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
         POSTHOG_DB_PASSWORD: '',
@@ -50,6 +53,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
+        KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
         KAFKA_PRODUCER_WAIT_FOR_ACK: true, // Turning it off can lead to dropped data
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
@@ -112,6 +116,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
         HISTORICAL_EXPORTS_ENABLED: true,
         HISTORICAL_EXPORTS_MAX_RETRY_COUNT: 15,
@@ -121,6 +126,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
+
+        STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
+        STARTUP_PROFILE_CPU: false,
+        STARTUP_PROFILE_HEAP: false,
+        STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
+        STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
 
         SESSION_RECORDING_KAFKA_HOSTS: undefined,
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
@@ -202,4 +213,19 @@ export function overrideWithEnv(
         )
     }
     return newConfig
+}
+
+export function buildIntegerMatcher(config: string | undefined, allowStar: boolean): ValueMatcher<number> {
+    // Builds a ValueMatcher on a coma-separated list of values.
+    // Optionally, supports a '*' value to match everything
+    if (!config) {
+        return () => false
+    } else if (allowStar && config === '*') {
+        return () => true
+    } else {
+        const values = new Set(config.split(',').map((n) => parseInt(n)))
+        return (v: number) => {
+            return values.has(v)
+        }
+    }
 }

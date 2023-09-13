@@ -1,10 +1,12 @@
 .Notebook {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    flex: 1;
 
     .NotebookEditor {
         flex: 1;
+        width: 100%;
+        overflow: hidden;
 
         > h1,
         > h2,
@@ -18,7 +20,7 @@
             margin-bottom: 0.2rem;
         }
 
-        > &.ProseMirror-focused {
+        > .ProseMirror-focused {
             outline: none;
         }
 
@@ -60,7 +62,7 @@
             padding: 0.2rem;
         }
 
-        .Backlink__label {
+        .Backlink {
             padding: 0.125rem 0.25rem;
             border: 1px solid var(--border);
             border-radius: var(--radius);
@@ -68,6 +70,10 @@
 
             &:hover {
                 background-color: var(--side);
+            }
+
+            & svg {
+                color: var(--muted-dark);
             }
 
             &.Backlink--selected {
@@ -85,18 +91,62 @@
                     color: var(--white);
                 }
             }
+        }
 
-            & .Backlink__label {
-                color: var(--black);
+        &[contenteditable='true'] {
+            a {
+                cursor: text;
             }
         }
     }
 
     &--compact {
-        max-width: 1000px;
-        width: 100%;
-        margin-left: auto;
-        margin-right: auto;
+        .NotebookEditor {
+            max-width: 800px;
+        }
+    }
+
+    &--editable {
+        .NotebookEditor .ProseMirror {
+            // Add some padding to help clicking below the last element
+            padding-bottom: 10rem;
+            flex: 1;
+        }
+    }
+
+    .NotebookSidebar {
+        position: relative;
+        width: 0px;
+        margin-top: 3.6rem; // Account for title
+        transition: width var(--notebook-popover-transition-properties);
+
+        .NotebookSidebar__content {
+            position: sticky;
+            align-self: flex-start;
+            top: 65px;
+            width: var(--notebook-sidebar-width);
+            transform: translateX(-100%);
+            transition: transform var(--notebook-popover-transition-properties);
+        }
+
+        &--showing {
+            width: var(--notebook-sidebar-width);
+
+            .NotebookSidebar__content {
+                transform: translateX(0);
+            }
+        }
+    }
+
+    .NotebookNodeSettings__widgets {
+        position: sticky;
+        align-self: flex-start;
+        top: 65px;
+
+        &__content {
+            max-height: calc(100vh - 220px);
+            overflow: scroll;
+        }
     }
 
     .LemonTable__content > table > thead {
@@ -106,35 +156,12 @@
     }
 
     .NotebookRecordingTimestamp {
-        padding: 0.125rem 0.25rem;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background-color: var(--white);
-
-        &.NotebookRecordingTimestamp--selected {
-            outline-style: solid;
-            outline-color: var(--primary-bg-active);
-        }
-
-        &.NotebookRecordingTimestamp--preview {
-            height: 1.375rem;
-            border: 1px solid var(--border-light);
-            color: var(--mid);
-            padding: 0rem 0.25rem;
-        }
+        display: inline-flex;
     }
 
     // overriding ::selection is necessary here because
     // antd makes it invisible otherwise
     span::selection {
         color: var(--primary);
-    }
-}
-
-.NotebookFloatingButton {
-    .LemonButton {
-        border-radius: 1rem;
-        min-height: 0.25rem;
-        padding: 0.25rem !important; // NOTE - yuck
     }
 }

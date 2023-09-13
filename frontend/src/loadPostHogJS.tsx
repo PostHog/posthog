@@ -18,16 +18,13 @@ const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig
 
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
-        const uuidVersion: 'og' | 'v7' = window.POSTHOG_JS_UUID_VERSION === 'v7' ? 'v7' : 'og'
-        console.log('Loading PostHog with UUID version', uuidVersion)
-
         posthog.init(
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
                 api_host: window.JS_POSTHOG_HOST,
                 rageclick: true,
                 persistence: 'localStorage+cookie',
-                bootstrap: !!window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
+                bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
                 loaded: (posthog) => {
                     if (posthog.webPerformance) {
@@ -40,7 +37,6 @@ export function loadPostHogJS(): void {
                         posthog.opt_in_capturing()
                     }
                 },
-                uuid_version: uuidVersion,
             })
         )
 
@@ -58,7 +54,7 @@ export function loadPostHogJS(): void {
         // This is a helpful flag to set to automatically reset the recording session on load for testing multiple recordings
         const shouldResetSessionOnLoad = posthog.getFeatureFlag(FEATURE_FLAGS.SESSION_RESET_ON_LOAD)
         if (shouldResetSessionOnLoad) {
-            posthog.sessionManager.resetSessionId()
+            posthog.sessionManager?.resetSessionId()
         }
         // Make sure we have access to the object in window for debugging
         window.posthog = posthog

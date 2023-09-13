@@ -1,17 +1,20 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind, QuerySchema } from '~/queries/schema'
-import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
-import { BindLogic, useValues } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { useJsonNodeState } from './utils'
-import { useEffect, useMemo, useState } from 'react'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { useValues } from 'kea'
+import { InsightShortId, NotebookNodeType } from '~/types'
+import { useMemo } from 'react'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import clsx from 'clsx'
+import { IconSettings } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
+import api from 'lib/api'
+
+import './NotebookNodeQuery.scss'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
-    full: false,
     source: {
         kind: NodeKind.EventsQuery,
         select: ['*', 'event', 'person', 'timestamp'],
@@ -19,32 +22,11 @@ const DEFAULT_QUERY: QuerySchema = {
         after: '-24h',
         limit: 100,
     },
-    expandable: false,
 }
 
-const DEFAULT_HEIGHT = 500
-
-const Component = (props: NodeViewProps): JSX.Element => {
-    const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
-    const logic = insightLogic({ dashboardItemId: 'new' })
-    const { insightProps } = useValues(logic)
-
-    const [editing, setEditing] = useState(false)
-
-    useEffect(() => {
-        // We probably want a dedicated edit button for this
-        setEditing(props.selected)
-    }, [props.selected])
-
-    const title = useMemo(() => {
-        if (NodeKind.DataTableNode === query.kind) {
-            if (query.source.kind) {
-                return query.source.kind.replace('Node', '')
-            }
-            return 'Data Exploration'
-        }
-        return 'Query'
-    }, [query])
+const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
+    const { query } = props.attributes
+    const { expanded } = useValues(notebookNodeLogic)
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query }
@@ -52,50 +34,125 @@ const Component = (props: NodeViewProps): JSX.Element => {
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
-            modifiedQuery.full = editing
+            modifiedQuery.full = false
+            modifiedQuery.showHogQLEditor = false
+            modifiedQuery.embedded = true
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = false
+            modifiedQuery.showHeader = false
+            modifiedQuery.showTable = false
+            modifiedQuery.showCorrelationTable = false
+            modifiedQuery.embedded = true
         }
+
         return modifiedQuery
-    }, [query, editing])
+    }, [query])
+
+    if (!expanded) {
+        return null
+    }
 
     return (
-        <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={DEFAULT_HEIGHT} {...props}>
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
-            </BindLogic>
-        </NodeWrapper>
+        <div
+            className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
+        >
+            <Query query={modifiedQuery} uniqueKey={props.attributes.nodeId} />
+        </div>
     )
 }
 
-export const NotebookNodeQuery = Node.create({
-    name: NotebookNodeType.Query,
-    group: 'block',
-    atom: true,
-    draggable: true,
+type NotebookNodeQueryAttributes = {
+    query: QuerySchema
+}
 
-    addAttributes() {
-        return {
-            height: {
-                default: DEFAULT_HEIGHT,
-            },
-            query: {
-                default: DEFAULT_QUERY,
-            },
+export const Settings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
+    const modifiedQuery = useMemo(() => {
+        const modifiedQuery = { ...attributes.query }
+
+        if (NodeKind.DataTableNode === modifiedQuery.kind) {
+            // We don't want to show the insights button for now
+            modifiedQuery.showOpenEditorButton = false
+            modifiedQuery.showHogQLEditor = true
+            modifiedQuery.showResultsTable = false
+            modifiedQuery.showReload = false
+            modifiedQuery.showElapsedTime = false
+        } else if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = true
+            modifiedQuery.showResults = false
+            modifiedQuery.embedded = true
         }
-    },
 
-    parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Query,
-            },
-        ]
-    },
+        return modifiedQuery
+    }, [attributes.query])
 
-    renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.Query, mergeAttributes(HTMLAttributes)]
-    },
+    return (
+        <div className="p-3">
+            <Query
+                query={modifiedQuery}
+                setQuery={(t) => {
+                    updateAttributes({
+                        query: {
+                            ...attributes.query,
+                            source: (t as DataTableNode | InsightVizNode).source,
+                        } as QuerySchema,
+                    })
+                }}
+                readOnly={false}
+                uniqueKey={attributes.nodeId}
+            />
+        </div>
+    )
+}
 
-    addNodeView() {
-        return ReactNodeViewRenderer(Component)
+export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
+    nodeType: NotebookNodeType.Query,
+    title: async (attributes) => {
+        const query = attributes.query
+        let title = 'HogQL'
+        if (NodeKind.SavedInsightNode === query.kind) {
+            const response = await api.insights.loadInsight(query.shortId)
+            title = response.results[0].name?.length
+                ? response.results[0].name
+                : response.results[0].derived_name || 'Saved insight'
+        } else if (NodeKind.DataTableNode === query.kind) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Data exploration'
+            }
+        }
+        return Promise.resolve(title)
+    },
+    Component,
+    heightEstimate: 500,
+    minHeight: 200,
+    resizeable: (attrs) => attrs.query.kind === NodeKind.DataTableNode,
+    startExpanded: true,
+    attributes: {
+        query: {
+            default: DEFAULT_QUERY,
+        },
+    },
+    widgets: [
+        {
+            key: 'settings',
+            label: 'Settings',
+            icon: <IconSettings />,
+            Component: Settings,
+        },
+    ],
+    pasteOptions: {
+        find: urls.insightView('(.+)' as InsightShortId),
+        getAttributes: async (match) => {
+            return {
+                query: {
+                    kind: NodeKind.SavedInsightNode,
+                    shortId: match[1] as InsightShortId,
+                },
+            }
+        },
     },
 })

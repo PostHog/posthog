@@ -17,6 +17,7 @@ concurrency:
 jobs:
     frontend-code-quality:
         name: Code quality checks
+        # kea typegen and typescript:check need some more oomph
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v3
@@ -27,7 +28,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
 
@@ -76,7 +77,7 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm

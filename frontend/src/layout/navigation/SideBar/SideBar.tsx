@@ -47,11 +47,10 @@ import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import Typography from 'antd/lib/typography'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
+import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -233,6 +232,7 @@ function Pages(): JSX.Element {
                                     to={urls.projectApps()}
                                 />
                             )}
+
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
@@ -281,9 +281,8 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
-            <NotebookSideBar>
-                <div className="SideBar__content">{children}</div>
-            </NotebookSideBar>
+            <NotebookPopover />
+            <div className="SideBar__content">{children}</div>
             <ActivationSidebar />
         </div>
     )
@@ -316,9 +315,7 @@ function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state:
                                 </Tooltip>
                             }
                         >
-                            <Typography.Text ellipsis={true} title={appUrl}>
-                                {appUrl}
-                            </Typography.Text>
+                            {appUrl}
                         </LemonButton>
                     ))}
                     <LemonButton

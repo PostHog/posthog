@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { Database, Hub, Person } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { ageInMonthsLowCardinality, PersonState } from '../../../src/worker/ingestion/person-state'
@@ -24,17 +25,20 @@ describe('PersonState.update()', () => {
     let uuid2: UUIDT
     let teamId: number
     let poEEmbraceJoin: boolean
+    let organizationId: string
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+
+        organizationId = await createOrganization(hub.db.postgres)
     })
 
     beforeEach(async () => {
         poEEmbraceJoin = false
         uuid = new UUIDT()
         uuid2 = new UUIDT()
-        const organizationId = await createOrganization(hub.db.postgres)
+
         teamId = await createTeam(hub.db.postgres, organizationId)
 
         jest.spyOn(hub.db, 'fetchPerson')
@@ -1077,10 +1081,11 @@ describe('PersonState.update()', () => {
             hub.statsd = { increment: jest.fn() } as any
         })
 
-        it('stops $identify if current distinct_id is illegal', async () => {
+        const illegalIds = ['', '   ', 'null', 'undefined', '"undefined"', '[object Object]', '"[object Object]"']
+        it.each(illegalIds)('stops $identify if current distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
                 event: '$identify',
-                distinct_id: '[object Object]',
+                distinct_id: illegalId,
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
                 },
@@ -1091,16 +1096,16 @@ describe('PersonState.update()', () => {
             expect(persons.length).toEqual(0)
 
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: '[object Object]',
+                distinctId: illegalId,
             })
         })
 
-        it('stops $identify if $anon_distinct_id is illegal', async () => {
+        it.each(illegalIds)('stops $identify if $anon_distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
                 event: '$identify',
                 distinct_id: 'some_distinct_id',
                 properties: {
-                    $anon_distinct_id: 'undefined',
+                    $anon_distinct_id: illegalId,
                 },
             }).handleIdentifyOrAlias()
 
@@ -1109,7 +1114,7 @@ describe('PersonState.update()', () => {
             expect(persons.length).toEqual(0)
 
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: 'undefined',
+                distinctId: illegalId,
             })
         })
 
@@ -1204,7 +1209,8 @@ describe('PersonState.update()', () => {
             expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
-            const result = await hub.db.postgresQuery(
+            const result = await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
                 'testQueryHashKeyOverride'
@@ -1288,7 +1294,8 @@ describe('PersonState.update()', () => {
             expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
-            const result = await hub.db.postgresQuery(
+            const result = await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
                 'testQueryHashKeyOverride'
@@ -1360,7 +1367,8 @@ describe('PersonState.update()', () => {
             expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
-            const result = await hub.db.postgresQuery(
+            const result = await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
                 'testQueryHashKeyOverride'
@@ -1401,6 +1409,7 @@ describe('PersonState.update()', () => {
 
         async function fetchPersonIdOverrides() {
             const result = await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `
                 WITH overrides AS (
                     SELECT id, old_person_id, override_person_id
@@ -1423,7 +1432,9 @@ describe('PersonState.update()', () => {
                         overrides AS second
                     JOIN posthog_personoverridemapping AS mapping ON second.override_person_id = mapping.id
                 ) AS overrides_mapping ON overrides_mapping.id = first.id
-                `
+                `,
+                undefined,
+                'fetchPersonIdOverrides'
             )
             return result.rows
                 .map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id])
@@ -1572,7 +1583,7 @@ describe('PersonState.update()', () => {
                 const state: PersonState = personState({}, hub)
                 // break postgres
                 const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
-                jest.spyOn(hub.db, 'postgresTransaction').mockImplementation(() => {
+                jest.spyOn(hub.db.postgres, 'transaction').mockImplementation(() => {
                     throw error
                 })
                 jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
@@ -1586,8 +1597,8 @@ describe('PersonState.update()', () => {
                 ).rejects.toThrow(error)
                 await hub.db.kafkaProducer.flush()
 
-                expect(hub.db.postgresTransaction).toHaveBeenCalledTimes(1)
-                jest.spyOn(hub.db, 'postgresTransaction').mockRestore()
+                expect(hub.db.postgres.transaction).toHaveBeenCalledTimes(1)
+                jest.spyOn(hub.db.postgres, 'transaction').mockRestore()
                 expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
                 // verify Postgres persons
                 const persons = await fetchPostgresPersonsH()
@@ -1728,16 +1739,24 @@ describe('PersonState.update()', () => {
                 )
 
                 const state: PersonState = personState({}, hub)
-                const originalPostgresQuery = hub.db.postgresQuery.bind(hub.db)
+                const originalPostgresQuery = hub.db.postgres.query.bind(hub.db.postgres)
                 const error = new Error('Conflict')
                 const mockPostgresQuery = jest
-                    .spyOn(hub.db, 'postgresQuery')
-                    .mockImplementation(async (query: any, values: any[] | undefined, tag: string, ...args: any[]) => {
-                        if (tag === 'transitivePersonOverrides') {
-                            throw error
+                    .spyOn(hub.db.postgres, 'query')
+                    .mockImplementation(
+                        async (
+                            use: PostgresUse,
+                            query: any,
+                            values: any[] | undefined,
+                            tag: string,
+                            ...args: any[]
+                        ) => {
+                            if (tag === 'transitivePersonOverrides') {
+                                throw error
+                            }
+                            return await originalPostgresQuery(use, query, values, tag, ...args)
                         }
-                        return await originalPostgresQuery(query, values, tag, ...args)
-                    })
+                    )
 
                 jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
                 await expect(
@@ -1861,24 +1880,26 @@ describe('PersonState.update()', () => {
                 // We then wait for them to block before letting them resume.
                 let resumeExecution: (value: unknown) => void
 
-                const postgresTransaction = hub.db.postgresTransaction.bind(hub.db)
-                jest.spyOn(hub.db, 'postgresTransaction').mockImplementation(async (tag: string, transaction: any) => {
-                    if (tag === 'mergePeople') {
-                        return await postgresTransaction(tag, async (client) => {
-                            if (resumeExecution) {
-                                resumeExecution(undefined)
-                            } else {
-                                await new Promise((resolve) => {
-                                    resumeExecution = resolve
-                                })
-                            }
+                const postgresTransaction = hub.db.postgres.transaction.bind(hub.db.postgres)
+                jest.spyOn(hub.db.postgres, 'transaction').mockImplementation(
+                    async (use: PostgresUse, tag: string, transaction: any) => {
+                        if (tag === 'mergePeople') {
+                            return await postgresTransaction(use, tag, async (client) => {
+                                if (resumeExecution) {
+                                    resumeExecution(undefined)
+                                } else {
+                                    await new Promise((resolve) => {
+                                        resumeExecution = resolve
+                                    })
+                                }
 
-                            return await transaction(client)
-                        })
-                    } else {
-                        return await postgresTransaction(tag, transaction)
+                                return await transaction(client)
+                            })
+                        } else {
+                            return await postgresTransaction(use, tag, transaction)
+                        }
                     }
-                })
+                )
 
                 await Promise.all([
                     personState(

@@ -138,6 +138,7 @@
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
             background: var(--primary-highlight);
+            color: inherit; // Avoid links being colored on hover
         }
 
         &.LemonButton--active {
@@ -172,7 +173,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt', 'default-dark') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 

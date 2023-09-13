@@ -13,8 +13,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PlayerController(): JSX.Element {
     const { currentPlayerState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
@@ -34,7 +32,9 @@ export function PlayerController(): JSX.Element {
                 <div className="flex items-center gap-1">
                     <SeekSkip direction="backward" />
                     <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
-                        {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
+                        {[SessionPlayerState.PLAY, SessionPlayerState.SKIP, SessionPlayerState.BUFFER].includes(
+                            currentPlayerState
+                        ) ? (
                             <IconPause className="text-2xl" />
                         ) : (
                             <IconPlay className="text-2xl" />
@@ -119,16 +119,14 @@ export function PlayerController(): JSX.Element {
                                         Export to file
                                     </LemonButton>
 
-                                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_DOM_EXPLORER}>
-                                        <LemonButton
-                                            status="stealth"
-                                            onClick={() => openExplorer()}
-                                            fullWidth
-                                            sideIcon={<IconMagnifier />}
-                                        >
-                                            Explore DOM
-                                        </LemonButton>
-                                    </FlaggedFeature>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => openExplorer()}
+                                        fullWidth
+                                        sideIcon={<IconMagnifier />}
+                                    >
+                                        Explore DOM
+                                    </LemonButton>
                                 </>
                             }
                         />

@@ -9,6 +9,7 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
 } from '../../types'
+import { PostgresUse } from './postgres'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
     const fields = specificField
@@ -36,7 +37,8 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 }
 
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
-    const { rows }: { rows: Plugin[] } = await hub.db.postgresQuery(
+    const { rows }: { rows: Plugin[] } = await hub.db.postgres.query(
+        PostgresUse.COMMON_READ,
         // `posthog_plugin` columns have to be listed individually, as we want to exclude a few columns
         // and Postgres syntax unfortunately doesn't have a column exclusion feature. The excluded columns are:
         // - archive - this is a potentially large blob, only extracted in Django as a plugin server optimization
@@ -81,7 +83,8 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
 }
 
 export async function getPluginAttachmentRows(hub: Hub): Promise<PluginAttachmentDB[]> {
-    const { rows }: { rows: PluginAttachmentDB[] } = await hub.db.postgresQuery(
+    const { rows }: { rows: PluginAttachmentDB[] } = await hub.db.postgres.query(
+        PostgresUse.COMMON_READ,
         `SELECT posthog_pluginattachment.* FROM posthog_pluginattachment
             WHERE plugin_config_id IN (${pluginConfigsInForceQuery('id')})`,
         undefined,
@@ -91,7 +94,8 @@ export async function getPluginAttachmentRows(hub: Hub): Promise<PluginAttachmen
 }
 
 export async function getPluginConfigRows(hub: Hub): Promise<PluginConfig[]> {
-    const { rows }: { rows: PluginConfig[] } = await hub.db.postgresQuery(
+    const { rows }: { rows: PluginConfig[] } = await hub.db.postgres.query(
+        PostgresUse.COMMON_READ,
         pluginConfigsInForceQuery(),
         undefined,
         'getPluginConfigRows'
@@ -104,7 +108,8 @@ export async function setPluginCapabilities(
     pluginConfig: PluginConfig,
     capabilities: PluginCapabilities
 ): Promise<void> {
-    await hub.db.postgresQuery(
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
         'UPDATE posthog_plugin SET capabilities = ($1) WHERE id = $2',
         [capabilities, pluginConfig.plugin_id],
         'setPluginCapabilities'
@@ -112,7 +117,8 @@ export async function setPluginCapabilities(
 }
 
 export async function setError(hub: Hub, pluginError: PluginError | null, pluginConfig: PluginConfig): Promise<void> {
-    await hub.db.postgresQuery(
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
         'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
         [pluginError, typeof pluginConfig === 'object' ? pluginConfig?.id : pluginConfig],
         'updatePluginConfigError'
@@ -130,7 +136,8 @@ export async function setError(hub: Hub, pluginError: PluginError | null, plugin
 }
 
 export async function disablePlugin(hub: Hub, pluginConfigId: PluginConfigId): Promise<void> {
-    await hub.db.postgresQuery(
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
         `UPDATE posthog_pluginconfig SET enabled='f' WHERE id=$1 AND enabled='t'`,
         [pluginConfigId],
         'disablePlugin'

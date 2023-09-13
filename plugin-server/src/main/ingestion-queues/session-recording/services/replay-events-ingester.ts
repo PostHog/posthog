@@ -2,6 +2,7 @@ import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { Counter } from 'prom-client'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
 import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
@@ -16,6 +17,11 @@ import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
 const HIGH_WATERMARK_KEY = 'session_replay_events_ingester'
+
+const replayEventsCounter = new Counter({
+    name: 'replay_events_ingested',
+    help: 'Number of Replay events successfully ingested',
+})
 
 export class ReplayEventsIngester {
     producer?: RdKafkaProducer
@@ -55,7 +61,7 @@ export class ReplayEventsIngester {
             try {
                 await produceRequest
             } catch (error) {
-                status.error('🔁', 'main_loop_error', { error })
+                status.error('🔁', '[replay-events] main_loop_error', { error })
 
                 if (error?.isRetriable) {
                     // We assume the if the error is retriable, then we
@@ -75,7 +81,7 @@ export class ReplayEventsIngester {
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
         const warn = (text: string, labels: Record<string, any> = {}) =>
-            status.warn('⚠️', text, {
+            status.warn('⚠️', `[replay-events] ${text}`, {
                 offset: event.metadata.offset,
                 partition: event.metadata.partition,
                 ...labels,
@@ -97,16 +103,6 @@ export class ReplayEventsIngester {
 
         if (!this.producer) {
             return drop('producer_not_ready')
-        }
-
-        if (event.replayIngestionConsumer !== 'v2') {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_replay_events',
-                    drop_cause: 'not_target_consumer',
-                })
-                .inc()
-            return
         }
 
         if (
@@ -162,6 +158,8 @@ export class ReplayEventsIngester {
                 return drop('session_replay_summarizer_error')
             }
 
+            replayEventsCounter.inc()
+
             return [
                 produce({
                     producer: this.producer,
@@ -171,7 +169,7 @@ export class ReplayEventsIngester {
                 }),
             ]
         } catch (error) {
-            status.error('⚠️', 'processing_error', {
+            status.error('⚠️', '[replay-events] processing_error', {
                 error: error,
             })
         }
@@ -183,10 +181,10 @@ export class ReplayEventsIngester {
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', 'ReplayEventsIngester - stopping')
+        status.info('🔁', '[replay-events] stopping')
 
         if (this.producer && this.producer.isConnected()) {
-            status.info('🔁', 'ReplayEventsIngester disconnecting kafka producer in batchConsumer stop')
+            status.info('🔁', '[replay-events] disconnecting kafka producer in batchConsumer stop')
             await disconnectProducer(this.producer)
         }
     }

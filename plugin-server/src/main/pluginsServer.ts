@@ -1,20 +1,23 @@
 import * as Sentry from '@sentry/node'
+import fs from 'fs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes, Consumer, KafkaJSProtocolError } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
+import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createStatsdClient } from '../utils/db/hub'
+import { PostgresRouter } from '../utils/db/postgres'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, createRedisPool, delay } from '../utils/utils'
+import { createRedisPool, delay } from '../utils/utils'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
@@ -62,6 +65,7 @@ export async function startPluginsServer(
 
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
+    runStartupProfiles(serverConfig)
 
     // Structure containing initialized clients for Postgres, Kafka, Redis, etc.
     let hub: Hub | undefined
@@ -331,7 +335,7 @@ export async function startPluginsServer(
             // If we have a hub, then reuse some of it's attributes, otherwise
             // we need to create them. We only initialize the ones we need.
             const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
-            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig, statsd)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
@@ -369,7 +373,9 @@ export async function startPluginsServer(
 
             await pubSub.start()
 
-            startPreflightSchedules(hub)
+            if (capabilities.preflightSchedules) {
+                startPreflightSchedules(hub)
+            }
 
             if (hub.statsd) {
                 stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
@@ -387,7 +393,8 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingIngestion) {
-            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const {
                 stop,
@@ -401,6 +408,7 @@ export async function startPluginsServer(
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
                 consumerErrorBackoffMs: serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
                 batchingTimeoutMs: serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+                topicCreationTimeoutMs: serverConfig.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             })
             stopSessionRecordingEventsConsumer = stop
             joinSessionRecordingEventsConsumer = join
@@ -409,7 +417,8 @@ export async function startPluginsServer(
 
         if (capabilities.sessionRecordingBlobIngestion) {
             const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-            const postgres = hub?.postgres ?? createPostgresPool(recordingConsumerConfig.DATABASE_URL)
+            const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
             const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
             const redisPool = hub?.db.redisPool ?? createRedisPool(recordingConsumerConfig)
 
@@ -481,10 +490,12 @@ const startPreflightSchedules = (hub: Hub) => {
     // These are used by the preflight checks in the Django app to determine if
     // the plugin-server is running.
     schedule.scheduleJob('*/5 * * * * *', async () => {
-        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
+        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 'preflightSchedules', 60, {
             jsonSerialize: false,
         })
-        await hub.db.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
+        await hub.db.redisSet('@posthog-plugin-server/version', version, 'preflightSchedules', undefined, {
+            jsonSerialize: false,
+        })
     })
 }
 
@@ -500,3 +511,26 @@ const kafkaProtocolErrors = new Counter({
     help: 'Kafka protocol errors encountered, by type',
     labelNames: ['type', 'code'],
 })
+
+function runStartupProfiles(config: PluginsServerConfig) {
+    if (config.STARTUP_PROFILE_CPU) {
+        status.info('🩺', `Collecting cpu profile...`)
+        v8Profiler.setGenerateType(1)
+        v8Profiler.startProfiling('startup', true)
+        setTimeout(() => {
+            const profile = v8Profiler.stopProfiling('startup')
+            fs.writeFileSync('./startup.cpuprofile', JSON.stringify(profile))
+            status.info('🩺', `Wrote cpu profile to disk`)
+            profile.delete()
+        }, config.STARTUP_PROFILE_DURATION_SECONDS * 1000)
+    }
+    if (config.STARTUP_PROFILE_HEAP) {
+        status.info('🩺', `Collecting heap profile...`)
+        v8Profiler.startSamplingHeapProfiling(config.STARTUP_PROFILE_HEAP_INTERVAL, config.STARTUP_PROFILE_HEAP_DEPTH)
+        setTimeout(() => {
+            const profile = v8Profiler.stopSamplingHeapProfiling()
+            fs.writeFileSync('./startup.heapprofile', JSON.stringify(profile))
+            status.info('🩺', `Wrote heap profile to disk`)
+        }, config.STARTUP_PROFILE_DURATION_SECONDS * 1000)
+    }
+}

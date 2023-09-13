@@ -1,6 +1,5 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { Breadcrumb, NotebookMode } from '~/types'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { Breadcrumb } from '~/types'
 
 import type { notebookSceneLogicType } from './notebookSceneLogicType'
 import { notebookLogic } from './Notebook/notebookLogic'
@@ -10,7 +9,6 @@ export type NotebookSceneLogicProps = {
     shortId: string
 }
 export const notebookSceneLogic = kea<notebookSceneLogicType>([
-    path(['scenes', 'notebooks', 'notebookSceneLogic']),
     path((key) => ['scenes', 'notebooks', 'notebookSceneLogic', key]),
     props({} as NotebookSceneLogicProps),
     key(({ shortId }) => shortId),
@@ -18,17 +16,6 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         values: [notebookLogic(props), ['notebook', 'notebookLoading']],
         actions: [notebookLogic(props), ['loadNotebook']],
     })),
-    actions({
-        setNotebookMode: (mode: NotebookMode) => ({ mode }),
-    }),
-    reducers({
-        mode: [
-            NotebookMode.View as NotebookMode,
-            {
-                setNotebookMode: (_, { mode }) => mode,
-            },
-        ],
-    }),
     selectors(() => ({
         notebookId: [() => [(_, props) => props], (props): string => props.shortId],
 
@@ -49,26 +36,6 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
             ],
         ],
     })),
-    urlToAction(({ props, actions, values }) => ({
-        [`/notebooks/${props.shortId}(/:mode)`]: (
-            { mode } // url params
-        ) => {
-            const newMode = mode === 'edit' ? NotebookMode.Edit : NotebookMode.View
-
-            if (newMode !== values.mode) {
-                actions.setNotebookMode(newMode)
-            }
-        },
-    })),
-    actionToUrl(({ values, props }) => {
-        return {
-            setNotebookMode: () => {
-                return values.mode === NotebookMode.View
-                    ? urls.notebook(props.shortId)
-                    : urls.notebookEdit(props.shortId)
-            },
-        }
-    }),
 
     afterMount(({ actions }) => {
         actions.loadNotebook()

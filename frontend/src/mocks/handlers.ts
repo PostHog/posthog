@@ -33,6 +33,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/@current/dashboard_templates/repository/': [],
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/groups_types/': [],
         '/api/projects/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/insights/:insight_id/sharing/': {
             enabled: false,
@@ -74,12 +75,13 @@ export const defaultMocks: Mocks = {
         '/_preflight': require('./fixtures/_preflight.json'),
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
-        'https://update.posthog.com/': [{ version: '1.42.0', release_date: '2022-11-30' }],
         // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
         '/api/sentry_stats/': {
             error: 'Error fetching stats from sentry',
             exception: "[ErrorDetail(string='Sentry integration not configured', code='invalid')]",
         },
+        // We don't want to show the "new version available" banner in tests
+        'https://api.github.com/repos/posthog/posthog-js/tags': () => [200, []],
     },
     post: {
         'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],

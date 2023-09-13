@@ -180,6 +180,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             shown_as: filters.shown_as,
             display: filters.display,
             show_values_on_series: filters.show_values_on_series,
+            show_percent_stack_view: filters.show_percent_stack_view,
         })
     }
 

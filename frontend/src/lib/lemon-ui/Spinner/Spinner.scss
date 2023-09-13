@@ -1,5 +1,6 @@
 .Spinner {
-    display: block;
+    display: inline-block; // Same as .LemonIcon
+    vertical-align: -0.15em; // Same as .LemonIcon
     width: 1em;
     height: 1em;
     flex-shrink: 0;
@@ -43,6 +44,7 @@
 }
 
 .SpinnerOverlay {
+    transition: opacity 0.2s ease;
     position: absolute;
     top: 0;
     bottom: 0;
@@ -54,6 +56,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    &[aria-hidden='true'] {
+        opacity: 0;
+        pointer-events: none;
+    }
     &::before {
         content: '';
         position: absolute;

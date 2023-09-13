@@ -103,6 +103,15 @@ describe('hooks', () => {
             expect(matchedTokens).toStrictEqual(['action.name', 'user.name'])
             expect(tokenisedMessage).toBe('%s got done by %s')
         })
+
+        test('allows escaping brackets', () => {
+            const format = '[action.name\\] got done by \\[user.name\\]' // just one of the brackets has to be escaped
+
+            const [matchedTokens, tokenisedMessage] = getTokens(format)
+
+            expect(matchedTokens).toStrictEqual([])
+            expect(tokenisedMessage).toBe('[action.name] got done by [user.name]')
+        })
     })
 
     describe('getValueOfToken', () => {

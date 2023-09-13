@@ -1,65 +1,97 @@
-import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
-import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
+import {
+    Node,
+    NodeViewWrapper,
+    mergeAttributes,
+    ReactNodeViewRenderer,
+    ExtendedRegExpMatchArray,
+    Attribute,
+    NodeViewProps,
+} from '@tiptap/react'
+import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
-import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
-import { Link } from '@posthog/lemon-ui'
+import { IconClose, IconDragHandle, IconFilter, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { posthog } from 'posthog-js'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
-import { uuid } from 'lib/utils'
+import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
+import { posthogNodePasteRule, useSyncedAttributes } from './utils'
+import {
+    NotebookNodeAttributes,
+    NotebookNodeViewProps,
+    NotebookNodeWidget,
+    CustomNotebookNodeAttributes,
+} from '../Notebook/utils'
 
-export interface NodeWrapperProps extends NodeViewProps {
-    title: string
+export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
+    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
     nodeType: NotebookNodeType
-    children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
+    children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
+    href?: string | ((attributes: NotebookNodeAttributes<T>) => string)
+
+    // Sizing
+    expandable?: boolean
+    startExpanded?: boolean
+    resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     heightEstimate?: number | string
-    href?: string
-    resizeable?: boolean
+    minHeight?: number | string
+    /** If true the metadata area will only show when hovered if in editing mode */
+    autoHideMetadata?: boolean
+    /** Expand the node if the component is clicked */
+    expandOnClick?: boolean
+    widgets?: NotebookNodeWidget[]
 }
 
-export function NodeWrapper({
-    title,
+export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
+    title: titleOrGenerator,
     nodeType,
     children,
     selected,
     href,
     heightEstimate = '4rem',
-    resizeable = true,
+    resizeable: resizeableOrGenerator = true,
+    startExpanded = false,
+    expandable = true,
+    expandOnClick = true,
+    autoHideMetadata = false,
+    minHeight,
     node,
     getPos,
+    attributes,
     updateAttributes,
-}: NodeWrapperProps): JSX.Element {
-    const { shortId } = useValues(notebookLogic)
+    widgets = [],
+}: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
-    const nodeLogic = useMountedLogic(
-        notebookNodeLogic({
-            nodeId,
-            notebookLogic: mountedNotebookLogic,
-            getPos: getPos,
-        })
-    )
+    const { isEditable } = useValues(mountedNotebookLogic)
+
+    // nodeId can start null, but should then immediately be generated
+    const nodeId = attributes.nodeId
+    const nodeLogicProps: NotebookNodeLogicProps = {
+        node,
+        nodeType,
+        attributes,
+        updateAttributes,
+        nodeId,
+        notebookLogic: mountedNotebookLogic,
+        getPos,
+        title: titleOrGenerator,
+        resizeable: resizeableOrGenerator,
+        widgets,
+        startExpanded,
+    }
+    const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
+    const { title, resizeable, expanded } = useValues(nodeLogic)
+    const { setExpanded, deleteNode, setWidgetsVisible } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
-    const height = node.attrs.height
-
-    useEffect(() => {
-        if (selected && shortId) {
-            posthog.capture('notebook node selected', {
-                node_type: nodeType,
-                short_id: shortId,
-            })
-        }
-    }, [selected])
+    const height = attributes.height ?? heightEstimate
 
     const onResizeStart = useCallback((): void => {
         if (!resizeable) {
@@ -73,69 +105,190 @@ export function NodeWrapper({
             if (heightAttr && heightAttr !== initialHeightAttr) {
                 updateAttributes({
                     height: contentRef.current?.clientHeight,
-                })
+                } as any)
             }
         }
 
         window.addEventListener('mouseup', onResizedEnd)
     }, [resizeable, updateAttributes])
 
+    const parsedHref = typeof href === 'function' ? href(attributes) : href
+
+    // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
+    const isResizeable = resizeable && (!expandable || expanded)
+
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
-            <NodeViewWrapper
-                ref={ref}
-                as="div"
-                className={clsx(nodeType, 'NotebookNode flex flex-col gap-1 overflow-hidden', {
-                    'NotebookNode--selected': selected,
-                })}
-            >
-                <ErrorBoundary>
-                    {!inView ? (
-                        <>
-                            <div className="h-4" /> {/* Placeholder for the drag handle */}
-                            <div style={{ height: heightEstimate }}>
-                                <LemonSkeleton className="h-full" />
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <div
-                                className={clsx(
-                                    'NotebookNode__meta flex items-center justify-between text-xs truncate text-muted-alt',
-                                    {
-                                        'font-semibold': selected,
-                                    }
-                                )}
-                                data-drag-handle
-                            >
-                                <div className="shrink-0">
-                                    <IconDragHandle className="cursor-move text-base shrink-0" />
-                                    <span>{title}</span>
+            <BindLogic logic={notebookNodeLogic} props={nodeLogicProps}>
+                <NodeViewWrapper
+                    ref={ref}
+                    as="div"
+                    className={clsx(nodeType, 'NotebookNode', {
+                        'NotebookNode--selected': isEditable && selected,
+                        'NotebookNode--auto-hide-metadata': autoHideMetadata,
+                    })}
+                >
+                    <ErrorBoundary>
+                        {!inView ? (
+                            <>
+                                <div className="h-4" /> {/* Placeholder for the drag handle */}
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <div style={{ height: heightEstimate }}>
+                                    <LemonSkeleton className="h-full" />
                                 </div>
-                                <div className="shrink-0 flex gap-4">
-                                    {href && (
-                                        <Link to={href}>
-                                            <IconLink /> Link
-                                        </Link>
+                            </>
+                        ) : (
+                            <>
+                                <div className="NotebookNode__meta" data-drag-handle>
+                                    <LemonButton
+                                        onClick={() => setExpanded(!expanded)}
+                                        size="small"
+                                        status="primary-alt"
+                                        className="flex-1"
+                                        icon={
+                                            isEditable ? (
+                                                <IconDragHandle className="cursor-move text-base shrink-0" />
+                                            ) : undefined
+                                        }
+                                    >
+                                        <span className="flex-1 cursor-pointer">{title}</span>
+                                    </LemonButton>
+
+                                    {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
+
+                                    {expandable && (
+                                        <LemonButton
+                                            onClick={() => setExpanded(!expanded)}
+                                            size="small"
+                                            icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                        />
+                                    )}
+
+                                    {!!widgets.length && isEditable ? (
+                                        <LemonButton
+                                            onClick={() => setWidgetsVisible(true)}
+                                            size="small"
+                                            icon={<IconFilter />}
+                                        />
+                                    ) : null}
+
+                                    {isEditable && (
+                                        <LemonButton
+                                            onClick={() => deleteNode()}
+                                            size="small"
+                                            status="danger"
+                                            icon={<IconClose />}
+                                        />
                                     )}
                                 </div>
-                            </div>
-                            <div
-                                ref={contentRef}
-                                className={clsx(
-                                    'flex flex-col relative z-0 overflow-hidden min-h-40',
-                                    resizeable && 'resize-y'
-                                )}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ height }}
-                                onMouseDown={onResizeStart}
-                            >
-                                {children}
-                            </div>
-                        </>
-                    )}
-                </ErrorBoundary>
-            </NodeViewWrapper>
+                                <div
+                                    ref={contentRef}
+                                    className={clsx(
+                                        'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
+                                        isEditable && isResizeable && 'resize-y'
+                                    )}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={isResizeable ? { height, minHeight } : {}}
+                                    onClick={!expanded && expandOnClick ? () => setExpanded(true) : undefined}
+                                    onMouseDown={onResizeStart}
+                                >
+                                    {children}
+                                </div>
+                            </>
+                        )}
+                    </ErrorBoundary>
+                </NodeViewWrapper>
+            </BindLogic>
         </NotebookNodeContext.Provider>
     )
+}
+
+export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
+    nodeType: NotebookNodeType
+    Component: (props: NotebookNodeViewProps<T>) => JSX.Element | null
+    pasteOptions?: {
+        find: string
+        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
+    }
+    attributes: Record<keyof T, Partial<Attribute>>
+    widgets?: NotebookNodeWidget[]
+}
+
+export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>({
+    Component,
+    pasteOptions,
+    attributes,
+    ...wrapperProps
+}: CreatePostHogWidgetNodeOptions<T>): Node {
+    // NOTE: We use NodeViewProps here as we convert them to NotebookNodeViewProps
+    const WrappedComponent = (props: NodeViewProps): JSX.Element => {
+        const [attributes, updateAttributes] = useSyncedAttributes<T>(props)
+
+        if (props.node.attrs.nodeId === null) {
+            // TODO only wrapped in setTimeout because of the flushSync bug
+            setTimeout(() => {
+                props.updateAttributes({
+                    nodeId: attributes.nodeId,
+                })
+            }, 0)
+        }
+
+        const nodeProps: NotebookNodeViewProps<T> = {
+            ...props,
+            attributes,
+            updateAttributes,
+        }
+
+        return (
+            <NodeWrapper {...nodeProps} {...wrapperProps}>
+                <Component {...nodeProps} />
+            </NodeWrapper>
+        )
+    }
+
+    return Node.create({
+        name: wrapperProps.nodeType,
+        group: 'block',
+        atom: true,
+        draggable: true,
+
+        addAttributes() {
+            return {
+                height: {},
+                title: {},
+                nodeId: {
+                    default: null,
+                },
+                ...attributes,
+            }
+        },
+
+        parseHTML() {
+            return [
+                {
+                    tag: wrapperProps.nodeType,
+                },
+            ]
+        },
+
+        renderHTML({ HTMLAttributes }) {
+            return [wrapperProps.nodeType, mergeAttributes(HTMLAttributes)]
+        },
+
+        addNodeView() {
+            return ReactNodeViewRenderer(WrappedComponent)
+        },
+
+        addPasteRules() {
+            return pasteOptions
+                ? [
+                      posthogNodePasteRule({
+                          editor: this.editor,
+                          type: this.type,
+                          ...pasteOptions,
+                      }),
+                  ]
+                : []
+        },
+    })
 }

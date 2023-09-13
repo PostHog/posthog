@@ -230,6 +230,10 @@
     }
 }
 
+.-mt-px {
+    margin-top: -1px;
+}
+
 // Border
 .border-0 {
     border-width: 0px;
@@ -352,6 +356,14 @@ $decorations: underline, overline, line-through, no-underline;
     }
     .border-#{$name} {
         border-color: var(--#{$name});
+    }
+    .border-x-#{$name} {
+        border-left-color: var(--#{$name});
+        border-right-color: var(--#{$name});
+    }
+    .border-y-#{$name} {
+        border-top-color: var(--#{$name});
+        border-bottom-color: var(--#{$name});
     }
     .decoration-#{$name} {
         text-decoration-color: var(--#{$name});
@@ -527,6 +539,10 @@ $decorations: underline, overline, line-through, no-underline;
 
 .flex-wrap {
     flex-wrap: wrap;
+}
+
+.flex-wrap-reverse {
+    flex-wrap: wrap-reverse;
 }
 
 .flex-nowrap {

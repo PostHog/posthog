@@ -14,21 +14,12 @@ export function DashboardTemplateVariables(): JSX.Element {
     const { variables } = useValues(theDashboardTemplateVariablesLogic)
     const { setVariable } = useActions(theDashboardTemplateVariablesLogic)
 
-    const FALLBACK_EVENT = {
-        id: '$pageview',
-        math: 'dau',
-        type: 'events',
-    }
-
     return (
         <div className="mb-4 DashboardTemplateVariables max-w-md">
             {variables.map((variable, index) => (
                 <div key={index} className="mb-6">
                     <div className="mb-2">
-                        <LemonLabel
-                            showOptional={!variable.required}
-                            // info={variable.description} TODO: fix info, currently not working
-                        >
+                        <LemonLabel showOptional={!variable.required} info={<>{variable.description}</>}>
                             {variable.name}
                         </LemonLabel>
                         <p className="text-sm text-muted">{variable.description}</p>
@@ -37,7 +28,7 @@ export function DashboardTemplateVariables(): JSX.Element {
                         <ActionFilter
                             filters={{
                                 insight: InsightType.TRENDS,
-                                events: variable.default ? [variable.default] : [FALLBACK_EVENT],
+                                events: [variable.default],
                             }}
                             setFilters={(filters: FilterType) => {
                                 setVariable(variable.name, filters)

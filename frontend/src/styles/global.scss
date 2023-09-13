@@ -556,6 +556,22 @@ input::-ms-clear {
 
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
+    // Until we have 3000 rolled out we fallback to standard colors
+    --text-3000: var(--default);
+    --muted-3000: var(--muted);
+    --trace-3000: var(--trace-3000-light);
+    --primary-3000: var(--primary);
+    --primary-3000-hover: var(--primary-light);
+    --secondary-3000: var(--secondary);
+    --secondary-3000-hover: var(--secondary-light);
+    --accent-3000: var(--side);
+    --bg-3000: var(--bg-light);
+    --border-3000: var(--border);
+    --border-bold-3000: var(--border);
+    --glass-bg-3000: var(--bg-light);
+    --glass-border-3000: var(--border);
+    --bg-light: #fff;
+
     &.posthog-3000[theme='light'] {
         --text-3000: var(--text-3000-light);
         --muted-3000: var(--muted-3000-light);
@@ -740,7 +756,7 @@ body {
     *,
     *::before,
     *::after {
-        transition: none !important;
+        transition-duration: 0ms !important;
         animation-fill-mode: forwards !important;
         animation-duration: 0ms !important;
         animation-iteration-count: 1 !important;

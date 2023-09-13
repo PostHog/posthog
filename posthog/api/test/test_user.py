@@ -1,10 +1,9 @@
 import datetime
 import uuid
-from typing import cast
+from typing import cast, Dict, List
 from unittest.mock import ANY, Mock, patch
 from urllib.parse import quote
 
-import pytest
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
@@ -14,7 +13,7 @@ from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.models import Tag, Team, User
+from posthog.models import Team, User, Dashboard
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
@@ -105,43 +104,6 @@ class TestUserAPI(APIBaseTest):
                 },
             ],
         )
-
-    @pytest.mark.ee
-    def test_organization_metadata_on_user_serializer(self):
-        try:
-            from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
-        except ImportError:
-            pass
-        else:
-            enterprise_event = EnterpriseEventDefinition.objects.create(
-                team=self.team, name="enterprise event", owner=self.user
-            )
-            tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
-            enterprise_event.tagged_items.create(tag_id=tag.id)
-            EnterpriseEventDefinition.objects.create(
-                team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
-            )
-            timestamp_property = EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp."
-            )
-            tag_test = Tag.objects.create(name="test", team_id=self.team.id)
-            tag_official = Tag.objects.create(name="official", team_id=self.team.id)
-            timestamp_property.tagged_items.create(tag_id=tag_test.id)
-            timestamp_property.tagged_items.create(tag_id=tag_official.id)
-            EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="plan", description="The current membership plan the user has active."
-            )
-            tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
-            tag_test2 = Tag.objects.create(name="test2", team_id=self.team.id)
-            tagged_property.tagged_items.create(tag_id=tag_test2.id)
-            EnterprisePropertyDefinition.objects.create(team=self.team, name="some_prop")  # I shouldn't be counted
-
-            response = self.client.get("/api/users/@me/")
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-            self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_events_count"], 1)
-            self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_properties_count"], 3)
 
     def test_can_only_list_yourself(self):
         """
@@ -246,6 +208,124 @@ class TestUserAPI(APIBaseTest):
             },
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_personalisation_for_user_dashboard_must_be_in_current_team(
+        self, _mock_capture, _mock_identify_task
+    ):
+        a_third_team = Team.objects.create(name="A Third Team", organization=self.organization)
+
+        dashboard_one = Dashboard.objects.create(team=a_third_team, name="Dashboard 1")
+
+        response = self.client.post(
+            "/api/users/@me/scene_personalisation",
+            # even if someone tries to send a different user or team they are ignored
+            {"user": 12345, "team": 12345, "dashboard": str(dashboard_one.id), "scene": "Person"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture, _mock_identify_task):
+        response = self.client.post(
+            "/api/users/@me/scene_personalisation",
+            # even if someone tries to send a different user or team they are ignored
+            {"user": 12345, "team": 12345, "dashboard": 12345, "scene": "Person"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture, _mock_identify_task):
+        response = self.client.post(
+            "/api/users/@me/scene_personalisation",
+            # even if someone tries to send a different user or team they are ignored
+            {"user": 12345, "team": 12345, "scene": "Person"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_personalisation_for_user_must_send_scene(self, _mock_capture, _mock_identify_task):
+        dashboard_one = Dashboard.objects.create(team=self.team, name="Dashboard 1")
+
+        response = self.client.post(
+            "/api/users/@me/scene_personalisation",
+            # even if someone tries to send a different user or team they are ignored
+            {
+                "user": 12345,
+                "team": 12345,
+                "dashboard": str(dashboard_one.id),
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_personalisation_for_user(self, _mock_capture, _mock_identify_task):
+        another_org = Organization.objects.create(name="Another Org")
+        another_team = Team.objects.create(name="Another Team", organization=another_org)
+        user = self._create_user("the-user@posthog.com", password="12345678")
+        user.current_team = another_team
+        user.save()
+        self.client.force_login(user)
+
+        dashboard_one = Dashboard.objects.create(team=another_team, name="Dashboard 1")
+        dashboard_two = Dashboard.objects.create(team=another_team, name="Dashboard 2")
+
+        self._assert_set_scene_choice(
+            "Person",
+            dashboard_one,
+            user,
+            [
+                {
+                    "dashboard": dashboard_one.pk,
+                    "scene": "Person",
+                },
+            ],
+        )
+
+        self._assert_set_scene_choice(
+            "Person",
+            dashboard_two,
+            user,
+            [
+                {
+                    "dashboard": dashboard_two.pk,
+                    "scene": "Person",
+                },
+            ],
+        )
+
+        self._assert_set_scene_choice(
+            "Group",
+            dashboard_two,
+            user,
+            [
+                {
+                    "dashboard": dashboard_two.pk,
+                    "scene": "Person",
+                },
+                {
+                    "dashboard": dashboard_two.pk,
+                    "scene": "Group",
+                },
+            ],
+        )
+
+    def _assert_set_scene_choice(
+        self, scene: str, dashboard: Dashboard, user: User, expected_choices: List[Dict]
+    ) -> None:
+        response = self.client.post(
+            "/api/users/@me/scene_personalisation",
+            # even if someone tries to send a different user or team they are ignored
+            {"user": 12345, "team": 12345, "dashboard": str(dashboard.id), "scene": scene},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["uuid"] == str(user.uuid)
+        assert response_data["scene_personalisation"] == expected_choices
 
     @patch("posthog.api.user.is_email_available", return_value=False)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
@@ -582,7 +662,7 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_cant_update_to_insecure_password(self, mock_capture, mock_identify):
+    def test_cannot_update_to_insecure_password(self, mock_capture, mock_identify):
         response = self.client.patch("/api/users/@me/", {"current_password": self.CONFIG_PASSWORD, "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(

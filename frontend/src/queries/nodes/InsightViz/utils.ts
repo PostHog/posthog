@@ -94,6 +94,16 @@ export const getShownAs = (query: InsightQueryNode): ShownAsValue | undefined =>
     }
 }
 
+export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
+    if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.show_legend
+    } else if (isTrendsQuery(query)) {
+        return query.trendsFilter?.show_legend
+    } else {
+        return undefined
+    }
+}
+
 export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.show_values_on_series
@@ -101,6 +111,14 @@ export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefin
         return query.stickinessFilter?.show_values_on_series
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.show_values_on_series
+    } else {
+        return undefined
+    }
+}
+
+export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.show_percent_stack_view
     } else {
         return undefined
     }

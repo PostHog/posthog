@@ -1,13 +1,11 @@
 import datetime
 from datetime import timedelta
-from math import isinf, isnan
 from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from zoneinfo import ZoneInfo
 
-import pytz
 import structlog
 from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
-from sentry_sdk import capture_exception, push_scope
 
 from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNIQUE_GROUPS, UNIQUE_USERS, WEEKLY_ACTIVE
 from posthog.hogql.hogql import translate_hogql
@@ -157,20 +155,6 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
     return time_range
 
 
-def ensure_value_is_json_serializable(value: Any) -> Optional[float]:
-    """Protect against the undesirable cases of a value being NaN or Infinity, and track occurences of those.
-
-    This function returns a null as fallback, so that JSON (de)serialization doesn't trip over the NaN."""
-    if not isinstance(value, (float, int)) or isnan(value) or isinf(value):
-        exception = Exception("Non-serializable value found in insight result")
-        logger.error("queries.trends.non_serializable_value", exc=exception, exc_info=True)
-        with push_scope() as scope:
-            scope.set_tag("value", value)
-            capture_exception(exception)
-        return None
-    return value
-
-
 def determine_aggregator(entity: Entity, team: Team) -> str:
     """Return the relevant actor column."""
     if entity.math_group_type_index is not None:
@@ -207,5 +191,5 @@ def offset_time_series_date_by_interval(date: datetime.datetime, *, filter: F, t
     else:  # "day" is the default interval
         date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
     if date.tzinfo is None:
-        date = pytz.timezone(team.timezone).localize(date)
+        date = date.replace(tzinfo=ZoneInfo(team.timezone))
     return date

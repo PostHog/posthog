@@ -1,6 +1,7 @@
 import '~/styles'
 import './storybook.scss'
-import type { Meta, Parameters } from '@storybook/react'
+import type { Meta, Parameters, Preview } from '@storybook/react'
+import { Title, Subtitle, Description, Primary, Controls, Stories } from '@storybook/blocks'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { getStorybookAppContext } from './app-context'
@@ -75,3 +76,29 @@ export const decorators: Meta['decorators'] = [
     // Allow us to easily set feature flags in stories.
     withFeatureFlags,
 ]
+
+const preview: Preview = {
+    parameters: {
+        actions: { argTypesRegex: '^on[A-Z].*' },
+        controls: {
+            matchers: {
+                color: /(background|color)$/i,
+                date: /Date$/,
+            },
+        },
+        docs: {
+            page: () => (
+                <>
+                    <Title />
+                    <Subtitle />
+                    <Description />
+                    <Primary />
+                    <Controls />
+                    <Stories />
+                </>
+            ),
+        },
+    },
+}
+
+export default preview

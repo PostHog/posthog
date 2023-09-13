@@ -441,7 +441,7 @@ export function flattenedStepsByBreakdown(
     skipInitialRows: boolean = false
 ): FlattenedFunnelStepByBreakdown[] {
     // Initialize with two rows for rendering graph and header
-    const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = !!skipInitialRows
+    const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = skipInitialRows
         ? []
         : [{ rowKey: 'steps-meta' }, { rowKey: 'graph' }, { rowKey: 'table-header' }]
 

@@ -2,7 +2,7 @@ import { Dropdown, Menu, Tag } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
-import { asDisplay } from './PersonHeader'
+import { PersonDisplay } from './PersonDisplay'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MergeSplitPerson } from './MergeSplitPerson'
@@ -10,7 +10,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
+import { NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -32,6 +32,8 @@ import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { PersonDashboard } from './PersonDashboard'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export const scene: SceneExport = {
     component: Person,
@@ -105,7 +107,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const { person, personLoading, currentTab, splitMergeModalShown, urlId, distinctId } = useValues(personsLogic)
+    const {
+        showCustomerSuccessDashboards,
+        person,
+        personLoading,
+        currentTab,
+        splitMergeModalShown,
+        urlId,
+        distinctId,
+    } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
@@ -122,7 +132,7 @@ export function Person(): JSX.Element | null {
     return (
         <>
             <PageHeader
-                title={asDisplay(person)}
+                title={<PersonDisplay person={person} noLink withIcon={'lg'} noPopover />}
                 caption={<PersonCaption person={person} />}
                 notebookProps={
                     url
@@ -133,6 +143,15 @@ export function Person(): JSX.Element | null {
                 }
                 buttons={
                     <div className="flex gap-2">
+                        <NotebookSelectButton
+                            resource={{
+                                attrs: {
+                                    id: person?.distinct_ids[0],
+                                },
+                                type: NotebookNodeType.Person,
+                            }}
+                            type="secondary"
+                        />
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
@@ -253,7 +272,7 @@ export function Person(): JSX.Element | null {
                                               </Tooltip>
                                           </div>
                                           <LemonSelect
-                                              value={person.distinct_ids[0]}
+                                              value={distinctId || person.distinct_ids[0]}
                                               onChange={(value) => value && setDistinctId(value)}
                                               options={person.distinct_ids.map((distinct_id) => ({
                                                   label: distinct_id,
@@ -284,6 +303,13 @@ export function Person(): JSX.Element | null {
                             />
                         ),
                     },
+                    showCustomerSuccessDashboards
+                        ? {
+                              key: PersonsTabType.DASHBOARD,
+                              label: 'Dashboard',
+                              content: <PersonDashboard person={person} />,
+                          }
+                        : false,
                 ]}
             />
 

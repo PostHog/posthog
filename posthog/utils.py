@@ -32,6 +32,7 @@ from urllib.parse import urljoin, urlparse
 import lzstring
 import posthoganalytics
 import pytz
+from zoneinfo import ZoneInfo
 import structlog
 from celery.schedules import crontab
 from dateutil import parser
@@ -46,14 +47,15 @@ from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-    from posthog.models import User, Team
+
+    from posthog.models import Team, User
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -114,30 +116,6 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
-    """
-    Returns a pair of datetimes, representing the start and end of the week preceding to the passed date's week.
-    `at` is the datetime to use as a reference point.
-    """
-
-    if not at:
-        at = timezone.now()
-
-    period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(timezone.now().weekday() + 1),
-        datetime.time.max,
-        tzinfo=pytz.UTC,
-    )  # very end of the previous Sunday
-
-    period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6),
-        datetime.time.min,
-        tzinfo=pytz.UTC,
-    )  # very start of the previous Monday
-
-    return (period_start, period_end)
-
-
 def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the preceding day.
@@ -150,13 +128,13 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     period_end: datetime.datetime = datetime.datetime.combine(
         at - datetime.timedelta(days=1),
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the previous day
 
     return (period_start, period_end)
@@ -174,43 +152,61 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
     period_end: datetime.datetime = datetime.datetime.combine(
         at,
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the reference day
 
     return (period_start, period_end)
 
 
-def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+def relative_date_parse_with_delta_mapping(
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
+) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
-        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC), None
+        try:
+            # This supports a few formats, but we primarily care about:
+            # YYYY-MM-DD, YYYY-MM-DD[T]hh:mm, YYYY-MM-DD[T]hh:mm:ss, YYYY-MM-DD[T]hh:mm:ss.ssssss
+            # (if a timezone offset is specified, we use it, otherwise we assume project timezone)
+            parsed_dt = parser.isoparse(input)
+        except ValueError:
+            # Fallback to also parse dates without zero-padding, e.g. 2021-1-1 - parser.isoparse doesn't support this
+            parsed_dt = datetime.datetime.strptime(input, "%Y-%m-%d")
     except ValueError:
         pass
-
-    # when input also contains the time for intervals "hour" and "minute"
-    # the above try fails. Try one more time from isoformat.
-    try:
-        return parser.isoparse(input).replace(tzinfo=pytz.UTC), None
-    except ValueError:
-        pass
+    else:
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=timezone_info)
+        else:
+            parsed_dt = parsed_dt.astimezone(timezone_info)
+        return parsed_dt, None
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = timezone.now()
+    parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
-        return date, delta_mapping
+        return parsed_dt, delta_mapping
     if match.group("type") == "h":
         delta_mapping["hours"] = int(match.group("number"))
     elif match.group("type") == "d":
         if match.group("number"):
             delta_mapping["days"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["hour"] = 0
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif match.group("position") == "End":
+            delta_mapping["hour"] = 23
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
     elif match.group("type") == "w":
         if match.group("number"):
             delta_mapping["weeks"] = int(match.group("number"))
@@ -219,7 +215,7 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
             delta_mapping["months"] = int(match.group("number"))
         if match.group("position") == "Start":
             delta_mapping["day"] = 1
-        if match.group("position") == "End":
+        elif match.group("position") == "End":
             delta_mapping["day"] = 31
     elif match.group("type") == "q":
         if match.group("number"):
@@ -230,42 +226,24 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
         if match.group("position") == "Start":
             delta_mapping["month"] = 1
             delta_mapping["day"] = 1
-        if match.group("position") == "End":
+        elif match.group("position") == "End":
             delta_mapping["month"] = 12
             delta_mapping["day"] = 31
-    date -= relativedelta(**delta_mapping)  # type: ignore
-    # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
-    if "hours" in delta_mapping:
-        date = date.replace(minute=0, second=0, microsecond=0)
-    else:
-        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
-    return date, delta_mapping
+    parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    if always_truncate:
+        # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
+        # TODO: Remove this from this function, this should not be the responsibility of it
+        if "hours" in delta_mapping:
+            parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
+        else:
+            parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return parsed_dt, delta_mapping
 
 
-def relative_date_parse(input: str) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input)[0]
-
-
-def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
-    if filters.get("date_from"):
-        date_from: Optional[datetime.datetime] = relative_date_parse(filters["date_from"])
-        if filters["date_from"] == "all":
-            date_from = None
-    else:
-        date_from = datetime.datetime.today() - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
-        date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    date_to = None
-    if filters.get("date_to"):
-        date_to = relative_date_parse(filters["date_to"])
-
-    resp = {}
-    if date_from:
-        resp["timestamp__gte"] = date_from.replace(tzinfo=pytz.UTC)
-    if date_to:
-        days = 1 if not exact else 0
-        resp["timestamp__lte"] = (date_to + relativedelta(days=days)).replace(tzinfo=pytz.UTC)
-    return resp
+def relative_date_parse(
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
+) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
 
 
 def get_git_branch() -> Optional[str]:
@@ -301,7 +279,7 @@ def get_git_commit() -> Optional[str]:
 def get_js_url(request: HttpRequest) -> str:
     """
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
-    it is necessary to set the JS_URL host based on the calling origin
+    it is necessary to set the JS_URL host based on the calling origin.
     """
     if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
         return f"http://{request.get_host().split(':')[0]}:8234"
@@ -354,24 +332,16 @@ def render_template(
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "week_start": 1,  # Monday
     }
-
-    from posthog.api.geoip import get_geoip_properties  # avoids circular import
-
-    geoip_properties = get_geoip_properties(get_ip_address(request))
-    country_code = geoip_properties.get("$geoip_country_code", None)
-    if country_code:
-        posthog_app_context["week_start"] = get_week_start_for_country_code(country_code)
 
     posthog_bootstrap: Dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.api.shared import TeamPublicSerializer
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -581,26 +551,6 @@ def get_compare_period_dates(
             new_date_from += datetime.timedelta(days=1)
         new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
     return new_date_from, new_date_to
-
-
-def cors_response(request, response):
-    if not request.META.get("HTTP_ORIGIN"):
-        return response
-    url = urlparse(request.META["HTTP_ORIGIN"])
-    response["Access-Control-Allow-Origin"] = f"{url.scheme}://{url.netloc}"
-    response["Access-Control-Allow-Credentials"] = "true"
-    response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-
-    # Handle headers that sentry randomly sends for every request.
-    # Would cause a CORS failure otherwise.
-    # specified here to override the default added by the cors headers package in web.py
-    allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
-    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id", "request-context"]]
-
-    response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
-        "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
-    )
-    return response
 
 
 def generate_cache_key(stringified: str) -> str:
@@ -872,16 +822,11 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
         return True
 
     if settings.MULTI_ORG_ENABLED:
-        try:
-            from ee.models.license import License
-        except ImportError:
-            pass
+        license = get_cached_instance_license()
+        if license is not None and AvailableFeature.ZAPIER in license.available_features:
+            return True
         else:
-            license = License.objects.first_valid()
-            if license is not None and AvailableFeature.ZAPIER in license.available_features:
-                return True
-            else:
-                logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
+            logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
 
     return False
 
@@ -1142,7 +1087,7 @@ def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) ->
     if isinstance(timestamp, str):
         timestamp = parser.isoparse(timestamp)
     else:
-        timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.astimezone(ZoneInfo("UTC"))
 
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 

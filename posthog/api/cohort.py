@@ -1,4 +1,9 @@
 import csv
+import json
+from posthog.queries.insight import insight_sync_execute
+import posthoganalytics
+from posthog.metrics import LABEL_TEAM_ID
+from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import Any, Dict, cast
 
@@ -34,7 +39,7 @@ from posthog.constants import (
 )
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
-from posthog.models import Cohort, FeatureFlag, User
+from posthog.models import Cohort, FeatureFlag, User, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.filters.filter import Filter
@@ -43,7 +48,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.actor_base_query import ActorBaseQuery, get_people
+from posthog.queries.actor_base_query import ActorBaseQuery, get_people, serialize_people
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.stickiness import StickinessActors
@@ -56,6 +61,14 @@ from posthog.tasks.calculate_cohort import (
     update_cohort,
 )
 from posthog.utils import format_query_params_absolute_url
+from prometheus_client import Counter
+
+
+API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
+    "api_cohort_person_bytes_read_from_postgres",
+    "An estimate of how many bytes we've read from postgres to service person cohort endpoint.",
+    labelnames=[LABEL_TEAM_ID],
+)
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -132,7 +145,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
                     team_id=self.context["team_id"], active=True, deleted=False
                 )
-                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.cohort_ids]) > 0
+                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
 
                 for prop in parsed_filter.property_groups.flat:
                     if prop.type == "behavioral":
@@ -176,15 +189,20 @@ class CohortSerializer(serializers.ModelSerializer):
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             cohort.deleted = deleted_state
-            if cohort.deleted is True:
+            if deleted_state:
                 AsyncDeletion.objects.get_or_create(
                     deletion_type=DeletionType.Cohort_full,
                     team_id=cohort.team.pk,
                     key=f"{cohort.pk}_{cohort.version}",
                     created_by=user,
                 )
-
-        if not cohort.is_static and not is_deletion_change:
+            else:
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Cohort_full,
+                    team_id=cohort.team.pk,
+                    key=f"{cohort.pk}_{cohort.version}",
+                ).delete()
+        elif not cohort.is_static:
             cohort.is_calculating = True
 
         if will_create_loops(cohort):
@@ -261,6 +279,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         cohort: Cohort = self.get_object()
         team = self.team
         filter = Filter(request=request, team=self.team)
+        assert request.user.is_authenticated
 
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
         if is_csv_request and not filter.limit:
@@ -268,13 +287,46 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: 100})
 
-        query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+        if posthoganalytics.feature_enabled(
+            "load-person-fields-from-clickhouse",
+            request.user.distinct_id,
+            person_properties={"email": request.user.email},
+        ):
+            person_query = PersonQuery(
+                filter,
+                team.pk,
+                cohort=cohort,
+                extra_fields=[
+                    "created_at",
+                    "properties",
+                    "is_identified",
+                ],
+                include_distinct_ids=True,
+            )
+            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+            serialized_actors = insight_sync_execute(
+                paginated_query,
+                {**paginated_params, **filter.hogql_context.values},
+                filter=filter,
+                query_type="cohort_persons",
+                team_id=team.pk,
+            )
+            persons = []
+            for p in serialized_actors:
+                person = Person(uuid=p[0], created_at=p[1], is_identified=p[2], properties=json.loads(p[3]))
+                person._distinct_ids = p[4]
+                persons.append(person)
 
-        raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
-        actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
+            serialized_actors = serialize_people(team, data=persons)
+            _should_paginate = len(serialized_actors) >= filter.limit
+        else:
+            query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+            raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
+            actor_ids = [row[0] for row in raw_result]
+            actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
 
-        _should_paginate = len(actor_ids) >= filter.limit
+            _should_paginate = len(actor_ids) >= filter.limit
+
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
             format_query_params_absolute_url(request, filter.offset - filter.limit)
@@ -286,12 +338,23 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             DELETE_KEYS = ["value_at_data_point", "uuid", "type", "is_identified", "matched_recordings"]
             for actor in serialized_actors:
                 if actor["properties"].get("email"):
-                    actor["email"] = actor["properties"]["email"]  # type: ignore
+                    actor["email"] = actor["properties"]["email"]
                     del actor["properties"]["email"]
             serialized_actors = [
-                {k: v for k, v in sorted(actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999) if k not in DELETE_KEYS}  # type: ignore
+                {
+                    k: v
+                    for k, v in sorted(
+                        actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999
+                    )
+                    if k not in DELETE_KEYS
+                }
                 for actor in serialized_actors
             ]
+
+        # TEMPORARY: Work out usage patterns of this endpoint
+        renderer = SafeJSONRenderer()
+        size = len(renderer.render(serialized_actors))
+        API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
@@ -303,30 +366,37 @@ class LegacyCohortViewSet(CohortViewSet):
 def will_create_loops(cohort: Cohort) -> bool:
     # Loops can only be formed when trying to update a Cohort, not when creating one
     team_id = cohort.team_id
-    cohorts_seen = {cohort.pk}
-    cohorts_queue = [property.value for property in cohort.properties.flat if property.type == "cohort"]
-    while cohorts_queue:
-        current_cohort_id = cohorts_queue.pop()
 
-        if current_cohort_id in cohorts_seen:
-            return True
+    # We can model this as a directed graph, where each node is a Cohort and each edge is a reference to another Cohort
+    # There's a loop only if there's a cycle in the directed graph. The "directed" bit is important.
+    # For example, if Cohort A exists, and Cohort B references Cohort A, and Cohort C references both Cohort A & B
+    # then, there's no cycle, because we can compute cohort A, using which we can compute cohort B, using which we can compute cohort C.
 
-        cohorts_seen.add(current_cohort_id)
+    # However, if cohort A depended on Cohort C, then we'd have a cycle, because we can't compute Cohort A without computing Cohort C, and on & on.
 
-        try:
-            current_cohort: Cohort = Cohort.objects.get(pk=current_cohort_id, team_id=team_id)
-        except Cohort.DoesNotExist:
-            raise ValidationError("Invalid Cohort ID in filter")
+    # For a good explainer of this algorithm, see: https://www.geeksforgeeks.org/detect-cycle-in-a-graph/
 
-        properties = current_cohort.properties.flat
-        for property in properties:
+    def dfs_loop_helper(current_cohort: Cohort, seen_cohorts, cohorts_on_path):
+        seen_cohorts.add(current_cohort.pk)
+        cohorts_on_path.add(current_cohort.pk)
+
+        for property in current_cohort.properties.flat:
             if property.type == "cohort":
-                if property.value in cohorts_seen:
+                if property.value in cohorts_on_path:
                     return True
-                else:
-                    cohorts_queue.append(property.value)
+                elif property.value not in seen_cohorts:
+                    try:
+                        nested_cohort = Cohort.objects.get(pk=property.value, team_id=team_id)
+                    except Cohort.DoesNotExist:
+                        raise ValidationError("Invalid Cohort ID in filter")
 
-    return False
+                    if dfs_loop_helper(nested_cohort, seen_cohorts, cohorts_on_path):
+                        return True
+
+        cohorts_on_path.remove(current_cohort.pk)
+        return False
+
+    return dfs_loop_helper(cohort, set(), set())
 
 
 def insert_cohort_people_into_pg(cohort: Cohort):

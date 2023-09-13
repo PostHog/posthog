@@ -428,15 +428,17 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     def test_list_teams_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        Team.objects.create(organization=self.organization, name="Other", access_control=True)
+        Team.objects.create(
+            organization=self.organization,
+            name="Other",
+            access_control=True,
+        )
 
         # The other team should not be returned as it's restricted for the logged-in user
         projects_response = self.client.get(f"/api/projects/")
 
-        # 9 (above) + 2 below:
-        # Used for `metadata`.`taxonomy_set_events_count`: SELECT COUNT(*) FROM "ee_enterpriseeventdefinition" WHERE ...
-        #  Used for `metadata`.`taxonomy_set_properties_count`: SELECT COUNT(*) FROM "ee_enterprisepropertydefinition" WHERE ...
-        with self.assertNumQueries(10):
+        # 9 (above):
+        with self.assertNumQueries(8):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)
@@ -450,6 +452,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
                     "api_token": self.team.api_token,
                     "name": self.team.name,
                     "completed_snippet_onboarding": False,
+                    "has_completed_onboarding_for": {"product_analytics": True},
                     "ingested_event": False,
                     "is_demo": False,
                     "timezone": "UTC",
@@ -468,6 +471,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
                     "api_token": self.team.api_token,
                     "name": self.team.name,
                     "completed_snippet_onboarding": False,
+                    "has_completed_onboarding_for": {"product_analytics": True},
                     "ingested_event": False,
                     "is_demo": False,
                     "timezone": "UTC",

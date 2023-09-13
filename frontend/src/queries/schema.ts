@@ -123,11 +123,19 @@ export interface HogQLQueryResponse {
     results?: any[]
     types?: any[]
     columns?: any[]
+    timings?: QueryTiming[]
+}
+
+/** Filters object that will be converted to a HogQL {filters} placeholder */
+export interface HogQLFilters {
+    properties?: AnyPropertyFilter[]
+    dateRange?: DateRange
 }
 
 export interface HogQLQuery extends DataNode {
     kind: NodeKind.HogQLQuery
     query: string
+    filters?: HogQLFilters
     response?: HogQLQueryResponse
 }
 
@@ -142,6 +150,7 @@ export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
     isValid?: boolean
+    isValidView?: boolean
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -151,6 +160,7 @@ export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
     expr?: string
     select?: string
+    filters?: HogQLFilters
     response?: HogQLMetadataResponse
 }
 
@@ -185,12 +195,18 @@ export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
 }
-
+export interface QueryTiming {
+    /** Key. Shortened to 'k' to save on data. */
+    k: string
+    /** Time in seconds. Shortened to 't' to save on data. */
+    t: number
+}
 export interface EventsQueryResponse {
     columns: any[]
     types: string[]
     results: any[][]
     hasMore?: boolean
+    timings?: QueryTiming[]
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -286,8 +302,12 @@ export interface DataTableNode extends Node {
     showReload?: boolean
     /** Show the time it takes to run a query */
     showElapsedTime?: boolean
+    /** Show a detailed query timing breakdown */
+    showTimings?: boolean
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
+    /** Show a button to configure and persist the table's default columns if possible */
+    showPersistentColumnConfigurator?: boolean
     /** Shows a list of saved queries */
     showSavedQueries?: boolean
     /** Can expand row to show raw event data (default: true) */
@@ -298,21 +318,27 @@ export interface DataTableNode extends Node {
     allowSorting?: boolean
     /** Show a button to open the current query as a new insight. (default: true) */
     showOpenEditorButton?: boolean
+    /** Show a results table */
+    showResultsTable?: boolean
+    /** Uses the embedded version of LemonTable */
+    embedded?: boolean
 }
 
 // Saved insight node
 
-export interface SavedInsightNode extends Node {
+export interface SavedInsightNode extends Node, InsightVizNodeViewProps {
     kind: NodeKind.SavedInsightNode
     shortId: InsightShortId
 }
 
 // Insight viz node
 
-export interface InsightVizNode extends Node {
+export interface InsightVizNode extends Node, InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
+}
 
+interface InsightVizNodeViewProps {
     /** Show with most visual options enabled. Used in insight scene. */
     full?: boolean
     showHeader?: boolean
@@ -320,7 +346,10 @@ export interface InsightVizNode extends Node {
     showCorrelationTable?: boolean
     showLastComputation?: boolean
     showLastComputationRefresh?: boolean
-    showLegendButton?: boolean
+    showFilters?: boolean
+    showResults?: boolean
+    /** Query is embedded inside another bordered component */
+    embedded?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */

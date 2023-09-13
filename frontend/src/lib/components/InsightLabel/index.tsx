@@ -1,4 +1,4 @@
-import { Space, Tag, Typography } from 'antd'
+import { Space, Tag } from 'antd'
 import { ActionFilter, BreakdownKeyType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
@@ -68,7 +68,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
                 <Tag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</Tag>
                 {mathProperty && (
                     <>
-                        <span className="pl-1 pr-0.5">of</span>
+                        <span>of</span>
                         <PropertyKeyInfo disableIcon value={mathProperty} />
                     </>
                 )}
@@ -171,12 +171,9 @@ export function InsightLabel({
                             {pillValues.map((pill) => (
                                 <Tooltip title={pill} key={pill}>
                                     <Tag className="tag-pill" closable={false}>
-                                        <Typography.Text
-                                            ellipsis={{ tooltip: pill }}
-                                            style={{ maxWidth: pillMaxWidth }}
-                                        >
+                                        <span className="truncate" style={{ maxWidth: pillMaxWidth }}>
                                             {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
-                                        </Typography.Text>
+                                        </span>
                                     </Tag>
                                 </Tooltip>
                             ))}

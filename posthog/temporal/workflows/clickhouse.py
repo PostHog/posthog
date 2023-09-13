@@ -53,7 +53,7 @@ def encode_clickhouse_data(data: typing.Any) -> bytes:
 
         case _:
             str_data = str(data)
-            str_data.replace("\\", "\\\\").replace("'", "\\'")
+            str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
             return f"'{str_data}'".encode("utf-8")
 
 
@@ -171,7 +171,7 @@ class ClickHouseClient:
             ClickHouseError: If the status code is not 200.
         """
         if response.status_code != 200:
-            error_message = response.text()
+            error_message = response.text
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager
@@ -346,5 +346,6 @@ async def get_client() -> collections.abc.AsyncIterator[ClickHouseClient]:
                 database=settings.CLICKHOUSE_DATABASE,
                 # TODO: make this a setting.
                 max_execution_time=0,
+                max_block_size=10000,
             ) as client:
                 yield client

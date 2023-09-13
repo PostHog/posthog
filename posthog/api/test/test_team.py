@@ -1,11 +1,15 @@
 import json
+from typing import List, cast
 from unittest.mock import ANY, MagicMock, patch
-
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from rest_framework import status
+from temporalio.service import RPCError
 
+from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.batch_exports.service import describe_schedule
+from posthog.constants import AvailableFeature
 from posthog.models import EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
@@ -13,6 +17,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
+from posthog.temporal.client import sync_connect
 from posthog.test.base import APIBaseTest
 
 
@@ -65,6 +70,33 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{team.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json(), self.not_found_response())
+
+    @patch("posthog.api.team.get_geoip_properties")
+    def test_ip_location_is_used_for_new_project_week_day_start(self, get_geoip_properties_mock: MagicMock):
+        self.organization.available_features = cast(List[str], [AvailableFeature.ORGANIZATIONS_PROJECTS])
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        get_geoip_properties_mock.return_value = {}
+        response = self.client.post("/api/projects/", {"name": "Test World"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertDictContainsSubset({"name": "Test World", "week_start_day": None}, response.json())
+
+        get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
+        response = self.client.post("/api/projects/", {"name": "Test US"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertDictContainsSubset({"name": "Test US", "week_start_day": 0}, response.json())
+
+        get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
+        response = self.client.post("/api/projects/", {"name": "Test PL"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertDictContainsSubset({"name": "Test PL", "week_start_day": 1}, response.json())
+
+        get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
+        response = self.client.post("/api/projects/", {"name": "Test IR"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertDictContainsSubset({"name": "Test IR", "week_start_day": 0}, response.json())
 
     def test_cant_create_team_without_license_on_selfhosted(self):
         with self.is_cloud(False):
@@ -197,7 +229,10 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
         from posthog.models.cohort import Cohort, CohortPeople
-        from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+        from posthog.models.feature_flag.feature_flag import (
+            FeatureFlag,
+            FeatureFlagHashKeyOverride,
+        )
 
         # from posthog.models.insight_caching_state import InsightCachingState
         from posthog.models.person import Person
@@ -225,6 +260,51 @@ class TestTeamAPI(APIBaseTest):
         # if something is missing then teardown fails
         response = self.client.delete(f"/api/projects/{team.id}")
         self.assertEqual(response.status_code, 204)
+
+    def test_delete_batch_exports(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team: Team = Team.objects.create_with_data(organization=self.organization)
+
+        destination_data = {
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+        }
+
+        batch_export_data = {
+            "name": "my-production-s3-bucket-destination",
+            "destination": destination_data,
+            "interval": "hour",
+        }
+
+        temporal = sync_connect()
+
+        with start_test_worker(temporal):
+            response = self.client.post(
+                f"/api/projects/{team.id}/batch_exports",
+                json.dumps(batch_export_data),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 201)
+
+            batch_export = response.json()
+            batch_export_id = batch_export["id"]
+
+            response = self.client.delete(f"/api/projects/{team.id}")
+            self.assertEqual(response.status_code, 204)
+
+            response = self.client.get(f"/api/projects/{team.id}/batch_exports/{batch_export_id}")
+            self.assertEqual(response.status_code, 404)
+
+            with self.assertRaises(RPCError):
+                describe_schedule(temporal, batch_export_id)
 
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

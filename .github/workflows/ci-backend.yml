@@ -15,6 +15,12 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
+    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
+    cancel-in-progress: false
+
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -76,7 +82,7 @@ jobs:
 
     backend-code-quality:
         needs: changes
-        timeout-minutes: 10
+        timeout-minutes: 30
 
         name: Python code quality checks
         runs-on: ubuntu-latest
@@ -93,12 +99,6 @@ jobs:
               with:
                   fetch-depth: 1
                   path: 'current/'
-
-            - name: Stop/Start stack with Docker Compose
-              run: |
-                  cd current
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
               uses: actions/setup-python@v4
@@ -117,7 +117,7 @@ jobs:
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -138,7 +138,7 @@ jobs:
             - name: Check static typing
               run: |
                   cd current
-                  mypy -p posthog --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py
+                  mypy -p posthog --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py --enable-recursive-aliases
 
             - name: Check if "schema.py" is up to date
               run: |
@@ -332,18 +332,18 @@ jobs:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-async-migrations-tests
-              with:
-                  custom_cache_key_element: v1-${{ inputs.cache-id }}
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'

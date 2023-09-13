@@ -129,6 +129,12 @@ export class SessionManager {
 
         // We add a jitter multiplier to the buffer age so that we don't have all sessions flush at the same time
         this.flushJitterMultiplier = 1 - Math.random() * serverConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
+
+        status.info('📦', '[session-manager] started new manager', {
+            partition,
+            topic,
+            sessionId,
+        })
     }
 
     private logContext = () => {
@@ -229,7 +235,7 @@ export class SessionManager {
             if (this.buffer.count > 0) {
                 throw new Error('Session buffer has messages but oldest timestamp is null. A paradox!')
             }
-            status.warn('🚽', `blob_ingester_session_manager buffer has no oldestKafkaTimestamp yet`, { logContext })
+            status.warn('🚽', `[session-manager] buffer has no oldestKafkaTimestamp yet`, { logContext })
             return
         }
 
@@ -251,14 +257,14 @@ export class SessionManager {
         histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (isBufferAgeOverThreshold || isSessionAgeOverThreshold) {
-            status.debug('🚽', `blob_ingester_session_manager attempting to flushing buffer due to age`, {
+            status.debug('🚽', `[session-manager] attempting to flushing buffer due to age`, {
                 ...logContext,
             })
 
             // return the promise and let the caller decide whether to await
             return this.flush(isBufferAgeOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
         } else {
-            status.debug('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
+            status.debug('🚽', `[session-manager] not flushing buffer due to age`, {
                 ...logContext,
             })
         }
@@ -271,25 +277,25 @@ export class SessionManager {
     public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
         // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
         if (this.flushBuffer) {
-            status.warn('🚽', 'blob_ingester_session_manager flush called but we already have a flush buffer', {
+            status.warn('🚽', '[session-manager] flush called but we already have a flush buffer', {
                 ...this.logContext(),
             })
             return
         }
 
         if (this.destroying) {
-            status.warn('🚽', 'blob_ingester_session_manager flush called but we are in a destroying state', {
+            status.warn('🚽', '[session-manager] flush called but we are in a destroying state', {
                 ...this.logContext(),
             })
             return
         }
 
         const flushTimeout = setTimeout(() => {
-            status.error('🧨', 'blob_ingester_session_manager flush timed out', {
+            status.error('🧨', '[session-manager] flush timed out', {
                 ...this.logContext(),
             })
 
-            this.captureMessage('blob_ingester_session_manager flush timed out')
+            this.captureMessage('[session-manager] flush timed out')
             this.endFlush()
         }, MAX_FLUSH_TIME_MS)
 
@@ -325,7 +331,7 @@ export class SessionManager {
 
             readStream.on('error', (err) => {
                 // TODO: What should we do here?
-                status.error('🧨', 'blob_ingester_session_manager readstream errored', {
+                status.error('🧨', '[session-manager] readstream errored', {
                     ...this.logContext(),
                     error: err,
                 })
@@ -359,6 +365,7 @@ export class SessionManager {
             counterS3FilesWritten.labels(reason).inc(1)
             histogramS3LinesWritten.observe(count)
             histogramS3KbWritten.observe(sizeEstimate / 1024)
+            this.endFlush()
         } catch (error: any) {
             // TRICKY: error can for some reason sometimes be undefined...
             error = error || new Error('Unknown Error')
@@ -371,7 +378,7 @@ export class SessionManager {
             await this.inProgressUpload?.abort()
 
             // TODO: If we fail to write to S3 we should be do something about it
-            status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
+            status.error('🧨', '[session-manager] failed writing session recording blob to S3', {
                 errorMessage: `${error.name || 'Unknown Error Type'}: ${error.message}`,
                 error,
                 ...this.logContext(),
@@ -379,10 +386,11 @@ export class SessionManager {
             })
             this.captureException(error)
             counterS3WriteErrored.inc()
+
+            throw error
         } finally {
             clearTimeout(flushTimeout)
             endFlushTimer()
-            this.endFlush()
         }
     }
 
@@ -427,13 +435,13 @@ export class SessionManager {
             // The compressed file
             pipeline(writeStream, zlib.createGzip(), createWriteStream(file('gz')))
                 .then(() => {
-                    status.debug('🥳', 'blob_ingester_session_manager writestream finished', {
+                    status.debug('🥳', '[session-manager] writestream finished', {
                         ...this.logContext(),
                     })
                 })
                 .catch((error) => {
                     // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
-                    status.error('🧨', 'blob_ingester_session_manager writestream errored', {
+                    status.error('🧨', '[session-manager] writestream errored', {
                         ...this.logContext(),
                         error,
                     })
@@ -444,7 +452,7 @@ export class SessionManager {
             // The uncompressed file which we need for realtime playback
             pipeline(writeStream, createWriteStream(file('jsonl'))).catch((error) => {
                 // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
-                status.error('🧨', 'blob_ingester_session_manager writestream errored', {
+                status.error('🧨', '[session-manager] writestream errored', {
                     ...this.logContext(),
                     error,
                 })
@@ -477,16 +485,13 @@ export class SessionManager {
         const end = message.events.at(-1)?.timestamp ?? start
 
         if (!start || !end) {
-            captureMessage(
-                "blob_ingester_session_manager: can't set events range from message without events summary",
-                {
-                    extra: { message },
-                    tags: {
-                        team_id: this.teamId,
-                        session_id: this.sessionId,
-                    },
-                }
-            )
+            captureMessage("[session-manager]: can't set events range from message without events summary", {
+                extra: { message },
+                tags: {
+                    team_id: this.teamId,
+                    session_id: this.sessionId,
+                },
+            })
             return
         }
 
@@ -501,14 +506,14 @@ export class SessionManager {
             return
         }
 
-        status.info('⚡️', `blob_ingester_session_manager Real-time mode started `, { sessionId: this.sessionId })
+        status.info('⚡️', `[session-manager][realtime] Started `, { sessionId: this.sessionId })
 
         this.realtimeTail = new Tail(this.buffer.file('jsonl'), {
             fromBeginning: true,
         })
 
         this.realtimeTail.on('line', async (data: string) => {
-            status.info('⚡️', 'blob_ingester_session_manager realtime adding to redis', {
+            status.info('⚡️', '[session-manager][realtime] writing to redis', {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
             })
@@ -516,7 +521,7 @@ export class SessionManager {
         })
 
         this.realtimeTail.on('error', (error) => {
-            status.error('🧨', 'blob_ingester_session_manager failed tailing buffer file', {
+            status.error('🧨', '[session-manager][realtime] failed to watch buffer file', {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
             })
@@ -535,9 +540,10 @@ export class SessionManager {
     public async destroy(): Promise<void> {
         this.destroying = true
         this.unsubscribe()
+        this.stopRealtime()
         if (this.inProgressUpload !== null) {
             await this.inProgressUpload.abort().catch((error) => {
-                status.error('🧨', 'blob_ingester_session_manager failed to abort in progress upload', {
+                status.error('🧨', '[session-manager][realtime] failed to abort in progress upload', {
                     ...this.logContext(),
                     error,
                 })

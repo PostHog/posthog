@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.test import override_settings
 from rest_framework import status
 
@@ -36,15 +36,14 @@ def _create_action(**kwargs):
 
 
 def _create_signup_actions(team, user_and_timestamps):
-
     for distinct_id, timestamp in user_and_timestamps:
         _create_event(team=team, event="sign up", distinct_id=distinct_id, timestamp=timestamp)
     sign_up_action = _create_action(team=team, name="sign up")
     return sign_up_action
 
 
-def _date(day, hour=5, month=0):
-    return datetime(2020, 6 + month, 10 + day, hour).isoformat()
+def _date(day, hour=5, month=0, minute=0):
+    return datetime(2020, 6 + month, 10 + day, hour, minute).isoformat()
 
 
 def pluck(list_of_dicts, key, child_key=None):
@@ -53,7 +52,7 @@ def pluck(list_of_dicts, key, child_key=None):
 
 def _create_events(team, user_and_timestamps, event="$pageview"):
     i = 0
-    for (distinct_id, timestamp, *properties_args) in user_and_timestamps:
+    for distinct_id, timestamp, *properties_args in user_and_timestamps:
         properties = {"$some_property": "value"} if i % 2 == 0 else {}
         if len(properties_args) == 1:
             properties.update(properties_args[0])
@@ -129,7 +128,7 @@ def retention_test_factory(retention):
                 pluck(result, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
             )
-            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
 
             self.assertEqual(
                 pluck(result, "values", "count"),
@@ -211,17 +210,17 @@ def retention_test_factory(retention):
             self.assertEqual(
                 pluck(result, "date"),
                 [
-                    datetime(2020, 1, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 2, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 3, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 4, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 5, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 8, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 9, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 10, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 11, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 1, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 2, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 3, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 4, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 5, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 8, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 9, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 10, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 11, 10, 0, tzinfo=ZoneInfo("UTC")),
                 ],
             )
 
@@ -372,17 +371,17 @@ def retention_test_factory(retention):
             self.assertEqual(
                 pluck(result, "date"),
                 [
-                    datetime(2020, 1, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 2, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 3, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 4, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 5, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 8, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 9, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 10, 10, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 11, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 1, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 2, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 3, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 4, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 5, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 8, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 9, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 10, 10, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 11, 10, 0, tzinfo=ZoneInfo("UTC")),
                 ],
             )
 
@@ -425,13 +424,13 @@ def retention_test_factory(retention):
             self.assertEqual(
                 pluck(result, "date"),
                 [
-                    datetime(2020, 6, 7, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 14, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 21, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 28, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 5, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 12, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 19, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 7, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 14, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 21, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 28, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 5, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 12, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 19, 0, tzinfo=ZoneInfo("UTC")),
                 ],
             )
 
@@ -457,7 +456,7 @@ def retention_test_factory(retention):
                 ],
             )
 
-            filter = RetentionFilter(data={"date_to": _date(0, hour=16), "period": "Hour"})
+            filter = RetentionFilter(data={"date_to": _date(0, hour=16, minute=13), "period": "Hour"})
 
             result = retention().run(filter, self.team, total_intervals=11)
 
@@ -498,17 +497,17 @@ def retention_test_factory(retention):
             self.assertEqual(
                 pluck(result, "date"),
                 [
-                    datetime(2020, 6, 10, 6, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 7, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 8, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 9, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 10, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 11, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 12, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 13, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 14, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 15, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 10, 16, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("UTC")),
                 ],
             )
 
@@ -552,13 +551,13 @@ def retention_test_factory(retention):
             self.assertEqual(
                 pluck(result, "date"),
                 [
-                    datetime(2020, 6, 7, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 14, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 21, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 28, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 5, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 12, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 19, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 7, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 14, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 21, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 6, 28, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 5, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 12, 0, tzinfo=ZoneInfo("UTC")),
+                    datetime(2020, 7, 19, 0, tzinfo=ZoneInfo("UTC")),
                 ],
             )
 
@@ -584,7 +583,7 @@ def retention_test_factory(retention):
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result, _ = retention().actors_in_period(
-                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 0}), self.team
+                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 0}, team=self.team), self.team
             )
             self.assertEqual(len(result), 1)
             self.assertTrue(result[0]["person"]["id"] == person1.uuid, person1.uuid)
@@ -602,7 +601,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 0,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -618,7 +618,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 0,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -675,7 +676,7 @@ def retention_test_factory(retention):
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result, _ = retention().actors_in_period(
-                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 2}), self.team
+                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 2}, team=self.team), self.team
             )
 
             # should be descending order on number of appearances
@@ -697,7 +698,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 0,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -835,7 +837,7 @@ def retention_test_factory(retention):
 
             self.assertEqual(len(result), 7)
             self.assertEqual(pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"])
-            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
 
             self.assertEqual(
                 pluck(result, "values", "count"),
@@ -868,7 +870,6 @@ def retention_test_factory(retention):
             )
 
         def test_retention_with_properties(self):
-
             _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
@@ -899,7 +900,7 @@ def retention_test_factory(retention):
                 pluck(result, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
             )
-            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
 
             self.assertEqual(
                 pluck(result, "values", "count"),
@@ -953,7 +954,7 @@ def retention_test_factory(retention):
 
             self.assertEqual(len(result), 7)
             self.assertEqual(pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"])
-            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
             self.assertEqual(
                 pluck(result, "values", "count"),
                 [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
@@ -1003,7 +1004,7 @@ def retention_test_factory(retention):
 
             self.assertEqual(len(result), 7)
             self.assertEqual(pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"])
-            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
             self.assertEqual(
                 pluck(result, "values", "count"),
                 [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
@@ -1044,7 +1045,7 @@ def retention_test_factory(retention):
 
             self.assertEqual(len(result), 7)
             self.assertEqual(pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"])
-            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
 
             self.assertEqual(
                 pluck(result, "values", "count"),
@@ -1083,7 +1084,7 @@ def retention_test_factory(retention):
                 pluck(result, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
             )
-            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
 
             self.assertEqual(
                 pluck(result, "values", "count"),
@@ -1153,7 +1154,6 @@ def retention_test_factory(retention):
             return p1, p2, p3, p4
 
         def test_retention_aggregate_by_distinct_id(self):
-
             _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"test": "ok"})
             _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
@@ -1193,7 +1193,7 @@ def retention_test_factory(retention):
                         "Day 10",
                     ],
                 )
-                self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+                self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
 
                 self.assertEqual(
                     pluck(result, "values", "count"),
@@ -1267,7 +1267,8 @@ def retention_test_factory(retention):
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
             )
 
-            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.timezone("US/Pacific")))
+            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, tzinfo=ZoneInfo("US/Pacific")))
+            self.assertEqual(result_pacific[0]["date"].isoformat(), "2020-06-10T00:00:00-07:00")
 
             self.assertEqual(
                 pluck(result, "values", "count"),
@@ -1333,7 +1334,7 @@ def retention_test_factory(retention):
                 pluck(result, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
             )
-            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
 
             self.assertEqual(
                 pluck(result, "values", "count"),

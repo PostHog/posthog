@@ -1,12 +1,16 @@
-from typing import Literal, Optional
+from typing import Literal, Optional, Dict
 
 from django.test import override_settings
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DateDatabaseField
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.models.team.team import WeekStartDay
 from posthog.test.base import BaseTest
 from posthog.utils import PersonOnEventsMode
 
@@ -21,9 +25,13 @@ class TestPrinter(BaseTest):
         return translate_hogql(query, context or HogQLContext(team_id=self.team.pk), dialect)
 
     # Helper to always translate HogQL with a blank context,
-    def _select(self, query: str, context: Optional[HogQLContext] = None) -> str:
+    def _select(
+        self, query: str, context: Optional[HogQLContext] = None, placeholders: Optional[Dict[str, ast.Expr]] = None
+    ) -> str:
         return print_ast(
-            parse_select(query), context or HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse"
+            parse_select(query, placeholders=placeholders),
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
         )
 
     def _assert_expr_error(self, expr, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
@@ -386,6 +394,46 @@ class TestPrinter(BaseTest):
         )
         self._assert_select_error("select 1 from other", 'Unknown table "other".')
 
+    def test_select_from_placeholder(self):
+        self.assertEqual(
+            self._select("select 1 from {placeholder}", placeholders={"placeholder": ast.Field(chain=["events"])}),
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+        with self.assertRaises(HogQLException) as error_context:
+            self._select(
+                "select 1 from {placeholder}",
+                placeholders={
+                    "placeholder": ast.CompareOperation(
+                        left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.CompareOperationOp.Eq
+                    )
+                },
+            ),
+        self.assertEqual(str(error_context.exception), "JoinExpr with table of type CompareOperation not supported")
+
+    def test_select_cross_join(self):
+        self.assertEqual(
+            self._select("select 1 from events cross join raw_groups"),
+            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT 10000",
+        )
+        self.assertEqual(
+            self._select("select 1 from events, raw_groups"),
+            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT 10000",
+        )
+
+    def test_select_array_join(self):
+        self.assertEqual(
+            self._select("select 1, a from events array join [1,2,3] as a"),
+            f"SELECT 1, a FROM events ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+        self.assertEqual(
+            self._select("select 1, a from events left array join [1,2,3] as a"),
+            f"SELECT 1, a FROM events LEFT ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+        self.assertEqual(
+            self._select("select 1, a from events inner array join [1,2,3] as a"),
+            f"SELECT 1, a FROM events INNER ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+
     def test_select_where(self):
         self.assertEqual(
             self._select("select 1 from events where 1 == 2"),
@@ -579,10 +627,16 @@ class TestPrinter(BaseTest):
         )
 
     def test_print_timezone(self):
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, database=Database(None, WeekStartDay.SUNDAY)
+        )
+        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
+
         self.assertEqual(
-            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now64(6, %(hogql_val_0)s), parseDateTime64BestEffortOrNull(toTimeZone(events.timestamp, %(hogql_val_1)s), 6, %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            self._select(
+                "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02') FROM events", context
+            ),
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date, %(hogql_val_3)s), parseDateTime64BestEffortOrNull(%(hogql_val_4)s, 6, %(hogql_val_5)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
             context.values,
@@ -590,8 +644,9 @@ class TestPrinter(BaseTest):
                 "hogql_val_0": "UTC",
                 "hogql_val_1": "UTC",
                 "hogql_val_2": "UTC",
-                "hogql_val_3": "2020-02-02",
-                "hogql_val_4": "UTC",
+                "hogql_val_3": "UTC",
+                "hogql_val_4": "2020-02-02",
+                "hogql_val_5": "UTC",
             },
         )
 
@@ -601,7 +656,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
             self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now64(6, %(hogql_val_0)s), parseDateTime64BestEffortOrNull(toTimeZone(events.timestamp, %(hogql_val_1)s), 6, %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
             context.values,
@@ -651,6 +706,23 @@ class TestPrinter(BaseTest):
             f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
         )
 
+    def test_to_start_of_week_gets_mode(self):
+        sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.SUNDAY))
+        monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.MONDAY))
+
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)"),  # Sunday is the default
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
+        )
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)", sunday_week_context),
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
+        )
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)", monday_week_context),
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 3)",
+        )
+
     def test_functions_expecting_datetime_arg(self):
         self.assertEqual(
             self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
@@ -658,7 +730,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._expr("tumble(now(), toIntervalDay('1'))"),
-            f"tumble(toDateTime(now64(6, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s))",
+            f"tumble(toDateTime(now64(6, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s))",
         )
         self.assertEqual(
             self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1'))"),
@@ -670,19 +742,19 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._select("SELECT tumble(timestamp, toIntervalDay('1')) FROM events"),
-            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
 
     def test_field_nullable_equals(self):
-        self.assertEqual(
-            self._select(
-                "SELECT first_event_timestamp = toStartOfMonth(now()), now() = now(), 1 = now(), now() = 1, 1 = 1, click_count = 1, 1 = click_count, click_count = keypress_count, click_count = null, null = click_count FROM session_recording_events"
-            ),
+        generated_sql_statements = self._select(
+            "SELECT min_first_timestamp = toStartOfMonth(now()), now() = now(), 1 = now(), now() = 1, 1 = 1, click_count = 1, 1 = click_count, click_count = keypress_count, click_count = null, null = click_count FROM session_replay_events"
+        )
+        assert generated_sql_statements == (
             f"SELECT "
-            # first_event_timestamp = toStartOfMonth(now())
+            # min_first_timestamp = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(equals(toTimeZone(session_recording_events.first_event_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNull(toTimeZone(session_recording_events.first_event_timestamp, %(hogql_val_0)s)) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            f"ifNull(equals(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
+            f"isNull(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
             # now() = now() (also two nullable fields)
             f"ifNull(equals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNull(now64(6, %(hogql_val_2)s)) and isNull(now64(6, %(hogql_val_3)s))), "
             # 1 = now()
@@ -692,31 +764,31 @@ class TestPrinter(BaseTest):
             # 1 = 1
             f"1, "
             # click_count = 1
-            f"equals(session_recording_events.click_count, 1), "
+            f"ifNull(equals(session_replay_events.click_count, 1), 0), "
             # 1 = click_count
-            f"equals(1, session_recording_events.click_count), "
+            f"ifNull(equals(1, session_replay_events.click_count), 0), "
             # click_count = keypress_count
-            f"equals(session_recording_events.click_count, session_recording_events.keypress_count), "
+            f"ifNull(equals(session_replay_events.click_count, session_replay_events.keypress_count), isNull(session_replay_events.click_count) and isNull(session_replay_events.keypress_count)), "
             # click_count = null
-            f"isNull(session_recording_events.click_count), "
+            f"isNull(session_replay_events.click_count), "
             # null = click_count
-            f"isNull(session_recording_events.click_count) "
+            f"isNull(session_replay_events.click_count) "
             # ...
-            f"FROM session_recording_events WHERE equals(session_recording_events.team_id, {self.team.pk}) LIMIT 10000",
+            f"FROM (SELECT session_replay_events.min_first_timestamp AS min_first_timestamp, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.min_first_timestamp) AS session_replay_events LIMIT 10000"
         )
 
     def test_field_nullable_not_equals(self):
-        self.assertEqual(
-            self._select(
-                "SELECT first_event_timestamp != toStartOfMonth(now()), now() != now(), 1 != now(), now() != 1, 1 != 1, "
-                "click_count != 1, 1 != click_count, click_count != keypress_count, click_count != null, null != click_count "
-                "FROM session_recording_events"
-            ),
+        generated_sql = self._select(
+            "SELECT min_first_timestamp != toStartOfMonth(now()), now() != now(), 1 != now(), now() != 1, 1 != 1, "
+            "click_count != 1, 1 != click_count, click_count != keypress_count, click_count != null, null != click_count "
+            "FROM session_replay_events"
+        )
+        assert generated_sql == (
             f"SELECT "
-            # first_event_timestamp = toStartOfMonth(now())
+            # min_first_timestamp = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(notEquals(toTimeZone(session_recording_events.first_event_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNotNull(toTimeZone(session_recording_events.first_event_timestamp, %(hogql_val_0)s)) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            f"ifNull(notEquals(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
+            f"isNotNull(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
             # now() = now() (also two nullable fields)
             f"ifNull(notEquals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNotNull(now64(6, %(hogql_val_2)s)) or isNotNull(now64(6, %(hogql_val_3)s))), "
             # 1 = now()
@@ -726,15 +798,15 @@ class TestPrinter(BaseTest):
             # 1 = 1
             f"0, "
             # click_count = 1
-            f"notEquals(session_recording_events.click_count, 1), "
+            f"ifNull(notEquals(session_replay_events.click_count, 1), 1), "
             # 1 = click_count
-            f"notEquals(1, session_recording_events.click_count), "
+            f"ifNull(notEquals(1, session_replay_events.click_count), 1), "
             # click_count = keypress_count
-            f"notEquals(session_recording_events.click_count, session_recording_events.keypress_count), "
+            f"ifNull(notEquals(session_replay_events.click_count, session_replay_events.keypress_count), isNotNull(session_replay_events.click_count) or isNotNull(session_replay_events.keypress_count)), "
             # click_count = null
-            f"isNotNull(session_recording_events.click_count), "
+            f"isNotNull(session_replay_events.click_count), "
             # null = click_count
-            f"isNotNull(session_recording_events.click_count) "
+            f"isNotNull(session_replay_events.click_count) "
             # ...
-            f"FROM session_recording_events WHERE equals(session_recording_events.team_id, {self.team.pk}) LIMIT 10000",
+            f"FROM (SELECT session_replay_events.min_first_timestamp AS min_first_timestamp, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.min_first_timestamp) AS session_replay_events LIMIT 10000"
         )

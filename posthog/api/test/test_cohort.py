@@ -315,6 +315,28 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
+    # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
+    @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
+    def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
+        for i in range(5):
+            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
+
+        _create_person(team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"})
+        _create_person(
+            team=self.team, distinct_ids=[f"not_target"], properties={"$os": "Something else", "$browser": "Safari"}
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(
+            f"/api/cohort/{cohort.pk}/persons?properties=%s"
+            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person"}]))
+        )
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
     def test_filter_by_cohort_search(self):
         for i in range(5):
             _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
@@ -401,6 +423,54 @@ email@example.org,
             {"detail": "Cohorts cannot reference other cohorts in a loop.", "type": "validation_error"}, response.json()
         )
         self.assertEqual(patch_calculate_cohort.call_count, 3)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_creating_update_with_non_directed_cycle(self, patch_calculate_cohort, patch_capture):
+        # Cohort A
+        response_a = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 1)
+
+        # Cohort B that depends on Cohort A
+        response_b = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort B",
+                "groups": [{"properties": [{"type": "cohort", "value": response_a.json()["id"], "key": "id"}]}],
+            },
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 2)
+
+        # Cohort C that depends on both Cohort A & B
+        response_c = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort C",
+                "groups": [
+                    {
+                        "properties": [
+                            {"type": "cohort", "value": response_b.json()["id"], "key": "id"},
+                            {"type": "cohort", "value": response_a.json()["id"], "key": "id"},
+                        ]
+                    }
+                ],
+            },
+        )
+        self.assertEqual(patch_calculate_cohort.call_count, 3)
+
+        # Update Cohort C
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response_c.json()['id']}",
+            data={
+                "name": "Cohort C, reloaded",
+            },
+        )
+        # it's not a loop because C depends on A & B, B depends on A, and A depends on nothing.
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(patch_calculate_cohort.call_count, 4)
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -831,6 +901,31 @@ email@example.org,
         self.assertEqual(async_deletion.key, f"{cohort_id}_2")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
+
+    def test_deletion_of_cohort_cancels_async_deletion(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+        )
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "deleted": True,
+            },
+        )
+
+        self.assertEqual(len(AsyncDeletion.objects.all()), 1)
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "deleted": False,
+            },
+        )
+
+        self.assertEqual(len(AsyncDeletion.objects.all()), 0)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_async_deletion_of_cohort_with_race_condition_multiple_updates(self, patch_capture):

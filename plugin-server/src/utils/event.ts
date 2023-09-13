@@ -1,4 +1,5 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka-acosom'
 
 import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
@@ -61,7 +62,7 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
     }
 }
 
-export function convertToIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {
+export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsChain = false): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     return {
         eventUuid: event.uuid,
@@ -71,7 +72,11 @@ export function convertToIngestionEvent(event: RawClickHouseEvent): PostIngestio
         distinctId: event.distinct_id,
         properties,
         timestamp: clickHouseTimestampToISO(event.timestamp),
-        elementsList: event.elements_chain ? chainToElements(event.elements_chain, event.team_id) : [],
+        elementsList: skipElementsChain
+            ? []
+            : event.elements_chain
+            ? chainToElements(event.elements_chain, event.team_id)
+            : [],
         person_id: event.person_id,
         person_created_at: event.person_created_at
             ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)
@@ -111,4 +116,19 @@ export function formPipelineEvent(message: Message): PipelineEvent {
         ip: combinedEvent.ip || null,
     })
     return event
+}
+
+export function formPluginEvent(event: RawClickHouseEvent): PluginEvent {
+    const postIngestionEvent = convertToIngestionEvent(event)
+    return {
+        distinct_id: postIngestionEvent.distinctId,
+        ip: postIngestionEvent.properties['$ip'],
+        site_url: '',
+        team_id: postIngestionEvent.teamId,
+        now: DateTime.now().toISO(),
+        event: postIngestionEvent.event,
+        properties: postIngestionEvent.properties,
+        timestamp: postIngestionEvent.timestamp,
+        uuid: postIngestionEvent.eventUuid,
+    }
 }

@@ -11,31 +11,51 @@ from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
 from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.timings import HogQLTimings
 
 
-def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, start: Optional[int] = 0) -> ast.Expr:
-    parse_tree = get_parser(expr).expr()
-    node = HogQLParseTreeConverter(start=start).visit(parse_tree)
-    if placeholders:
-        return replace_placeholders(node, placeholders)
+def parse_expr(
+    expr: str,
+    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    start: Optional[int] = 0,
+    timings: Optional[HogQLTimings] = None,
+) -> ast.Expr:
+    if timings is None:
+        timings = HogQLTimings()
+    with timings.measure("parse_expr"):
+        parse_tree = get_parser(expr).expr()
+        node = HogQLParseTreeConverter(start=start).visit(parse_tree)
+        if placeholders:
+            with timings.measure("replace_placeholders"):
+                return replace_placeholders(node, placeholders)
     return node
 
 
-def parse_order_expr(order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
-    parse_tree = get_parser(order_expr).orderExpr()
-    node = HogQLParseTreeConverter().visit(parse_tree)
-    if placeholders:
-        return replace_placeholders(node, placeholders)
+def parse_order_expr(
+    order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, timings: Optional[HogQLTimings] = None
+) -> ast.Expr:
+    if timings is None:
+        timings = HogQLTimings()
+    with timings.measure("parse_order_expr"):
+        parse_tree = get_parser(order_expr).orderExpr()
+        node = HogQLParseTreeConverter().visit(parse_tree)
+        if placeholders:
+            with timings.measure("replace_placeholders"):
+                return replace_placeholders(node, placeholders)
     return node
 
 
 def parse_select(
-    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None
+    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, timings: Optional[HogQLTimings] = None
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
-    parse_tree = get_parser(statement).select()
-    node = HogQLParseTreeConverter().visit(parse_tree)
-    if placeholders:
-        node = replace_placeholders(node, placeholders)
+    if timings is None:
+        timings = HogQLTimings()
+    with timings.measure("parse_select"):
+        parse_tree = get_parser(statement).select()
+        node = HogQLParseTreeConverter().visit(parse_tree)
+        if placeholders:
+            with timings.measure("replace_placeholders"):
+                node = replace_placeholders(node, placeholders)
     return node
 
 
@@ -143,10 +163,23 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif offset_only_clause := ctx.offsetOnlyClause():
             select_query.offset = self.visit(offset_only_clause.columnExpr())
 
+        if ctx.arrayJoinClause():
+            array_join_clause = ctx.arrayJoinClause()
+            if select_query.select_from is None:
+                raise HogQLException("Using ARRAY JOIN without a FROM clause is not permitted")
+            if array_join_clause.LEFT():
+                select_query.array_join_op = "LEFT ARRAY JOIN"
+            elif array_join_clause.INNER():
+                select_query.array_join_op = "INNER ARRAY JOIN"
+            else:
+                select_query.array_join_op = "ARRAY JOIN"
+            select_query.array_join_list = self.visit(array_join_clause.columnExprList())
+            for expr in select_query.array_join_list:
+                if not isinstance(expr, ast.Alias):
+                    raise HogQLException("ARRAY JOIN arrays must have an alias", start=expr.start, end=expr.end)
+
         if ctx.topClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.topClause()")
-        if ctx.arrayJoinClause():
-            raise NotImplementedException(f"Unsupported: SelectStmt.arrayJoinClause()")
         if ctx.settingsClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.settingsClause()")
 
@@ -216,6 +249,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         table_final = True if ctx.FINAL() else None
         if isinstance(table, ast.JoinExpr):
             # visitTableExprAlias returns a JoinExpr to pass the alias
+            # visitTableExprFunction returns a JoinExpr to pass the args
             table.table_final = table_final
             table.sample = sample
             return table
@@ -225,7 +259,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.joinExpr())
 
     def visitJoinExprCrossOp(self, ctx: HogQLParser.JoinExprCrossOpContext):
-        raise NotImplementedException(f"Unsupported node: JoinExprCrossOp")
+        join1: ast.JoinExpr = self.visit(ctx.joinExpr(0))
+        join2: ast.JoinExpr = self.visit(ctx.joinExpr(1))
+        join2.join_type = "CROSS JOIN"
+        last_join = join1
+        while last_join.next_join is not None:
+            last_join = last_join.next_join
+        last_join.next_join = join2
+        return join1
 
     def visitJoinOpInner(self, ctx: HogQLParser.JoinOpInnerContext):
         tokens = []
@@ -704,17 +745,26 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
 
+    def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
+        return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
+
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias = self.visit(ctx.alias() or ctx.identifier())
         if alias in RESERVED_KEYWORDS:
             raise HogQLException(f"Alias '{alias}' is a reserved keyword")
-        return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=alias)
+        table = self.visit(ctx.tableExpr())
+        if isinstance(table, ast.JoinExpr):
+            table.alias = alias
+            return table
+        return ast.JoinExpr(table=table, alias=alias)
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
-        raise NotImplementedException(f"Unsupported node: TableExprFunction")
+        return self.visit(ctx.tableFunctionExpr())
 
     def visitTableFunctionExpr(self, ctx: HogQLParser.TableFunctionExprContext):
-        raise NotImplementedException(f"Unsupported node: TableFunctionExpr")
+        name = self.visit(ctx.identifier())
+        args = self.visit(ctx.tableArgList()) if ctx.tableArgList() else []
+        return ast.JoinExpr(table=ast.Field(chain=[name]), table_args=args)
 
     def visitTableIdentifier(self, ctx: HogQLParser.TableIdentifierContext):
         text = self.visit(ctx.identifier())
@@ -723,10 +773,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [text]
 
     def visitTableArgList(self, ctx: HogQLParser.TableArgListContext):
-        raise NotImplementedException(f"Unsupported node: TableArgList")
-
-    def visitTableArgExpr(self, ctx: HogQLParser.TableArgExprContext):
-        raise NotImplementedException(f"Unsupported node: TableArgExpr")
+        return [self.visit(arg) for arg in ctx.columnExpr()]
 
     def visitDatabaseIdentifier(self, ctx: HogQLParser.DatabaseIdentifierContext):
         return self.visit(ctx.identifier())

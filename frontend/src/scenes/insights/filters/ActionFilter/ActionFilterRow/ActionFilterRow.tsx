@@ -39,6 +39,7 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { entityFilterLogicType } from '../entityFilterLogicType'
+import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -50,6 +51,19 @@ export enum MathAvailability {
     All,
     ActorsOnly,
     None,
+}
+
+const getValue = (
+    value: string | number | null | undefined,
+    filter: ActionFilter
+): string | number | null | undefined => {
+    if (isAllEventsEntityFilter(filter)) {
+        return 'All events'
+    } else if (filter.type === 'actions') {
+        return typeof value === 'string' ? parseInt(value) : value || undefined
+    } else {
+        return value === null ? null : value || undefined
+    }
 }
 
 export interface ActionFilterRowProps {
@@ -203,7 +217,7 @@ export function ActionFilterRow({
             data-attr={'trend-element-subject-' + index}
             fullWidth
             groupType={filter.type as TaxonomicFilterGroupType}
-            value={filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value || undefined}
+            value={getValue(value, filter)}
             onChange={(changedValue, taxonomicGroupType, item) => {
                 updateFilter({
                     type: taxonomicFilterGroupTypeToEntityType(taxonomicGroupType) || undefined,
@@ -229,7 +243,7 @@ export function ActionFilterRow({
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
 
     const propertyFiltersButton = (
-        <IconWithCount count={filter.properties?.length || 0} showZero={false}>
+        <IconWithCount key="property-filter" count={filter.properties?.length || 0} showZero={false}>
             <LemonButton
                 icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
                 status="primary-alt"
@@ -248,6 +262,7 @@ export function ActionFilterRow({
 
     const renameRowButton = (
         <LemonButton
+            key="rename"
             icon={<IconEdit />}
             status="primary-alt"
             title="Rename graph series"
@@ -262,6 +277,7 @@ export function ActionFilterRow({
 
     const duplicateRowButton = (
         <LemonButton
+            key="duplicate"
             icon={<IconCopy />}
             status="primary-alt"
             title="Duplicate graph series"
@@ -275,6 +291,7 @@ export function ActionFilterRow({
 
     const deleteButton = (
         <LemonButton
+            key="delete"
             icon={<IconDelete />}
             status="primary-alt"
             title="Delete graph series"
@@ -286,7 +303,7 @@ export function ActionFilterRow({
 
     const rowStartElements = [
         sortable && filterCount > 1 ? <DragHandle /> : null,
-        showSeriesIndicator && <div>{seriesIndicator}</div>,
+        showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
     const rowEndElements = !readOnly
@@ -348,13 +365,26 @@ export function ActionFilterRow({
                                                 renderValue={(currentValue) => (
                                                     <Tooltip
                                                         title={
-                                                            <>
-                                                                Calculate{' '}
-                                                                {mathDefinitions[math ?? ''].name.toLowerCase()} from
-                                                                property <code>{currentValue}</code>. Note that only{' '}
-                                                                {name} occurences where <code>{currentValue}</code> is
-                                                                set with a numeric value will be taken into account.
-                                                            </>
+                                                            currentValue === '$session_duration' ? (
+                                                                <>
+                                                                    Calculate{' '}
+                                                                    {mathDefinitions[math ?? ''].name.toLowerCase()} of
+                                                                    the session duration. This is based on the{' '}
+                                                                    <code>$session_id</code> property associated with
+                                                                    events. The duration is derived from the time
+                                                                    difference between the first and last event for each
+                                                                    distinct <code>$session_id</code>.
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    Calculate{' '}
+                                                                    {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
+                                                                    from property <code>{currentValue}</code>. Note that
+                                                                    only {name} occurences where{' '}
+                                                                    <code>{currentValue}</code> is set with a numeric
+                                                                    value will be taken into account.
+                                                                </>
+                                                            )
                                                         }
                                                         placement="right"
                                                     >

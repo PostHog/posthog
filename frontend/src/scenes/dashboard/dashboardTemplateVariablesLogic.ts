@@ -2,9 +2,16 @@ import { actions, kea, path, props, propsChanged, reducers } from 'kea'
 import { DashboardTemplateVariableType, FilterType, Optional } from '~/types'
 
 import type { dashboardTemplateVariablesLogicType } from './dashboardTemplateVariablesLogicType'
+import { isEmptyObject } from 'lib/utils'
 
 export interface DashboardTemplateVariablesLogicProps {
     variables: DashboardTemplateVariableType[]
+}
+
+const FALLBACK_EVENT = {
+    id: '$pageview',
+    math: 'dau',
+    type: 'events',
 }
 
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
@@ -21,7 +28,14 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
         variables: [
             [] as DashboardTemplateVariableType[],
             {
-                setVariables: (_, { variables }) => variables,
+                setVariables: (_, { variables }) => {
+                    return variables.map((v) => {
+                        if (v.default && !isEmptyObject(v.default)) {
+                            return v
+                        }
+                        return { ...v, default: FALLBACK_EVENT } as unknown as DashboardTemplateVariableType
+                    })
+                },
                 setVariable: (state, { variable_name: variableName, filterGroup }): DashboardTemplateVariableType[] => {
                     // TODO: handle actions as well as events
                     return state.map((v: DashboardTemplateVariableType) => {

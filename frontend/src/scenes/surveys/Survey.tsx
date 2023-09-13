@@ -4,7 +4,15 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
@@ -17,14 +25,14 @@ import {
     RatingSurveyQuestion,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
-import { IconCancel } from 'lib/lemon-ui/icons'
+import { IconCancel, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
 import { SurveyAppearance } from './SurveyAppearance'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -52,7 +60,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, setHasTargetingFlag } = useActions(surveyLogic)
+    const { loadSurvey, editingSurvey, setSurveyValue } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
@@ -89,12 +97,12 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             />
             <LemonDivider />
             <div className="flex flex-row gap-4">
-                <div className="flex flex-col gap-2 min-w-180">
+                <div className="flex flex-col gap-2">
                     <Field name="name" label="Name">
                         <LemonInput data-attr="survey-name" />
                     </Field>
                     <Field name="description" label="Description (optional)">
-                        <LemonTextArea data-attr="survey-description" />
+                        <LemonTextArea data-attr="survey-description" minRows={2} />
                     </Field>
                     <Field name="type" label="Display mode" className="w-max">
                         <LemonSelect
@@ -109,13 +117,23 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     {survey.questions.map(
                         (question: LinkSurveyQuestion | SurveyQuestion | RatingSurveyQuestion, index: number) => (
                             <Group name={`questions.${index}`} key={index}>
-                                <Field name="type" label="Question type" className="min-w-150">
+                                <Field name="type" label="Question type" className="max-w-60">
                                     <LemonSelect
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
                                             { label: 'Link', value: SurveyQuestionType.Link },
-                                            ...(featureFlags[FEATURE_FLAGS.SURVEYS_RATING_TYPE]
-                                                ? [{ label: 'Rating', value: SurveyQuestionType.Rating }]
+                                            { label: 'Rating', value: SurveyQuestionType.Rating },
+                                            ...(featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_CHOICE]
+                                                ? [
+                                                      {
+                                                          label: 'Single choice select',
+                                                          value: SurveyQuestionType.SingleChoice,
+                                                      },
+                                                      {
+                                                          label: 'Multiple choice select',
+                                                          value: SurveyQuestionType.MultipleChoice,
+                                                      },
+                                                  ]
                                                 : []),
                                         ]}
                                     />
@@ -129,7 +147,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     </Field>
                                 )}
                                 <Field name="description" label="Question description (optional)">
-                                    <LemonTextArea value={question.description || ''} />
+                                    <LemonTextArea value={question.description || ''} minRows={2} />
                                 </Field>
                                 {question.type === SurveyQuestionType.Rating && (
                                     <div className="flex flex-col gap-2">
@@ -174,9 +192,95 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         </div>
                                     </div>
                                 )}
+                                {(question.type === SurveyQuestionType.SingleChoice ||
+                                    question.type === SurveyQuestionType.MultipleChoice) && (
+                                    <div className="flex flex-col gap-2">
+                                        <Field name="choices" label="Choices">
+                                            {({ value, onChange }) => (
+                                                <div className="flex flex-col gap-2">
+                                                    {(value || []).map((choice: string, index: number) => (
+                                                        <div className="flex flex-row gap-2" key={index}>
+                                                            <LemonInput
+                                                                value={choice}
+                                                                fullWidth
+                                                                onChange={(val) => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices[index] = val
+                                                                    onChange(newChoices)
+                                                                }}
+                                                            />
+                                                            <LemonButton
+                                                                icon={<IconDelete />}
+                                                                size="small"
+                                                                status="muted"
+                                                                noPadding
+                                                                onClick={() => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices.splice(index, 1)
+                                                                    onChange(newChoices)
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                    <div className="w-fit">
+                                                        {(value || []).length < 6 && (
+                                                            <LemonButton
+                                                                icon={<IconPlusMini />}
+                                                                type="secondary"
+                                                                fullWidth={false}
+                                                                onClick={() => {
+                                                                    if (!value) {
+                                                                        onChange([''])
+                                                                    } else {
+                                                                        onChange([...value, ''])
+                                                                    }
+                                                                }}
+                                                            >
+                                                                Add choice
+                                                            </LemonButton>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </Field>
+                                    </div>
+                                )}
                             </Group>
                         )
                     )}
+                    <LemonDivider />
+                    <Field name="appearance" label="Thank you message (optional)">
+                        {({ value, onChange }) => (
+                            <>
+                                <LemonCheckbox
+                                    label="Display thank you message"
+                                    checked={value.displayThankYouMessage}
+                                    onChange={(checked) => onChange({ ...value, displayThankYouMessage: checked })}
+                                />
+                                {value.displayThankYouMessage && (
+                                    <>
+                                        <PureField label="Thank you header">
+                                            <LemonInput
+                                                value={value.thankYouMessageHeader}
+                                                onChange={(val) => onChange({ ...value, thankYouMessageHeader: val })}
+                                                placeholder="ex: Thank you for your feedback!"
+                                            />
+                                        </PureField>
+                                        <PureField label="Thank you description">
+                                            <LemonTextArea
+                                                value={value.thankYouMessageDescription}
+                                                onChange={(val) =>
+                                                    onChange({ ...value, thankYouMessageDescription: val })
+                                                }
+                                                minRows={2}
+                                                placeholder="ex: We really appreciate it."
+                                            />
+                                        </PureField>
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </Field>
                     <LemonDivider className="my-2" />
                     <PureField label="Targeting (optional)">
                         <span className="text-muted">
@@ -227,6 +331,40 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                             placeholder="ex: .className or #id"
                                         />
                                     </PureField>
+                                    <PureField label="Survey wait period">
+                                        <div className="flex flex-row gap-2 items-center">
+                                            <LemonCheckbox
+                                                checked={!!value?.seenSurveyWaitPeriodInDays}
+                                                onChange={(checked) => {
+                                                    if (checked) {
+                                                        onChange({
+                                                            ...value,
+                                                            seenSurveyWaitPeriodInDays:
+                                                                value?.seenSurveyWaitPeriodInDays || 30,
+                                                        })
+                                                    } else {
+                                                        const { seenSurveyWaitPeriodInDays, ...rest } = value || {}
+                                                        onChange(rest)
+                                                    }
+                                                }}
+                                            />
+                                            Do not display this survey to users who have already seen a survey in the
+                                            last
+                                            <LemonInput
+                                                type="number"
+                                                size="small"
+                                                min={0}
+                                                value={value?.seenSurveyWaitPeriodInDays}
+                                                onChange={(val) => {
+                                                    if (val !== undefined && val > 0) {
+                                                        onChange({ ...value, seenSurveyWaitPeriodInDays: val })
+                                                    }
+                                                }}
+                                                className="w-16"
+                                            />{' '}
+                                            days.
+                                        </div>
+                                    </PureField>
                                 </>
                             )}
                         </Field>
@@ -236,7 +374,9 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         type="secondary"
                                         className="w-max"
-                                        onClick={() => setHasTargetingFlag(true)}
+                                        onClick={() => {
+                                            setSurveyValue('targeting_flag_filters', { groups: [] })
+                                        }}
                                     >
                                         Add user targeting
                                     </LemonButton>
@@ -251,7 +391,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                 type="secondary"
                                                 status="danger"
                                                 className="w-max"
-                                                onClick={() => setHasTargetingFlag(false)}
+                                                onClick={() => {
+                                                    setSurveyValue('targeting_flag_filters', undefined)
+                                                    setSurveyValue('targeting_flag', null)
+                                                }}
                                             >
                                                 Remove all user properties
                                             </LemonButton>
@@ -327,7 +470,7 @@ export function SurveyReleaseSummary({
 }): JSX.Element {
     return (
         <div className="flex flex-col mt-2 gap-2">
-            <div className="font-semibold">Release conditions</div>
+            <div className="font-semibold">Release conditions summary</div>
             <span className="text-muted">
                 By default surveys will be released to everyone unless targeting options are set.
             </span>

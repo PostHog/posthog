@@ -4,27 +4,15 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import {
-    AvailableFeature,
-    ChartDisplayType,
-    FilterType,
-    FunnelStep,
-    FunnelVizType,
-    InsightShortId,
-    InsightType,
-} from '~/types'
+import { AvailableFeature, FunnelStep, InsightType } from '~/types'
 import './Experiment.scss'
-import '../insights/Insight.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
-import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
+import { CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
-import { FunnelLayout } from 'lib/constants'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { SecondaryMetrics } from './SecondaryMetrics'
-import { getSeriesColor } from 'lib/colors'
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -41,14 +29,13 @@ import { userLogic } from 'scenes/userLogic'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { EXPERIMENT_INSIGHT_ID } from './constants'
-import { NodeKind } from '~/queries/schema'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Query } from '~/queries/Query/Query'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentInsightCreator } from './MetricSelector'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { ExperimentResult } from './ExperimentResult'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -66,25 +53,17 @@ export function Experiment(): JSX.Element {
         recommendedExposureForCountData,
         variants,
         experimentResults,
-        countDataForVariant,
-        exposureCountDataForVariant,
         editingExistingExperiment,
         experimentInsightType,
         experimentResultsLoading,
         experimentLoading,
         areResultsSignificant,
-        conversionRateForVariant,
-        getIndexForVariant,
         significanceBannerDetails,
-        areTrendResultsConfusing,
         isExperimentRunning,
-        experimentResultCalculationError,
         flagImplementationWarning,
         props,
-        sortedExperimentResultVariants,
         aggregationLabel,
         groupTypes,
-        experimentCountPerUserMath,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -123,7 +102,6 @@ export function Experiment(): JSX.Element {
     const trendCount = trendResults[0]?.count
     const entrants = results?.[0]?.count
     const exposure = recommendedExposureForCountData(trendCount)
-    const secondaryColumnSpan = Math.floor(24 / (variants.length + 2)) // +2 for the names column
 
     useEffect(() => {
         setExposureAndSampleSize(exposure, sampleSize)
@@ -144,16 +122,6 @@ export function Experiment(): JSX.Element {
             ? ((funnelResultsPersonsTotal || 0) / (experiment?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experiment?.start_date, 'day') / (experiment?.parameters?.recommended_running_time || 1)) *
               100
-
-    const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
-    const status = (): string => {
-        if (!isExperimentRunning) {
-            return 'draft'
-        } else if (!experiment?.end_date) {
-            return 'running'
-        }
-        return 'complete'
-    }
 
     const maxVariants = 10
 
@@ -369,7 +337,7 @@ export function Experiment(): JSX.Element {
                                                 </Link>
                                             )}
                                         </div>
-                                        {experimentId === 'new' && (
+                                        {experimentId === 'new' && groupTypes.length > 0 && (
                                             <>
                                                 <div className="mt-4">
                                                     <strong>Default participant type</strong>
@@ -544,123 +512,121 @@ export function Experiment(): JSX.Element {
             ) : experiment ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
-                        <Row justify="space-between" align="middle" className="w-full pb-4">
+                        <Row justify="space-between" align="middle" className="w-full" wrap={false}>
                             <Col>
-                                <Row>
-                                    <PageHeader
-                                        style={{ paddingRight: 8 }}
-                                        title={`${experiment?.name}`}
-                                        buttons={
-                                            <>
-                                                <CopyToClipboardInline
-                                                    explicitValue={experiment.feature_flag?.key}
-                                                    iconStyle={{ color: 'var(--muted-alt)' }}
-                                                >
-                                                    <span className="text-muted">{experiment.feature_flag?.key}</span>
-                                                </CopyToClipboardInline>
-                                                <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
-                                                    <b className="uppercase">{status()}</b>
-                                                </Tag>
-                                                {experimentResults && experiment.end_date && (
-                                                    <Tag
-                                                        style={{ alignSelf: 'center' }}
-                                                        color={areResultsSignificant ? 'green' : 'geekblue'}
-                                                    >
-                                                        <b className="uppercase">
-                                                            {areResultsSignificant
-                                                                ? 'Significant Results'
-                                                                : 'Results not significant'}
-                                                        </b>
-                                                    </Tag>
-                                                )}
-                                            </>
-                                        }
-                                    />
-                                </Row>
-                                <span className="exp-description">
-                                    {isExperimentRunning ? (
-                                        <EditableField
-                                            multiline
-                                            name="description"
-                                            value={experiment.description || ''}
-                                            placeholder="Description (optional)"
-                                            onSave={(value) => updateExperiment({ description: value })}
-                                            maxLength={400} // Sync with Experiment model
-                                            data-attr="experiment-description"
-                                            compactButtons
-                                        />
-                                    ) : (
-                                        <>{experiment.description || 'There is no description for this experiment.'}</>
-                                    )}
-                                </span>
+                                <PageHeader
+                                    style={{ paddingRight: 8 }}
+                                    title={`${experiment?.name}`}
+                                    buttons={
+                                        <>
+                                            <CopyToClipboardInline
+                                                explicitValue={experiment.feature_flag?.key}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            >
+                                                <span className="text-muted">{experiment.feature_flag?.key}</span>
+                                            </CopyToClipboardInline>
+                                            <StatusTag />
+                                            <ResultsTag />
+                                        </>
+                                    }
+                                />
                             </Col>
-                            {experiment && !isExperimentRunning && (
-                                <div className="flex items-center">
-                                    <LemonButton
-                                        type="secondary"
-                                        className="mr-2"
-                                        onClick={() => setEditExperiment(true)}
-                                    >
-                                        Edit
-                                    </LemonButton>
-                                    <LemonButton type="primary" onClick={() => launchExperiment()}>
-                                        Launch
-                                    </LemonButton>
-                                </div>
-                            )}
-                            {experiment && isExperimentRunning && (
-                                <div className="flex flex-row gap-2">
-                                    <>
-                                        <More
-                                            overlay={
-                                                <>
-                                                    <LemonButton
-                                                        status="stealth"
-                                                        onClick={() => loadExperimentResults(true)}
-                                                        fullWidth
-                                                        data-attr="refresh-experiment"
-                                                    >
-                                                        Refresh experiment results
-                                                    </LemonButton>
-                                                </>
-                                            }
-                                        />
-                                        <LemonDivider vertical />
-                                    </>
-                                    <Popconfirm
-                                        placement="topLeft"
-                                        title={
-                                            <div>
-                                                Reset this experiment and go back to draft mode?
-                                                <div className="text-sm text-muted">
-                                                    All collected data so far will be discarded.
+                            <Col className="page-title-row">
+                                {experiment && !isExperimentRunning && (
+                                    <div className="flex items-center">
+                                        <LemonButton
+                                            type="secondary"
+                                            className="mr-2"
+                                            onClick={() => setEditExperiment(true)}
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                        <LemonButton type="primary" onClick={() => launchExperiment()}>
+                                            Launch
+                                        </LemonButton>
+                                    </div>
+                                )}
+                                {experiment && isExperimentRunning && (
+                                    <div className="flex flex-row gap-2">
+                                        <>
+                                            <More
+                                                overlay={
+                                                    <>
+                                                        <LemonButton
+                                                            status="stealth"
+                                                            onClick={() => loadExperimentResults(true)}
+                                                            fullWidth
+                                                            data-attr="refresh-experiment"
+                                                        >
+                                                            Refresh experiment results
+                                                        </LemonButton>
+                                                    </>
+                                                }
+                                            />
+                                            <LemonDivider vertical />
+                                        </>
+                                        <Popconfirm
+                                            placement="bottomLeft"
+                                            title={
+                                                <div>
+                                                    Reset this experiment and go back to draft mode?
+                                                    <div className="text-sm text-muted">
+                                                        All collected data so far will be discarded.
+                                                    </div>
+                                                    {experiment.archived && (
+                                                        <div className="text-sm text-muted">
+                                                            Resetting will also unarchive the experiment.
+                                                        </div>
+                                                    )}
                                                 </div>
-                                            </div>
-                                        }
-                                        onConfirm={() => resetRunningExperiment()}
-                                    >
-                                        <LemonButton type="secondary" status="primary">
-                                            Reset
-                                        </LemonButton>
-                                    </Popconfirm>
-                                    {!experiment.end_date && (
-                                        <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                            Stop
-                                        </LemonButton>
-                                    )}
-                                    {experiment?.end_date &&
-                                        dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                        !experiment.archived && (
+                                            }
+                                            onConfirm={() => resetRunningExperiment()}
+                                        >
+                                            <LemonButton type="secondary" status="primary">
+                                                Reset
+                                            </LemonButton>
+                                        </Popconfirm>
+                                        {!experiment.end_date && (
                                             <LemonButton
                                                 type="secondary"
                                                 status="danger"
-                                                onClick={() => archiveExperiment()}
+                                                onClick={() => endExperiment()}
                                             >
-                                                <b>Archive</b>
+                                                Stop
                                             </LemonButton>
                                         )}
-                                </div>
-                            )}
+                                        {experiment?.end_date &&
+                                            dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                            !experiment.archived && (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    status="danger"
+                                                    onClick={() => archiveExperiment()}
+                                                >
+                                                    <b>Archive</b>
+                                                </LemonButton>
+                                            )}
+                                    </div>
+                                )}
+                            </Col>
+                        </Row>
+                        <Row className="w-full pb-4">
+                            <span className="exp-description">
+                                {isExperimentRunning ? (
+                                    <EditableField
+                                        multiline
+                                        name="description"
+                                        value={experiment.description || ''}
+                                        placeholder="Description (optional)"
+                                        onSave={(value) => updateExperiment({ description: value })}
+                                        maxLength={400} // Sync with Experiment model
+                                        data-attr="experiment-description"
+                                        compactButtons
+                                    />
+                                ) : (
+                                    <>{experiment.description || 'There is no description for this experiment.'}</>
+                                )}
+                            </span>
                         </Row>
                     </Row>
                     <Row>
@@ -850,205 +816,7 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
                     </Row>
-                    <div className="experiment-result">
-                        {experimentResults ? (
-                            (experiment?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
-                                <>
-                                    <Row
-                                        className="border-t"
-                                        justify="space-between"
-                                        style={{
-                                            paddingTop: 8,
-                                            paddingBottom: 8,
-                                        }}
-                                    >
-                                        <Col span={2 * secondaryColumnSpan}>Variant</Col>
-                                        {sortedExperimentResultVariants.map((variant, idx) => (
-                                            <Col
-                                                key={idx}
-                                                span={secondaryColumnSpan}
-                                                style={{
-                                                    color: getSeriesColor(
-                                                        getIndexForVariant(variant, experimentInsightType)
-                                                    ),
-                                                }}
-                                            >
-                                                <b>{capitalizeFirstLetter(variant)}</b>
-                                            </Col>
-                                        ))}
-                                    </Row>
-                                    <Row
-                                        className="border-t"
-                                        justify="space-between"
-                                        style={{
-                                            paddingTop: 8,
-                                            paddingBottom: 8,
-                                        }}
-                                    >
-                                        <Col span={2 * secondaryColumnSpan}>
-                                            {experimentInsightType === InsightType.TRENDS ? 'Count' : 'Conversion Rate'}
-                                        </Col>
-                                        {sortedExperimentResultVariants.map((variant, idx) => (
-                                            <Col key={idx} span={secondaryColumnSpan}>
-                                                {experimentInsightType === InsightType.TRENDS
-                                                    ? countDataForVariant(variant)
-                                                    : `${conversionRateForVariant(variant)}%`}
-                                            </Col>
-                                        ))}
-                                    </Row>
-                                    <Row
-                                        className="border-t"
-                                        justify="space-between"
-                                        style={{
-                                            paddingTop: 8,
-                                            paddingBottom: 8,
-                                        }}
-                                    >
-                                        <Col span={2 * secondaryColumnSpan}>Probability to be the best</Col>
-                                        {sortedExperimentResultVariants.map((variant, idx) => (
-                                            <Col key={idx} span={secondaryColumnSpan}>
-                                                <b>
-                                                    {experimentResults.probability[variant]
-                                                        ? `${(experimentResults.probability[variant] * 100).toFixed(
-                                                              1
-                                                          )}%`
-                                                        : '--'}
-                                                </b>
-                                            </Col>
-                                        ))}
-                                    </Row>
-                                </>
-                            ) : (
-                                <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
-                                    {
-                                        //sort by decreasing probability
-                                        Object.keys(experimentResults.probability)
-                                            .sort(
-                                                (a, b) =>
-                                                    experimentResults.probability[b] - experimentResults.probability[a]
-                                            )
-                                            .map((variant, idx) => (
-                                                <Col key={idx} className="pr-4">
-                                                    <div>
-                                                        <b>{capitalizeFirstLetter(variant)}</b>
-                                                    </div>
-                                                    {experimentInsightType === InsightType.TRENDS ? (
-                                                        <>
-                                                            <Row>
-                                                                <b className="pr-1">
-                                                                    <Row>
-                                                                        {'action' in experimentResults.insight[0] && (
-                                                                            <EntityFilterInfo
-                                                                                filter={
-                                                                                    experimentResults.insight[0].action
-                                                                                }
-                                                                            />
-                                                                        )}
-                                                                        <span className="pl-1">
-                                                                            {experimentCountPerUserMath
-                                                                                ? 'metric'
-                                                                                : 'count'}
-                                                                            :
-                                                                        </span>
-                                                                    </Row>
-                                                                </b>{' '}
-                                                                {countDataForVariant(variant)}{' '}
-                                                                {areTrendResultsConfusing && idx === 0 && (
-                                                                    <Tooltip
-                                                                        placement="right"
-                                                                        title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
-                                                                    >
-                                                                        <InfoCircleOutlined className="py-1 px-0.5" />
-                                                                    </Tooltip>
-                                                                )}
-                                                            </Row>
-                                                            <div className="flex">
-                                                                <b className="pr-1">Exposure:</b>{' '}
-                                                                {exposureCountDataForVariant(variant)}
-                                                            </div>
-                                                        </>
-                                                    ) : (
-                                                        <Row>
-                                                            <b className="pr-1">Conversion rate:</b>{' '}
-                                                            {conversionRateForVariant(variant)}%
-                                                        </Row>
-                                                    )}
-                                                    <Progress
-                                                        percent={Number(
-                                                            (experimentResults.probability[variant] * 100).toFixed(1)
-                                                        )}
-                                                        size="small"
-                                                        showInfo={false}
-                                                        strokeColor={getSeriesColor(
-                                                            getIndexForVariant(variant, experimentInsightType)
-                                                        )}
-                                                    />
-                                                    <div>
-                                                        Probability that this variant is the best:{' '}
-                                                        <b>
-                                                            {(experimentResults.probability[variant] * 100).toFixed(1)}%
-                                                        </b>
-                                                    </div>
-                                                </Col>
-                                            ))
-                                    }
-                                </Row>
-                            )
-                        ) : (
-                            experimentResultsLoading && (
-                                <div className="text-center">
-                                    <Skeleton active />
-                                </div>
-                            )
-                        )}
-                        {experimentResults ? (
-                            <div className="mt-4">
-                                <Query
-                                    query={{
-                                        kind: NodeKind.InsightVizNode,
-                                        source: filtersToQueryNode(transformResultFilters(experimentResults.filters)),
-                                        showTable: true,
-                                        showLegendButton: false,
-                                        showLastComputation: true,
-                                        showLastComputationRefresh: false,
-                                    }}
-                                    context={{
-                                        insightProps: {
-                                            dashboardItemId: experimentResults.fakeInsightId as InsightShortId,
-                                            cachedInsight: {
-                                                short_id: experimentResults.fakeInsightId as InsightShortId,
-                                                filters: transformResultFilters(experimentResults.filters),
-                                                result: experimentResults.insight,
-                                                disable_baseline: true,
-                                                last_refresh: experimentResults.last_refresh,
-                                            },
-                                            doNotLoad: true,
-                                        },
-                                    }}
-                                    readOnly
-                                />
-                            </div>
-                        ) : (
-                            experiment.start_date && (
-                                <>
-                                    <div className="no-experiment-results">
-                                        {!experimentResultsLoading && (
-                                            <div className="text-center">
-                                                <b>There are no results for this experiment yet.</b>
-                                                <div className="text-sm ">
-                                                    {!!experimentResultCalculationError &&
-                                                        `${experimentResultCalculationError}. `}{' '}
-                                                    Wait a bit longer for your users to be exposed to the experiment.
-                                                    Double check your feature flag implementation if you're still not
-                                                    seeing results.
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
-                            )
-                        )}
-                    </div>
+                    <ExperimentResult />
                 </div>
             ) : (
                 <Skeleton active />
@@ -1057,13 +825,34 @@ export function Experiment(): JSX.Element {
     )
 }
 
-const transformResultFilters = (filters: Partial<FilterType>): Partial<FilterType> => ({
-    ...filters,
-    ...(filters.insight === InsightType.FUNNELS && {
-        layout: FunnelLayout.vertical,
-        funnel_viz_type: FunnelVizType.Steps,
-    }),
-    ...(filters.insight === InsightType.TRENDS && {
-        display: ChartDisplayType.ActionsLineGraphCumulative,
-    }),
-})
+export function StatusTag(): JSX.Element {
+    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
+    const status = (): string => {
+        if (!isExperimentRunning) {
+            return 'draft'
+        } else if (!experiment?.end_date) {
+            return 'running'
+        }
+        return 'complete'
+    }
+
+    return (
+        <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+            <b className="uppercase">{status()}</b>
+        </Tag>
+    )
+}
+
+export function ResultsTag(): JSX.Element {
+    const { experiment, experimentResults, areResultsSignificant } = useValues(experimentLogic)
+    if (experimentResults && experiment.end_date) {
+        return (
+            <Tag style={{ alignSelf: 'center' }} color={areResultsSignificant ? 'green' : 'geekblue'}>
+                <b className="uppercase">{areResultsSignificant ? 'Significant Results' : 'Results not significant'}</b>
+            </Tag>
+        )
+    }
+
+    return <></>
+}

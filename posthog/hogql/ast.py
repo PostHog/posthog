@@ -387,7 +387,9 @@ class CompareOperationOp(str, Enum):
     NotLike = "not like"
     NotILike = "not ilike"
     In = "in"
+    GlobalIn = "global in"
     NotIn = "not in"
+    GlobalNotIn = "global not in"
     InCohort = "in cohort"
     NotInCohort = "not in cohort"
     Regex = "=~"
@@ -484,6 +486,7 @@ class JoinExpr(Expr):
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table_args: Optional[List[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional["JoinConstraint"] = None
@@ -522,6 +525,8 @@ class SelectQuery(Expr):
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
+    array_join_op: Optional[str] = None
+    array_join_list: Optional[List[Expr]] = None
     window_exprs: Optional[Dict[str, WindowExpr]] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None

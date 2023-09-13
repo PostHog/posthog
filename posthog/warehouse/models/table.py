@@ -8,17 +8,20 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     IntegerDatabaseField,
     DateTimeDatabaseField,
+    DateDatabaseField,
     StringJSONDatabaseField,
     BooleanDatabaseField,
     StringArrayDatabaseField,
 )
 from posthog.hogql.database.s3_table import S3Table
-import re
+from posthog.warehouse.models.util import remove_named_tuples
 
-ClickhouseHogqlMapping = {
+CLICKHOUSE_HOGQL_MAPPING = {
+    "UUID": StringDatabaseField,
     "String": StringDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
+    "Date": DateDatabaseField,
     "UInt8": IntegerDatabaseField,
     "UInt16": IntegerDatabaseField,
     "UInt32": IntegerDatabaseField,
@@ -46,6 +49,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"
         Parquet = "Parquet", "Parquet"
+        JSON = "JSONEachRow", "JSON"
 
     name: models.CharField = models.CharField(max_length=128)
     format: models.CharField = models.CharField(max_length=128, choices=TableFormat.choices)
@@ -93,11 +97,11 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
             if type.startswith("Array("):
-                type = self.remove_named_tuples(type)
+                type = remove_named_tuples(type)
 
             structure.append(f"{column} {type}")
             type = type.partition("(")[0]
-            type = ClickhouseHogqlMapping[type]
+            type = CLICKHOUSE_HOGQL_MAPPING[type]
             fields[column] = type(name=column)
 
         return S3Table(
@@ -109,18 +113,6 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             fields=fields,
             structure=", ".join(structure),
         )
-
-    def remove_named_tuples(self, type):
-        """Remove named tuples from query"""
-        tokenified_type = re.split(r"(\W)", type)
-        filtered_tokens = [
-            token
-            for token in tokenified_type
-            if token == "Nullable"
-            or (len(token) == 1 and not token.isalnum())
-            or token in ClickhouseHogqlMapping.keys()
-        ]
-        return "".join(filtered_tokens)
 
     def _safe_expose_ch_error(self, err):
         err = wrap_query_error(err)

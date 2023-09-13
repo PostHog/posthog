@@ -30,7 +30,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -96,7 +96,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -139,14 +139,14 @@
             count(*) as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id,
+       (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
+        WHERE "$session_id" != ''
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
@@ -175,7 +175,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -190,14 +190,14 @@
                             replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') as breakdown_value
            FROM events e
            INNER JOIN
-             (SELECT $session_id,
+             (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
-              WHERE $session_id != ''
+              WHERE "$session_id" != ''
                 AND team_id = 2
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-              GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND (sessions.session_duration > 30.0)
@@ -223,14 +223,14 @@
             count(*) as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id,
+       (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
+        WHERE "$session_id" != ''
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
@@ -259,7 +259,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -274,14 +274,14 @@
                             sessions.session_duration as breakdown_value
            FROM events e
            INNER JOIN
-             (SELECT $session_id,
+             (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
-              WHERE $session_id != ''
+              WHERE "$session_id" != ''
                 AND team_id = 2
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-              GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
@@ -307,14 +307,14 @@
             count(*) as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id,
+       (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
+        WHERE "$session_id" != ''
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
@@ -332,14 +332,14 @@
                  AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') AS breakdown_value
   FROM events e
   INNER JOIN
-    (SELECT $session_id,
+    (SELECT "$session_id",
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
      FROM events
-     WHERE $session_id != ''
+     WHERE "$session_id" != ''
        AND team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-     GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+     GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
   WHERE e.team_id = 2
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
@@ -358,14 +358,14 @@
             count(*) as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id,
+       (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
+        WHERE "$session_id" != ''
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
@@ -391,7 +391,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -411,14 +411,14 @@
                                     AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') as breakdown_value
            FROM events e
            INNER JOIN
-             (SELECT $session_id,
+             (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
-              WHERE $session_id != ''
+              WHERE "$session_id" != ''
                 AND team_id = 2
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-              GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
@@ -444,14 +444,14 @@
             count(DISTINCT e."$session_id") as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id,
+       (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
+        WHERE "$session_id" != ''
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
@@ -479,7 +479,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -494,14 +494,14 @@
                             sessions.session_duration as breakdown_value
            FROM events e
            INNER JOIN
-             (SELECT $session_id,
+             (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
-              WHERE $session_id != ''
+              WHERE "$session_id" != ''
                 AND team_id = 2
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-              GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
@@ -526,14 +526,14 @@
             count(DISTINCT e."$session_id") as count
      FROM events e
      INNER JOIN
-       (SELECT $session_id,
+       (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
+        WHERE "$session_id" != ''
           AND team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
      WHERE team_id = 2
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
@@ -558,7 +558,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -578,14 +578,14 @@
                                     AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') as breakdown_value
            FROM events e
            INNER JOIN
-             (SELECT $session_id,
+             (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
-              WHERE $session_id != ''
+              WHERE "$session_id" != ''
                 AND team_id = 2
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
-              GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
@@ -633,7 +633,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN

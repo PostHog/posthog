@@ -29,7 +29,6 @@ function SpanBar({
     maxSpan,
     parentStart,
 }: Pick<SpanProps, 'spanData' | 'maxSpan' | 'parentStart'>): JSX.Element {
-    console.log('span bar with max span', maxSpan, 'and span data', spanData)
     const [durationWidth, setDurationWidth] = useState<number>(0)
     const [startMargin, setStartMargin] = useState<number>(0)
 
@@ -155,7 +154,6 @@ function TraceOverview({
                     {processedSpans
                         .filter((spanData) => ['interaction', 'session'].includes(spanData.type))
                         .map((spanData, i) => {
-                            console.log('processing span', spanData)
                             let ref = undefined
                             if (spanData.type === 'session') {
                                 ref = parentSpanRef
@@ -175,7 +173,7 @@ function TraceOverview({
                                         <SpanBarWrapper
                                             ref={ref}
                                             // don't set duration container width back onto the element that is generating it
-                                            durationContainerWidth={!!ref ? undefined : parentSpanWidth}
+                                            durationContainerWidth={ref ? undefined : parentSpanWidth}
                                             maxSpan={maxTimePoint}
                                             spanData={spanData}
                                         />

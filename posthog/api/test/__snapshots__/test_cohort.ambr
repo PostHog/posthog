@@ -1,6 +1,6 @@
 # name: TestCohort.test_async_deletion_of_cohort
   '
-  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:116 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -10,7 +10,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.1
   '
-  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:116 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -81,40 +81,9 @@
          AND version < '2')
   '
 ---
-# name: TestCohort.test_async_deletion_of_cohort.12
-  '
-  /* celery:posthog.celery.clickhouse_clear_removed_data */
-  ALTER TABLE cohortpeople
-  DELETE
-  WHERE (team_id = 2
-         AND cohort_id = '1'
-         AND version < '2')
-  '
----
-# name: TestCohort.test_async_deletion_of_cohort.13
-  'OPTIMIZE TABLE cohortpeople FINAL SETTINGS mutations_sync = 2'
----
-# name: TestCohort.test_async_deletion_of_cohort.14
-  '
-  SELECT count()
-  FROM cohortpeople
-  WHERE cohort_id = 2
-  '
----
-# name: TestCohort.test_async_deletion_of_cohort.15
-  '
-  /* celery:posthog.celery.clickhouse_clear_removed_data */
-  SELECT DISTINCT team_id,
-                  cohort_id
-  FROM cohortpeople
-  WHERE (team_id = 2
-         AND cohort_id = '1'
-         AND version < '2')
-  '
----
 # name: TestCohort.test_async_deletion_of_cohort.2
   '
-  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:116 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -124,7 +93,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.3
   '
-  /* user_id:102 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
+  /* user_id:116 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
@@ -134,7 +103,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.4
   '
-  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:116 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -144,7 +113,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.5
   '
-  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:116 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -178,7 +147,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.6
   '
-  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:116 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -188,7 +157,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.7
   '
-  /* user_id:102 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
+  /* user_id:116 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2

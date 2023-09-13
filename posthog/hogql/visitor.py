@@ -105,12 +105,18 @@ class TraversingVisitor(Visitor):
         self.visit(node.right)
 
     def visit_join_expr(self, node: ast.JoinExpr):
+        # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
         self.visit(node.table)
+        for expr in node.table_args or []:
+            self.visit(expr)
         self.visit(node.constraint)
         self.visit(node.next_join)
 
     def visit_select_query(self, node: ast.SelectQuery):
+        # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
         self.visit(node.select_from)
+        for expr in node.array_join_list or []:
+            self.visit(expr)
         for expr in node.select or []:
             self.visit(expr)
         self.visit(node.where)
@@ -424,6 +430,7 @@ class CloningVisitor(Visitor):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
+            table_args=[self.visit(expr) for expr in node.table_args] if node.table_args is not None else None,
             next_join=self.visit(node.next_join),
             table_final=node.table_final,
             alias=node.alias,
@@ -433,6 +440,7 @@ class CloningVisitor(Visitor):
         )
 
     def visit_select_query(self, node: ast.SelectQuery):
+        # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
         return ast.SelectQuery(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
@@ -440,6 +448,8 @@ class CloningVisitor(Visitor):
             ctes={key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None,  # to not traverse
             select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
             select=[self.visit(expr) for expr in node.select] if node.select else None,
+            array_join_op=node.array_join_op,
+            array_join_list=[self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None,
             where=self.visit(node.where),
             prewhere=self.visit(node.prewhere),
             having=self.visit(node.having),

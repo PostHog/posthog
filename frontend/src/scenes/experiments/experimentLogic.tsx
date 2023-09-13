@@ -435,7 +435,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         resetRunningExperiment: async () => {
-            actions.updateExperiment({ start_date: null, end_date: null })
+            actions.updateExperiment({ start_date: null, end_date: null, archived: false })
             values.experiment && actions.reportExperimentReset(values.experiment)
 
             actions.loadExperimentResultsSuccess(null)
@@ -615,6 +615,12 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment): boolean => {
                 return !!experiment?.start_date
+            },
+        ],
+        secondaryColumnSpan: [
+            (s) => [s.variants],
+            (variants): number => {
+                return Math.floor(24 / (variants.length + 2)) // +2 for the names column
             },
         ],
         breadcrumbs: [

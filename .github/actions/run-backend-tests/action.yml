@@ -2,29 +2,28 @@
 # This is a composite action that packages our backend Django tests.
 # It is called by the `ci-backend.yml` job using a matrix.
 #
-name: Run Backend Django tests
+name: Run Django tests
 inputs:
     python-version:
         required: true
-        type: string
+        description: Python version, e.g. 3.10.10
     clickhouse-server-image:
         required: true
-        type: string
+        description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
     segment:
         required: true
-        type: string
+        description: Either 'FOSS' or 'EE' segment
     concurrency:
         required: true
-        type: number
+        description: Count of concurrency groups
     group:
         required: true
-        type: number
+        description: Group number
     person-on-events:
         required: true
-        type: boolean
+        description: Whether testing with persons on events, true or false
     token:
         required: false
-        type: string
         description: GitHub token
 
 runs:
@@ -36,6 +35,7 @@ runs:
           shell: bash
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
+              export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
               docker compose -f docker-compose.dev.yml down
               docker compose -f docker-compose.dev.yml up -d
 
@@ -103,23 +103,13 @@ runs:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
-          run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest hogvm posthog -m "not async_migrations" \
+          run: | # async_migrations covered in ci-async-migrations.yml
+              pytest ${{
+                  inputs.person-on-events == 'true'
+                  && './posthog/clickhouse/ ./posthog/hogql/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
+                  || 'hogvm posthog'
+              }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
-                  $PYTEST_ARGS
-
-        - name: Run Decide read replica tests
-          if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
-          env:
-              POSTHOG_DB_NAME: posthog
-              READ_REPLICA_OPT_IN: decide
-              POSTHOG_POSTGRES_READ_HOST: localhost
-              POSTHOG_DB_PASSWORD: posthog
-              POSTHOG_DB_USER: posthog
-          shell: bash
-          run: |
-              pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
@@ -129,17 +119,22 @@ runs:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
-          run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest ee -m "not async_migrations" \
+          run: | # async_migrations covered in ci-async-migrations.yml
+              pytest ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
+                  --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
-        # Post-tests
-
-        - name: Upload updated timing data as artifacts
-          uses: actions/upload-artifact@v2
-          if: ${{ inputs.segment == 'EE' && inputs.person-on-events != 'true'}}
-          with:
-              name: timing_data-${{ inputs.group }}
-              path: .test_durations
+        - name: Run /decide read replica tests
+          if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
+          env:
+              POSTHOG_DB_NAME: posthog
+              READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, local_evaluation'
+              POSTHOG_POSTGRES_READ_HOST: localhost
+              POSTHOG_DB_PASSWORD: posthog
+              POSTHOG_DB_USER: posthog
+          shell: bash
+          run: |
+              pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
+                  --durations=100 --durations-min=1.0 \
+                  $PYTEST_ARGS

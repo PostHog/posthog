@@ -14,6 +14,7 @@ from typing import (
 )
 
 import pytz
+from zoneinfo import ZoneInfo
 
 from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent
 
@@ -673,7 +674,7 @@ class HedgeboxPerson(SimPerson):
         if not self.account.was_billing_scheduled:
             self.account.was_billing_scheduled = True
             future_months = math.ceil(
-                (self.cluster.end.astimezone(pytz.timezone(self.timezone)) - self.cluster.simulation_time).days / 30
+                (self.cluster.end.astimezone(ZoneInfo(self.timezone)) - self.cluster.simulation_time).days / 30
             )
             for i in range(future_months):
                 bill_timestamp = self.cluster.simulation_time + dt.timedelta(days=30 * i)

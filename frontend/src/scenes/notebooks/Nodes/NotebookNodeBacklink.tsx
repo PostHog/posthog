@@ -1,15 +1,18 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { InsightModel, NotebookNodeType } from '~/types'
+import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
 import { IconGauge, IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
-import { useActions, useValues } from 'kea'
-import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
-import { notebookLogic } from '../Notebook/notebookLogic'
 import clsx from 'clsx'
 import { router } from 'kea-router'
+import { posthogNodePasteRule } from './utils'
+import api from 'lib/api'
+import { useValues } from 'kea'
+import { notebookLogic } from '../Notebook/notebookLogic'
+
+import { openNotebook } from '~/models/notebooksModel'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,
@@ -23,20 +26,25 @@ const ICON_MAP = {
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { shortId } = useValues(notebookLogic)
-    const { notebookLinkClicked } = useActions(notebookSidebarLogic)
 
     const type: TaxonomicFilterGroupType = props.node.attrs.type
-    const href: string | undefined = backlinkHref(props.node.attrs.id, type)
     const title: string = props.node.attrs.title
+    const id: string = props.node.attrs.id
+    const href = backlinkHref(id, type)
 
     const isViewing = router.values.location.pathname === href
 
     return (
         <NodeViewWrapper
             as="span"
-            class={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
+            className={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
         >
-            <Link to={href} onClick={() => notebookLinkClicked(shortId)} target={undefined} className="space-x-1">
+            <Link
+                to={href}
+                onClick={() => openNotebook(shortId, NotebookTarget.Popover)}
+                target={undefined}
+                className="space-x-1"
+            >
                 <span>{ICON_MAP[type]}</span>
                 <span className="Backlink__label">{title}</span>
             </Link>
@@ -44,7 +52,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-function backlinkHref(id: string, type: TaxonomicFilterGroupType): string | undefined {
+function backlinkHref(id: string, type: TaxonomicFilterGroupType): string {
     if (type === TaxonomicFilterGroupType.Events) {
         return urls.eventDefinition(id)
     } else if (type === TaxonomicFilterGroupType.Cohorts) {
@@ -60,6 +68,7 @@ function backlinkHref(id: string, type: TaxonomicFilterGroupType): string | unde
     } else if (type === TaxonomicFilterGroupType.Dashboards) {
         return urls.dashboard(id)
     }
+    return ''
 }
 
 export const NotebookNodeBacklink = Node.create({
@@ -77,11 +86,7 @@ export const NotebookNodeBacklink = Node.create({
     },
 
     parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Backlink,
-            },
-        ]
+        return [{ tag: NotebookNodeType.Backlink }]
     },
 
     renderHTML({ HTMLAttributes }) {
@@ -90,5 +95,50 @@ export const NotebookNodeBacklink = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            posthogNodePasteRule({
+                find: urls.eventDefinition('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const event = await api.eventDefinitions.get({ eventDefinitionId: id })
+                    return { id: id, type: TaxonomicFilterGroupType.Events, title: event.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.cohort('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const event = await api.cohorts.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Cohorts, title: event.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.experiment('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const experiment = await api.experiments.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Experiments, title: experiment.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.dashboard('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const dashboard = await api.dashboards.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Dashboards, title: dashboard.name }
+                },
+            }),
+        ]
     },
 })

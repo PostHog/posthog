@@ -1,8 +1,8 @@
+import datetime as dt
 import gzip
 import json
 import re
 from collections import deque
-from typing import TypedDict
 from uuid import uuid4
 
 import pytest
@@ -18,7 +18,14 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
-from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
+from posthog.temporal.tests.batch_exports.base import (
+    EventValues,
+    insert_events,
+)
+from posthog.temporal.tests.batch_exports.fixtures import (
+    acreate_batch_export,
+    afetch_batch_export_runs,
+)
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.snowflake_batch_export import (
@@ -26,51 +33,6 @@ from posthog.temporal.workflows.snowflake_batch_export import (
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity,
 )
-
-
-class EventValues(TypedDict):
-    """Events to be inserted for testing."""
-
-    uuid: str
-    event: str
-    timestamp: str
-    _timestamp: str
-    inserted_at: str
-    person_id: str
-    team_id: int
-    properties: dict
-
-
-async def insert_events(client: ClickHouseClient, events: list[EventValues]):
-    """Insert some events into the sharded_events table."""
-    await client.execute_query(
-        f"""
-        INSERT INTO `sharded_events` (
-            uuid,
-            event,
-            timestamp,
-            _timestamp,
-            inserted_at,
-            person_id,
-            team_id,
-            properties
-        )
-        VALUES
-        """,
-        *[
-            (
-                event["uuid"],
-                event["event"],
-                event["timestamp"],
-                event["_timestamp"],
-                event["inserted_at"],
-                event["person_id"],
-                event["team_id"],
-                json.dumps(event["properties"]),
-            )
-            for event in events
-        ],
-    )
 
 
 def contains_queries_in_order(queries: list[str], *queries_to_find: str):
@@ -272,14 +234,18 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
     # multipart chunk size for multipart uploads to Snowflake.
     events: list[EventValues] = [
         {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
             "_timestamp": "2023-04-20 14:30:00",
+            "created_at": f"2023-04-20 14:30:00.{i:06d}",
+            "distinct_id": str(uuid4()),
+            "elements_chain": None,
+            "event": "test",
             "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "person_id": str(uuid4()),
-            "team_id": team.pk,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "person_properties": {},
+            "team_id": team.pk,
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "uuid": str(uuid4()),
         }
         # NOTE: we have to do a lot here, otherwise we do not trigger a
         # multipart upload, and the minimum part chunk size is 5MB.
@@ -301,34 +267,46 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
         client=ch_client,
         events=[
             {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 13:30:00",
                 "_timestamp": "2023-04-20 13:30:00",
-                "inserted_at": f"2023-04-20 13:30:00",
+                "created_at": "2023-04-20 13:30:00",
+                "distinct_id": str(uuid4()),
+                "elements_chain": None,
+                "event": "test",
+                "inserted_at": "2023-04-20 13:30:00",
                 "person_id": str(uuid4()),
-                "team_id": team.pk,
                 "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {},
+                "team_id": team.pk,
+                "timestamp": "2023-04-20 13:30:00",
+                "uuid": str(uuid4()),
             },
             {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 15:30:00",
                 "_timestamp": "2023-04-20 15:30:00",
-                "inserted_at": f"2023-04-20 15:30:00",
+                "created_at": "2023-04-20 15:30:00",
+                "distinct_id": str(uuid4()),
+                "elements_chain": None,
+                "event": "test",
+                "inserted_at": "2023-04-20 15:30:00",
                 "person_id": str(uuid4()),
-                "team_id": team.pk,
                 "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {},
+                "team_id": team.pk,
+                "timestamp": "2023-04-20 15:30:00",
+                "uuid": str(uuid4()),
             },
             {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 14:30:00",
                 "_timestamp": "2023-04-20 14:30:00",
-                "inserted_at": f"2023-04-20 14:30:00",
+                "created_at": "2023-04-20 14:30:00",
+                "distinct_id": str(uuid4()),
+                "elements_chain": None,
+                "event": "test",
+                "inserted_at": "2023-04-20 14:30:00",
                 "person_id": str(uuid4()),
-                "team_id": other_team.pk,
                 "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {},
+                "team_id": other_team.pk,
+                "timestamp": "2023-04-20 14:30:00",
+                "uuid": str(uuid4()),
             },
         ],
     )
@@ -357,6 +335,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
+                    execution_timeout=dt.timedelta(seconds=10),
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
@@ -390,12 +369,16 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 ]
                 json_data.sort(key=lambda x: x["timestamp"])
                 # Drop _timestamp and team_id from events
-                events = [
-                    {key: value for key, value in event.items() if key not in ("team_id", "_timestamp", "inserted_at")}
+                expected_events = [
+                    {
+                        key: value
+                        for key, value in event.items()
+                        if key in ("uuid", "event", "timestamp", "properties", "person_id")
+                    }
                     for event in events
                 ]
-                assert json_data[0] == events[0]
-                assert json_data == events
+                assert json_data[0] == expected_events[0]
+                assert json_data == expected_events
 
         runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
         assert len(runs) == 1
@@ -503,14 +486,18 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail():
 
     events: list[EventValues] = [
         {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
             "_timestamp": "2023-04-20 14:30:00",
+            "created_at": "2023-04-20 14:30:00",
+            "distinct_id": str(uuid4()),
+            "elements_chain": None,
+            "event": "test",
             "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "person_id": str(uuid4()),
-            "team_id": team.pk,
+            "person_properties": None,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team.pk,
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "uuid": str(uuid4()),
         }
         for i in range(2)
     ]
@@ -598,14 +585,18 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail():
 
     events: list[EventValues] = [
         {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
             "_timestamp": "2023-04-20 14:30:00",
+            "created_at": "2023-04-20 14:30:00",
+            "distinct_id": str(uuid4()),
+            "elements_chain": None,
+            "event": "test",
             "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "person_id": str(uuid4()),
-            "team_id": team.pk,
+            "person_properties": None,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team.pk,
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "uuid": str(uuid4()),
         }
         for i in range(2)
     ]

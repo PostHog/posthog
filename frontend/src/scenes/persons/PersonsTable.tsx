@@ -3,7 +3,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonType, PropertyDefinitionType } from '~/types'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { PersonHeader } from './PersonHeader'
+import { PersonDisplay } from './PersonDisplay'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/lemon-ui/icons'
@@ -43,7 +43,7 @@ export function PersonsTable({
             title: 'Person',
             key: 'person',
             render: function Render(_, person: PersonType) {
-                return <PersonHeader withIcon person={person} />
+                return <PersonDisplay withIcon person={person} />
             },
         },
         ...(!compact

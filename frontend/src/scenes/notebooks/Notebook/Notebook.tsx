@@ -8,22 +8,29 @@ import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
+import { EditorFocusPosition } from './utils'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { NotebookSidebar } from './NotebookSidebar'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 export type NotebookProps = {
     shortId: string
     editable?: boolean
+    initialAutofocus?: EditorFocusPosition
 }
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
+export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
-    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
+    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
+        useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
@@ -35,10 +42,14 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
     }, [])
 
     useEffect(() => {
+        setEditable(editable)
+    }, [editable])
+
+    useEffect(() => {
         if (editor) {
-            editor.setEditable(editable)
+            editor.focus(initialAutofocus)
         }
-    }, [editor, editable])
+    }, [editor])
 
     // TODO - Render a special state if the notebook is empty
 
@@ -60,7 +71,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
                 {notebook.is_template && (
                     <LemonBanner
                         type="info"
@@ -87,22 +98,30 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                     </LemonBanner>
                 ) : null}
 
-                <Editor
-                    initialContent={content}
-                    onCreate={setEditor}
-                    onUpdate={onEditorUpdate}
-                    placeholder={({ node }: { node: any }) => {
-                        if (node.type.name === 'heading' && node.attrs.level === 1) {
-                            return `Untitled - maybe.. "${headingPlaceholder}"`
-                        }
+                <div className="flex flex-1 justify-center space-x-2">
+                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOK_SETTINGS_WIDGETS}>
+                        <NotebookSidebar />
+                    </FlaggedFeature>
+                    <ErrorBoundary>
+                        <Editor
+                            initialContent={content}
+                            onCreate={setEditor}
+                            onUpdate={onEditorUpdate}
+                            onSelectionUpdate={onEditorSelectionUpdate}
+                            placeholder={({ node }: { node: any }) => {
+                                if (node.type.name === 'heading' && node.attrs.level === 1) {
+                                    return `Untitled - maybe.. "${headingPlaceholder}"`
+                                }
 
-                        if (node.type.name === 'heading') {
-                            return `Heading ${node.attrs.level}`
-                        }
+                                if (node.type.name === 'heading') {
+                                    return `Heading ${node.attrs.level}`
+                                }
 
-                        return ''
-                    }}
-                />
+                                return ''
+                            }}
+                        />
+                    </ErrorBoundary>
+                </div>
             </div>
         </BindLogic>
     )

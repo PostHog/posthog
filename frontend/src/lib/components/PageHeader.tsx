@@ -1,4 +1,3 @@
-import { Row } from 'antd'
 import clsx from 'clsx'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -24,11 +23,17 @@ export function PageHeader({
     delimited,
     notebookProps,
 }: PageHeaderProps): JSX.Element {
-    const content = (
+    return (
         <>
             <div className="page-title-row flex justify-between" style={style}>
-                <div>
-                    <h1 className="page-title">{title}</h1>
+                <div className="min-w-0">
+                    {notebookProps ? (
+                        <DraggableToNotebook {...notebookProps}>
+                            <h1 className="page-title">{title}</h1>
+                        </DraggableToNotebook>
+                    ) : (
+                        <h1 className="page-title">{title}</h1>
+                    )}
                     <span className="page-description">{description}</span>
                 </div>
                 <div className="page-buttons">{buttons}</div>
@@ -38,8 +43,6 @@ export function PageHeader({
             {delimited && <LemonDivider className="my-4" />}
         </>
     )
-
-    return notebookProps ? <DraggableToNotebook {...notebookProps}>{content}</DraggableToNotebook> : <>{content}</>
 }
 
 interface SubtitleProps {
@@ -49,9 +52,9 @@ interface SubtitleProps {
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {
     return (
-        <Row className="mt-8" justify={buttons ? 'space-between' : 'start'} align="middle">
+        <div className={clsx('flex mt-5 items-center', buttons ? 'justify-between' : 'justify-start')}>
             <h2 className="subtitle">{subtitle}</h2>
             {buttons}
-        </Row>
+        </div>
     )
 }

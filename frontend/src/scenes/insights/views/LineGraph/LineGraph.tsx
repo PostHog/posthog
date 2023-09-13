@@ -12,6 +12,7 @@ import {
     Color,
     InteractionItem,
     TickOptions,
+    GridLineOptions,
     TooltipModel,
     TooltipOptions,
     ScriptableLineSegmentContext,
@@ -27,7 +28,7 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -35,6 +36,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TrendsFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 
 export function ensureTooltipElement(): HTMLElement {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
@@ -211,6 +213,8 @@ export interface LineGraphProps {
     formula?: string | null
     compare?: boolean | null
     showValueOnSeries?: boolean | null
+    showPercentStackView?: boolean | null
+    supportsPercentStackView?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -239,6 +243,8 @@ export function LineGraph_({
     trendsFilter,
     formula,
     showValueOnSeries,
+    showPercentStackView,
+    supportsPercentStackView,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -265,6 +271,7 @@ export function LineGraph_({
 
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
+    const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal
     const shouldAutoResize = isHorizontal && !inCardView
 
@@ -349,7 +356,16 @@ export function LineGraph_({
         const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
         const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
-            color: colors.axisLabel as Color,
+            color: '#2d2d2d' as Color,
+            font: {
+                family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                size: 12,
+                weight: '500',
+            },
+        }
+        const gridOptions: Partial<GridLineOptions> = {
+            borderColor: colors.axisLine as string,
+            borderDash: [4, 2],
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -371,6 +387,7 @@ export function LineGraph_({
                 },
             },
             plugins: {
+                stacked100: { enable: isPercentStackView, precision: 1 },
                 datalabels: {
                     color: 'white',
                     anchor: (context) => {
@@ -384,7 +401,12 @@ export function LineGraph_({
                         const datum = context.dataset.data[context.dataIndex]
                         return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
-                    formatter: (value: number) => formatAggregationAxisValue(trendsFilter, value),
+                    formatter: (value: number, context) => {
+                        const data = context.chart.data as ExtendedChartData
+                        const { datasetIndex, dataIndex } = context
+                        const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
+                        return formatPercentStackAxisValue(trendsFilter, percentageValue || value, isPercentStackView)
+                    },
                     borderWidth: 2,
                     borderRadius: 4,
                     borderColor: 'white',
@@ -449,7 +471,27 @@ export function LineGraph_({
                                     }}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
-                                        ((value: number): string => formatAggregationAxisValue(trendsFilter, value))
+                                        ((value: number): string => {
+                                            if (!isPercentStackView) {
+                                                return formatAggregationAxisValue(trendsFilter, value)
+                                            }
+
+                                            const total = seriesData.reduce((a, b) => a + b.count, 0)
+                                            const percentageLabel: number = parseFloat(
+                                                ((value / total) * 100).toFixed(1)
+                                            )
+
+                                            const isNaN = Number.isNaN(percentageLabel)
+
+                                            if (isNaN) {
+                                                return formatAggregationAxisValue(trendsFilter, value)
+                                            }
+
+                                            return `${formatAggregationAxisValue(
+                                                trendsFilter,
+                                                value
+                                            )} (${percentageLabel}%)`
+                                        })
                                     }
                                     entitiesAsColumnsOverride={formula ? false : undefined}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
@@ -523,20 +565,22 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                     },
+                    grid: gridOptions,
                 },
                 y: {
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                         callback: (value) => {
-                            return formatAggregationAxisValue(trendsFilter, value)
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
+                    grid: gridOptions,
                 },
             }
         } else if (type === GraphType.Line) {
@@ -546,26 +590,23 @@ export function LineGraph_({
                     display: true,
                     ticks: tickOptions,
                     grid: {
-                        display: true,
+                        ...gridOptions,
                         drawOnChartArea: false,
-                        borderColor: colors.axisLine as string,
                         tickLength: 12,
                     },
                 },
                 y: {
                     beginAtZero: true,
                     display: true,
-                    stacked: isArea,
+                    stacked: showPercentStackView || isArea,
                     ticks: {
-                        precision,
                         ...tickOptions,
+                        precision,
                         callback: (value) => {
-                            return formatAggregationAxisValue(trendsFilter, value)
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
-                    grid: {
-                        borderColor: colors.axisLine as string,
-                    },
+                    grid: gridOptions,
                 },
             }
         } else if (isHorizontal) {
@@ -577,9 +618,10 @@ export function LineGraph_({
                         ...tickOptions,
                         precision,
                         callback: (value) => {
-                            return formatAggregationAxisValue(trendsFilter, value)
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
+                    grid: gridOptions,
                 },
                 y: {
                     beforeFit: (scale) => {
@@ -598,8 +640,8 @@ export function LineGraph_({
                     },
                     beginAtZero: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                         autoSkip: !shouldAutoResize,
                         callback: function _renderYLabel(_, i) {
                             const labelDescriptors = [
@@ -610,11 +652,12 @@ export function LineGraph_({
                             return labelDescriptors.join(' - ')
                         },
                     },
+                    grid: gridOptions,
                 },
             }
             options.indexAxis = 'y'
         }
-
+        Chart.register(ChartjsPluginStacked100)
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },

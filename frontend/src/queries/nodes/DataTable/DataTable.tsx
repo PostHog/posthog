@@ -44,6 +44,7 @@ import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 
 interface DataTableProps {
+    uniqueKey?: string | number
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
@@ -62,10 +63,16 @@ const groupTypes = [
 
 let uniqueNode = 0
 
-export function DataTable({ query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
-    const [key] = useState(() => `DataTable.${uniqueNode++}`)
+export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
+    const uniqueNodeKey = useState(() => uniqueNode++)
+    const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
+    const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
 
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key, cachedResults: cachedResults }
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: query.source,
+        key: dataKey,
+        cachedResults: cachedResults,
+    }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
     const {
@@ -80,7 +87,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         highlightedRows,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, key, context }
+    const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
@@ -96,9 +103,13 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         showExport,
         showElapsedTime,
         showColumnConfigurator,
+        showPersistentColumnConfigurator,
         showSavedQueries,
         expandable,
+        embedded,
         showOpenEditorButton,
+        showResultsTable,
+        showTimings,
     } = queryWithDefaults
 
     const isReadOnly = setQuery === undefined
@@ -317,7 +328,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     )
 
     const firstRowLeft = [
-        showDateRange && isEventsQuery(query.source) ? (
+        showDateRange && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
             <DateRange query={query.source} setQuery={setQuerySource} />
         ) : null,
         showEventFilter && isEventsQuery(query.source) ? (
@@ -326,7 +337,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         showSearch && isPersonsNode(query.source) ? (
             <PersonsSearch query={query.source} setQuery={setQuerySource} />
         ) : null,
-        showPropertyFilter && isEventsQuery(query.source) ? (
+        showPropertyFilter && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
             <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && isPersonsNode(query.source) ? (
@@ -341,11 +352,11 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     const secondRowLeft = [
         showReload ? <Reload /> : null,
         showReload && canLoadNewData ? <AutoLoad /> : null,
-        showElapsedTime ? <ElapsedTime /> : null,
+        showElapsedTime ? <ElapsedTime showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
     const secondRowRight = [
-        showColumnConfigurator && isEventsQuery(query.source) ? (
+        (showColumnConfigurator || showPersistentColumnConfigurator) && isEventsQuery(query.source) ? (
             <ColumnConfigurator query={query} setQuery={setQuery} />
         ) : null,
         showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
@@ -363,9 +374,9 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
                     ) : null}
                     {showFirstRow && (
-                        <div className="flex gap-4 items-center">
+                        <div className="flex gap-4 items-center flex-wrap">
                             {firstRowLeft}
-                            <div className="flex-1" />
+                            {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
                             {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
                                 <OpenEditorButton query={query} />
@@ -376,7 +387,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                     {showSecondRow && (
                         <div className="flex gap-4 items-center">
                             {secondRowLeft}
-                            <div className="flex-1" />
+                            {secondRowLeft.length > 0 && secondRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {secondRowRight}
                             {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
                                 <OpenEditorButton query={query} />
@@ -388,102 +399,105 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             <OpenEditorButton query={query} />
                         </div>
                     ) : null}
-                    <LemonTable
-                        className="DataTable"
-                        loading={responseLoading && !nextDataLoading && !newDataLoading}
-                        columns={lemonColumns}
-                        key={
-                            [...(columnsInResponse ?? []), ...columnsInQuery].join(
-                                '::'
-                            ) /* Bust the LemonTable cache when columns change */
-                        }
-                        dataSource={(dataTableRows ?? []) as DataTableRow[]}
-                        rowKey={({ result }: DataTableRow, rowIndex) => {
-                            if (result) {
-                                if (isEventsQuery(query.source)) {
-                                    if (columnsInResponse?.includes('*')) {
-                                        return result[columnsInResponse.indexOf('*')].uuid
-                                    } else if (columnsInResponse?.includes('uuid')) {
-                                        return result[columnsInResponse.indexOf('uuid')]
-                                    } else if (columnsInResponse?.includes('id')) {
-                                        return result[columnsInResponse.indexOf('id')]
+                    {showResultsTable && (
+                        <LemonTable
+                            className="DataTable"
+                            loading={responseLoading && !nextDataLoading && !newDataLoading}
+                            columns={lemonColumns}
+                            embedded={embedded}
+                            key={
+                                [...(columnsInResponse ?? []), ...columnsInQuery].join(
+                                    '::'
+                                ) /* Bust the LemonTable cache when columns change */
+                            }
+                            dataSource={(dataTableRows ?? []) as DataTableRow[]}
+                            rowKey={({ result }: DataTableRow, rowIndex) => {
+                                if (result) {
+                                    if (isEventsQuery(query.source)) {
+                                        if (columnsInResponse?.includes('*')) {
+                                            return result[columnsInResponse.indexOf('*')].uuid
+                                        } else if (columnsInResponse?.includes('uuid')) {
+                                            return result[columnsInResponse.indexOf('uuid')]
+                                        } else if (columnsInResponse?.includes('id')) {
+                                            return result[columnsInResponse.indexOf('id')]
+                                        }
                                     }
+                                    return (
+                                        (result && 'uuid' in result ? (result as any).uuid : null) ??
+                                        (result && 'id' in result ? (result as any).id : null) ??
+                                        JSON.stringify(result ?? rowIndex)
+                                    )
                                 }
-                                return (
-                                    (result && 'uuid' in result ? (result as any).uuid : null) ??
-                                    (result && 'id' in result ? (result as any).id : null) ??
-                                    JSON.stringify(result ?? rowIndex)
+                                return rowIndex
+                            }}
+                            sorting={null}
+                            useURLForSorting={false}
+                            emptyState={
+                                responseError ? (
+                                    isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
+                                        <InsightErrorState
+                                            excludeDetail
+                                            title={
+                                                queryCancelled
+                                                    ? 'The query was cancelled'
+                                                    : response && 'error' in response
+                                                    ? (response as any).error
+                                                    : responseError
+                                            }
+                                        />
+                                    ) : (
+                                        <InsightErrorState />
+                                    )
+                                ) : (
+                                    <InsightEmptyState
+                                        heading={context?.emptyStateHeading}
+                                        detail={context?.emptyStateDetail}
+                                    />
                                 )
                             }
-                            return rowIndex
-                        }}
-                        sorting={null}
-                        useURLForSorting={false}
-                        emptyState={
-                            responseError ? (
-                                isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
-                                    <InsightErrorState
-                                        excludeDetail
-                                        title={
-                                            queryCancelled
-                                                ? 'The query was cancelled'
-                                                : response && 'error' in response
-                                                ? (response as any).error
-                                                : responseError
-                                        }
-                                    />
-                                ) : (
-                                    <InsightErrorState />
+                            expandable={
+                                expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
+                                    ? {
+                                          expandedRowRender: function renderExpand({ result }) {
+                                              if (isEventsQuery(query.source) && Array.isArray(result)) {
+                                                  return (
+                                                      <EventDetails
+                                                          event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                                          useReactJsonView
+                                                      />
+                                                  )
+                                              }
+                                              if (result && !Array.isArray(result)) {
+                                                  return <EventDetails event={result as EventType} useReactJsonView />
+                                              }
+                                          },
+                                          rowExpandable: ({ result }) => !!result,
+                                          noIndent: true,
+                                          expandedRowClassName: ({ result }) => {
+                                              const record = Array.isArray(result) ? result[0] : result
+                                              return record && record['event'] === '$exception'
+                                                  ? 'border border-x-danger-dark bg-danger-highlight'
+                                                  : null
+                                          },
+                                      }
+                                    : undefined
+                            }
+                            rowClassName={({ result, label }) =>
+                                clsx('DataTable__row', {
+                                    'DataTable__row--highlight_once': result && highlightedRows.has(result),
+                                    'DataTable__row--category_row': !!label,
+                                    'border border-x-danger-dark bg-danger-highlight':
+                                        result && result[0] && result[0]['event'] === '$exception',
+                                })
+                            }
+                            footer={
+                                canLoadNextData &&
+                                ((response as any).results.length > 0 || !responseLoading) && (
+                                    <LoadNext query={query.source} />
                                 )
-                            ) : (
-                                <InsightEmptyState
-                                    heading={context?.emptyStateHeading}
-                                    detail={context?.emptyStateDetail}
-                                />
-                            )
-                        }
-                        expandable={
-                            expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
-                                ? {
-                                      expandedRowRender: function renderExpand({ result }) {
-                                          if (isEventsQuery(query.source) && Array.isArray(result)) {
-                                              return (
-                                                  <EventDetails
-                                                      event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                      useReactJsonView
-                                                  />
-                                              )
-                                          }
-                                          if (result && !Array.isArray(result)) {
-                                              return <EventDetails event={result as EventType} useReactJsonView />
-                                          }
-                                      },
-                                      rowExpandable: ({ result }) => !!result,
-                                      noIndent: true,
-                                      expandedRowClassName: ({ result }) => {
-                                          const record = Array.isArray(result) ? result[0] : result
-                                          return record && record['event'] === '$exception'
-                                              ? 'border border-danger-dark bg-danger-highlight'
-                                              : null
-                                      },
-                                  }
-                                : undefined
-                        }
-                        rowClassName={({ result, label }) =>
-                            clsx('DataTable__row', {
-                                'DataTable__row--highlight_once': result && highlightedRows.has(result),
-                                'DataTable__row--category_row': !!label,
-                                'border border-danger-dark bg-danger-highlight':
-                                    result && result[0] && result[0]['event'] === '$exception',
-                            })
-                        }
-                        footer={
-                            canLoadNextData &&
-                            ((response as any).results.length > 0 || !responseLoading) && (
-                                <LoadNext query={query.source} />
-                            )
-                        }
-                    />
+                            }
+                        />
+                    )}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
                     <PersonDeleteModal />
