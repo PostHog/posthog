@@ -315,7 +315,7 @@ test('capture new person', async () => {
     let persons = await hub.db.fetchPersons()
     expect(persons[0].version).toEqual(0)
     expect(persons[0].created_at).toEqual(now)
-    let expectedProps = {
+    let expectedProps: Record<string, any> = {
         $creator_event_uuid: uuid,
         $initial_browser: 'Chrome',
         $initial_browser_version: '95',
@@ -428,9 +428,9 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
-        $last_browser: 'Chrome',
-        $last_browser_version: '95',
-        $last_current_url: 'https://test.com',
+        $last_browser: 'Firefox',
+        $last_browser_version: 80,
+        $last_current_url: 'https://test.com/pricing',
         $last_os: 'Mac OS X',
         $last_referrer: 'https://google.com/?q=posthog',
         $last_referring_domain: 'https://google.com',
@@ -447,6 +447,9 @@ test('capture new person', async () => {
 
     expect(events[1].properties.$set).toEqual({
         utm_medium: 'instagram',
+        $last_browser: 'Firefox',
+        $last_browser_version: 80,
+        $last_current_url: 'https://test.com/pricing',
     })
     expect(events[1].properties.$set_once).toEqual({
         $initial_browser: 'Firefox',
