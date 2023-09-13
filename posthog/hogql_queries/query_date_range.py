@@ -1,11 +1,12 @@
+import re
+from functools import cached_property
 from datetime import datetime
-from functools import cached_property, lru_cache
 from typing import Optional
+from zoneinfo import ZoneInfo
 
-import pytz
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql.parser import parse_expr, ast
+from posthog.hogql.parser import ast
 from posthog.models.team import Team
 from posthog.queries.util import get_earliest_timestamp
 from posthog.schema import DateRange, IntervalType
@@ -19,96 +20,96 @@ class QueryDateRange:
     _team: Team
     _date_range: Optional[DateRange]
     _interval: Optional[IntervalType]
-    _now_non_timezone: datetime
+    _now_without_timezone: datetime
 
     def __init__(
         self, date_range: Optional[DateRange], team: Team, interval: Optional[IntervalType], now: datetime
     ) -> None:
         self._team = team
         self._date_range = date_range
-        self._interval = interval
-        self._now_non_timezone = now
+        self._interval = interval or IntervalType.day
+        self._now_without_timezone = now
 
-    @cached_property
+        if not isinstance(self._interval, IntervalType) or re.match(r"[^a-z]", self._interval.name):
+            raise ValueError(f"Invalid interval: {interval}")
+
     def date_to(self) -> datetime:
-        date_to = self._now
+        date_to = self.now_with_timezone
         delta_mapping = None
 
         if self._date_range and self._date_range.date_to:
             date_to, delta_mapping = relative_date_parse_with_delta_mapping(
-                self._date_range.date_to, self._team.timezone_info, always_truncate=True, now=self._now
+                self._date_range.date_to, self._team.timezone_info, always_truncate=True, now=self.now_with_timezone
             )
 
         is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
-        if not self.is_hourly():
+        if not self.is_hourly:
             date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
         elif is_relative:
             date_to = date_to.replace(minute=59, second=59, microsecond=999999)
 
         return date_to
 
-    def get_earliest_timestamp(self):
+    def get_earliest_timestamp(self) -> datetime:
         return get_earliest_timestamp(self._team.pk)
 
-    @cached_property
     def date_from(self) -> datetime:
         date_from: datetime
         if self._date_range and self._date_range.date_from == "all":
             date_from = self.get_earliest_timestamp()
         elif self._date_range and isinstance(self._date_range.date_from, str):
-            date_from = relative_date_parse(self._date_range.date_from, self._team.timezone_info, now=self._now)
+            date_from = relative_date_parse(
+                self._date_range.date_from, self._team.timezone_info, now=self.now_with_timezone
+            )
         else:
-            date_from = self._now.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
+            date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
                 days=DEFAULT_DATE_FROM_DAYS
             )
 
-        if not self.is_hourly():
+        if not self.is_hourly:
             date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
         return date_from
 
     @cached_property
-    def _now(self):
-        return self._localize_to_team(self._now_non_timezone)
-
-    def _localize_to_team(self, target: datetime):
-        return target.astimezone(pytz.timezone(self._team.timezone))
+    def now_with_timezone(self) -> datetime:
+        return self._now_without_timezone.astimezone(ZoneInfo(self._team.timezone))
 
     @cached_property
     def date_to_str(self) -> str:
-        return self.date_to.strftime("%Y-%m-%d %H:%M:%S")
+        return self.date_to().strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
     def date_from_str(self) -> str:
-        return self.date_from.strftime("%Y-%m-%d %H:%M:%S")
-
-    def is_hourly(self):
-        return self.interval.name == "hour"
+        return self.date_from().strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
-    def date_to_as_hogql(self):
-        return parse_expr(f"assumeNotNull(toDateTime('{self.date_to_str}'))")
+    def is_hourly(self) -> bool:
+        return self.interval_name == "hour"
 
     @cached_property
-    def date_from_as_hogql(self):
-        return parse_expr(f"assumeNotNull(toDateTime('{self.date_from_str}'))")
-
-    @cached_property
-    def interval(self):
+    def interval_type(self) -> IntervalType:
         return self._interval or IntervalType.day
 
     @cached_property
-    def one_interval_period_as_hogql(self):
-        return parse_expr(f"toInterval{self.interval.capitalize()}(1)")
+    def interval_name(self) -> str:
+        return self.interval_type.name
 
-    @lru_cache
-    def interval_periods_as_hogql(self, s: str):
-        return parse_expr(f"toInterval{self.interval.capitalize()}({s})")
+    def date_to_as_hogql(self) -> ast.Expr:
+        return ast.Call(
+            name="assumeNotNull", args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_to_str))])]
+        )
 
-    @cached_property
-    def interval_period_string(self):
-        return self.interval.value
+    def date_from_as_hogql(self) -> ast.Expr:
+        return ast.Call(
+            name="assumeNotNull", args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_from_str))])]
+        )
 
-    @cached_property
-    def interval_period_string_as_hogql(self):
-        return ast.Constant(value=self.interval.value)
+    def one_interval_period(self) -> ast.Expr:
+        return ast.Call(name=f"toInterval{self.interval_name.capitalize()}", args=[ast.Constant(value=1)])
+
+    def number_interval_periods(self) -> ast.Expr:
+        return ast.Call(name=f"toInterval{self.interval_name.capitalize()}", args=[ast.Field(chain=["number"])])
+
+    def interval_period_string_as_hogql_constant(self) -> ast.Expr:
+        return ast.Constant(value=self.interval_name)

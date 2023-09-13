@@ -251,7 +251,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                 queryset = queryset.filter(
                     last_modified_at__lt=relative_date_parse(request.GET["date_to"], self.team.timezone_info)
                 )
-            elif key == "s":
+            elif key == "search":
                 queryset = queryset.filter(
                     # some notebooks have no text_content until next saved, so we need to check the title too
                     # TODO this can be removed once all/most notebooks have text_content
