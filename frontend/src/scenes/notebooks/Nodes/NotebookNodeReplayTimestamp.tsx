@@ -77,10 +77,10 @@ export const NotebookNodeReplayTimestamp = Node.create({
 
     serializedText:
         () =>
-        (attrs: { playbackTime: number }): string => {
+        (attrs: NotebookNodeReplayTimestampAttrs): string => {
             // timestamp is not a block so `getText` does not add a separator.
             // we need to add it manually
-            return `${formatTimestamp(attrs.playbackTime) || '00:00'}:\n`
+            return `${attrs.playbackTime ? formatTimestamp(attrs.playbackTime) : '00:00'}:\n`
         },
 
     addAttributes() {
