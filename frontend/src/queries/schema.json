@@ -1439,7 +1439,7 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "results": {
+                "result": {
                     "items": {
                         "type": "object"
                     },
@@ -1452,7 +1452,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": ["result"],
             "type": "object"
         },
         "LifecycleToggle": {

@@ -441,7 +441,7 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
 } // using everything except what it inherits from FilterType
 
 export interface LifecycleQueryResponse {
-    results: Record<string, any>[]
+    result: Record<string, any>[]
     timings?: QueryTiming[]
 }
 
