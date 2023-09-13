@@ -31,8 +31,12 @@ import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionReco
 import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
-import { createReplayer } from './rrweb'
+import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
 import { now } from 'lib/dayjs'
+import { ReplayPlugin } from 'rrweb/typings/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -103,6 +107,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['speed', 'skipInactivitySetting'],
             userLogic,
             ['hasAvailableFeature'],
+            preflightLogic,
+            ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             sessionRecordingDataLogic(props),
@@ -472,11 +480,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const replayer = createReplayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
+            const plugins: ReplayPlugin[] = []
+
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CORS_PROXY]) {
+                plugins.push(CorsPlugin)
+            }
+
+            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
                 root: values.rootFrame,
+                ...COMMON_REPLAYER_CONFIG,
+                // these two settings are attempts to improve performance of running two Replayers at once
+                // the main player and a preview player
                 mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
+                plugins,
             })
+
             actions.setPlayer({ replayer, windowId })
         },
         setPlayer: ({ player }) => {
