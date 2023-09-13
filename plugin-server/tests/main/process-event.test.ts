@@ -1237,6 +1237,7 @@ const sessionReplayEventTestCases: {
         | 'console_error_count'
         | 'size'
         | 'event_count'
+        | 'message_count'
     >
 }[] = [
     {
@@ -1254,6 +1255,7 @@ const sessionReplayEventTestCases: {
             console_error_count: 0,
             size: 73,
             event_count: 1,
+            message_count: 1,
         },
     },
     {
@@ -1271,6 +1273,7 @@ const sessionReplayEventTestCases: {
             console_error_count: 0,
             size: 73,
             event_count: 1,
+            message_count: 1,
         },
     },
     {
@@ -1328,6 +1331,7 @@ const sessionReplayEventTestCases: {
             console_error_count: 1,
             size: 762,
             event_count: 7,
+            message_count: 1,
         },
     },
     {
@@ -1367,6 +1371,7 @@ const sessionReplayEventTestCases: {
             console_error_count: 0,
             size: 213,
             event_count: 2,
+            message_count: 1,
         },
     },
     {
@@ -1395,6 +1400,7 @@ const sessionReplayEventTestCases: {
             console_error_count: 0,
             size: 433,
             event_count: 6,
+            message_count: 1,
         },
     },
 ]
