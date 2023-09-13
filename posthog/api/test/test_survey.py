@@ -77,6 +77,80 @@ class TestSurvey(APIBaseTest):
             {"type": "open", "question": "What would you want to improve from notebooks?"}
         ]
 
+    def test_used_in_survey_is_populated_correctly_for_feature_flag_list(self) -> None:
+        self.maxDiff = None
+
+        ff_key = "notebooks"
+        notebooks_flag = FeatureFlag.objects.create(team=self.team, key=ff_key, created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks power users survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "linked_flag_id": notebooks_flag.id,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["linked_flag"]["id"] == notebooks_flag.id
+        assert FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).exists()
+
+        created_survey1 = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks random survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "linked_flag_id": notebooks_flag.id,
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["linked_flag"]["id"] == notebooks_flag.id
+        assert response_data["targeting_flag"] is None
+
+        created_survey2 = response.json()["id"]
+
+        # add another random feature flag
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": f"flag", "key": f"flag_0", "filters": {"groups": [{"rollout_percentage": 5}]}},
+            format="json",
+        ).json()
+
+        with self.assertNumQueries(12):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            result = response.json()
+
+            self.assertEqual(result["count"], 2)
+
+            self.assertEqual(
+                [(res["key"], [survey["id"] for survey in res["surveys"]]) for res in result["results"]],
+                [("flag_0", []), (ff_key, [created_survey1, created_survey2])],
+            )
+
     def test_updating_survey_with_targeting_creates_or_updates_targeting_flag(self):
         survey_with_targeting = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
