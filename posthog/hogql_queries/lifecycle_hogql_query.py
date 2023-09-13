@@ -156,6 +156,7 @@ def run_lifecycle_query(team: Team, query: LifecycleQuery) -> LifecycleQueryResp
                 )
             """,
             placeholders=placeholders,
+            timings=timings,
         )
 
     with timings.measure("lifecycle_query"):
@@ -195,12 +196,14 @@ def run_lifecycle_query(team: Team, query: LifecycleQuery) -> LifecycleQueryResp
                 GROUP BY status
             """,
             {**placeholders, "periods": periods, "events_query": events_query},
+            timings=timings,
         )
 
     response = execute_hogql_query(
         team=team,
         query=lifecycle_sql,
         query_type="LifecycleQuery",
+        timings=timings,
     )
 
     # ensure that the items are in a deterministic order
