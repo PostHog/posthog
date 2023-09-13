@@ -25,17 +25,20 @@ describe('PersonState.update()', () => {
     let uuid2: UUIDT
     let teamId: number
     let poEEmbraceJoin: boolean
+    let organizationId: string
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+
+        organizationId = await createOrganization(hub.db.postgres)
     })
 
     beforeEach(async () => {
         poEEmbraceJoin = false
         uuid = new UUIDT()
         uuid2 = new UUIDT()
-        const organizationId = await createOrganization(hub.db.postgres)
+
         teamId = await createTeam(hub.db.postgres, organizationId)
 
         jest.spyOn(hub.db, 'fetchPerson')
@@ -1078,10 +1081,11 @@ describe('PersonState.update()', () => {
             hub.statsd = { increment: jest.fn() } as any
         })
 
-        it('stops $identify if current distinct_id is illegal', async () => {
+        const illegalIds = ['', '   ', 'null', 'undefined', '"undefined"', '[object Object]', '"[object Object]"']
+        it.each(illegalIds)('stops $identify if current distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
                 event: '$identify',
-                distinct_id: '[object Object]',
+                distinct_id: illegalId,
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
                 },
@@ -1092,16 +1096,16 @@ describe('PersonState.update()', () => {
             expect(persons.length).toEqual(0)
 
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: '[object Object]',
+                distinctId: illegalId,
             })
         })
 
-        it('stops $identify if $anon_distinct_id is illegal', async () => {
+        it.each(illegalIds)('stops $identify if $anon_distinct_id is illegal: `%s`', async (illegalId: string) => {
             const person = await personState({
                 event: '$identify',
                 distinct_id: 'some_distinct_id',
                 properties: {
-                    $anon_distinct_id: 'undefined',
+                    $anon_distinct_id: illegalId,
                 },
             }).handleIdentifyOrAlias()
 
@@ -1110,7 +1114,7 @@ describe('PersonState.update()', () => {
             expect(persons.length).toEqual(0)
 
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
-                distinctId: 'undefined',
+                distinctId: illegalId,
             })
         })
 
