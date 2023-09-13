@@ -105,6 +105,7 @@ describe('Event Pipeline integration test', () => {
                     $set: {
                         personProp: 'value',
                         anotherValue: 2,
+                        $last_browser: 'Chrome',
                     },
                     $set_once: {
                         $initial_browser: 'Chrome',

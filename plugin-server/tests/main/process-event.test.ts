@@ -329,6 +329,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
+        $last_browser: 'Chrome',
+        $last_browser_version: '95',
+        $last_current_url: 'https://test.com',
+        $last_os: 'Mac OS X',
+        $last_referrer: 'https://google.com/?q=posthog',
+        $last_referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -343,7 +349,17 @@ test('capture new person', async () => {
     expect(events[0].properties).toEqual({
         $ip: '127.0.0.1',
         $os: 'Mac OS X',
-        $set: { utm_medium: 'twitter', gclid: 'GOOGLE ADS ID', msclkid: 'BING ADS ID' },
+        $set: {
+            utm_medium: 'twitter',
+            gclid: 'GOOGLE ADS ID',
+            msclkid: 'BING ADS ID',
+            $last_browser: 'Chrome',
+            $last_browser_version: '95',
+            $last_current_url: 'https://test.com',
+            $last_os: 'Mac OS X',
+            $last_referrer: 'https://google.com/?q=posthog',
+            $last_referring_domain: 'https://google.com',
+        },
         token: 'THIS IS NOT A TOKEN FOR TEAM 2',
         $browser: 'Chrome',
         $set_once: {
@@ -412,6 +428,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
+        $last_browser: 'Chrome',
+        $last_browser_version: '95',
+        $last_current_url: 'https://test.com',
+        $last_os: 'Mac OS X',
+        $last_referrer: 'https://google.com/?q=posthog',
+        $last_referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
