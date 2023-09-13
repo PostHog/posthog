@@ -103,7 +103,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
             ]
 
             response = self.client.get(
-                f"/api/projects/{self.team.id}/notebooks?s={search_text}",
+                f"/api/projects/{self.team.id}/notebooks?search={search_text}",
             )
             assert response.status_code == status.HTTP_200_OK
 
