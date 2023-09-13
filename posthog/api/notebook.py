@@ -250,8 +250,8 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                 queryset = queryset.filter(
                     last_modified_at__lt=relative_date_parse(request.GET["date_to"], self.team.timezone_info)
                 )
-            elif key == "s":
-                queryset = queryset.filter(title__icontains=request.GET["s"])
+            elif key == "search":
+                queryset = queryset.filter(title__icontains=request.GET["search"])
             elif key == "contains":
                 contains = request.GET["contains"]
                 match_pairs = contains.replace(",", " ").split(" ")
