@@ -3039,6 +3039,11 @@ export enum NotebookNodeType {
     Image = 'ph-image',
 }
 
+export type NotebookNodeResource = {
+    attrs: Record<string, any>
+    type: NotebookNodeType
+}
+
 export enum NotebookTarget {
     Popover = 'popover',
     Auto = 'auto',
