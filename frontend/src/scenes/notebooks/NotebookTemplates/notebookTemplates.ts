@@ -58,6 +58,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                     ],
                 },
                 { type: 'paragraph' },
+                { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'If you type:' }] },
                 { type: 'paragraph', content: [{ type: 'text', text: '# Heading 1' }] },
                 { type: 'paragraph', content: [{ type: 'text', text: '## Heading 2' }] },
                 {
@@ -68,11 +69,56 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                     ],
                 },
                 { type: 'paragraph', content: [{ type: 'text', text: '- List ' }] },
-                { type: 'paragraph', content: [{ type: 'text', text: '1. Numbered list' }] },
+                {
+                    type: 'bulletList',
+                    content: [
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '* List' }] }],
+                        },
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '1. Number list' }] }],
+                        },
+                    ],
+                },
                 { type: 'paragraph', content: [{ type: 'text', text: '**Bold**' }] },
                 { type: 'paragraph', content: [{ type: 'text', text: '_italic_' }] },
                 { type: 'paragraph', content: [{ type: 'text', text: '`code`' }] },
-                { type: 'paragraph' },
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'then  notebooks shows:' },
+                        { type: 'text', text: ' ' },
+                    ],
+                },
+                { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Heading 1' }] },
+                { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Heading 2' }] },
+                { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Heading 3' }] },
+                {
+                    type: 'bulletList',
+                    content: [
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: ' - first' }] }],
+                        },
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: ' - second' }] }],
+                        },
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: ' * first' }] }],
+                        },
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: ' * second' }] }],
+                        },
+                    ],
+                },
+                { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: ' bold ' }] },
+                { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'italic' }] },
+                { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: 'code' }] },
                 {
                     type: 'heading',
                     attrs: { level: 2 },
@@ -243,6 +289,9 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                 {
                     type: 'ph-recording-playlist',
                     attrs: {
+                        height: null,
+                        title: 'Session replays',
+                        nodeId: '41faad12-499f-4a4b-95f7-3a36601317cc',
                         filters:
                             '{"session_recording_duration":{"type":"recording","key":"duration","value":3600,"operator":"gt"},"properties":[],"events":[],"actions":[],"date_from":"-7d","date_to":null}',
                     },
