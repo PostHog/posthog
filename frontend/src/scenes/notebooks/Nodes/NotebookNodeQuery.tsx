@@ -156,7 +156,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             }
         },
     },
-    serializedText: () => (attrs) => {
+    serializedText: (attrs) => {
         let text = ''
         const q = attrs.query
         if (containsHogQLQuery(q)) {

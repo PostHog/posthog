@@ -6,7 +6,6 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
     NodeViewProps,
-    callOrReturn,
     getExtensionField,
 } from '@tiptap/react'
 import { ReactNode, useCallback, useRef } from 'react'
@@ -215,7 +214,7 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     attributes: Record<keyof T, Partial<Attribute>>
     widgets?: NotebookNodeWidget[]
     // the function is evaluated at creation time, returning a function that is evaluated when called
-    serializedText?: () => (attributes: NotebookNodeAttributes<T>) => string
+    serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>({
@@ -266,7 +265,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 storage: extension.storage,
             }
             return {
-                serializedText: callOrReturn(getExtensionField(extension, 'serializedText', context)),
+                serializedText: getExtensionField(extension, 'serializedText', context),
             }
         },
 

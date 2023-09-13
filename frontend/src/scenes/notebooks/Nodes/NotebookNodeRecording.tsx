@@ -106,7 +106,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
             Component: Settings,
         },
     ],
-    serializedText: () => (attrs) => {
+    serializedText: (attrs) => {
         return attrs.id
     },
 })
