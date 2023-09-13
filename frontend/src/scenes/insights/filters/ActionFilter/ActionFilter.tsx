@@ -188,7 +188,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                     }}
                     modifiers={[restrictToVerticalAxis]}
                 >
-                    <SortableContext disabled={true} items={sortedItemIds} strategy={verticalListSortingStrategy}>
+                    <SortableContext disabled={!sortable} items={sortedItemIds} strategy={verticalListSortingStrategy}>
                         {localFilters.map((filter, index) => (
                             <ActionFilterRow
                                 key={filter.uuid}
