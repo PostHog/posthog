@@ -506,6 +506,9 @@ test('capture new person', async () => {
     expect(persons[0].version).toEqual(1)
 
     expect(events[2].properties.$set).toEqual({
+        $last_browser: 'Firefox',
+        $last_current_url: 'https://test.com/pricing',
+
         utm_medium: 'instagram',
     })
     expect(events[2].properties.$set_once).toEqual({
