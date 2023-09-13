@@ -1,11 +1,12 @@
 import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka-acosom'
-import { exponentialBuckets, Histogram } from 'prom-client'
+import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { status } from '../utils/status'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
     commitOffsetsForMessages,
     consumeMessages,
+    countPartitionsPerTopic,
     createKafkaConsumer,
     disconnectConsumer,
     instrumentConsumerMetrics,
@@ -32,6 +33,7 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs,
     eachBatch,
     autoCommit = true,
+    cooperativeRebalance = true,
     queuedMinMessages = 100000,
 }: {
     connectionConfig: GlobalConfig
@@ -47,6 +49,7 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     autoCommit?: boolean
+    cooperativeRebalance?: boolean
     queuedMinMessages?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
@@ -112,12 +115,12 @@ export const startBatchConsumer = async ({
         // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
         // for details on the advantages of this rebalancing strategy as well as
         // how it works.
-        'partition.assignment.strategy': 'cooperative-sticky',
+        'partition.assignment.strategy': cooperativeRebalance ? 'cooperative-sticky' : 'range,roundrobin',
         rebalance_cb: true,
         offset_commit_cb: true,
     })
 
-    instrumentConsumerMetrics(consumer, groupId)
+    instrumentConsumerMetrics(consumer, groupId, cooperativeRebalance)
 
     let isShuttingDown = false
     let lastLoopTime = Date.now()
@@ -179,6 +182,10 @@ export const startBatchConsumer = async ({
                 if (!messages) {
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
                     continue
+                }
+
+                for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
+                    kafkaAbsolutePartitionCount.labels({ topic }).set(count)
                 }
 
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
@@ -277,4 +284,10 @@ const consumedMessageSizeBytes = new Histogram({
     help: 'Size of consumed message value in bytes',
     labelNames: ['topic', 'groupId', 'messageType'],
     buckets: exponentialBuckets(1, 8, 4).map((bucket) => bucket * 1024),
+})
+
+const kafkaAbsolutePartitionCount = new Gauge({
+    name: 'kafka_absolute_partition_count',
+    help: 'Number of partitions assigned to this consumer. (Absolute value from the consumer state.)',
+    labelNames: ['topic'],
 })

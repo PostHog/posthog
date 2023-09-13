@@ -44,6 +44,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_PASSWORD: undefined,
         KAFKA_CLIENT_RACK: undefined,
         KAFKA_CONSUMPTION_USE_RDKAFKA: false, // Transitional setting, ignored for consumers that only support one library
+        KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE: true, // If true, use the cooperative rebalance strategy, otherwise uses the default ('range,roundrobin')
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
         KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
@@ -116,6 +117,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
         HISTORICAL_EXPORTS_ENABLED: true,
         HISTORICAL_EXPORTS_MAX_RETRY_COUNT: 15,

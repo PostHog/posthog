@@ -55,7 +55,7 @@ export const defaultSurveyAppearance = {
     thankYouMessageHeader: 'Thank you for your feedback!',
 }
 
-const NEW_SURVEY: NewSurvey = {
+export const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
@@ -254,17 +254,28 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (surveyId === 'new') {
                     return null
                 }
+                const createdAt = (survey as Survey).created_at
 
                 const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
                 const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
                 return {
                     surveysShown: {
                         kind: NodeKind.DataTableNode,
-                        source: { kind: NodeKind.HogQLQuery, query: surveysShownHogqlQuery },
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query: surveysShownHogqlQuery,
+                            filters: { dateRange: { date_from: dayjs(createdAt).format('YYYY-MM-DD') } },
+                        },
+                        showTimings: false,
                     },
                     surveysDismissed: {
                         kind: NodeKind.DataTableNode,
-                        source: { kind: NodeKind.HogQLQuery, query: surveysDismissedHogqlQuery },
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query: surveysDismissedHogqlQuery,
+                            filters: { dateRange: { date_from: dayjs(createdAt).format('YYYY-MM-DD') } },
+                        },
+                        showTimings: false,
                     },
                 }
             },
@@ -304,6 +315,11 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyMultipleChoiceQuery: [
             (s) => [s.survey],
             (survey): DataTableNode | null => {
+                if (survey.id === 'new') {
+                    return null
+                }
+                const createdAt = (survey as Survey).created_at
+
                 const singleChoiceQuery = `select count(), properties.$survey_response as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`
                 const multipleChoiceQuery = `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`
                 return {
@@ -314,7 +330,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             survey.questions[0].type === SurveyQuestionType.SingleChoice
                                 ? singleChoiceQuery
                                 : multipleChoiceQuery,
+                        filters: {
+                            dateRange: {
+                                date_from: dayjs(createdAt).format('YYYY-MM-DD'),
+                            },
+                        },
                     },
+                    showTimings: false,
                 }
             },
         ],
