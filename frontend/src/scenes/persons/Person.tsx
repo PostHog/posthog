@@ -33,7 +33,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PersonDashboard } from './PersonDashboard'
-import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export const scene: SceneExport = {
     component: Person,
@@ -143,7 +143,7 @@ export function Person(): JSX.Element | null {
                 }
                 buttons={
                     <div className="flex gap-2">
-                        <NotebookAddButton
+                        <NotebookSelectButton
                             resource={{
                                 attrs: {
                                     id: person?.distinct_ids[0],

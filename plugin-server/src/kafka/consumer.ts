@@ -1,4 +1,5 @@
 import {
+    Assignment,
     ClientMetrics,
     CODES,
     ConsumerGlobalConfig,
@@ -9,7 +10,7 @@ import {
     TopicPartitionOffset,
 } from 'node-rdkafka-acosom'
 
-import { latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
+import { kafkaRebalancePartitionCount, latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import { status } from '../utils/status'
 
 export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
@@ -54,6 +55,20 @@ export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
         })
     })
 }
+
+export function countPartitionsPerTopic(assignments: Assignment[]): Map<string, number> {
+    const partitionsPerTopic = new Map()
+    for (const assignment of assignments) {
+        if (assignment.topic in partitionsPerTopic) {
+            partitionsPerTopic.set(assignment.topic, partitionsPerTopic.get(assignment.topic) + 1)
+        } else {
+            partitionsPerTopic.set(assignment.topic, 1)
+        }
+    }
+
+    return partitionsPerTopic
+}
+
 export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: string) => {
     // For each message consumed, we record the latest timestamp processed for
     // each partition assigned to this consumer group member. This consumer
@@ -89,8 +104,14 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
          */
         if (error.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
             status.info('📝️', 'librdkafka rebalance, partitions assigned', { assignments })
+            for (const [topic, count] of countPartitionsPerTopic(assignments)) {
+                kafkaRebalancePartitionCount.labels({ topic: topic }).inc(count)
+            }
         } else if (error.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
             status.info('📝️', 'librdkafka rebalance started, partitions revoked', { assignments })
+            for (const [topic, count] of countPartitionsPerTopic(assignments)) {
+                kafkaRebalancePartitionCount.labels({ topic: topic }).dec(count)
+            }
         } else {
             // We had a "real" error
             status.error('⚠️', 'rebalance_error', { error })
