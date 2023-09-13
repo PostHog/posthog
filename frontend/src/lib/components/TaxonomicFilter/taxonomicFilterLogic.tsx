@@ -23,6 +23,7 @@ import {
     PersonType,
     PluginType,
     PropertyDefinition,
+    NotebookType,
 } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
@@ -42,6 +43,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { InlineHogQLEditor } from './InlineHogQLEditor'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -77,6 +79,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
+            featureFlagsLogic,
+            ['featureFlags'],
         ],
     },
     actions: () => ({
@@ -146,15 +150,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
                 s.excludedProperties,
+                s.featureFlags,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                excludedProperties
+                excludedProperties,
+                featureFlags
             ): TaxonomicFilterGroup[] => {
-                return [
+                const groups = [
                     {
                         name: 'Events',
                         searchPlaceholder: 'events',
@@ -209,7 +215,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                       filter_by_event_names: true,
                                   }).url
                                 : undefined,
-                        expandLabel: ({ count, expandedCount }) =>
+                        expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
                                 eventNames.length,
                                 'has',
@@ -237,7 +243,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                       filter_by_event_names: true,
                                   }).url
                                 : undefined,
-                        expandLabel: ({ count, expandedCount }) =>
+                        expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
                                 eventNames.length,
                                 'has',
@@ -408,8 +414,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                 value: '$session_duration',
                             },
                         ],
-                        getName: (option) => option.name,
-                        getValue: (option) => option.value,
+                        getName: (option: any) => option.name,
+                        getValue: (option: any) => option.value,
                         getPopoverHeader: () => 'Session',
                     },
                     {
@@ -422,6 +428,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]
+
+                if (featureFlags[FEATURE_FLAGS.NOTEBOOKS]) {
+                    groups.push({
+                        name: 'Notebooks',
+                        searchPlaceholder: 'notebooks',
+                        type: TaxonomicFilterGroupType.Notebooks,
+                        value: 'notebooks',
+                        endpoint: `api/projects/${teamId}/notebooks/`,
+                        getName: (notebook: NotebookType) => notebook.title || `Notebook ${notebook.short_id}`,
+                        getValue: (notebook: NotebookType) => notebook.short_id,
+                        getPopoverHeader: () => 'Notebooks',
+                    })
+                }
+
+                return groups
             },
         ],
         activeTaxonomicGroup: [
