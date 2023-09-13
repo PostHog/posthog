@@ -482,7 +482,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             const plugins: ReplayPlugin[] = []
 
-            if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CORS_PROXY]) {
+            // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
+            if (
+                values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CORS_PROXY] &&
+                (values.preflight?.cloud || window.location.hostname === 'localhost')
+            ) {
                 plugins.push(CorsPlugin)
             }
 
