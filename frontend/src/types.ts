@@ -3020,6 +3020,8 @@ export type NotebookListItemType = {
 export type NotebookType = NotebookListItemType & {
     content: JSONContent // TODO: Type this better
     version: number
+    // used to power text-based search
+    text_content?: string | null
 }
 
 export enum NotebookNodeType {
