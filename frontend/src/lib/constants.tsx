@@ -166,6 +166,7 @@ export const FEATURE_FLAGS = {
     // owner: #team-monitoring
     SESSION_RECORDING_ALLOW_V1_SNAPSHOTS: 'session-recording-allow-v1-snapshots',
     HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
+    WEBHOOKS_BLACKLISTED: 'webhooks-blacklisted', // owner: @team-pipeline
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
