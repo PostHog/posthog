@@ -44,7 +44,7 @@ class TestEmail(BaseTest):
                 EmailMessage("test_campaign", "Subject", "template")
             self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
-    def test_cant_send_same_campaign_twice(self) -> None:
+    def test_cant_send_same_campaign_twice_if_no_resend_frequency(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):
             sent_at = timezone.now()
 
@@ -53,7 +53,6 @@ class TestEmail(BaseTest):
             record.save()
 
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
-
                 _send_email(
                     campaign_key="campaign_1",
                     to=[{"raw_email": "test0@posthog.com", "recipient": "Test PostHog <test0@posthog.com>"}],
@@ -65,6 +64,94 @@ class TestEmail(BaseTest):
 
             record.refresh_from_db()
             self.assertEqual(record.sent_at, sent_at)
+            self.assertEqual(record.resend_dates, [])
+
+    @freeze_time("2020-09-21")
+    def test_can_send_same_campaign_twice_with_resend_frequency(self) -> None:
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            sent_at = timezone.now() - timezone.timedelta(days=8)
+
+            record, _ = MessagingRecord.objects.get_or_create(
+                raw_email="test0@posthog.com", campaign_key="campaign_2", resend_frequency_days=7
+            )
+            record.sent_at = sent_at
+            record.save()
+
+            assert record.resend_frequency_days == 7
+
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                _send_email(
+                    campaign_key="campaign_2",
+                    to=[{"raw_email": "test0@posthog.com", "recipient": "Test PostHog <test0@posthog.com>"}],
+                    subject="Test email",
+                    headers={},
+                    resend_frequency_days=7,
+                )
+
+            self.assertEqual(len(mail.outbox), 1)
+
+            record.refresh_from_db()
+            self.assertEqual(record.sent_at, sent_at)
+            self.assertEqual(len(record.resend_dates), 1)
+            self.assertEqual(record.resend_dates[0], timezone.now().timestamp())
+
+    @freeze_time("2020-09-21")
+    def test_can_send_same_campaign_thrice_with_resend_frequency(self) -> None:
+        """
+        sent_at is a datetime, whereas resend_dates is a list of timestamps. This tests to make sure we're handling the timestamps correctly.
+        """
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            sent_at = timezone.now() - timezone.timedelta(days=20)
+
+            record, _ = MessagingRecord.objects.get_or_create(
+                raw_email="test0@posthog.com", campaign_key="campaign_2", resend_frequency_days=7
+            )
+            record.sent_at = sent_at
+            record.resend_dates = [timezone.now().timestamp() - 10 * 24 * 60 * 60]
+            record.save()
+
+            # send the second resend
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                _send_email(
+                    campaign_key="campaign_2",
+                    to=[{"raw_email": "test0@posthog.com", "recipient": "Test PostHog <test0@posthog.com>"}],
+                    subject="Test email",
+                    headers={},
+                    resend_frequency_days=7,
+                )
+
+            self.assertEqual(len(mail.outbox), 1)
+            record.refresh_from_db()
+            self.assertEqual(len(record.resend_dates), 2)
+            self.assertEqual(record.resend_dates[1], timezone.now().timestamp())
+
+    @freeze_time("2020-09-21")
+    def test_cant_send_same_campaign_twice_less_than_resend_frequency(self) -> None:
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            sent_at = timezone.now() - timezone.timedelta(days=6)
+
+            record, _ = MessagingRecord.objects.get_or_create(
+                raw_email="test0@posthog.com", campaign_key="campaign_2", resend_frequency_days=7
+            )
+            record.sent_at = sent_at
+            record.save()
+
+            assert record.resend_frequency_days == 7
+
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                _send_email(
+                    campaign_key="campaign_2",
+                    to=[{"raw_email": "test0@posthog.com", "recipient": "Test PostHog <test0@posthog.com>"}],
+                    subject="Test email",
+                    headers={},
+                    resend_frequency_days=7,
+                )
+
+            self.assertEqual(len(mail.outbox), 0)
+
+            record.refresh_from_db()
+            self.assertEqual(record.sent_at, sent_at)
+            self.assertEqual(len(record.resend_dates), 0)
 
     def test_applies_default_utm_tags(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):

@@ -21,13 +21,14 @@ class MessagingRecordManager(models.Manager):
 
 
 class MessagingRecord(UUIDModel):
-
     objects = MessagingRecordManager()
 
     email_hash: models.CharField = models.CharField(max_length=1024)
     campaign_key: models.CharField = models.CharField(max_length=128)
     sent_at: models.DateTimeField = models.DateTimeField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    resend_frequency_days: models.IntegerField = models.IntegerField(null=True, blank=True)
+    resend_dates: models.JSONField = models.JSONField(default=list, null=True, blank=True)
 
     class Meta:
-        unique_together = ("email_hash", "campaign_key")  # can only send campaign once to each email
+        unique_together = ("email_hash", "campaign_key", "resend_frequency_days")  # one record per email per campaign

@@ -112,6 +112,7 @@ def send_over_quota_but_not_dropped_email_to_cs(organization_id: int) -> None:
         },
     )
     message.add_recipient("sales@posthog.com")
+    message.set_resend_frequency(days=7)
     message.send()
 
 
