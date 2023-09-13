@@ -1304,7 +1304,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone
   '
-  /* user_id:1 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:2 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -1501,7 +1501,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter
   '
-  /* user_id:3 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:4 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
