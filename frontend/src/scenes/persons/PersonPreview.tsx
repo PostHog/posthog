@@ -5,12 +5,14 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { PropertyDefinitionType } from '~/types'
+import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { asDisplay } from './person-utils'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export type PersonPreviewProps = {
     distinctId: string | undefined
+    onClose?: () => void
 }
 
 export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
@@ -35,9 +37,20 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
     return (
         <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
             <div className="flex items-center justify-between min-h-10 px-2">
-                <Link to={url} className="flex gap-2 items-center">
+                <Link to={url} className="flex gap-2 items-center flex-1">
                     <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
                 </Link>
+
+                <NotebookSelectButton
+                    resource={{
+                        attrs: {
+                            id: person?.distinct_ids[0],
+                        },
+                        type: NotebookNodeType.Person,
+                    }}
+                    onNotebookOpened={() => props.onClose?.()}
+                    size="small"
+                />
                 <LemonButton size="small" icon={<IconOpenInNew />} to={urls.person(person?.distinct_ids[0])} />
             </div>
 

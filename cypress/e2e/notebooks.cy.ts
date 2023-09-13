@@ -34,7 +34,7 @@ describe('Notebooks', () => {
     })
 
     it('Insertion suggestions can be dismissed', () => {
-        cy.visit(urls.notebookEdit('h11RoiwV'))
+        cy.visit(urls.notebook('h11RoiwV'))
         cy.get('.NotebookEditor').type('{enter}')
 
         cy.get('.NotebookRecordingTimestamp--preview').should('exist')

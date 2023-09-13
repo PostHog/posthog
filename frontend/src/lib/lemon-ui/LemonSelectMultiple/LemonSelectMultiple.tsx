@@ -87,7 +87,7 @@ export function LemonSelectMultiple({
                             const typedOnChange = onChange as (newValue: LabelInValue[]) => void
                             typedOnChange(typedValues)
                         } else {
-                            const typedValues = v as string[]
+                            const typedValues = v.map((token) => token.toString().trim()) as string[]
                             const typedOnChange = onChange as (newValue: string[]) => void
                             typedOnChange(typedValues)
                         }

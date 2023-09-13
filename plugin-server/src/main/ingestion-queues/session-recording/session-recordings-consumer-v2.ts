@@ -2,7 +2,6 @@ import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka-acosom'
-import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
@@ -11,6 +10,7 @@ import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { PostgresRouter } from '../../../utils/db/postgres'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { asyncTimeoutGuard } from '../../../utils/timing'
@@ -104,7 +104,7 @@ export class SessionRecordingIngesterV2 {
 
     constructor(
         private serverConfig: PluginsServerConfig,
-        private postgres: Pool,
+        private postgres: PostgresRouter,
         private objectStorage: ObjectStorage,
         private redisPool: RedisPool
     ) {
@@ -208,7 +208,10 @@ export class SessionRecordingIngesterV2 {
         // If it is recoverable, we probably want to retry?
     }
 
-    public async parseKafkaMessage(message: Message): Promise<IncomingRecordingMessage | void> {
+    public async parseKafkaMessage(
+        message: Message,
+        getTeamFn: (s: string) => Promise<TeamId | null>
+    ): Promise<IncomingRecordingMessage | void> {
         const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
@@ -246,7 +249,7 @@ export class SessionRecordingIngesterV2 {
         const token = messagePayload.token
 
         if (token) {
-            teamId = await this.teamsRefresher.get().then((teams) => teams[token] || null)
+            teamId = await getTeamFn(token)
         }
 
         if (teamId == null) {
@@ -272,11 +275,10 @@ export class SessionRecordingIngesterV2 {
             },
 
             team_id: teamId,
-            distinct_id: event.properties.distinct_id,
+            distinct_id: messagePayload.distinct_id,
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
             events: event.properties.$snapshot_items,
-            replayIngestionConsumer: event.properties?.$snapshot_consumer ?? 'v1',
         }
 
         return recordingMessage
@@ -321,7 +323,9 @@ export class SessionRecordingIngesterV2 {
                         }
                     }
 
-                    const recordingMessage = await this.parseKafkaMessage(message)
+                    const recordingMessage = await this.parseKafkaMessage(message, (token) =>
+                        this.teamsRefresher.get().then((teams) => teams[token] || null)
+                    )
                     if (recordingMessage) {
                         recordingMessages.push(recordingMessage)
                     }
@@ -395,6 +399,7 @@ export class SessionRecordingIngesterV2 {
             consumerErrorBackoffMs: this.recordingConsumerConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             fetchBatchSize: this.recordingConsumerConfig.SESSION_RECORDING_KAFKA_BATCH_SIZE,
             batchingTimeoutMs: this.recordingConsumerConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            topicCreationTimeoutMs: this.recordingConsumerConfig.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             autoCommit: false,
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)

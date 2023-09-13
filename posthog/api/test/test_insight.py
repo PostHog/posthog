@@ -5,7 +5,7 @@ from unittest import mock
 from unittest.case import skip
 from unittest.mock import patch
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
@@ -1248,7 +1248,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "breakdown_type": "event",
                 },
             )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("offset=25", response.json()["next"])
 
     def test_insight_trends_breakdown_persons_with_histogram(self) -> None:
@@ -1860,7 +1860,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(created_insight_viewed.user, self.user)
         self.assertEqual(
             created_insight_viewed.last_viewed_at,
-            datetime(2022, 3, 22, 0, 0, tzinfo=pytz.UTC),
+            datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
         )
 
     def test_update_insight_viewed(self) -> None:
@@ -1882,7 +1882,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             updated_insight_viewed = InsightViewed.objects.all()[0]
             self.assertEqual(
                 updated_insight_viewed.last_viewed_at,
-                datetime(2022, 3, 23, 0, 0, tzinfo=pytz.UTC),
+                datetime(2022, 3, 23, 0, 0, tzinfo=ZoneInfo("UTC")),
             )
 
     def test_cant_view_insight_viewed_for_insight_in_another_team(self) -> None:

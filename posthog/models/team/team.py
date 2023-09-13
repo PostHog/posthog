@@ -114,6 +114,15 @@ def get_default_data_attributes() -> List[str]:
     return ["data-attr"]
 
 
+class WeekStartDay(models.IntegerChoices):
+    SUNDAY = 0, "Sunday"
+    MONDAY = 1, "Monday"
+
+    @property
+    def clickhouse_mode(self) -> str:
+        return "3" if self == WeekStartDay.MONDAY else "0"
+
+
 class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
@@ -145,6 +154,9 @@ class Team(UUIDClassicModel):
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
+    week_start_day: models.SmallIntegerField = models.SmallIntegerField(
+        null=True, blank=True, choices=WeekStartDay.choices
+    )
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps: models.BooleanField = models.BooleanField(null=True)
 

@@ -193,7 +193,7 @@ export function PreflightCheck(): JSX.Element {
                             </LemonButton>
                         </div>
                         <LemonDivider thick dashed className="my-6" />
-                        {checksSummary.summaryStatus !== 'error' ? (
+                        {checksSummary.summaryStatus !== 'error' || preflightMode == 'experimentation' ? (
                             <LemonButton
                                 fullWidth
                                 center

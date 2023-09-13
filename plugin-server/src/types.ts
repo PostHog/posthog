@@ -16,12 +16,12 @@ import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
-import { Pool } from 'pg'
 import { VM } from 'vm2'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
+import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
@@ -33,8 +33,7 @@ import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-man
 import { LazyPluginVM } from './worker/vm/lazy'
 import { PromiseManager } from './worker/vm/promise-manager'
 
-/** Re-export Element from scaffolding, for backwards compat. */
-export { Element } from '@posthog/plugin-scaffold'
+export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
@@ -96,6 +95,9 @@ export interface PluginsServerConfig {
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
+    DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
+    PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
+    POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
@@ -127,6 +129,7 @@ export interface PluginsServerConfig {
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
+    KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -136,6 +139,7 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
+    KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
@@ -185,6 +189,7 @@ export interface PluginsServerConfig {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
@@ -196,6 +201,13 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
+
+    // dump profiles to disk, covering the first N seconds of runtime
+    STARTUP_PROFILE_DURATION_SECONDS: number
+    STARTUP_PROFILE_CPU: boolean
+    STARTUP_PROFILE_HEAP: boolean
+    STARTUP_PROFILE_HEAP_INTERVAL: number
+    STARTUP_PROFILE_HEAP_DEPTH: number
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -221,7 +233,7 @@ export interface Hub extends PluginsServerConfig {
     capabilities: PluginServerCapabilities
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
-    postgres: Pool
+    postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     clickhouse: ClickHouse
     kafka: Kafka
@@ -255,6 +267,8 @@ export interface Hub extends PluginsServerConfig {
     conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
+    // ValueMatchers used for various opt-in/out features
+    pluginConfigsToSkipElementsParsing: ValueMatcher<number>
 }
 
 export interface PluginServerCapabilities {
@@ -270,6 +284,7 @@ export interface PluginServerCapabilities {
     sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
     transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
+    preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
 }
@@ -1139,4 +1154,8 @@ export type RRWebEvent = Record<string, any> & {
     timestamp: number
     type: number
     data: any
+}
+
+export interface ValueMatcher<T> {
+    (value: T): boolean
 }

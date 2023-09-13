@@ -8,6 +8,7 @@ from corsheaders.defaults import default_headers
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 # django-axes settings to lockout after too many attempts
 
@@ -218,7 +219,7 @@ USE_TZ = True
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist"), os.path.join(BASE_DIR, "posthog/year_in_posthog/images")]
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
 
@@ -227,7 +228,7 @@ LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
-CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
+CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 REST_FRAMEWORK = {

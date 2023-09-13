@@ -1,4 +1,6 @@
 import json
+import posthoganalytics
+from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import (
     Any,
@@ -45,7 +47,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.actor_base_query import ActorBaseQuery, get_people
+from posthog.queries.actor_base_query import ActorBaseQuery, get_people, serialize_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
@@ -63,6 +65,8 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+from prometheus_client import Counter
+from posthog.metrics import LABEL_TEAM_ID
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
@@ -75,6 +79,12 @@ PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "Username",
     "UserName",
 ]
+
+API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
+    "api_person_list_bytes_read_from_postgres",
+    "An estimate of how many bytes we've read from postgres to return the person endpoint.",
+    labelnames=[LABEL_TEAM_ID],
+)
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -233,23 +243,59 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = Filter(request=request, team=self.team)
 
+        assert request.user.is_authenticated
+
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
             filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        person_query = PersonQuery(filter, team.pk)
-        paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-        raw_paginated_result = insight_sync_execute(
-            paginated_query,
-            {**paginated_params, **filter.hogql_context.values},
-            filter=filter,
-            query_type="person_list",
-            team_id=team.pk,
-        )
-        actor_ids = [row[0] for row in raw_paginated_result]
-        _, serialized_actors = get_people(team, actor_ids)
+        if posthoganalytics.feature_enabled(
+            "load-person-fields-from-clickhouse",
+            request.user.distinct_id,
+            person_properties={"email": request.user.email},
+        ):
+            person_query = PersonQuery(
+                filter,
+                team.pk,
+                extra_fields=[
+                    "created_at",
+                    "properties",
+                    "is_identified",
+                ],
+                include_distinct_ids=True,
+            )
+            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+            actors = insight_sync_execute(
+                paginated_query,
+                {**paginated_params, **filter.hogql_context.values},
+                filter=filter,
+                query_type="person_list",
+                team_id=team.pk,
+            )
+            persons = []
+            for p in actors:
+                person = Person(uuid=p[0], created_at=p[1], is_identified=p[2], properties=json.loads(p[3]))
+                person._distinct_ids = p[4]
+                persons.append(person)
+
+            serialized_actors = serialize_people(team, data=persons)
+            _should_paginate = len(serialized_actors) >= filter.limit
+        else:
+            person_query = PersonQuery(filter, team.pk)
+            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+
+            raw_paginated_result = insight_sync_execute(
+                paginated_query,
+                {**paginated_params, **filter.hogql_context.values},
+                filter=filter,
+                query_type="person_list",
+                team_id=team.pk,
+            )
+            actor_ids = [row[0] for row in raw_paginated_result]
+            _, serialized_actors = get_people(team, actor_ids)
+            _should_paginate = len(actor_ids) >= filter.limit
 
         # If the undocumented include_total param is set to true, we'll return the total count of people
         # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
@@ -267,13 +313,17 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
             total_count = raw_paginated_result[0][0]
 
-        _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
             format_query_params_absolute_url(request, filter.offset - filter.limit)
             if filter.offset - filter.limit >= 0
             else None
         )
+
+        # TEMPORARY: Work out usage patterns of this endpoint
+        renderer = SafeJSONRenderer()
+        size = len(renderer.render(serialized_actors))
+        API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response(
             {

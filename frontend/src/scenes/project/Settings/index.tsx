@@ -29,11 +29,12 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 import { SlackIntegration } from './SlackIntegration'
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IngestionInfo } from './IngestionInfo'
 import { ExtraTeamSettings } from './ExtraTeamSettings'
+import { WeekStartConfig } from './WeekStartConfig'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export const scene: SceneExport = {
@@ -104,15 +105,18 @@ export function ProjectSettings(): JSX.Element {
                     <IngestionInfo loadingComponent={<LoadingComponent />} />
                 )}
                 <LemonDivider className="my-6" />
-                <h2 className="subtitle" id="timezone">
-                    Timezone
+                <h2 className="subtitle" id="date-and-time">
+                    Date and time
                 </h2>
                 <p>
-                    Set the timezone for your project. All charts will be based on this timezone, including how PostHog
-                    buckets data in day/week/month intervals.
+                    These settings affect how PostHog displays, buckets, and filters time-series data. You may need to
+                    refresh insights for new settings to apply.
                 </p>
-                <div className="max-w-160">
+                <div className="space-y-2">
+                    <LemonLabel id="timezone">Time zone</LemonLabel>
                     <TimezoneConfig />
+                    <LemonLabel id="timezone">Week starts on</LemonLabel>
+                    <WeekStartConfig />
                 </div>
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="internal-users-filtering">
@@ -210,7 +214,7 @@ export function ProjectSettings(): JSX.Element {
                 <DataAttributes />
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="person-display-name">
-                    Person Display Name
+                    Person display name
                 </h2>
                 <PersonDisplayNameProperties />
                 <LemonDivider className="my-6" />

@@ -5,10 +5,11 @@ import {
     ReactNodeViewRenderer,
     ExtendedRegExpMatchArray,
     Attribute,
+    NodeViewProps,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
-import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconClose, IconDragHandle, IconFilter, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -17,75 +18,80 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
-import { uuid } from 'lib/utils'
-import { posthogNodePasteRule } from './utils'
-import { NotebookNodeAttributes, NotebookNodeViewProps, NotebookNodeWidget } from '../Notebook/utils'
+import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
+import { posthogNodePasteRule, useSyncedAttributes } from './utils'
+import {
+    NotebookNodeAttributes,
+    NotebookNodeViewProps,
+    NotebookNodeWidget,
+    CustomNotebookNodeAttributes,
+} from '../Notebook/utils'
 
-export interface NodeWrapperProps<T extends NotebookNodeAttributes> {
-    title: string
+export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
+    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
-    href?: string | ((attributes: T) => string)
+    href?: string | ((attributes: NotebookNodeAttributes<T>) => string)
 
     // Sizing
     expandable?: boolean
     startExpanded?: boolean
-    resizeable?: boolean
+    resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     heightEstimate?: number | string
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
     autoHideMetadata?: boolean
+    /** Expand the node if the component is clicked */
+    expandOnClick?: boolean
     widgets?: NotebookNodeWidget[]
 }
 
-export function NodeWrapper<T extends NotebookNodeAttributes>({
-    title: defaultTitle,
+export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
+    title: titleOrGenerator,
     nodeType,
     children,
     selected,
     href,
     heightEstimate = '4rem',
-    resizeable = true,
+    resizeable: resizeableOrGenerator = true,
     startExpanded = false,
     expandable = true,
+    expandOnClick = true,
     autoHideMetadata = false,
     minHeight,
     node,
     getPos,
+    attributes,
     updateAttributes,
     widgets = [],
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable } = useValues(mountedNotebookLogic)
-    const nodeId = node.attrs.nodeId
 
-    const nodeLogicProps = {
+    // nodeId can start null, but should then immediately be generated
+    const nodeId = attributes.nodeId
+    const nodeLogicProps: NotebookNodeLogicProps = {
         node,
         nodeType,
-        nodeAttributes: node.attrs,
+        attributes,
         updateAttributes,
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
-        title: defaultTitle,
+        title: titleOrGenerator,
+        resizeable: resizeableOrGenerator,
         widgets,
+        startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { title, expanded } = useValues(nodeLogic)
-    const { setExpanded, deleteNode } = useActions(nodeLogic)
-
-    useEffect(() => {
-        if (startExpanded) {
-            setExpanded(true)
-        }
-    }, [startExpanded])
+    const { title, resizeable, expanded } = useValues(nodeLogic)
+    const { setExpanded, deleteNode, setWidgetsVisible } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
-    const height = node.attrs.height ?? heightEstimate
+    const height = attributes.height ?? heightEstimate
 
     const onResizeStart = useCallback((): void => {
         if (!resizeable) {
@@ -99,14 +105,14 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
             if (heightAttr && heightAttr !== initialHeightAttr) {
                 updateAttributes({
                     height: contentRef.current?.clientHeight,
-                })
+                } as any)
             }
         }
 
         window.addEventListener('mouseup', onResizedEnd)
     }, [resizeable, updateAttributes])
 
-    const parsedHref = typeof href === 'function' ? href(node.attrs) : href
+    const parsedHref = typeof href === 'function' ? href(attributes) : href
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
@@ -126,6 +132,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                         {!inView ? (
                             <>
                                 <div className="h-4" /> {/* Placeholder for the drag handle */}
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
                                 <div style={{ height: heightEstimate }}>
                                     <LemonSkeleton className="h-full" />
                                 </div>
@@ -157,6 +164,14 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                                         />
                                     )}
 
+                                    {!!widgets.length && isEditable ? (
+                                        <LemonButton
+                                            onClick={() => setWidgetsVisible(true)}
+                                            size="small"
+                                            icon={<IconFilter />}
+                                        />
+                                    ) : null}
+
                                     {isEditable && (
                                         <LemonButton
                                             onClick={() => deleteNode()}
@@ -174,7 +189,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={isResizeable ? { height, minHeight } : {}}
-                                    onClick={!expanded ? () => setExpanded(true) : undefined}
+                                    onClick={!expanded && expandOnClick ? () => setExpanded(true) : undefined}
                                     onMouseDown={onResizeStart}
                                 >
                                     {children}
@@ -188,7 +203,7 @@ export function NodeWrapper<T extends NotebookNodeAttributes>({
     )
 }
 
-export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = NodeWrapperProps<T> & {
+export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
     Component: (props: NotebookNodeViewProps<T>) => JSX.Element | null
     pasteOptions?: {
@@ -199,16 +214,34 @@ export type CreatePostHogWidgetNodeOptions<T extends NotebookNodeAttributes> = N
     widgets?: NotebookNodeWidget[]
 }
 
-export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
+export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>({
     Component,
     pasteOptions,
     attributes,
     ...wrapperProps
 }: CreatePostHogWidgetNodeOptions<T>): Node {
-    const WrappedComponent = (props: NotebookNodeViewProps<T>): JSX.Element => {
+    // NOTE: We use NodeViewProps here as we convert them to NotebookNodeViewProps
+    const WrappedComponent = (props: NodeViewProps): JSX.Element => {
+        const [attributes, updateAttributes] = useSyncedAttributes<T>(props)
+
+        if (props.node.attrs.nodeId === null) {
+            // TODO only wrapped in setTimeout because of the flushSync bug
+            setTimeout(() => {
+                props.updateAttributes({
+                    nodeId: attributes.nodeId,
+                })
+            }, 0)
+        }
+
+        const nodeProps: NotebookNodeViewProps<T> = {
+            ...props,
+            attributes,
+            updateAttributes,
+        }
+
         return (
-            <NodeWrapper {...props} {...wrapperProps}>
-                <Component {...props} />
+            <NodeWrapper {...nodeProps} {...wrapperProps}>
+                <Component {...nodeProps} />
             </NodeWrapper>
         )
     }
@@ -222,8 +255,9 @@ export function createPostHogWidgetNode<T extends NotebookNodeAttributes>({
         addAttributes() {
             return {
                 height: {},
+                title: {},
                 nodeId: {
-                    default: uuid,
+                    default: null,
                 },
                 ...attributes,
             }

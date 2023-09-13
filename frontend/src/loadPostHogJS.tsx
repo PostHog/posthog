@@ -37,7 +37,6 @@ export function loadPostHogJS(): void {
                         posthog.opt_in_capturing()
                     }
                 },
-                advanced_disable_feature_flags_on_first_load: true,
             })
         )
 
@@ -55,7 +54,7 @@ export function loadPostHogJS(): void {
         // This is a helpful flag to set to automatically reset the recording session on load for testing multiple recordings
         const shouldResetSessionOnLoad = posthog.getFeatureFlag(FEATURE_FLAGS.SESSION_RESET_ON_LOAD)
         if (shouldResetSessionOnLoad) {
-            posthog.sessionManager.resetSessionId()
+            posthog.sessionManager?.resetSessionId()
         }
         // Make sure we have access to the object in window for debugging
         window.posthog = posthog

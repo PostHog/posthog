@@ -23,6 +23,7 @@ import {
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
+import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
@@ -266,7 +267,8 @@ test('merge people', async () => {
 })
 
 test('capture new person', async () => {
-    await hub.db.postgresQuery(
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
         `UPDATE posthog_team
              SET ingested_event = $1
              WHERE id = $2`,
@@ -896,7 +898,12 @@ test('ip override', async () => {
 })
 
 test('anonymized ip capture', async () => {
-    await hub.db.postgresQuery('update posthog_team set anonymize_ips = $1', [true], 'testTag')
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
+        'update posthog_team set anonymize_ips = $1',
+        [true],
+        'testTag'
+    )
     await createPerson(hub, team, ['asdfasdfasdf'])
 
     await processEvent(
@@ -1146,7 +1153,14 @@ test('long htext', async () => {
 })
 
 test('capture first team event', async () => {
-    await hub.db.postgresQuery(`UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`, [false, team.id], 'testTag')
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_team
+         SET ingested_event = $1
+         WHERE id = $2`,
+        [false, team.id],
+        'testTag'
+    )
 
     posthog.capture = jest.fn() as any
     posthog.identify = jest.fn() as any
@@ -1230,7 +1244,7 @@ const sessionReplayEventTestCases: {
             click_count: 1,
             keypress_count: 0,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1246,7 +1260,7 @@ const sessionReplayEventTestCases: {
             click_count: 0,
             keypress_count: 1,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1302,7 +1316,7 @@ const sessionReplayEventTestCases: {
             click_count: 0,
             keypress_count: 1,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1367,7 +1381,7 @@ const sessionReplayEventTestCases: {
             click_count: 6,
             keypress_count: 0,
             mouse_activity_count: 6,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.000',
             last_timestamp: '2023-04-25 18:58:19.000',
             active_milliseconds: 6000, // can sum up the activity across windows

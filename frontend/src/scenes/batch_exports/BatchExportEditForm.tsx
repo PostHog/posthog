@@ -4,6 +4,8 @@ import { Form } from 'kea-forms'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { BatchExportsEditLogicProps, batchExportsEditLogic } from './batchExportEditLogic'
 import { Field } from 'lib/forms/Field'
@@ -130,6 +132,8 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                             <Field name="destination" label="Destination">
                                 <LemonSelect
                                     options={[
+                                        { value: 'BigQuery', label: 'BigQuery' },
+                                        { value: 'Postgres', label: 'Postgres' },
                                         { value: 'S3', label: 'S3' },
                                         { value: 'Snowflake', label: 'Snowflake' },
                                     ]}
@@ -176,6 +180,14 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                                 ]}
                                             />
                                         </Field>
+                                        <Field name="compression" label="Compression" className="flex-1">
+                                            <LemonSelect
+                                                options={[
+                                                    { value: 'gzip', label: 'gzip' },
+                                                    { value: null, label: 'No compression' },
+                                                ]}
+                                            />
+                                        </Field>
                                     </div>
                                     <Field name="prefix" label="Key prefix">
                                         <LemonInput placeholder="e.g. posthog-events/" />
@@ -197,6 +209,15 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             />
                                         </Field>
                                     </div>
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'Snowflake' ? (
                                 <>
@@ -230,6 +251,76 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
 
                                     <Field name="role" label="Role" showOptional>
                                         <LemonInput placeholder="my-role" />
+                                    </Field>
+                                </>
+                            ) : batchExportConfigForm.destination === 'Postgres' ? (
+                                <>
+                                    <Field name="user" label="User">
+                                        <LemonInput placeholder="my-user" />
+                                    </Field>
+
+                                    <Field name="password" label="Password">
+                                        <LemonInput placeholder="my-password" type="password" />
+                                    </Field>
+
+                                    <Field name="host" label="Host">
+                                        <LemonInput placeholder="my-host" />
+                                    </Field>
+
+                                    <Field name="port" label="Port">
+                                        <LemonInput placeholder="5432" type="number" min="0" max="65535" />
+                                    </Field>
+
+                                    <Field name="database" label="Database">
+                                        <LemonInput placeholder="my-database" />
+                                    </Field>
+
+                                    <Field name="schema" label="Schema">
+                                        <LemonInput placeholder="public" />
+                                    </Field>
+
+                                    <Field name="table_name" label="Table name">
+                                        <LemonInput placeholder="events" />
+                                    </Field>
+
+                                    <Field name="has_self_signed_cert">
+                                        <LemonCheckbox
+                                            bordered
+                                            label={
+                                                <span className="flex items-center gap-2">
+                                                    Does your Postgres instance have a self-signed SSL certificate?
+                                                    <Tooltip
+                                                        title={'In most cases, Heroku and RDS users should check this.'}
+                                                    >
+                                                        <IconInfo className=" text-lg text-muted-alt" />
+                                                    </Tooltip>
+                                                </span>
+                                            }
+                                        />
+                                    </Field>
+                                </>
+                            ) : batchExportConfigForm.destination === 'BigQuery' ? (
+                                <>
+                                    <Field name="json_config_file" label="Google Cloud JSON key file">
+                                        <LemonFileInput accept=".json" multiple={false} />
+                                    </Field>
+
+                                    <Field name="table_id" label="Table ID">
+                                        <LemonInput placeholder="events" />
+                                    </Field>
+
+                                    <Field name="dataset_id" label="Dataset ID">
+                                        <LemonInput placeholder="dataset" />
+                                    </Field>
+
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
                                     </Field>
                                 </>
                             ) : null}
