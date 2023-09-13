@@ -144,6 +144,18 @@ const testCases: Record<string, NotebookType> = {
             ],
         },
     ]),
+    'api/projects/:team_id/notebooks/recordings-playlist': notebookTestTemplate('recordings-playlist', [
+        {
+            type: 'ph-recording-playlist',
+            attrs: {
+                height: null,
+                title: 'Session replays',
+                nodeId: '41faad12-499f-4a4b-95f7-3a36601317cc',
+                filters:
+                    '{"session_recording_duration":{"type":"recording","key":"duration","value":3600,"operator":"gt"},"properties":[],"events":[],"actions":[],"date_from":"-7d","date_to":null}',
+            },
+        },
+    ]),
 }
 
 const meta: Meta = {
@@ -324,6 +336,13 @@ export function TextFormats(): JSX.Element {
 export function NumberedList(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.notebook('numbered-list'))
+    }, [])
+    return <App />
+}
+
+export function RecordingsPlaylist(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.notebook('recordings-playlist'))
     }, [])
     return <App />
 }
