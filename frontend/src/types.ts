@@ -2191,6 +2191,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     rollout_percentage: number | null
     experiment_set: string[] | null
     features: EarlyAccessFeatureType[] | null
+    surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
