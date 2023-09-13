@@ -43,6 +43,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { InlineHogQLEditor } from './InlineHogQLEditor'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -78,6 +79,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
+            featureFlagsLogic,
+            ['featureFlags'],
         ],
     },
     actions: () => ({
@@ -147,15 +150,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
                 s.excludedProperties,
+                s.featureFlags,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                excludedProperties
+                excludedProperties,
+                featureFlags
             ): TaxonomicFilterGroup[] => {
-                return [
+                const groups = [
                     {
                         name: 'Events',
                         searchPlaceholder: 'events',
@@ -210,7 +215,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                       filter_by_event_names: true,
                                   }).url
                                 : undefined,
-                        expandLabel: ({ count, expandedCount }) =>
+                        expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
                                 eventNames.length,
                                 'has',
@@ -238,7 +243,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                       filter_by_event_names: true,
                                   }).url
                                 : undefined,
-                        expandLabel: ({ count, expandedCount }) =>
+                        expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
                                 eventNames.length,
                                 'has',
@@ -420,7 +425,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
                     },
-                    {
+                    ...groupAnalyticsTaxonomicGroups,
+                    ...groupAnalyticsTaxonomicGroupNames,
+                ]
+
+                if (featureFlags[FEATURE_FLAGS.NOTEBOOKS]) {
+                    groups.push({
                         name: 'Notebooks',
                         searchPlaceholder: 'notebooks',
                         type: TaxonomicFilterGroupType.Notebooks,
@@ -429,10 +439,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getName: (notebook: NotebookType) => notebook.title || `Notebook ${notebook.short_id}`,
                         getValue: (notebook: NotebookType) => notebook.short_id,
                         getPopoverHeader: () => 'Notebooks',
-                    },
-                    ...groupAnalyticsTaxonomicGroups,
-                    ...groupAnalyticsTaxonomicGroupNames,
-                ]
+                    })
+                }
+
+                return groups
             },
         ],
         activeTaxonomicGroup: [

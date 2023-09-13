@@ -30,6 +30,26 @@ export function TopBar(): JSX.Element {
     const { hideInviteModal } = useActions(inviteLogic)
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const hasNotebooks = !!featureFlags[FEATURE_FLAGS.NOTEBOOKS]
+
+    const groupTypes = [
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Persons,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.Insights,
+        TaxonomicFilterGroupType.FeatureFlags,
+        TaxonomicFilterGroupType.Plugins,
+        TaxonomicFilterGroupType.Experiments,
+        TaxonomicFilterGroupType.Dashboards,
+        ...groupNamesTaxonomicTypes,
+    ]
+
+    if (hasNotebooks) {
+        groupTypes.push(TaxonomicFilterGroupType.Notebooks)
+    }
+
     return (
         <>
             <Announcement />
@@ -48,27 +68,12 @@ export function TopBar(): JSX.Element {
                     </Link>
 
                     <div className="grow">
-                        <UniversalSearchPopover
-                            groupType={TaxonomicFilterGroupType.Events}
-                            groupTypes={[
-                                TaxonomicFilterGroupType.Events,
-                                TaxonomicFilterGroupType.Persons,
-                                TaxonomicFilterGroupType.Actions,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.Insights,
-                                TaxonomicFilterGroupType.FeatureFlags,
-                                TaxonomicFilterGroupType.Plugins,
-                                TaxonomicFilterGroupType.Experiments,
-                                TaxonomicFilterGroupType.Dashboards,
-                                TaxonomicFilterGroupType.Notebooks,
-                                ...groupNamesTaxonomicTypes,
-                            ]}
-                        />
+                        <UniversalSearchPopover groupType={TaxonomicFilterGroupType.Events} groupTypes={groupTypes} />
                     </div>
                     <ActivationSidebarToggle />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    {!!featureFlags[FEATURE_FLAGS.NOTEBOOKS] && <NotebookButton />}
+                    {hasNotebooks && <NotebookButton />}
                     <NotificationBell />
                     <HelpButton />
                     <SitePopover />
