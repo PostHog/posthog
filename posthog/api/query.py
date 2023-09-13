@@ -25,6 +25,7 @@ from posthog.hogql.database.database import create_hogql_database, serialize_dat
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.lifecycle_hogql_query import run_lifecycle_query
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
@@ -32,7 +33,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
+from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata, LifecycleQuery
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -218,6 +219,10 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     elif query_kind == "HogQLMetadata":
         metadata_query = HogQLMetadata.parse_obj(query_json)
         response = get_hogql_metadata(query=metadata_query, team=team)
+        return _unwrap_pydantic_dict(response)
+    elif query_kind == "LifecycleQuery":
+        lifecycle_query = LifecycleQuery.parse_obj(query_json)
+        response = run_lifecycle_query(query=lifecycle_query, team=team)
         return _unwrap_pydantic_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)

@@ -1,11 +1,7 @@
-from datetime import datetime
-
 from freezegun import freeze_time
 
-from posthog.hogql.query import execute_hogql_query
 from posthog.models.utils import UUIDT
-from posthog.hogql_queries.lifecycle_hogql_query import create_events_query, create_time_filter, run_lifecycle_query
-from posthog.hogql_queries.query_date_range import QueryDateRange
+from posthog.hogql_queries.lifecycle_hogql_query import run_lifecycle_query
 from posthog.schema import DateRange, IntervalType, LifecycleQuery, EventsNode
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
@@ -66,99 +62,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ("p4", ["2020-01-15T12:00:00Z"]),
             ]
         )
-
-    def _run_events_query(self, date_from, date_to, interval):
-        date_range = QueryDateRange(
-            date_range=DateRange(date_from=date_from, date_to=date_to),
-            team=self.team,
-            interval=interval,
-            now=datetime.strptime("2020-01-30T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ"),
-        )
-        time_filter = create_time_filter(date_range)
-
-        # TODO probably doesn't make sense to test like this
-        #  maybe this query should be what is returned by the function
-        events_query = create_events_query(event_filter=time_filter, date_range=date_range)
-        return execute_hogql_query(
-            team=self.team,
-            query="""
-                    SELECT
-                    start_of_period, count(DISTINCT person_id) AS counts, status
-                    FROM {events_query}
-                    GROUP BY start_of_period, status
-                    """,
-            query_type="LifecycleQuery",
-            placeholders={"events_query": events_query},
-        )
-
-    def test_events_query_whole_range(self):
-        self._create_test_events()
-
-        date_from = "2020-01-09"
-        date_to = "2020-01-19"
-
-        response = self._run_events_query(date_from, date_to, IntervalType.day)
-
-        self.assertEqual(
-            {
-                (datetime(2020, 1, 9, 0, 0), 1, "new"),  # p2
-                (datetime(2020, 1, 10, 0, 0), 1, "dormant"),  # p2
-                (datetime(2020, 1, 11, 0, 0), 1, "new"),  # p1
-                (datetime(2020, 1, 12, 0, 0), 1, "new"),  # p3
-                (datetime(2020, 1, 12, 0, 0), 1, "resurrecting"),  # p2
-                (datetime(2020, 1, 12, 0, 0), 1, "returning"),  # p1
-                (datetime(2020, 1, 13, 0, 0), 1, "returning"),  # p1
-                (datetime(2020, 1, 13, 0, 0), 2, "dormant"),  # p2, p3
-                (datetime(2020, 1, 14, 0, 0), 1, "dormant"),  # p1
-                (datetime(2020, 1, 15, 0, 0), 1, "resurrecting"),  # p1
-                (datetime(2020, 1, 15, 0, 0), 1, "new"),  # p4
-                (datetime(2020, 1, 16, 0, 0), 2, "dormant"),  # p1, p4
-                (datetime(2020, 1, 17, 0, 0), 1, "resurrecting"),  # p1
-                (datetime(2020, 1, 18, 0, 0), 1, "dormant"),  # p1
-                (datetime(2020, 1, 19, 0, 0), 1, "resurrecting"),  # p1
-                (datetime(2020, 1, 20, 0, 0), 1, "dormant"),  # p1
-            },
-            set(response.results),
-        )
-
-    def test_events_query_partial_range(self):
-        self._create_test_events()
-        date_from = "2020-01-12"
-        date_to = "2020-01-14"
-        response = self._run_events_query(date_from, date_to, IntervalType.day)
-
-        self.assertEqual(
-            {
-                (datetime(2020, 1, 11, 0, 0), 1, "new"),  # p1
-                (datetime(2020, 1, 12, 0, 0), 1, "new"),  # p3
-                (datetime(2020, 1, 12, 0, 0), 1, "resurrecting"),  # p2
-                (datetime(2020, 1, 12, 0, 0), 1, "returning"),  # p1
-                (datetime(2020, 1, 13, 0, 0), 1, "returning"),  # p1
-                (datetime(2020, 1, 13, 0, 0), 2, "dormant"),  # p2, p3
-                (datetime(2020, 1, 14, 0, 0), 1, "dormant"),  # p1
-            },
-            set(response.results),
-        )
-
-    # def test_start_on_dormant(self):
-    #     self.create_test_events()
-    #     date_from = "2020-01-13"
-    #     date_to = "2020-01-14"
-    #     response = self.run_events_query(date_from, date_to, IntervalType.day)
-    #
-    #     self.assertEqual(
-    #         {
-    #             (datetime(2020, 1, 12, 0, 0), 1, "new"),  # p3
-    #             # TODO this currently fails, as it treats p1 as resurrecting.
-    #             # This might just be fine, later in the query we would just throw away results before the 13th
-    #             (datetime(2020, 1, 12, 0, 0), 1, "resurrecting"),  # p2
-    #             (datetime(2020, 1, 12, 0, 0), 1, "returning"),  # p1
-    #             (datetime(2020, 1, 13, 0, 0), 1, "returning"),  # p1
-    #             (datetime(2020, 1, 13, 0, 0), 2, "dormant"),  # p2, p3
-    #             (datetime(2020, 1, 14, 0, 0), 1, "dormant"),  # p1
-    #         },
-    #         set(response.results),
-    #     )
 
     def _run_lifecycle_query(self, date_from, date_to, interval):
         series = [EventsNode(event="$pageview")]
