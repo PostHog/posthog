@@ -42,6 +42,7 @@ import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import { useSortable } from '@dnd-kit/sortable'
 import { SyntheticListenerMap } from '@dnd-kit/core/dist/hooks/utilities'
 import { CSS } from '@dnd-kit/utilities'
+import { LocalFilter } from '../entityFilterLogic'
 
 const DragHandle = (props: SyntheticListenerMap | undefined): JSX.Element => (
     <span className="ActionFilterRowDragHandle" {...props}>
@@ -70,7 +71,7 @@ const getValue = (
 
 export interface ActionFilterRowProps {
     logic: BuiltLogic<entityFilterLogicType>
-    filter: ActionFilter & { uuid: string }
+    filter: LocalFilter
     index: number
     typeKey: string
     mathAvailability: MathAvailability
