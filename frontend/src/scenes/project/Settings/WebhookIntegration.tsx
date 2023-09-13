@@ -21,7 +21,7 @@ export function WebhookIntegration(): JSX.Element {
         }
     }, [currentTeam])
 
-    const webhooks_blacklisted = featureFlags[FEATURE_FLAGS.WEBHOOKS_BLACKLISTED]
+    const webhooks_blacklisted = featureFlags[FEATURE_FLAGS.WEBHOOKS_DENYLIST]
     if (webhooks_blacklisted) {
         return (
             <div>
