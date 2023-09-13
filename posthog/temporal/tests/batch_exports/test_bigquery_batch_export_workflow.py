@@ -67,7 +67,7 @@ def assert_events_in_bigquery(client, table_id, dataset_id, events, bq_ingested_
             "properties": event.get("properties"),
             "set": properties.get("$set", None) if properties else None,
             "set_once": properties.get("$set_once", None) if properties else None,
-            "site_url": properties.get("$current_url", None) if properties else None,
+            "site_url": "",
             # For compatibility with CH which doesn't parse timezone component, so we add it here assuming UTC.
             "timestamp": dt.datetime.fromisoformat(event.get("timestamp") + "+00:00"),
             "team_id": event.get("team_id"),
