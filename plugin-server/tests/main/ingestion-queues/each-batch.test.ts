@@ -9,10 +9,7 @@ import {
     eachBatchLegacyIngestion,
     splitKafkaJSIngestionBatch,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion-kafkajs'
-import {
-    eachBatch,
-    eachBatchAppsOnEventHandlers,
-} from '../../../src/main/ingestion-queues/batch-processing/each-batch-onevent'
+import { eachBatchAppsOnEventHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-onevent'
 import {
     eachBatchWebhooksHandlers,
     groupIntoBatchesByUsage,
@@ -24,7 +21,6 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
-import { groupIntoBatches } from '../../../src/utils/utils'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
@@ -148,26 +144,6 @@ describe('eachBatchX', () => {
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
-    })
-
-    describe('eachBatch', () => {
-        it('calls eachMessage with the correct arguments', async () => {
-            const eachMessage = jest.fn(() => Promise.resolve())
-            const batch = createKafkaJSBatch(event)
-            await eachBatch(batch, queue, eachMessage, groupIntoBatches, 'key')
-
-            expect(eachMessage).toHaveBeenCalledWith({ value: JSON.stringify(event) }, queue)
-        })
-
-        it('tracks metrics based on the key', async () => {
-            const eachMessage = jest.fn(() => Promise.resolve())
-            await eachBatch(createKafkaJSBatch(event), queue, eachMessage, groupIntoBatches, 'my_key')
-
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_my_key',
-                expect.any(Date)
-            )
-        })
     })
 
     describe('eachBatchAppsOnEventHandlers', () => {
