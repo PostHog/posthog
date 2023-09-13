@@ -82,9 +82,13 @@ export const notebookLogic = kea<notebookLogicType>([
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
         scrollToSelection: true,
+        pasteAfterLastNode: (content: string) => ({
+            content,
+        }),
         insertAfterLastNode: (content: JSONContent) => ({
             content,
         }),
+
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
             content,
             nodeType,
@@ -357,6 +361,15 @@ export const notebookLogic = kea<notebookLogicType>([
                     }
 
                     values.editor?.insertContentAfterNode(insertionPosition, content)
+                }
+            )
+        },
+        pasteAfterLastNode: async ({ content }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    const endPosition = values.editor?.getEndPosition() || 0
+                    values.editor?.pasteContent(endPosition, content)
                 }
             )
         },

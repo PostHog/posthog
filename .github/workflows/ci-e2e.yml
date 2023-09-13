@@ -67,11 +67,30 @@ jobs:
               id: chunk
               run: echo "chunks=$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)" >> $GITHUB_OUTPUT
 
+    container:
+        name: Build and cache container image
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        needs: [changes]
+        permissions:
+            contents: read
+            id-token: write # allow issuing OIDC tokens for this workflow run
+        steps:
+            - name: Checkout
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              uses: actions/checkout@v3
+            - name: Get Docker image cached in Depot
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              # Build the container image in preparation for the E2E tests
+              uses: ./.github/actions/build-n-cache-image
+              with:
+                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
         runs-on: ubuntu-latest
         timeout-minutes: 60
-        needs: [chunks, changes]
+        needs: [chunks, changes, container]
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
 
