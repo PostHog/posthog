@@ -70,7 +70,7 @@ const getValue = (
 
 export interface ActionFilterRowProps {
     logic: BuiltLogic<entityFilterLogicType>
-    filter: ActionFilter
+    filter: ActionFilter & { uuid: string }
     index: number
     typeKey: string
     mathAvailability: MathAvailability
@@ -151,7 +151,7 @@ export function ActionFilterRow({
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
-    const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: filter.order as number })
+    const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 

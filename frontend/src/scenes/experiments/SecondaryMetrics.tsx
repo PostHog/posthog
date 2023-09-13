@@ -195,7 +195,7 @@ export function SecondaryMetrics({
                                         mathAvailability={MathAvailability.None}
                                         buttonCopy="Add funnel step"
                                         seriesIndicatorType="numeric"
-                                        sortable
+                                        sortable={true}
                                         showNestedArrow={true}
                                         propertiesTaxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,

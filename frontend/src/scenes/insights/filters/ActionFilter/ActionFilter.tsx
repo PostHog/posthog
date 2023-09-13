@@ -132,7 +132,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
             return clone.map((child, order) => ({ ...child, order }))
         }
-        setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
+        const newFilters = move(localFilters, oldIndex, newIndex)
+        setFilters(toFilters(newFilters))
         if (oldIndex !== newIndex) {
             reportFunnelStepReordered()
         }
@@ -161,6 +162,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
+    const sortedItemIds = localFilters.map((i) => i.uuid)
 
     return (
         <div
@@ -178,21 +180,20 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                 <DndContext
                     onDragEnd={({ active, over }) => {
                         if (over && active.id !== over.id) {
-                            onSortEnd({ oldIndex: Number(active.id), newIndex: Number(over.id) })
+                            onSortEnd({
+                                oldIndex: sortedItemIds.indexOf(active.id.toString()),
+                                newIndex: sortedItemIds.indexOf(over.id.toString()),
+                            })
                         }
                     }}
                     modifiers={[restrictToVerticalAxis]}
                 >
-                    <SortableContext
-                        disabled={!sortable}
-                        items={localFilters.map((i) => i.order)}
-                        strategy={verticalListSortingStrategy}
-                    >
+                    <SortableContext disabled={true} items={sortedItemIds} strategy={verticalListSortingStrategy}>
                         {localFilters.map((filter, index) => (
                             <ActionFilterRow
-                                key={index}
+                                key={filter.uuid}
                                 typeKey={typeKey}
-                                filter={filter as ActionFilterType}
+                                filter={filter}
                                 index={index}
                                 filterCount={localFilters.length}
                                 showNestedArrow={showNestedArrow}
