@@ -8,7 +8,6 @@ import {
     InsightFilter,
     InsightQueryNode,
     InsightVizNode,
-    Node,
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema'
@@ -191,7 +190,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         updateDateRange: ({ dateRange }) => {
             const localQuerySource = values.querySource
                 ? values.querySource
@@ -235,10 +234,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 ? values.query
                 : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault)
             if (localQuery && isInsightVizNode(localQuery)) {
-                actions.setQuery({
+                const newQuery = {
                     ...localQuery,
                     source: { ...(localQuery as InsightVizNode).source, ...querySource },
-                } as Node)
+                } as InsightVizNode
+                props.setQuery ? props.setQuery(newQuery) : actions.setQuery(newQuery)
             }
         },
         setQuery: ({ query }) => {

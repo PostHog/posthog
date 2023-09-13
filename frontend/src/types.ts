@@ -2055,6 +2055,8 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
     /** query when used as ad-hoc insight */
     query?: InsightVizNode
+    /** callback when query changes in ad-hoc insight */
+    setQuery?: (node: InsightVizNode) => void
 }
 
 export interface SetInsightOptions {

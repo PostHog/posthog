@@ -47,7 +47,6 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
-import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -389,12 +388,6 @@ export const insightLogic = kea<insightLogicType>([
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
-        isFilterBasedInsight: [
-            (s) => [s.insight],
-            (insight) => Object.keys(insight.filters || {}).length > 0 && !insight.query,
-        ],
-        isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
-        isInsightVizQuery: [(s) => [s.insight], (insight) => isInsightVizNode(insight.query)],
         canEditInsight: [
             (s) => [s.insight],
             (insight) =>

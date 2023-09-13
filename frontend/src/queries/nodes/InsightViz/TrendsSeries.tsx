@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { InsightType, FilterType, InsightLogicProps } from '~/types'
+import { InsightType, FilterType, EditorFilterProps } from '~/types'
 import { alphabet } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,11 +13,7 @@ import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNo
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-type TrendsSeriesProps = {
-    insightProps: InsightLogicProps
-}
-
-export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element | null {
+export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula } = useValues(
         insightVizDataLogic(insightProps)
     )
