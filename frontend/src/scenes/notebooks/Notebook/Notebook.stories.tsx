@@ -5,7 +5,147 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import notebook12345Json from './__mocks__/notebook-12345.json'
-import notebookTemplateForSnapshotJson from './__mocks__/notebook-template-for-snapshot.json'
+import { notebookTestTemplate } from './__mocks__/notebook-template-for-snapshot'
+import { NotebookType } from '~/types'
+
+// a list of test cases to run, showing different types of content in notebooks
+const testCases: Record<string, NotebookType> = {
+    'api/projects/:team_id/notebooks/text-formats': notebookTestTemplate('text-formats', [
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    marks: [
+                        {
+                            type: 'bold',
+                        },
+                    ],
+                    text: ' bold ',
+                },
+            ],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    marks: [
+                        {
+                            type: 'italic',
+                        },
+                    ],
+                    text: 'italic',
+                },
+            ],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    marks: [
+                        {
+                            type: 'bold',
+                        },
+                        {
+                            type: 'italic',
+                        },
+                    ],
+                    text: 'bold _and_ italic',
+                },
+            ],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    marks: [
+                        {
+                            type: 'code',
+                        },
+                    ],
+                    text: 'code',
+                },
+            ],
+        },
+    ]),
+    'api/projects/:team_id/notebooks/headings': notebookTestTemplate('headings', [
+        {
+            type: 'heading',
+            attrs: {
+                level: 1,
+            },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Heading 1',
+                },
+            ],
+        },
+        {
+            type: 'heading',
+            attrs: {
+                level: 2,
+            },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Heading 2',
+                },
+            ],
+        },
+        {
+            type: 'heading',
+            attrs: {
+                level: 3,
+            },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Heading 3',
+                },
+            ],
+        },
+    ]),
+    'api/projects/:team_id/notebooks/numbered-list': notebookTestTemplate('numbered-list', [
+        {
+            type: 'orderedList',
+            content: [
+                {
+                    type: 'listItem',
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'first item',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    type: 'listItem',
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'second item',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    ]),
+}
+
 const meta: Meta = {
     title: 'Scenes-App/Notebooks',
     parameters: {
@@ -85,7 +225,6 @@ const meta: Meta = {
                     ],
                 },
                 'api/projects/:team_id/notebooks/12345': notebook12345Json,
-                'api/projects/:team_id/notebooks/template-for-snapshot': notebookTemplateForSnapshotJson,
                 'api/projects/:team_id/session_recordings': {
                     results: [
                         {
@@ -155,6 +294,7 @@ const meta: Meta = {
                     has_next: false,
                     version: 3,
                 },
+                ...testCases,
             },
         }),
     ],
@@ -167,9 +307,23 @@ export function NotebooksList(): JSX.Element {
     return <App />
 }
 
-export function NotebooksTemplateIntroduction(): JSX.Element {
+export function Headings(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.notebook('template-introduction'))
+        router.actions.push(urls.notebook('headings'))
+    }, [])
+    return <App />
+}
+
+export function TextFormats(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.notebook('text-formats'))
+    }, [])
+    return <App />
+}
+
+export function NumberedList(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.notebook('numbered-list'))
     }, [])
     return <App />
 }
