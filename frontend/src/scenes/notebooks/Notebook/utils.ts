@@ -49,7 +49,7 @@ export type NotebookNodeWidget = {
     key: string
     label: string
     icon: JSX.Element
-    // using 'any' here shouldn't be necessary but I couldn't figure out how to set a generic on the notebookNodeLogic props
+    // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
     Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
 }
 
@@ -91,8 +91,8 @@ export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
 }
 
 export const textContent = (node: any): string => {
-    // any node that is created using `createPostHogWidgetNode`
-    // may have a custom serializedText function defined
+    // we've extended the node schema to support a custom serializedText function
+    // each custom node type needs to implement this function, or have an alternative in the map below
     const customOrTitleSerializer: TextSerializer = (props): string => {
         // TipTap chooses whether to add a separator based on a couple of factors
         // but, we always want a separator since this text is for search purposes
