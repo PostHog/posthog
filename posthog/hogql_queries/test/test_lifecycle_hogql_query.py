@@ -78,7 +78,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_lifecycle_query(date_from, date_to, IntervalType.day)
 
-        statuses = [res["status"] for res in response["result"]]
+        statuses = [res["status"] for res in response.result]
         self.assertEqual(["new", "returning", "resurrecting", "dormant"], statuses)
 
         self.assertEqual(
@@ -260,5 +260,5 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "status": "dormant",
                 },
             ],
-            response["result"],
+            response.result,
         )
