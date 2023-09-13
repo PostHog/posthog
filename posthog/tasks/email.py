@@ -101,7 +101,7 @@ def send_email_verification(user_id: int, token: str) -> None:
 def send_over_quota_but_not_dropped_email_to_cs(organization_id: int) -> None:
     organization: Organization = Organization.objects.get(pk=organization_id)
     message = EmailMessage(
-        campaign_key=f"over_quota_but_not_dropped-{organization_id}-{timezone.now().timestamp()}",
+        campaign_key=f"over_quota_but_not_dropped-{organization_id}",
         subject=f"{organization.name} over quota, data not dropped",
         template_name="over_quota_but_not_dropped",
         template_context={
