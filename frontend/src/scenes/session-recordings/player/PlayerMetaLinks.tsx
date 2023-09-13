@@ -4,16 +4,18 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconComment, IconDelete, IconLink } from 'lib/lemon-ui/icons'
+import { IconComment, IconDelete, IconJournalPlus, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from '~/types'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
+    const nodeLogic = useNotebookNode()
 
     const getCurrentPlayerTime = (): number => {
         // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
@@ -78,9 +80,24 @@ export function PlayerMetaLinks(): JSX.Element {
                         <span>Share</span>
                     </LemonButton>
 
-                    <PlaylistPopoverButton {...commonProps}>
-                        <span>Pin</span>
-                    </PlaylistPopoverButton>
+                    {nodeLogic ? (
+                        nodeLogic.props.nodeType !== NotebookNodeType.Recording ? (
+                            <LemonButton
+                                icon={<IconJournalPlus />}
+                                size="small"
+                                onClick={() => {
+                                    nodeLogic.actions.insertAfter({
+                                        type: NotebookNodeType.Recording,
+                                        attrs: { id: sessionRecordingId },
+                                    })
+                                }}
+                            />
+                        ) : null
+                    ) : (
+                        <PlaylistPopoverButton {...commonProps}>
+                            <span>Pin</span>
+                        </PlaylistPopoverButton>
+                    )}
 
                     {logicProps.playerKey !== 'modal' && (
                         <LemonButton
