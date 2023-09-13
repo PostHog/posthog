@@ -182,9 +182,7 @@ export function Editor({
 
             onCreate({
                 getJSON: () => editor.getJSON(),
-                getText: () => {
-                    return textContent(editor.state.doc)
-                },
+                getText: () => textContent(editor.state.doc),
                 getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
