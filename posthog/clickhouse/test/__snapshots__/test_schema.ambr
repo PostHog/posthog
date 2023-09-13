@@ -337,7 +337,8 @@
       console_warn_count Int64,
       console_error_count Int64,
       size Int64,
-      event_count Int64
+      event_count Int64,
+      message_count Int64
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -924,7 +925,8 @@
       console_warn_count Int64,
       console_error_count Int64,
       size Int64,
-      event_count Int64
+      event_count Int64,
+      message_count Int64
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -1389,7 +1391,7 @@
   sum(console_error_count) as console_error_count,
   sum(size) as size,
   -- we can count the number of kafka messages instead of sending it explicitly
-  count(*) as message_count,
+  sum(message_count) as message_count,
   sum(event_count) as event_count,
   max(_timestamp) as _timestamp
   FROM posthog_test.kafka_session_replay_events
