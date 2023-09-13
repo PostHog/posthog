@@ -29,6 +29,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     performed_rollback: false,
     can_edit: true,
     tags: [],
+    surveys: [],
 }
 
 const GROUP_FEATURE_FLAG: FeatureFlagType = {

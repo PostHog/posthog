@@ -2191,6 +2191,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     rollout_percentage: number | null
     experiment_set: string[] | null
     features: EarlyAccessFeatureType[] | null
+    surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -3035,6 +3036,11 @@ export enum NotebookNodeType {
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+}
+
+export type NotebookNodeResource = {
+    attrs: Record<string, any>
+    type: NotebookNodeType
 }
 
 export enum NotebookTarget {
