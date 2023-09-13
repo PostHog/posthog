@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import notebook12345Json from './__mocks__/notebook-12345.json'
-
+import notebookTemplateForSnapshotJson from './__mocks__/notebook-template-for-snapshot.json'
 const meta: Meta = {
     title: 'Scenes-App/Notebooks',
     parameters: {
@@ -85,6 +85,7 @@ const meta: Meta = {
                     ],
                 },
                 'api/projects/:team_id/notebooks/12345': notebook12345Json,
+                'api/projects/:team_id/notebooks/template-for-snapshot': notebookTemplateForSnapshotJson,
                 'api/projects/:team_id/session_recordings': {
                     results: [
                         {
