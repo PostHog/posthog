@@ -1,4 +1,5 @@
 use std::env;
+use std::net::SocketAddr;
 
 use crate::time::SystemTime;
 
@@ -9,6 +10,7 @@ mod router;
 mod sink;
 mod time;
 mod token;
+mod utils;
 
 #[tokio::main]
 async fn main() {
@@ -35,7 +37,7 @@ async fn main() {
     tracing::info!("listening on {}", address);
 
     axum::Server::bind(&address.parse().unwrap())
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .unwrap();
 }

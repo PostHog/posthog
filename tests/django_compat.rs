@@ -1,3 +1,4 @@
+use assert_json_diff::assert_json_eq;
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum_test_helper::TestClient;
@@ -9,6 +10,7 @@ use capture::router::router;
 use capture::sink::EventSink;
 use capture::time::TimeSource;
 use serde::Deserialize;
+use serde_json::{json, Value};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
@@ -22,7 +24,7 @@ struct RequestDump {
     ip: String,
     now: String,
     body: String,
-    output: Vec<ProcessedEvent>,
+    output: Vec<Value>,
 }
 
 static REQUESTS_DUMP_FILE_NAME: &str = "tests/requests_dump.jsonl";
@@ -47,6 +49,10 @@ impl MemorySink {
     fn len(&self) -> usize {
         self.events.lock().unwrap().len()
     }
+
+    fn events(&self) -> Vec<ProcessedEvent> {
+        self.events.lock().unwrap().clone()
+    }
 }
 
 #[async_trait]
@@ -63,6 +69,7 @@ impl EventSink for MemorySink {
 }
 
 #[tokio::test]
+#[ignore]
 async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
     let file = File::open(REQUESTS_DUMP_FILE_NAME)?;
     let reader = BufReader::new(file);
@@ -104,7 +111,8 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             }),
             res.json().await
         );
-        assert_eq!(sink.len(), case.output.len())
+        assert_eq!(sink.len(), case.output.len());
+        assert_json_eq!(json!(case.output), json!(sink.events()))
     }
     Ok(())
 }

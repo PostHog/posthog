@@ -7,6 +7,7 @@ use serde_json::Value;
 use anyhow::{anyhow, Result};
 use bytes::{Buf, Bytes};
 use flate2::read::GzDecoder;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[derive(Deserialize, Default)]
@@ -16,16 +17,24 @@ pub enum Compression {
     GzipJs,
 }
 
-#[allow(dead_code)] // until they are used
 #[derive(Deserialize, Default)]
 pub struct EventQuery {
-    compression: Option<Compression>,
+    pub compression: Option<Compression>,
 
     #[serde(alias = "ver")]
-    version: Option<String>,
+    pub lib_version: Option<String>,
 
     #[serde(alias = "_")]
-    sent_at: Option<i64>,
+    pub sent_at: Option<i64>,
+
+    #[serde(skip_serializing)]
+    pub token: Option<String>, // Filled by handler
+
+    #[serde(skip_serializing)]
+    pub now: Option<String>, // Filled by handler from timesource
+
+    #[serde(skip_serializing)]
+    pub client_ip: Option<String>, // Filled by handler
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,19 +43,20 @@ pub struct EventFormData {
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
-pub struct Event {
+pub struct RawEvent {
     #[serde(alias = "$token", alias = "api_key")]
     pub token: Option<String>,
-
+    pub distinct_id: Option<String>,
+    pub uuid: Option<Uuid>,
     pub event: String,
     pub properties: HashMap<String, Value>,
 }
 
-impl Event {
+impl RawEvent {
     /// We post up _at least one_ event, so when decompressiong and deserializing there
     /// could be more than one. Hence this function has to return a Vec.
     /// TODO: Use an axum extractor for this
-    pub fn from_bytes(query: &EventQuery, bytes: Bytes) -> Result<Vec<Event>> {
+    pub fn from_bytes(query: &EventQuery, bytes: Bytes) -> Result<Vec<RawEvent>> {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
         let payload = match query.compression {
@@ -60,17 +70,43 @@ impl Event {
         };
 
         tracing::debug!(json = payload, "decoded event data");
-        if let Ok(events) = serde_json::from_str::<Vec<Event>>(&payload) {
+        if let Ok(events) = serde_json::from_str::<Vec<RawEvent>>(&payload) {
             return Ok(events);
         }
-        if let Ok(events) = serde_json::from_str::<Event>(&payload) {
+        if let Ok(events) = serde_json::from_str::<RawEvent>(&payload) {
             return Ok(vec![events]);
         }
         Err(anyhow!("unknown input shape"))
     }
+
+    pub fn extract_token(&self) -> Option<String> {
+        match &self.token {
+            Some(value) => Some(value.clone()),
+            None => self
+                .properties
+                .get("token")
+                .and_then(Value::as_str)
+                .map(String::from),
+        }
+    }
 }
 
-#[derive(Clone, Default, Debug, Deserialize, Serialize)]
+pub struct ProcessingContext {
+    pub lib_version: Option<String>,
+    pub sent_at: Option<OffsetDateTime>,
+    pub token: String,
+    pub now: String,
+    pub client_ip: String,
+}
+
+time::serde::format_description!(
+    django_iso,
+    OffsetDateTime,
+    "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6][offset_hour \
+         sign:mandatory]:[offset_minute]"
+);
+
+#[derive(Clone, Default, Debug, Serialize)]
 pub struct ProcessedEvent {
     pub uuid: Uuid,
     pub distinct_id: String,
@@ -78,7 +114,8 @@ pub struct ProcessedEvent {
     pub site_url: String,
     pub data: String,
     pub now: String,
-    pub sent_at: String,
+    #[serde(with = "django_iso::option")]
+    pub sent_at: Option<OffsetDateTime>,
     pub token: String,
 }
 
@@ -94,7 +131,7 @@ mod tests {
     use base64::Engine as _;
     use bytes::Bytes;
 
-    use super::{Event, EventQuery};
+    use super::{EventQuery, RawEvent};
 
     #[test]
     fn decode_bytes() {
@@ -104,11 +141,14 @@ mod tests {
             .unwrap();
 
         let bytes = Bytes::from(decoded_horrible_blob);
-        let events = Event::from_bytes(
+        let events = RawEvent::from_bytes(
             &EventQuery {
                 compression: Some(Compression::GzipJs),
-                version: None,
+                lib_version: None,
                 sent_at: None,
+                token: None,
+                now: None,
+                client_ip: None,
             },
             bytes,
         );
