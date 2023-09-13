@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     console_warn_count Int64,
     console_error_count Int64,
     size Int64,
-    event_count Int64
+    event_count Int64,
+    message_count Int64
 ) ENGINE = {engine}
 """
 
@@ -128,7 +129,7 @@ sum(console_warn_count) as console_warn_count,
 sum(console_error_count) as console_error_count,
 sum(size) as size,
 -- we can count the number of kafka messages instead of sending it explicitly
-count(*) as message_count,
+sum(message_count) as message_count,
 sum(event_count) as event_count,
 max(_timestamp) as _timestamp
 FROM {database}.kafka_session_replay_events
