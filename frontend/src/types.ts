@@ -2191,6 +2191,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     rollout_percentage: number | null
     experiment_set: string[] | null
     features: EarlyAccessFeatureType[] | null
+    surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -3019,11 +3020,8 @@ export type NotebookListItemType = {
 export type NotebookType = NotebookListItemType & {
     content: JSONContent // TODO: Type this better
     version: number
-}
-
-export enum NotebookMode {
-    View = 'view',
-    Edit = 'edit',
+    // used to power text-based search
+    text_content?: string | null
 }
 
 export enum NotebookNodeType {
@@ -3035,10 +3033,16 @@ export enum NotebookNodeType {
     FeatureFlagCodeExample = 'ph-feature-flag-code-example',
     Experiment = 'ph-experiment',
     EarlyAccessFeature = 'ph-early-access-feature',
+    Survey = 'ph-survey',
     Person = 'ph-person',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+}
+
+export type NotebookNodeResource = {
+    attrs: Record<string, any>
+    type: NotebookNodeType
 }
 
 export enum NotebookTarget {
@@ -3179,7 +3183,8 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: string[]
-    image: string
+    image: string | JSX.Element
+    docsLink: string
 }
 
 export enum SDKKey {
@@ -3198,4 +3203,27 @@ export enum SDKKey {
     GO = 'go',
     ELIXIR = 'elixir',
     API = 'api',
+    JAVA = 'java',
+    RUST = 'rust',
+    GOOGLE_TAG_MANAGER = 'google_tag_manager',
+    NUXT_JS = 'nuxtjs',
+    VUE_JS = 'vuejs',
+    SEGMENT = 'segment',
+    RUDDERSTACK = 'rudderstack',
+    DOCUSAURUS = 'docusaurus',
+    SHOPIFY = 'shopify',
+    WORDPRESS = 'wordpress',
+    SENTRY = 'sentry',
+    RETOOL = 'retool',
 }
+
+export enum SDKTag {
+    WEB = 'Web',
+    MOBILE = 'Mobile',
+    SERVER = 'Server',
+    INTEGRATION = 'Integration',
+    RECOMMENDED = 'Recommended',
+    OTHER = 'Other',
+}
+
+export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>

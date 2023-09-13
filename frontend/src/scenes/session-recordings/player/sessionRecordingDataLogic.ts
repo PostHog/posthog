@@ -239,8 +239,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             if (nextSourceToLoad) {
                 actions.loadRecordingSnapshotsV2(nextSourceToLoad)
-            } else {
-                actions.reportUsageIfFullyLoaded()
             }
         },
         loadRecordingSnapshotsV1Success: ({ sessionPlayerSnapshotData }) => {
@@ -254,8 +252,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             if (values.sessionPlayerSnapshotData?.next) {
                 actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
-            } else {
-                actions.reportUsageIfFullyLoaded()
             }
             if (values.chunkPaginationIndex === 1 || values.loadedFromBlobStorage) {
                 // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
@@ -265,9 +261,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
-
-                actions.reportViewed()
             }
+        },
+        loadRecordingSnapshotsSuccess: () => {
+            actions.reportViewed()
+            actions.reportUsageIfFullyLoaded()
         },
         loadRecordingSnapshotsV1Failure: () => {
             actions.loadRecordingSnapshotsFailure()

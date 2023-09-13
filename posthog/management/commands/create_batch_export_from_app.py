@@ -48,6 +48,12 @@ class Command(BaseCommand):
             default=False,
             help="Backfill the newly created BatchExport with the last period of data.",
         )
+        parser.add_argument(
+            "--migrate-disabled-plugin-config",
+            action="store_true",
+            default=False,
+            help="Migrate a PluginConfig even if its disabled.",
+        )
 
     def handle(self, *args, **options):
         """Handle creation of a BatchExport from a given PluginConfig."""
@@ -82,8 +88,8 @@ class Command(BaseCommand):
             "destination_data": destination_data,
         }
 
-        if dry_run is True:
-            self.stdout.write("No BatchExport will be created as this is a dry run or confirmation check rejected.")
+        if dry_run is True or (options["migrate_disabled_plugin_config"] is False and plugin_config.enabled is False):
+            self.stdout.write("No BatchExport will be created as this is a dry run or existing plugin is disabled.")
             return json.dumps(batch_export_data, indent=4, default=str)
         else:
             destination = BatchExportDestination(**batch_export_data["destination_data"])

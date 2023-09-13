@@ -16,6 +16,7 @@ import { EditorFocusPosition } from './utils'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookSidebar } from './NotebookSidebar'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 export type NotebookProps = {
     shortId: string
@@ -101,23 +102,25 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOK_SETTINGS_WIDGETS}>
                         <NotebookSidebar />
                     </FlaggedFeature>
-                    <Editor
-                        initialContent={content}
-                        onCreate={setEditor}
-                        onUpdate={onEditorUpdate}
-                        onSelectionUpdate={onEditorSelectionUpdate}
-                        placeholder={({ node }: { node: any }) => {
-                            if (node.type.name === 'heading' && node.attrs.level === 1) {
-                                return `Untitled - maybe.. "${headingPlaceholder}"`
-                            }
+                    <ErrorBoundary>
+                        <Editor
+                            initialContent={content}
+                            onCreate={setEditor}
+                            onUpdate={onEditorUpdate}
+                            onSelectionUpdate={onEditorSelectionUpdate}
+                            placeholder={({ node }: { node: any }) => {
+                                if (node.type.name === 'heading' && node.attrs.level === 1) {
+                                    return `Untitled - maybe.. "${headingPlaceholder}"`
+                                }
 
-                            if (node.type.name === 'heading') {
-                                return `Heading ${node.attrs.level}`
-                            }
+                                if (node.type.name === 'heading') {
+                                    return `Heading ${node.attrs.level}`
+                                }
 
-                            return ''
-                        }}
-                    />
+                                return ''
+                            }}
+                        />
+                    </ErrorBoundary>
                 </div>
             </div>
         </BindLogic>

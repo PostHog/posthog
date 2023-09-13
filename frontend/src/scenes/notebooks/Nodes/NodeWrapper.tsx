@@ -5,10 +5,12 @@ import {
     ReactNodeViewRenderer,
     ExtendedRegExpMatchArray,
     Attribute,
+    NodeViewProps,
+    getExtensionField,
 } from '@tiptap/react'
 import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
-import { IconClose, IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconClose, IconDragHandle, IconFilter, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -17,9 +19,8 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
-import { uuid } from 'lib/utils'
-import { posthogNodePasteRule } from './utils'
+import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
+import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 import {
     NotebookNodeAttributes,
     NotebookNodeViewProps,
@@ -61,6 +62,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     minHeight,
     node,
     getPos,
+    attributes,
     updateAttributes,
     widgets = [],
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
@@ -68,11 +70,11 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     const { isEditable } = useValues(mountedNotebookLogic)
 
     // nodeId can start null, but should then immediately be generated
-    const nodeId = node.attrs.nodeId
-    const nodeLogicProps = {
+    const nodeId = attributes.nodeId
+    const nodeLogicProps: NotebookNodeLogicProps = {
         node,
         nodeType,
-        nodeAttributes: node.attrs,
+        attributes,
         updateAttributes,
         nodeId,
         notebookLogic: mountedNotebookLogic,
@@ -84,13 +86,13 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { title, resizeable, expanded } = useValues(nodeLogic)
-    const { setExpanded, deleteNode } = useActions(nodeLogic)
+    const { setExpanded, deleteNode, setWidgetsVisible } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
-    const height = node.attrs.height ?? heightEstimate
+    const height = attributes.height ?? heightEstimate
 
     const onResizeStart = useCallback((): void => {
         if (!resizeable) {
@@ -104,14 +106,14 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
             if (heightAttr && heightAttr !== initialHeightAttr) {
                 updateAttributes({
                     height: contentRef.current?.clientHeight,
-                })
+                } as any)
             }
         }
 
         window.addEventListener('mouseup', onResizedEnd)
     }, [resizeable, updateAttributes])
 
-    const parsedHref = typeof href === 'function' ? href(node.attrs) : href
+    const parsedHref = typeof href === 'function' ? href(attributes) : href
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
@@ -163,6 +165,14 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                         />
                                     )}
 
+                                    {!!widgets.length && isEditable ? (
+                                        <LemonButton
+                                            onClick={() => setWidgetsVisible(true)}
+                                            size="small"
+                                            icon={<IconFilter />}
+                                        />
+                                    ) : null}
+
                                     {isEditable && (
                                         <LemonButton
                                             onClick={() => deleteNode()}
@@ -203,27 +213,38 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     }
     attributes: Record<keyof T, Partial<Attribute>>
     widgets?: NotebookNodeWidget[]
+    serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>({
     Component,
     pasteOptions,
     attributes,
+    serializedText,
     ...wrapperProps
 }: CreatePostHogWidgetNodeOptions<T>): Node {
-    const WrappedComponent = (props: NotebookNodeViewProps<T>): JSX.Element => {
+    // NOTE: We use NodeViewProps here as we convert them to NotebookNodeViewProps
+    const WrappedComponent = (props: NodeViewProps): JSX.Element => {
+        const [attributes, updateAttributes] = useSyncedAttributes<T>(props)
+
         if (props.node.attrs.nodeId === null) {
             // TODO only wrapped in setTimeout because of the flushSync bug
             setTimeout(() => {
                 props.updateAttributes({
-                    nodeId: uuid(),
+                    nodeId: attributes.nodeId,
                 })
             }, 0)
         }
 
+        const nodeProps: NotebookNodeViewProps<T> = {
+            ...props,
+            attributes,
+            updateAttributes,
+        }
+
         return (
-            <NodeWrapper {...props} {...wrapperProps}>
-                <Component {...props} />
+            <NodeWrapper {...nodeProps} {...wrapperProps}>
+                <Component {...nodeProps} />
             </NodeWrapper>
         )
     }
@@ -233,6 +254,19 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         group: 'block',
         atom: true,
         draggable: true,
+
+        serializedText: serializedText,
+
+        extendNodeSchema(extension) {
+            const context = {
+                name: extension.name,
+                options: extension.options,
+                storage: extension.storage,
+            }
+            return {
+                serializedText: getExtensionField(extension, 'serializedText', context),
+            }
+        },
 
         addAttributes() {
             return {

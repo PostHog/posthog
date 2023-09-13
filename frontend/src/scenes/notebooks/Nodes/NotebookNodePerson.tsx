@@ -13,7 +13,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import api from 'lib/api'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): JSX.Element => {
-    const id = props.node.attrs.id
+    const { id } = props.attributes
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
     const { expanded } = useValues(notebookNodeLogic)
@@ -75,5 +75,10 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
         getAttributes: async (match) => {
             return { id: match[1] }
         },
+    },
+    serializedText: (attrs) => {
+        const personTitle = attrs?.title || ''
+        const personId = attrs?.id || ''
+        return `${personTitle} ${personId}`.trim()
     },
 })

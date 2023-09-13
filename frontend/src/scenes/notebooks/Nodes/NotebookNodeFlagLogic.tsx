@@ -5,6 +5,7 @@ import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature
 import { NotebookNodeType } from '~/types'
 
 import type { notebookNodeFlagLogicType } from './NotebookNodeFlagLogicType'
+import { buildSurveyContent } from './NotebookNodeSurvey'
 
 export type NotebookNodeFlagLogicProps = {
     id: FeatureFlagLogicProps['id']
@@ -17,12 +18,15 @@ export const notebookNodeFlagLogic = kea<notebookNodeFlagLogicType>([
     key(({ id }) => id),
 
     connect((props: NotebookNodeFlagLogicProps) => ({
-        actions: [featureFlagLogic({ id: props.id }), ['createEarlyAccessFeatureSuccess']],
-        values: [featureFlagLogic({ id: props.id }), ['featureFlag', 'hasEarlyAccessFeatures']],
+        actions: [featureFlagLogic({ id: props.id }), ['createEarlyAccessFeatureSuccess', 'createSurveySuccess']],
+        values: [featureFlagLogic({ id: props.id }), ['featureFlag', 'hasEarlyAccessFeatures', 'hasSurveys']],
     })),
     listeners(({ props }) => ({
         createEarlyAccessFeatureSuccess: async ({ newEarlyAccessFeature }) => {
             props.insertAfter(buildEarlyAccessFeatureContent(newEarlyAccessFeature.id))
+        },
+        createSurveySuccess: async ({ newSurvey }) => {
+            props.insertAfter(buildSurveyContent(newSurvey.id))
         },
     })),
     selectors({
@@ -35,6 +39,19 @@ export const notebookNodeFlagLogic = kea<notebookNodeFlagLogicType>([
                             hasEarlyAccessFeatures &&
                             featureFlag.features &&
                             nextNode?.attrs.id === featureFlag.features[0].id) ||
+                        false
+                    )
+                },
+        ],
+        shouldDisableInsertSurvey: [
+            (s) => [s.featureFlag, s.hasSurveys],
+            (featureFlag, hasSurveys) =>
+                (nextNode: Node | null): boolean => {
+                    return (
+                        (nextNode?.type.name === NotebookNodeType.Survey &&
+                            hasSurveys &&
+                            featureFlag.surveys &&
+                            nextNode?.attrs.id === featureFlag.surveys[0].id) ||
                         false
                     )
                 },

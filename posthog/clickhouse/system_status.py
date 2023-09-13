@@ -1,7 +1,7 @@
 from datetime import timedelta
 from os.path import abspath, dirname, join
 from typing import Dict, Generator, List, Tuple
-import pytz
+from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -103,7 +103,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     last_event_ingested_timestamp = sync_execute("SELECT max(_timestamp) FROM events")[0][0]
 
     # Therefore we can confidently apply the UTC timezone
-    last_event_ingested_timestamp_utc = last_event_ingested_timestamp.replace(tzinfo=pytz.UTC)
+    last_event_ingested_timestamp_utc = last_event_ingested_timestamp.replace(tzinfo=ZoneInfo("UTC"))
 
     yield {
         "key": "last_event_ingested_timestamp",
