@@ -144,6 +144,41 @@ const testCases: Record<string, NotebookType> = {
             ],
         },
     ]),
+    'api/projects/:team_id/notebooks/bullet-list': notebookTestTemplate('bullet-list', [
+        {
+            type: 'bulletList',
+            content: [
+                {
+                    type: 'listItem',
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'first item',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    type: 'listItem',
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'second item',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    ]),
     'api/projects/:team_id/notebooks/recordings-playlist': notebookTestTemplate('recordings-playlist', [
         {
             type: 'ph-recording-playlist',
@@ -336,6 +371,13 @@ export function TextFormats(): JSX.Element {
 export function NumberedList(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.notebook('numbered-list'))
+    }, [])
+    return <App />
+}
+
+export function BulletList(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.notebook('bullet-list'))
     }, [])
     return <App />
 }
