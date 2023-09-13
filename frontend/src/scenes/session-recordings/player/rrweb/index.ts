@@ -3,18 +3,21 @@ import { Replayer } from 'rrweb'
 import { eventWithTime } from '@rrweb/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-const PROXY_URL = 'https://replay.ph-proxy.dev' as const
+const PROXY_URL = 'https://replay.ph-proxy.com' as const
 
 export const CorsPlugin: ReplayPlugin & {
     _replaceFontCssUrls: (value: string) => string
     _replaceFontUrl: (value: string) => string
 } = {
     _replaceFontCssUrls: (value: string): string => {
-        return value.replace(/url\("(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)"\)/gi, `url("${PROXY_URL}?url=$1")`)
+        return value.replace(
+            /url\("(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)"\)/gi,
+            `url("${PROXY_URL}/proxy?url=$1")`
+        )
     },
 
     _replaceFontUrl: (value: string): string => {
-        return value.replace(/^(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)$/i, `${PROXY_URL}?url=$1`)
+        return value.replace(/^(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
     },
 
     onBuild: (node) => {
