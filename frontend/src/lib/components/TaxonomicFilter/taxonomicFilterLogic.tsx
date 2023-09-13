@@ -414,8 +414,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                 value: '$session_duration',
                             },
                         ],
-                        getName: (option) => option.name,
-                        getValue: (option) => option.value,
+                        getName: (option: any) => option.name,
+                        getValue: (option: any) => option.value,
                         getPopoverHeader: () => 'Session',
                     },
                     {
