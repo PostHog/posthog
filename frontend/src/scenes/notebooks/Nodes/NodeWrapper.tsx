@@ -213,7 +213,6 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     }
     attributes: Record<keyof T, Partial<Attribute>>
     widgets?: NotebookNodeWidget[]
-    // the function is evaluated at creation time, returning a function that is evaluated when called
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 
