@@ -256,7 +256,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                     # some notebooks have no text_content until next saved, so we need to check the title too
                     # TODO this can be removed once all/most notebooks have text_content
                     Q(title__search=request.GET["search"])
-                    | Q(text_content__search=request.GET["s"])
+                    | Q(text_content__search=request.GET["search"])
                 )
             elif key == "contains":
                 contains = request.GET["contains"]
