@@ -106,15 +106,33 @@ export const Settings = ({
     }
 
     return attributes.query.kind === NodeKind.SavedInsightNode ? (
-        <div className="p-3">
-            <div className="text-lg font-semibold">You cannot edit saved insights in notebooks</div>
+        <div className="p-3 space-y-2">
+            <div className="text-lg font-semibold">Insight created outside of this notebook</div>
             <div>
-                Changes either need to be made on the insight or you can detach the query so that it is no longer
-                conntected and make changes here
+                Changes made to the original insight will be reflected in the notebook. Or you can detach the from the
+                insight to make changes independently.
             </div>
 
-            <LemonButton to={urls.insightEdit(attributes.query.shortId)}>Edit insight</LemonButton>
-            <LemonButton onClick={detachSavedInsight}>Detach insight</LemonButton>
+            <div className="space-y-2">
+                <LemonButton
+                    center={true}
+                    type="secondary"
+                    fullWidth
+                    className="flex flex-1"
+                    to={urls.insightEdit(attributes.query.shortId)}
+                >
+                    Go to insight
+                </LemonButton>
+                <LemonButton
+                    center={true}
+                    fullWidth
+                    type="secondary"
+                    className="flex flex-1"
+                    onClick={detachSavedInsight}
+                >
+                    Detach the insight
+                </LemonButton>
+            </div>
         </div>
     ) : (
         <div className="p-3">
