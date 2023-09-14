@@ -67,7 +67,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     widgets = [],
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable } = useValues(mountedNotebookLogic)
+    const { isEditable, isShowingSidebar } = useValues(mountedNotebookLogic)
     const { setIsShowingSidebar } = useActions(mountedNotebookLogic)
 
     // nodeId can start null, but should then immediately be generated
@@ -168,9 +168,10 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
 
                                     {widgets.length > 0 ? (
                                         <LemonButton
-                                            onClick={() => setIsShowingSidebar(true)}
+                                            onClick={() => setIsShowingSidebar(!isShowingSidebar)}
                                             size="small"
                                             icon={<IconFilter />}
+                                            active={isShowingSidebar && selected}
                                         />
                                     ) : null}
 
