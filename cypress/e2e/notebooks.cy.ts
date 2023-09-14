@@ -61,44 +61,39 @@ describe('Notebooks', () => {
         cy.get('.NotebookRecordingTimestamp').should('contain.text', '0:00')
     })
 
-    it('Can add a number list', () => {
-        cy.get('li').contains('Notebooks').should('exist').click()
-        cy.get('[data-attr="new-notebook"]').click()
-        // we don't actually get a new notebook because the API is mocked
-        // so, press enter twice to "exit" the timestamp block we start in
-        cy.get('.NotebookEditor').type('{enter}{enter}')
-        cy.get('.NotebookEditor').type('{enter}')
-        cy.get('.NotebookEditor').type('1. the first')
-        cy.get('.NotebookEditor').type('{enter}')
-        // no need to type the number now. it should be inserted automatically
-        cy.get('.NotebookEditor').type('the second')
-        cy.get('.NotebookEditor').type('{enter}')
-        cy.get('ol').should('contain.text', 'the first')
-        cy.get('ol').should('contain.text', 'the second')
-        // the numbered list auto inserts the next list item
-        cy.get('.NotebookEditor ol li').should('have.length', 3)
-    })
+    describe('text types', () => {
+        beforeEach(() => {
+            cy.get('li').contains('Notebooks').should('exist').click()
+            cy.get('[data-attr="new-notebook"]').click()
+            // we don't actually get a new notebook because the API is mocked
+            // so, "exit" the timestamp block we start in
+            cy.get('.NotebookEditor').type('esc')
+            cy.get('.NotebookEditor').type('{enter}')
+        })
 
-    it('Can add bold', () => {
-        cy.get('li').contains('Notebooks').should('exist').click()
-        cy.get('[data-attr="new-notebook"]').click()
-        // we don't actually get a new notebook because the API is mocked
-        // so, press enter twice to "exit" the timestamp block we start in
-        cy.get('.NotebookEditor').type('{enter}{enter}')
-        cy.get('.NotebookEditor').type('**bold**')
-        cy.get('.NotebookEditor p').last().should('contain.html', '<strong>bold</strong>')
-    })
+        it('Can add a number list', () => {
+            cy.get('.NotebookEditor').type('1. the first')
+            cy.get('.NotebookEditor').type('{enter}')
+            // no need to type the number now. it should be inserted automatically
+            cy.get('.NotebookEditor').type('the second')
+            cy.get('.NotebookEditor').type('{enter}')
+            cy.get('ol').should('contain.text', 'the first')
+            cy.get('ol').should('contain.text', 'the second')
+            // the numbered list auto inserts the next list item
+            cy.get('.NotebookEditor ol li').should('have.length', 3)
+        })
 
-    it('Can add bullet list', () => {
-        cy.get('li').contains('Notebooks').should('exist').click()
-        cy.get('[data-attr="new-notebook"]').click()
-        // we don't actually get a new notebook because the API is mocked
-        // so, press enter twice to "exit" the timestamp block we start in
-        cy.get('.NotebookEditor').type('{enter}{enter}')
-        cy.get('.NotebookEditor').type('* the first{enter}the second{enter}')
-        cy.get('ul').should('contain.text', 'the first')
-        cy.get('ul').should('contain.text', 'the second')
-        // the list auto inserts the next list item
-        cy.get('.NotebookEditor ul li').should('have.length', 3)
+        it('Can add bold', () => {
+            cy.get('.NotebookEditor').type('**bold**')
+            cy.get('.NotebookEditor p').last().should('contain.html', '<strong>bold</strong>')
+        })
+
+        it('Can add bullet list', () => {
+            cy.get('.NotebookEditor').type('* the first{enter}the second{enter}')
+            cy.get('ul').should('contain.text', 'the first')
+            cy.get('ul').should('contain.text', 'the second')
+            // the list auto inserts the next list item
+            cy.get('.NotebookEditor ul li').should('have.length', 3)
+        })
     })
 })
