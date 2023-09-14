@@ -39,8 +39,8 @@ dependencies:
     specifier: ^2.1.2
     version: 2.1.2(react@16.14.0)
   '@rrweb/types':
-    specifier: ^2.0.0-alpha.9
-    version: 2.0.0-alpha.9
+    specifier: ^2.0.0-alpha.11
+    version: 2.0.0-alpha.11
   '@sentry/react':
     specifier: 7.22.0
     version: 7.22.0(react@16.14.0)
@@ -195,8 +195,8 @@ dependencies:
     specifier: ^0.39.0
     version: 0.39.0
   posthog-js:
-    specifier: 1.78.2
-    version: 1.78.2
+    specifier: 1.78.4
+    version: 1.78.4
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -282,8 +282,8 @@ dependencies:
     specifier: ^1.5.1
     version: 1.5.1
   rrweb:
-    specifier: ^2.0.0-alpha.9
-    version: 2.0.0-alpha.9
+    specifier: ^2.0.0-alpha.11
+    version: 2.0.0-alpha.11
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -3928,10 +3928,10 @@ packages:
       type-fest: 2.19.0
     dev: false
 
-  /@rrweb/types@2.0.0-alpha.9:
-    resolution: {integrity: sha512-yS2KghLSmSSxo6H7tHrJ6u+nWJA9zCXaKFyc79rUSX8RHHSImRqocTqJ8jz794kCIWA90rvaQayRONdHO+vB0Q==}
+  /@rrweb/types@2.0.0-alpha.11:
+    resolution: {integrity: sha512-8ccocIkT5J/bfNRQY85qR/g6p5YQFpgFO2cMt4+Ex7w31Lq0yqZBRaoYEsawQKpLrn5KOHkdn2UTUrna7WMQuA==}
     dependencies:
-      rrweb-snapshot: 2.0.0-alpha.9
+      rrweb-snapshot: 2.0.0-alpha.11
     dev: false
 
   /@sentry/browser@7.22.0:
@@ -14908,8 +14908,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.78.2:
-    resolution: {integrity: sha512-jDy0QR+Mt7c4efq4knUsDVx/dT9DKMRLPimR/aSNTPRlAdWDNYD6WFv3oFyUk5tzkOPcKVJItRmmS2ua3tesYA==}
+  /posthog-js@1.78.4:
+    resolution: {integrity: sha512-+ao0/qoP8fUErrF6Y2Yugilkh4ooh8MX6n6ckYsn3yV610YrpXGR165fbq8X1ukimV4YmkWbMHOACtkOuZ/+8w==}
     dependencies:
       fflate: 0.4.8
     dev: false
@@ -16607,27 +16607,27 @@ packages:
     resolution: {integrity: sha512-85aZYCxweiD5J8yTEbw+E6A27zSnLPNDL0WfPdw3YYodq7WjnTKo0q4dtyQ2gz23iPT8Q9CUyJtAaUNcTxRf5Q==}
     dev: false
 
-  /rrdom@2.0.0-alpha.9:
-    resolution: {integrity: sha512-jfaZ8tHi098P4GpPEtkOwnkucyKA5eGanAVHGPklzCqAeEq1Yx+9/y8AeOtF3yiobqKKkW8lLvFH2KrBH1CZlQ==}
+  /rrdom@2.0.0-alpha.11:
+    resolution: {integrity: sha512-U37m0t4jTz63wnVRcOQ5qFzSTrI5RdNgeXnHAha2Fmh9+1K+XuCx421a8D1wZk3WcDc2sFz/04FVdM0OD2caHg==}
     dependencies:
-      rrweb-snapshot: 2.0.0-alpha.9
+      rrweb-snapshot: 2.0.0-alpha.11
     dev: false
 
-  /rrweb-snapshot@2.0.0-alpha.9:
-    resolution: {integrity: sha512-mHg1uUE2iUf0MXLE//4r5cMynkbduwmaOEis4gC7EuqkUAC1pYoLpcYYVt9lD6dgYIF6BmK6dgLLzMpD/tTyyA==}
+  /rrweb-snapshot@2.0.0-alpha.11:
+    resolution: {integrity: sha512-N0dzeJA2VhrlSOadkKwCVmV/DuNOwBH+Lhx89hAf9PQK4lCS8AP4AaylhqUdZOYHqwVjqsYel/uZ4hN79vuLhw==}
     dev: false
 
-  /rrweb@2.0.0-alpha.9:
-    resolution: {integrity: sha512-8E2yiLY7IrFjDcVUZ7AcQtdBNFuTIsBrlCMpbyLua6X64dGRhOZ+IUDXLnAbNj5oymZgFtZu2UERG9rmV2VAng==}
+  /rrweb@2.0.0-alpha.11:
+    resolution: {integrity: sha512-vJ2gNvF+pUG9C2aaau7iSNqhWBSc4BwtUO4FpegOtDObuH4PIaxNJOlgHz82+WxKr9XPm93ER0LqmNpy0KYdKg==}
     dependencies:
-      '@rrweb/types': 2.0.0-alpha.9
+      '@rrweb/types': 2.0.0-alpha.11
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
       base64-arraybuffer: 1.0.2
       fflate: 0.4.8
       mitt: 3.0.0
-      rrdom: 2.0.0-alpha.9
-      rrweb-snapshot: 2.0.0-alpha.9
+      rrdom: 2.0.0-alpha.11
+      rrweb-snapshot: 2.0.0-alpha.11
     dev: false
 
   /rtl-css-js@1.16.0:

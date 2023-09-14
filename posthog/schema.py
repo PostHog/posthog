@@ -594,6 +594,14 @@ class LifecycleFilter(BaseModel):
     toggledLifecycles: Optional[List[LifecycleToggle]] = None
 
 
+class LifecycleQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    result: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class PersonPropertyFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -1143,6 +1151,7 @@ class LifecycleQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
+    response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
 

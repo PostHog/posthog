@@ -2,19 +2,36 @@ import { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { webhookIntegrationLogic } from './webhookIntegrationLogic'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 export function WebhookIntegration(): JSX.Element {
     const [webhook, setWebhook] = useState('')
     const { testWebhook, removeWebhook } = useActions(webhookIntegrationLogic)
     const { loading } = useValues(webhookIntegrationLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     useEffect(() => {
         if (currentTeam?.slack_incoming_webhook) {
             setWebhook(currentTeam?.slack_incoming_webhook)
         }
     }, [currentTeam])
+
+    const webhooks_blacklisted = featureFlags[FEATURE_FLAGS.WEBHOOKS_DENYLIST]
+    if (webhooks_blacklisted) {
+        return (
+            <div>
+                <p>
+                    Webhooks are currently not available for your organization.{' '}
+                    <Link onClick={() => openSupportForm('support', 'apps')}>Contact support</Link>
+                </p>
+            </div>
+        )
+    }
 
     return (
         <div>
