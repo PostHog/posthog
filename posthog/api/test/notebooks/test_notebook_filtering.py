@@ -42,7 +42,7 @@ INSIGHT_COMMENT = lambda id: {
     },
 }
 
-BASIC_TEXT = lambda text: {"type": "paragraph", "content": [{"text": text, "type": "text"}]}
+BASIC_TEXT = lambda text: {"type": "paragraph", "content": [{"text": text, "type": "text"}], "text_content": text}
 
 
 class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
@@ -62,16 +62,18 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ["some text", [0]],
-            ["other text", [1]],
-            ["text", [0, 1]],
+            ["i ride", [0]],
+            ["pony", [0]],
+            ["ponies", [0]],
+            ["my hobby", [1]],
+            ["around", [0, 1]],
             ["random", []],
         ]
     )
     def test_filters_based_on_title(self, search_text: str, expected_match_indexes: List[int]) -> None:
         notebook_ids = [
-            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="some text"),
-            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="other text"),
+            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="i ride around on a pony"),
+            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="my hobby is to fish around"),
         ]
 
         response = self.client.get(
@@ -82,6 +84,32 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
         assert len(results) == len(expected_match_indexes)
         assert sorted([r["id"] for r in results]) == sorted([notebook_ids[i] for i in expected_match_indexes])
+
+        @parameterized.expand(
+            [
+                ["pony", [0]],
+                ["pOnY", [0]],
+                ["ponies", [0]],
+                ["goat", [1]],
+                ["ride", [0, 1]],
+                ["neither", []],
+            ]
+        )
+        def test_filters_based_on_text_content(self, search_text: str, expected_match_indexes: List[int]) -> None:
+            notebook_ids = [
+                # will match both pony and ponies
+                self._create_notebook_with_content([BASIC_TEXT("you may ride a pony")], title="never matches"),
+                self._create_notebook_with_content([BASIC_TEXT("but may not ride a goat")], title="never matches"),
+            ]
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/notebooks?search={search_text}",
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            results = response.json()["results"]
+            assert len(results) == len(expected_match_indexes)
+            assert sorted([r["id"] for r in results]) == sorted([notebook_ids[i] for i in expected_match_indexes])
 
     def test_filters_based_on_params(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")

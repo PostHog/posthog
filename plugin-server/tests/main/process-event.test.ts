@@ -315,7 +315,7 @@ test('capture new person', async () => {
     let persons = await hub.db.fetchPersons()
     expect(persons[0].version).toEqual(0)
     expect(persons[0].created_at).toEqual(now)
-    let expectedProps = {
+    let expectedProps: Record<string, any> = {
         $creator_event_uuid: uuid,
         $initial_browser: 'Chrome',
         $initial_browser_version: '95',
@@ -329,6 +329,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
+        $browser: 'Chrome',
+        $browser_version: '95',
+        $current_url: 'https://test.com',
+        $os: 'Mac OS X',
+        $referrer: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -343,7 +349,17 @@ test('capture new person', async () => {
     expect(events[0].properties).toEqual({
         $ip: '127.0.0.1',
         $os: 'Mac OS X',
-        $set: { utm_medium: 'twitter', gclid: 'GOOGLE ADS ID', msclkid: 'BING ADS ID' },
+        $set: {
+            utm_medium: 'twitter',
+            gclid: 'GOOGLE ADS ID',
+            msclkid: 'BING ADS ID',
+            $browser: 'Chrome',
+            $browser_version: '95',
+            $current_url: 'https://test.com',
+            $os: 'Mac OS X',
+            $referrer: 'https://google.com/?q=posthog',
+            $referring_domain: 'https://google.com',
+        },
         token: 'THIS IS NOT A TOKEN FOR TEAM 2',
         $browser: 'Chrome',
         $set_once: {
@@ -412,6 +428,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
+        $browser: 'Firefox',
+        $browser_version: 80,
+        $current_url: 'https://test.com/pricing',
+        $os: 'Mac OS X',
+        $referrer: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -425,6 +447,9 @@ test('capture new person', async () => {
 
     expect(events[1].properties.$set).toEqual({
         utm_medium: 'instagram',
+        $browser: 'Firefox',
+        $browser_version: 80,
+        $current_url: 'https://test.com/pricing',
     })
     expect(events[1].properties.$set_once).toEqual({
         $initial_browser: 'Firefox',
@@ -481,6 +506,9 @@ test('capture new person', async () => {
     expect(persons[0].version).toEqual(1)
 
     expect(events[2].properties.$set).toEqual({
+        $browser: 'Firefox',
+        $current_url: 'https://test.com/pricing',
+
         utm_medium: 'instagram',
     })
     expect(events[2].properties.$set_once).toEqual({
