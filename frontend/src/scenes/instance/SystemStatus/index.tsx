@@ -39,7 +39,7 @@ export function SystemStatus(): JSX.Element {
     ] as LemonTab<InstanceStatusTabName>[]
 
     if (user?.is_staff) {
-        tabs.concat([
+        tabs.push(
             {
                 key: 'metrics',
                 label: 'Internal metrics',
@@ -62,7 +62,7 @@ export function SystemStatus(): JSX.Element {
                 label: 'Staff Users',
                 content: <StaffUsersTab />,
             },
-        ])
+        )
 
         if (featureFlags[FEATURE_FLAGS.KAFKA_INSPECTOR]) {
             tabs.push({
