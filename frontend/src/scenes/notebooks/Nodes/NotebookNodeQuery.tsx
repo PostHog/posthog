@@ -1,8 +1,8 @@
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, SavedInsightNode } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { useMountedLogic, useValues } from 'kea'
-import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
+import { InsightShortId, NotebookNodeType } from '~/types'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
@@ -10,7 +10,6 @@ import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 
 import './NotebookNodeQuery.scss'
@@ -27,25 +26,22 @@ const DEFAULT_QUERY: QuerySchema = {
 }
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const { query: propsQuery } = props.attributes
+    const { query } = props.attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
 
-    const insightProps: InsightLogicProps = {
-        dashboardItemId: (propsQuery as SavedInsightNode).shortId || 'new',
-    }
-    const { query } = useValues(insightDataLogic(insightProps))
-
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...(query as QuerySchema) }
+        const modifiedQuery = { ...query }
 
-        if (NodeKind.DataTableNode === modifiedQuery.kind) {
+        if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
             modifiedQuery.embedded = true
-        } else if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
+        }
+
+        if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = false
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
@@ -64,14 +60,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <Query
-                query={modifiedQuery}
-                uniqueKey={props.attributes.nodeId}
-                readOnly={true}
-                context={{
-                    insightProps,
-                }}
-            />
+            <Query query={modifiedQuery} uniqueKey={props.attributes.nodeId} readOnly={true} />
         </div>
     )
 }
@@ -84,22 +73,21 @@ export const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
-    const insightProps: InsightLogicProps = {
-        dashboardItemId: (attributes.query as SavedInsightNode).shortId || 'new',
-    }
-    const { query } = useValues(insightDataLogic(insightProps))
+    const { query } = attributes
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...(query as QuerySchema) }
+        const modifiedQuery = { ...query }
 
-        if (NodeKind.DataTableNode === modifiedQuery.kind) {
+        if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.showHogQLEditor = true
             modifiedQuery.showResultsTable = false
             modifiedQuery.showReload = false
             modifiedQuery.showElapsedTime = false
-        } else if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
+        }
+
+        if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = true
             modifiedQuery.showResults = false
             modifiedQuery.embedded = true
@@ -114,9 +102,6 @@ export const Settings = ({
                 query={modifiedQuery}
                 uniqueKey={attributes.nodeId}
                 readOnly={false}
-                context={{
-                    insightProps,
-                }}
                 setQuery={(t) => {
                     updateAttributes({
                         query: {
