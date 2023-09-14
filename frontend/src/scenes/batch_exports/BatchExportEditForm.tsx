@@ -224,8 +224,7 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             />
                                         </Field>
 
-                                        {
-                                        batchExportConfigForm.encryption == 'aws:kms' && (
+                                        {batchExportConfigForm.encryption == 'aws:kms' && (
                                             <Field name="kms_key_id" label="AWS KMS Key ID" className="flex-1">
                                                 <LemonInput
                                                     placeholder={
