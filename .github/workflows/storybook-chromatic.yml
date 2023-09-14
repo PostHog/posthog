@@ -182,7 +182,6 @@ jobs:
                     if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                         echo "Snapshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
                         git add frontend/__snapshots__/ playwright/
-                        pnpm lint-staged
                     fi
                   fi
 
