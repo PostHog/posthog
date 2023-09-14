@@ -245,7 +245,11 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=120),
                     maximum_attempts=10,
-                    non_retryable_error_types=[],
+                    non_retryable_error_types=[
+                        # Raised on errors that are related to database operation.
+                        # For example: unexpected disconnect, database or other object not found.
+                        "OperationalError"
+                    ],
                 ),
             )
 
