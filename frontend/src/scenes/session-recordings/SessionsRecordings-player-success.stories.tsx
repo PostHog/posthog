@@ -16,7 +16,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        waitForSelector: '.PlayerFrameOverlay__content[aria-busy="false"]',
+        waitForSelector: '.PlayerFrame__content .replayer-wrapper',
     },
     decorators: [
         mswDecorator({
