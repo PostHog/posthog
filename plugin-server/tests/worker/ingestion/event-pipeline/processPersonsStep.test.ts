@@ -85,7 +85,7 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
                 $browser: 'Chrome',
                 $set: {
                     someProp: 'value',
-                    $last_browser: 'Chrome',
+                    $browser: 'Chrome',
                 },
                 $set_once: {
                     $initial_browser: 'Chrome',
@@ -100,7 +100,7 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
                     $initial_browser: 'Chrome',
                     someProp: 'value',
                     $creator_event_uuid: expect.any(String),
-                    $last_browser: 'Chrome',
+                    $browser: 'Chrome',
                 },
                 version: 0,
                 is_identified: false,

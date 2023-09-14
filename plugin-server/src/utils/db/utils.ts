@@ -39,7 +39,22 @@ export function timeoutGuard(
     }, timeout)
 }
 
-const campaignParams = new Set([
+const eventToPersonProperties = new Set([
+    // mobile params
+    '$app_build',
+    '$app_name',
+    '$app_namespace',
+    '$app_version',
+    // web params
+    '$browser',
+    '$browser_version',
+    '$device_type',
+    '$current_url',
+    '$pathname',
+    '$os',
+    '$referring_domain',
+    '$referrer',
+    // campaign params
     'utm_source',
     'utm_medium',
     'utm_campaign',
@@ -50,46 +65,29 @@ const campaignParams = new Set([
     'fbclid',
     'msclkid',
 ])
-const initialAndLatestParams = new Set([
-    '$app_build',
-    '$app_name',
-    '$app_namespace',
-    '$app_version',
-    '$browser',
-    '$browser_version',
-    '$device_type',
-    '$current_url',
-    '$pathname',
-    '$os',
-    '$referring_domain',
-    '$referrer',
-])
-const combinedParams = new Set([...campaignParams, ...initialAndLatestParams])
 
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
     const propertiesCopy = { ...properties }
 
+    const propertiesForPerson: [string, any][] = Object.entries(properties).filter(([key]) =>
+        eventToPersonProperties.has(key)
+    )
+
     // all potential params are checked for $initial_ values and added to $set_once
-    const maybeSetInitial: [string, any][] = Object.entries(properties)
-        .filter(([key]) => combinedParams.has(key))
-        .map(([key, value]) => [`$initial_${key.replace('$', '')}`, value])
+    const maybeSetOnce: [string, any][] = propertiesForPerson.map(([key, value]) => [
+        `$initial_${key.replace('$', '')}`,
+        value,
+    ])
 
-    // ONLY non-campaign params are checked for $last_ values are added to $set
-    const maybeSetLast: [string, any][] = Object.entries(properties)
-        .filter(([key]) => initialAndLatestParams.has(key))
-        .map(([key, value]) => [`$last_${key.replace('$', '')}`, value])
+    // all found are also then added to $set
+    const maybeSet: [string, any][] = propertiesForPerson
 
-    // campaign values are added to $set separately (this is how they were previously handled so kept for backwards compatibility)
-    const maybeSetCampaign: [string, any][] = Object.entries(properties).filter(([key]) => campaignParams.has(key))
-
-    const maybeSet = [...maybeSetLast, ...maybeSetCampaign]
-
-    if (Object.keys(maybeSet).length > 0) {
+    if (maybeSet.length > 0) {
         propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
     }
-    if (Object.keys(maybeSetInitial).length > 0) {
-        propertiesCopy.$set_once = { ...(properties.$set_once || {}), ...Object.fromEntries(maybeSetInitial) }
+    if (maybeSetOnce.length > 0) {
+        propertiesCopy.$set_once = { ...(properties.$set_once || {}), ...Object.fromEntries(maybeSetOnce) }
     }
     return propertiesCopy
 }

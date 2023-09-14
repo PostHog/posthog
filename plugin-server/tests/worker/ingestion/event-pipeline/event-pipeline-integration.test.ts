@@ -105,7 +105,7 @@ describe('Event Pipeline integration test', () => {
                     $set: {
                         personProp: 'value',
                         anotherValue: 2,
-                        $last_browser: 'Chrome',
+                        $browser: 'Chrome',
                     },
                     $set_once: {
                         $initial_browser: 'Chrome',
@@ -119,7 +119,7 @@ describe('Event Pipeline integration test', () => {
         expect(persons[0].properties).toEqual({
             $creator_event_uuid: event.uuid,
             $initial_browser: 'Chrome',
-            $last_browser: 'Chrome',
+            $browser: 'Chrome',
             personProp: 'value',
             anotherValue: 2,
         })

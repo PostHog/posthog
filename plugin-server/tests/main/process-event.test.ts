@@ -329,12 +329,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
-        $last_browser: 'Chrome',
-        $last_browser_version: '95',
-        $last_current_url: 'https://test.com',
-        $last_os: 'Mac OS X',
-        $last_referrer: 'https://google.com/?q=posthog',
-        $last_referring_domain: 'https://google.com',
+        $browser: 'Chrome',
+        $browser_version: '95',
+        $current_url: 'https://test.com',
+        $os: 'Mac OS X',
+        $referrer: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -353,12 +353,12 @@ test('capture new person', async () => {
             utm_medium: 'twitter',
             gclid: 'GOOGLE ADS ID',
             msclkid: 'BING ADS ID',
-            $last_browser: 'Chrome',
-            $last_browser_version: '95',
-            $last_current_url: 'https://test.com',
-            $last_os: 'Mac OS X',
-            $last_referrer: 'https://google.com/?q=posthog',
-            $last_referring_domain: 'https://google.com',
+            $browser: 'Chrome',
+            $browser_version: '95',
+            $current_url: 'https://test.com',
+            $os: 'Mac OS X',
+            $referrer: 'https://google.com/?q=posthog',
+            $referring_domain: 'https://google.com',
         },
         token: 'THIS IS NOT A TOKEN FOR TEAM 2',
         $browser: 'Chrome',
@@ -428,12 +428,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
-        $last_browser: 'Firefox',
-        $last_browser_version: 80,
-        $last_current_url: 'https://test.com/pricing',
-        $last_os: 'Mac OS X',
-        $last_referrer: 'https://google.com/?q=posthog',
-        $last_referring_domain: 'https://google.com',
+        $browser: 'Firefox',
+        $browser_version: 80,
+        $current_url: 'https://test.com/pricing',
+        $os: 'Mac OS X',
+        $referrer: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -447,9 +447,9 @@ test('capture new person', async () => {
 
     expect(events[1].properties.$set).toEqual({
         utm_medium: 'instagram',
-        $last_browser: 'Firefox',
-        $last_browser_version: 80,
-        $last_current_url: 'https://test.com/pricing',
+        $browser: 'Firefox',
+        $browser_version: 80,
+        $current_url: 'https://test.com/pricing',
     })
     expect(events[1].properties.$set_once).toEqual({
         $initial_browser: 'Firefox',
@@ -506,8 +506,8 @@ test('capture new person', async () => {
     expect(persons[0].version).toEqual(1)
 
     expect(events[2].properties.$set).toEqual({
-        $last_browser: 'Firefox',
-        $last_current_url: 'https://test.com/pricing',
+        $browser: 'Firefox',
+        $current_url: 'https://test.com/pricing',
 
         utm_medium: 'instagram',
     })

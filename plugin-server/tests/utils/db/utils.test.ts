@@ -50,16 +50,16 @@ describe('personInitialAndUTMProperties()', () => {
               "$referrer": "https://google.com/?q=posthog",
               "$referring_domain": "https://google.com",
               "$set": Object {
-                "$last_app_build": 2,
-                "$last_app_name": "my app",
-                "$last_app_namespace": "com.posthog.myapp",
-                "$last_app_version": "1.2.3",
-                "$last_browser": "Chrome",
-                "$last_browser_version": "95",
-                "$last_current_url": "https://test.com",
-                "$last_os": "Mac OS X",
-                "$last_referrer": "https://google.com/?q=posthog",
-                "$last_referring_domain": "https://google.com",
+                "$app_build": 2,
+                "$app_name": "my app",
+                "$app_namespace": "com.posthog.myapp",
+                "$app_version": "1.2.3",
+                "$browser": "Chrome",
+                "$browser_version": "95",
+                "$current_url": "https://test.com",
+                "$os": "Mac OS X",
+                "$referrer": "https://google.com/?q=posthog",
+                "$referring_domain": "https://google.com",
                 "gclid": "GOOGLE ADS ID",
                 "msclkid": "BING ADS ID",
                 "utm_medium": "twitter",
@@ -95,7 +95,7 @@ describe('personInitialAndUTMProperties()', () => {
         expect(personInitialAndUTMProperties(properties)).toEqual({
             $current_url: 'https://test.com',
             $set_once: { $initial_current_url: 'https://test.com' },
-            $set: { $last_current_url: 'https://test.com' },
+            $set: { $current_url: 'https://test.com' },
         })
     })
 })
