@@ -11,6 +11,7 @@ import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConf
 import { DataTableRow, dataTableLogic } from './dataTableLogic'
 import { useValues } from 'kea'
 import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 const EXPORT_MAX_LIMIT = 10000
 
@@ -116,7 +117,7 @@ const getJsonTableData = (
                 }
 
                 if (col === 'person') {
-                    acc[col] = n.result?.[colIndex]?.properties?.email || n.result?.[colIndex]?.uuid
+                    acc[col] = asDisplay(n.result?.[colIndex])
                     return acc
                 }
 
@@ -184,6 +185,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
         (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
     const canExportAllColumns = isEventsQuery(source) || isPersonsNode(source)
+    const showExportClipboardButtons = isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source)
 
     return (
         <LemonButtonWithDropdown
@@ -222,41 +224,45 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                               ]
                             : []
                     )
-                    .concat([
-                        <LemonDivider key={2} />,
-                        <LemonButton
-                            key={3}
-                            fullWidth
-                            status="stealth"
-                            onClick={() => {
-                                if (dataTableRows) {
-                                    copyTableToCsv(
-                                        dataTableRows,
-                                        columnsInResponse ?? columnsInQuery,
-                                        queryWithDefaults
-                                    )
-                                }
-                            }}
-                        >
-                            Copy CSV to clipboard
-                        </LemonButton>,
-                        <LemonButton
-                            key={3}
-                            fullWidth
-                            status="stealth"
-                            onClick={() => {
-                                if (dataTableRows) {
-                                    copyTableToJson(
-                                        dataTableRows,
-                                        columnsInResponse ?? columnsInQuery,
-                                        queryWithDefaults
-                                    )
-                                }
-                            }}
-                        >
-                            Copy JSON to clipboard
-                        </LemonButton>,
-                    ]),
+                    .concat(
+                        showExportClipboardButtons
+                            ? [
+                                  <LemonDivider key={2} />,
+                                  <LemonButton
+                                      key={3}
+                                      fullWidth
+                                      status="stealth"
+                                      onClick={() => {
+                                          if (dataTableRows) {
+                                              copyTableToCsv(
+                                                  dataTableRows,
+                                                  columnsInResponse ?? columnsInQuery,
+                                                  queryWithDefaults
+                                              )
+                                          }
+                                      }}
+                                  >
+                                      Copy CSV to clipboard
+                                  </LemonButton>,
+                                  <LemonButton
+                                      key={3}
+                                      fullWidth
+                                      status="stealth"
+                                      onClick={() => {
+                                          if (dataTableRows) {
+                                              copyTableToJson(
+                                                  dataTableRows,
+                                                  columnsInResponse ?? columnsInQuery,
+                                                  queryWithDefaults
+                                              )
+                                          }
+                                      }}
+                                  >
+                                      Copy JSON to clipboard
+                                  </LemonButton>,
+                              ]
+                            : []
+                    ),
             }}
             type="secondary"
             icon={<IconExport />}
