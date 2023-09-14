@@ -169,8 +169,8 @@ jobs:
                     
                     # we don't want to _always_ run OptiPNG
                     # so, we run it after checking for a diff
-                    # but, the files we diffed might have been changed by OptiPNG
-                    # and so they might no longer be different...
+                    # but, the files we diffed might then be changed by OptiPNG
+                    # and as a result they might no longer be different...
                     
                     # we check again
                     git diff --name-status frontend/__snapshots__/ # For debugging
