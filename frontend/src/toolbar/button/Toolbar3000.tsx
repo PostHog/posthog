@@ -185,8 +185,9 @@ function FullMenu(): JSX.Element {
 
 function ToolbarInfoMenu(): JSX.Element {
     const menuRef = useRef<HTMLDivElement | null>(null)
-    const { dragPosition } = useValues(toolbarButtonLogic)
-    const { heatmapInfoVisible, actionsInfoVisible, flagsVisible } = useValues(toolbarButtonLogic)
+    const { dragPosition, menuPlacement, heatmapInfoVisible, actionsInfoVisible, flagsVisible } =
+        useValues(toolbarButtonLogic)
+    const { setMenuPlacement } = useActions(toolbarButtonLogic)
     const { heatmapEnabled } = useValues(heatmapLogic)
     const { inspectEnabled } = useValues(elementsLogic)
     const { buttonActionsVisible } = useValues(actionsTabLogic)
@@ -194,6 +195,12 @@ function ToolbarInfoMenu(): JSX.Element {
     useLayoutEffect(() => {
         if (!menuRef.current) {
             return
+        }
+
+        if (dragPosition.y <= 300) {
+            setMenuPlacement('bottom')
+        } else {
+            setMenuPlacement('top')
         }
 
         const peekIsShowing = heatmapEnabled || buttonActionsVisible
@@ -224,9 +231,10 @@ function ToolbarInfoMenu(): JSX.Element {
     return (
         <div
             ref={menuRef}
-            className={
-                'absolute bottom Toolbar3000 justify-between Toolbar3000__menu rounded-lg flex flex-col items-center'
-            }
+            className={clsx(
+                'absolute Toolbar3000 justify-between Toolbar3000__menu rounded-lg flex flex-col items-center',
+                menuPlacement === 'top' ? 'bottom' : 'top-12'
+            )}
         >
             <FullMenu />
             <PeekMenu />
