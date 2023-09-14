@@ -183,7 +183,7 @@ jobs:
                         echo "Snapshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
                         git add frontend/__snapshots__/ playwright/
                         pnpm lint-staged
-
+                    fi
                   fi
 
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT
