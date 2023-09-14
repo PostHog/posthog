@@ -19,7 +19,8 @@ import { dayjs } from 'lib/dayjs'
 import equal from 'fast-deep-equal'
 
 export interface DataTableLogicProps {
-    key: string
+    vizKey: string
+    dataKey: string
     query: DataTableNode
     context?: QueryContext
 }
@@ -37,13 +38,13 @@ export const errorColumn = Symbol('Error!')
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
     key((props) => {
-        if (!props.key) {
-            throw new Error('dataTableLogic must contain a key in props')
+        if (!props.vizKey) {
+            throw new Error('dataTableLogic must contain a vizKey in props')
         }
         if (!isDataTableNode(props.query)) {
             throw new Error('dataTableLogic only accepts queries of type DataTableNode')
         }
-        return props.key
+        return props.vizKey
     }),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({ setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }) }),
@@ -54,7 +55,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            dataNodeLogic({ key: props.key, query: props.query.source }),
+            dataNodeLogic({ key: props.dataKey, query: props.query.source }),
             ['response', 'responseLoading', 'responseError'],
         ],
     })),
@@ -139,7 +140,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (query: DataTableNode, columnsInQuery, featureFlags, context): Required<DataTableNode> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
-                const flagQueryRunningTimeEnabled = featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
+                const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
+                const flagQueryTimingsEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_TIMINGS]
                 return {
                     kind,
                     columns: columnsInQuery,
@@ -149,6 +151,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         ...rest,
                         full: query.full ?? false,
                         expandable: query.expandable ?? true,
+                        embedded: query.embedded ?? false,
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? showIfFull,
                         showEventFilter: query.showEventFilter ?? showIfFull,
@@ -157,9 +160,11 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showDateRange: query.showDateRange ?? showIfFull,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
+                        showTimings: query.showTimings ?? flagQueryTimingsEnabled,
                         showElapsedTime:
-                            query.showElapsedTime ??
-                            (flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery ? showIfFull : false),
+                            (query.showTimings ?? flagQueryTimingsEnabled) ||
+                            (query.showElapsedTime ??
+                                ((flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery) && showIfFull)),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showPersistentColumnConfigurator: query.showPersistentColumnConfigurator ?? false,
                         showSavedQueries: query.showSavedQueries ?? false,
@@ -169,6 +174,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                             context?.showOpenEditorButton !== undefined
                                 ? context.showOpenEditorButton
                                 : query.showOpenEditorButton ?? true,
+                        showResultsTable: query.showResultsTable ?? true,
                     }),
                 }
             },

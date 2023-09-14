@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import jwt
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -377,13 +377,13 @@ class TestBillingAPI(APILicensedTest):
         self.client.get("/api/billing-v2")
         self.license.refresh_from_db()
 
-        self.license.valid_until = datetime(2022, 1, 2, 0, 0, 0, tzinfo=pytz.UTC)
+        self.license.valid_until = datetime(2022, 1, 2, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
         self.license.save()
         assert self.license.plan == "scale"
         TEST_clear_instance_license_cache()
         license = get_cached_instance_license()
         assert license.plan == "scale"
-        assert license.valid_until == datetime(2022, 1, 2, 0, 0, 0, tzinfo=pytz.UTC)
+        assert license.valid_until == datetime(2022, 1, 2, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
 
         mock_request.return_value.json.return_value = {
             "license": {
@@ -396,7 +396,7 @@ class TestBillingAPI(APILicensedTest):
         license = get_cached_instance_license()
         assert license.plan == "enterprise"
         # Should be extended by 30 days
-        assert license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=pytz.UTC)
+        assert license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=ZoneInfo("UTC"))
 
     @patch("ee.api.billing.requests.get")
     def test_organization_available_features_updated_if_different(self, mock_request):

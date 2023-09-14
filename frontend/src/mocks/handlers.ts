@@ -82,6 +82,10 @@ export const defaultMocks: Mocks = {
         },
         // We don't want to show the "new version available" banner in tests
         'https://api.github.com/repos/posthog/posthog-js/tags': () => [200, []],
+        'https://www.gravatar.com/avatar/:gravatar_id': () => [404, ''],
+        'https://app.posthog.com/api/early_access_features': {
+            earlyAccessFeatures: [],
+        },
     },
     post: {
         'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],

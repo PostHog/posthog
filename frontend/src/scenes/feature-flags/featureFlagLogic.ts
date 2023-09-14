@@ -17,6 +17,10 @@ import {
     FeatureFlagGroupType,
     UserBlastRadiusType,
     DashboardBasicType,
+    NewEarlyAccessFeatureType,
+    EarlyAccessFeatureType,
+    Survey,
+    SurveyQuestionType,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -37,6 +41,8 @@ import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
+import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/surveyLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -70,6 +76,7 @@ const NEW_FLAG: FeatureFlagType = {
     experiment_set: null,
     features: [],
     rollback_conditions: [],
+    surveys: null,
     performed_rollback: false,
     can_edit: true,
     tags: [],
@@ -402,9 +409,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         },
                     }
                 },
+                createEarlyAccessFeatureSuccess: (state, { newEarlyAccessFeature }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        features: [...(state.features || []), newEarlyAccessFeature],
+                    }
+                },
+                createSurveySuccess: (state, { newSurvey }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        surveys: [...(state.surveys || []), newSurvey],
+                    }
+                },
             },
         ],
-
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
         isEditingFlag: [
             false,
@@ -500,6 +524,42 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 loadSentryStats: async () => {
                     return await api.get(`api/sentry_stats/`)
+                },
+            },
+        ],
+        // used to generate a new early access feature
+        // but all subsequent operations after generation should occur via the earlyAccessFeatureLogic
+        newEarlyAccessFeature: [
+            null as EarlyAccessFeatureType | null,
+            {
+                createEarlyAccessFeature: async () => {
+                    const newEarlyAccessFeature = {
+                        ...NEW_EARLY_ACCESS_FEATURE,
+                        name: `Early access: ${values.featureFlag.key}`,
+                        feature_flag_id: values.featureFlag.id,
+                    }
+                    return await api.earlyAccessFeatures.create(newEarlyAccessFeature as NewEarlyAccessFeatureType)
+                },
+            },
+        ],
+        // used to generate a new survey
+        // but all subsequent operations after generation should occur via the surveyLogic
+        newSurvey: [
+            null as Survey | null,
+            {
+                createSurvey: async () => {
+                    const newSurvey = {
+                        ...NEW_SURVEY,
+                        name: `Survey: ${values.featureFlag.key}`,
+                        linked_flag_id: values.featureFlag.id,
+                        questions: [
+                            {
+                                type: SurveyQuestionType.Open,
+                                question: `What do you think of ${values.featureFlag.key}?`,
+                            },
+                        ],
+                    }
+                    return await api.surveys.create(newSurvey as NewSurvey)
                 },
             },
         ],
@@ -835,6 +895,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 } else {
                     return defaultEntityFilterOnFlag
                 }
+            },
+        ],
+        hasEarlyAccessFeatures: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return (featureFlag?.features?.length || 0) > 0
+            },
+        ],
+        canCreateEarlyAccessFeature: [
+            (s) => [s.featureFlag, s.variants],
+            (featureFlag, variants) => {
+                return (
+                    featureFlag &&
+                    featureFlag.filters.aggregation_group_type_index == undefined &&
+                    variants.length === 0
+                )
+            },
+        ],
+        hasSurveys: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.surveys && featureFlag.surveys.length > 0
             },
         ],
     }),

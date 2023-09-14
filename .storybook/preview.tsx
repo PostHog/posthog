@@ -15,6 +15,17 @@ const setupMsw = () => {
     // Make sure the msw worker is started
     worker.start({
         quiet: true,
+        onUnhandledRequest(request, print) {
+            // MSW warns on all unhandled requests, but we don't necessarily care
+            const pathAllowList = ['/images/']
+
+            if (pathAllowList.some((path) => request.url.pathname.startsWith(path))) {
+                return
+            }
+
+            // Otherwise, default MSW warning behavior
+            print.warning()
+        },
     })
     ;(window as any).__mockServiceWorker = worker
     ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()

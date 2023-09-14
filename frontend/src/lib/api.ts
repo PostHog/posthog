@@ -47,8 +47,8 @@ import {
     DataWarehouseViewLink,
     BatchExportConfiguration,
     BatchExportRun,
-    NotebookNodeType,
     UserBasicType,
+    NotebookNodeResource,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -609,6 +609,16 @@ const ensureProjectIdNotInvalid = (url: string): void => {
             throw { status: 0, detail: 'Cannot make request - project ID is unknown.' }
         }
     }
+}
+
+function getSessionId(): string | undefined {
+    // get_session_id is not always present e.g. in the toolbar
+    // but our typing in the SDK doesn't make this clear
+    // TODO when the SDK makes this safe this check can be simplified
+    if (typeof posthog?.get_session_id !== 'function') {
+        return undefined
+    }
+    return posthog.get_session_id()
 }
 
 const api = {
@@ -1311,12 +1321,12 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Pick<NotebookType, 'version' | 'content' | 'title'>
+            data: Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(
-            contains?: { type: NotebookNodeType; attrs: Record<string, string> }[],
+            contains?: NotebookNodeResource[],
             createdBy?: UserBasicType['uuid'],
             search?: string
         ): Promise<PaginatedResponse<NotebookType>> {
@@ -1338,11 +1348,11 @@ const api = {
                 q = { ...q, created_by: createdBy }
             }
             if (search) {
-                q = { ...q, s: search }
+                q = { ...q, search: search }
             }
             return await apiRequest.withQueryString(q).get()
         },
-        async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
+        async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
@@ -1599,8 +1609,7 @@ const api = {
             response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
-                    // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
-                    // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                 },
             })
         } catch (e) {
@@ -1625,8 +1634,7 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
-                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1658,8 +1666,7 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
-                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1685,8 +1692,7 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
-                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
             },
         })
 

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
@@ -14,6 +14,7 @@ from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
 from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
+from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
@@ -117,6 +118,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT DISTINCT person_id, distinct_id FROM person_distinct_ids LIMIT 100",
             )
             self.assertTrue(len(response.results) > 0)
+
+    def test_query_timings(self):
+        with freeze_time("2020-01-10"):
+            random_uuid = self._create_random_events()
+        response = execute_hogql_query(
+            "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
+            placeholders={"random_uuid": ast.Constant(value=random_uuid)},
+            team=self.team,
+        )
+        self.assertTrue(isinstance(response.timings, list) and len(response.timings) > 0)
+        self.assertTrue(isinstance(response.timings[0], QueryTiming))
+        self.assertEqual(response.timings[-1].k, ".")
 
     def test_query_joins_simple(self):
         with freeze_time("2020-01-10"):
@@ -804,21 +817,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             expected += [
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=ZoneInfo("UTC")),
                     "random event",
                     [],
                     ["random bla", "random boo"],
                 ),
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=ZoneInfo("UTC")),
                     "random bla",
                     ["random event"],
                     ["random boo"],
                 ),
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=ZoneInfo("UTC")),
                     "random boo",
                     ["random event", "random bla"],
                     [],
@@ -889,7 +902,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             expected += [
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 00, 00, tzinfo=ZoneInfo("UTC")),
                     "random event",
                     [],
                     ["random bla", "random boo"],
@@ -904,7 +917,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ),
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 10, 00, tzinfo=ZoneInfo("UTC")),
                     "random bla",
                     ["random event"],
                     ["random boo"],
@@ -919,7 +932,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ),
                 (
                     f"person_{person}_{random_uuid}",
-                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=pytz.UTC),
+                    datetime.datetime(2020, 1, 10, 00, 20, 00, tzinfo=ZoneInfo("UTC")),
                     "random boo",
                     ["random event", "random bla"],
                     [],
@@ -1213,7 +1226,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("null", "!~*", "null", 0),
         ]
 
-        for (a, op, b, res) in expected:
+        for a, op, b, res in expected:
             # works when selecting directly
             query = f"select {a} {op} {b}"
             response = execute_hogql_query(query, team=self.team)
@@ -1420,3 +1433,79 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query("SELECT event_view.fake FROM events", team=self.team)
 
         self.assertEqual(response.results, [("bla",), ("bla",), ("bla",), ("bla",)])
+
+    def test_hogql_query_filters(self):
+        with freeze_time("2020-01-10"):
+            random_uuid = self._create_random_events()
+            for i in range(10):
+                _create_event(
+                    distinct_id=random_uuid,
+                    event="random event",
+                    team=self.team,
+                    properties={"index": i, "user_key": random_uuid},
+                )
+            query = "SELECT event, distinct_id from events WHERE distinct_id={distinct_id} and {filters}"
+            filters = HogQLFilters(
+                properties=[EventPropertyFilter(key="index", operator="exact", value=4, type="event")]
+            )
+            placeholders = {"distinct_id": ast.Constant(value=random_uuid)}
+            response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
+            self.assertEqual(
+                response.hogql,
+                f"SELECT event, distinct_id FROM events WHERE and(equals(distinct_id, '{random_uuid}'), equals(properties.index, '4')) LIMIT 100",
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT events.event, events.distinct_id FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.distinct_id, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+            )
+            self.assertEqual(len(response.results), 1)
+
+            filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-01-02")
+            response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
+            self.assertEqual(
+                response.hogql,
+                f"SELECT event, distinct_id FROM events WHERE and(equals(distinct_id, '{random_uuid}'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) LIMIT 100",
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT events.event, events.distinct_id FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0), ifNull(less(toTimeZone(events.timestamp, %(hogql_val_3)s), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+            )
+            self.assertEqual(len(response.results), 0)
+
+            filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-02-02")
+            response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
+            self.assertEqual(len(response.results), 1)
+
+    def test_hogql_query_filters_empty_true(self):
+        query = "SELECT event from events where {filters}"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.hogql, "SELECT event FROM events WHERE true LIMIT 100")
+
+    def test_hogql_query_filters_double_error(self):
+        query = "SELECT event from events where {filters}"
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(
+                query, team=self.team, filters=HogQLFilters(), placeholders={"filters": ast.Constant(value=True)}
+            )
+        self.assertEqual(
+            str(e.exception),
+            "Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter.",
+        )
+
+    def test_hogql_query_filters_alias(self):
+        with freeze_time("2020-01-10"):
+            random_uuid = self._create_random_events()
+            query = "SELECT event, distinct_id from events e WHERE {filters}"
+            filters = HogQLFilters(
+                properties=[EventPropertyFilter(key="random_uuid", operator="exact", value=random_uuid, type="event")]
+            )
+            response = execute_hogql_query(query, team=self.team, filters=filters)
+            self.assertEqual(
+                response.hogql,
+                f"SELECT event, distinct_id FROM events AS e WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT 100",
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT e.event, e.distinct_id FROM events AS e WHERE and(equals(e.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+            )
+            self.assertEqual(len(response.results), 2)

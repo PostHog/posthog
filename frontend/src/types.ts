@@ -2101,6 +2101,9 @@ export interface SurveyAppearance {
     ratingButtonColor?: string
     ratingButtonHoverColor?: string
     whiteLabel?: boolean
+    displayThankYouMessage?: boolean
+    thankYouMessageHeader?: string
+    thankYouMessageDescription?: string
 }
 
 interface SurveyQuestionBase {
@@ -2188,6 +2191,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     rollout_percentage: number | null
     experiment_set: string[] | null
     features: EarlyAccessFeatureType[] | null
+    surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2588,8 +2592,6 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
-    /** First day of the week (0 = Sun, 1 = Mon, ...) */
-    week_start: number
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3018,11 +3020,8 @@ export type NotebookListItemType = {
 export type NotebookType = NotebookListItemType & {
     content: JSONContent // TODO: Type this better
     version: number
-}
-
-export enum NotebookMode {
-    View = 'view',
-    Edit = 'edit',
+    // used to power text-based search
+    text_content?: string | null
 }
 
 export enum NotebookNodeType {
@@ -3033,15 +3032,17 @@ export enum NotebookNodeType {
     FeatureFlag = 'ph-feature-flag',
     FeatureFlagCodeExample = 'ph-feature-flag-code-example',
     Experiment = 'ph-experiment',
+    EarlyAccessFeature = 'ph-early-access-feature',
+    Survey = 'ph-survey',
     Person = 'ph-person',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
 }
 
-export type NotebookNodeWidgetSettings = {
-    attributes: Record<string, any>
-    updateAttributes: (attributes: Record<string, any>) => void
+export type NotebookNodeResource = {
+    attrs: Record<string, any>
+    type: NotebookNodeType
 }
 
 export enum NotebookTarget {
@@ -3094,6 +3095,10 @@ export type BatchExportDestinationS3 = {
         prefix: string
         aws_access_key_id: string
         aws_secret_access_key: string
+        exclude_events: string[]
+        compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
     }
 }
 
@@ -3125,10 +3130,25 @@ export type BatchExportDestinationSnowflake = {
     }
 }
 
+export type BatchExportDestinationBigQuery = {
+    type: 'BigQuery'
+    config: {
+        project_id: string
+        private_key: string
+        private_key_id: string
+        client_email: string
+        token_uri: string
+        dataset_id: string
+        table_id: string
+        exclude_events: string[]
+    }
+}
+
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake
     | BatchExportDestinationPostgres
+    | BatchExportDestinationBigQuery
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -3159,3 +3179,53 @@ export type GroupedBatchExportRuns = {
     data_interval_end: Dayjs
     runs: BatchExportRun[]
 }
+
+export type SDK = {
+    name: string
+    key: string
+    recommended?: boolean
+    tags: string[]
+    image: string | JSX.Element
+    docsLink: string
+}
+
+export enum SDKKey {
+    JS_WEB = 'javascript_web',
+    REACT = 'react',
+    NEXT_JS = 'nextjs',
+    GATSBY = 'gatsby',
+    IOS = 'ios',
+    ANDROID = 'android',
+    FLUTTER = 'flutter',
+    REACT_NATIVE = 'react_native',
+    NODE_JS = 'nodejs',
+    RUBY = 'ruby',
+    PYTHON = 'python',
+    PHP = 'php',
+    GO = 'go',
+    ELIXIR = 'elixir',
+    API = 'api',
+    JAVA = 'java',
+    RUST = 'rust',
+    GOOGLE_TAG_MANAGER = 'google_tag_manager',
+    NUXT_JS = 'nuxtjs',
+    VUE_JS = 'vuejs',
+    SEGMENT = 'segment',
+    RUDDERSTACK = 'rudderstack',
+    DOCUSAURUS = 'docusaurus',
+    SHOPIFY = 'shopify',
+    WORDPRESS = 'wordpress',
+    SENTRY = 'sentry',
+    RETOOL = 'retool',
+}
+
+export enum SDKTag {
+    WEB = 'Web',
+    MOBILE = 'Mobile',
+    SERVER = 'Server',
+    INTEGRATION = 'Integration',
+    RECOMMENDED = 'Recommended',
+    OTHER = 'Other',
+}
+
+export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>

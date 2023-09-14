@@ -1,4 +1,5 @@
 import {
+    Assignment,
     ClientMetrics,
     CODES,
     ConsumerGlobalConfig,
@@ -9,7 +10,7 @@ import {
     TopicPartitionOffset,
 } from 'node-rdkafka-acosom'
 
-import { latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
+import { kafkaRebalancePartitionCount, latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import { status } from '../utils/status'
 
 export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
@@ -54,7 +55,24 @@ export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
         })
     })
 }
-export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: string) => {
+
+export function countPartitionsPerTopic(assignments: Assignment[]): Map<string, number> {
+    const partitionsPerTopic = new Map()
+    for (const assignment of assignments) {
+        if (partitionsPerTopic.has(assignment.topic)) {
+            partitionsPerTopic.set(assignment.topic, partitionsPerTopic.get(assignment.topic) + 1)
+        } else {
+            partitionsPerTopic.set(assignment.topic, 1)
+        }
+    }
+    return partitionsPerTopic
+}
+
+export const instrumentConsumerMetrics = (
+    consumer: RdKafkaConsumer,
+    groupId: string,
+    cooperativeRebalance: boolean
+) => {
     // For each message consumed, we record the latest timestamp processed for
     // each partition assigned to this consumer group member. This consumer
     // should only provide metrics for the partitions that are assigned to it,
@@ -79,6 +97,7 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
     //
     // TODO: add other relevant metrics here
     // TODO: expose the internal librdkafka metrics as well.
+    const strategyString = cooperativeRebalance ? 'cooperative' : 'eager'
     consumer.on('rebalance', (error: LibrdKafkaError, assignments: TopicPartition[]) => {
         /**
          * see https://github.com/Blizzard/node-rdkafka#rebalancing errors are used to signal
@@ -88,9 +107,23 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
          * And when the balancing is completed the new assignments are received with ERR__ASSIGN_PARTITIONS
          */
         if (error.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-            status.info('📝️', 'librdkafka rebalance, partitions assigned', { assignments })
+            status.info('📝️', `librdkafka ${strategyString} rebalance, partitions assigned`, { assignments })
+            for (const [topic, count] of countPartitionsPerTopic(assignments)) {
+                if (cooperativeRebalance) {
+                    kafkaRebalancePartitionCount.labels({ topic: topic }).inc(count)
+                } else {
+                    kafkaRebalancePartitionCount.labels({ topic: topic }).set(count)
+                }
+            }
         } else if (error.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-            status.info('📝️', 'librdkafka rebalance started, partitions revoked', { assignments })
+            status.info('📝️', `librdkafka ${strategyString} rebalance started, partitions revoked`, { assignments })
+            for (const [topic, count] of countPartitionsPerTopic(assignments)) {
+                if (cooperativeRebalance) {
+                    kafkaRebalancePartitionCount.labels({ topic: topic }).dec(count)
+                } else {
+                    kafkaRebalancePartitionCount.labels({ topic: topic }).set(count)
+                }
+            }
         } else {
             // We had a "real" error
             status.error('⚠️', 'rebalance_error', { error })

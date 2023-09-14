@@ -38,19 +38,6 @@ class TestView(BaseTest):
             "SELECT aapl_stock_view.Date, aapl_stock_view.Open, aapl_stock_view.High, aapl_stock_view.Low, aapl_stock_view.Close, aapl_stock_view.Volume, aapl_stock_view.OpenInt FROM (SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock) AS aapl_stock_view LIMIT 10",
         )
 
-    def test_nested_views(self):
-        self._init_database()
-
-        hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
-        self.assertEqual(hogql, "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10")
-
-        clickhouse = self._select(query="SELECT * FROM aapl_stock_nested_view LIMIT 10", dialect="clickhouse")
-
-        self.assertEqual(
-            clickhouse,
-            """SELECT aapl_stock_nested_view.Date, aapl_stock_nested_view.Open, aapl_stock_nested_view.High, aapl_stock_nested_view.Low, aapl_stock_nested_view.Close, aapl_stock_nested_view.Volume, aapl_stock_nested_view.OpenInt FROM (SELECT aapl_stock_view.Date, aapl_stock_view.Open, aapl_stock_view.High, aapl_stock_view.Low, aapl_stock_view.Close, aapl_stock_view.Volume, aapl_stock_view.OpenInt FROM (SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock) AS aapl_stock_view) AS aapl_stock_nested_view LIMIT 10""",
-        )
-
     def test_view_with_alias(self):
         self._init_database()
 

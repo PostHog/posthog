@@ -1,13 +1,22 @@
 from datetime import datetime, timedelta
 
 
-def end_of_day(reference_date: datetime):
-    return datetime(
-        year=reference_date.year, month=reference_date.month, day=reference_date.day, tzinfo=reference_date.tzinfo
-    ) + timedelta(days=1, microseconds=-1)
+def start_of_hour(dt: datetime) -> datetime:
+    return datetime(year=dt.year, month=dt.month, day=dt.day, hour=dt.hour, tzinfo=dt.tzinfo)
 
 
-def start_of_day(reference_date: datetime):
-    return datetime(
-        year=reference_date.year, month=reference_date.month, day=reference_date.day, tzinfo=reference_date.tzinfo
-    )
+def start_of_day(dt: datetime):
+    return datetime(year=dt.year, month=dt.month, day=dt.day, tzinfo=dt.tzinfo)
+
+
+def end_of_day(dt: datetime):
+    return datetime(year=dt.year, month=dt.month, day=dt.day, tzinfo=dt.tzinfo) + timedelta(days=1, microseconds=-1)
+
+
+def start_of_week(dt: datetime) -> datetime:
+    # weeks start on sunday
+    return datetime(year=dt.year, month=dt.month, day=dt.day, tzinfo=dt.tzinfo) - timedelta(days=(dt.weekday() + 1) % 7)
+
+
+def start_of_month(dt: datetime) -> datetime:
+    return datetime(year=dt.year, month=dt.month, day=1, tzinfo=dt.tzinfo)

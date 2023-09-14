@@ -23,6 +23,7 @@ export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string =
 }
 
 type InsightVizProps = {
+    uniqueKey?: string | number
     query: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
     context?: QueryContext
@@ -31,8 +32,8 @@ type InsightVizProps = {
 
 let uniqueNode = 0
 
-export function InsightViz({ query, setQuery, context, readOnly }: InsightVizProps): JSX.Element {
-    const [key] = useState(() => `InsightViz.${uniqueNode++}`)
+export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: InsightVizProps): JSX.Element {
+    const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps: InsightLogicProps = context?.insightProps || { dashboardItemId: `new-AdHoc.${key}`, query }
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
@@ -50,13 +51,14 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
     }
 
     const showIfFull = !!query.full
-    const disableHeader = query.showHeader ? !query.showHeader : !showIfFull
-    const disableTable = query.showTable ? !query.showTable : !showIfFull
-    const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
-    const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
-    const disableLastComputationRefresh = query.showLastComputationRefresh
-        ? !query.showLastComputationRefresh
-        : !showIfFull
+    const disableHeader = !(query.showHeader ?? showIfFull)
+    const disableTable = !(query.showTable ?? showIfFull)
+    const disableCorrelationTable = !(query.showCorrelationTable ?? showIfFull)
+    const disableLastComputation = !(query.showLastComputation ?? showIfFull)
+    const disableLastComputationRefresh = !(query.showLastComputationRefresh ?? showIfFull)
+    const showingFilters = query.showFilters ?? insightMode === ItemMode.Edit
+    const showingResults = query.showResults ?? true
+    const embedded = query.embedded ?? false
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -70,21 +72,25 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
                         <EditorFilters
                             query={query.source}
                             setQuery={setQuerySource}
-                            showing={insightMode === ItemMode.Edit}
+                            showing={showingFilters}
+                            embedded={embedded}
                         />
                     )}
 
-                    <div className="insights-container" data-attr="insight-view">
-                        <InsightContainer
-                            insightMode={insightMode}
-                            context={context}
-                            disableHeader={disableHeader}
-                            disableTable={disableTable}
-                            disableCorrelationTable={disableCorrelationTable}
-                            disableLastComputation={disableLastComputation}
-                            disableLastComputationRefresh={disableLastComputationRefresh}
-                        />
-                    </div>
+                    {showingResults && (
+                        <div className="insights-container" data-attr="insight-view">
+                            <InsightContainer
+                                insightMode={insightMode}
+                                context={context}
+                                disableHeader={disableHeader}
+                                disableTable={disableTable}
+                                disableCorrelationTable={disableCorrelationTable}
+                                disableLastComputation={disableLastComputation}
+                                disableLastComputationRefresh={disableLastComputationRefresh}
+                                embedded={embedded}
+                            />
+                        </div>
+                    )}
                 </div>
             </BindLogic>
         </BindLogic>

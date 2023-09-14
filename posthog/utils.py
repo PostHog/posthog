@@ -28,11 +28,11 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
-from zoneinfo import ZoneInfo
 
 import lzstring
 import posthoganalytics
 import pytz
+from zoneinfo import ZoneInfo
 import structlog
 from celery.schedules import crontab
 from dateutil import parser
@@ -128,13 +128,13 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     period_end: datetime.datetime = datetime.datetime.combine(
         at - datetime.timedelta(days=1),
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the previous day
 
     return (period_start, period_end)
@@ -152,20 +152,20 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
     period_end: datetime.datetime = datetime.datetime.combine(
         at,
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the reference day
 
     return (period_start, period_end)
 
 
 def relative_date_parse_with_delta_mapping(
-    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
 ) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
@@ -188,7 +188,7 @@ def relative_date_parse_with_delta_mapping(
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    parsed_dt = dt.datetime.now().astimezone(timezone_info)
+    parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping
@@ -240,8 +240,10 @@ def relative_date_parse_with_delta_mapping(
     return parsed_dt, delta_mapping
 
 
-def relative_date_parse(input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate)[0]
+def relative_date_parse(
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
+) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
 
 
 def get_git_branch() -> Optional[str]:
@@ -330,15 +332,7 @@ def render_template(
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "week_start": 1,  # Monday
     }
-
-    from posthog.api.geoip import get_geoip_properties  # avoids circular import
-
-    geoip_properties = get_geoip_properties(get_ip_address(request))
-    country_code = geoip_properties.get("$geoip_country_code", None)
-    if country_code:
-        posthog_app_context["week_start"] = get_week_start_for_country_code(country_code)
 
     posthog_bootstrap: Dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
@@ -1093,7 +1087,7 @@ def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) ->
     if isinstance(timestamp, str):
         timestamp = parser.isoparse(timestamp)
     else:
-        timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.astimezone(ZoneInfo("UTC"))
 
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 

@@ -48,6 +48,12 @@ class Command(BaseCommand):
             default=False,
             help="Backfill the newly created BatchExport with the last period of data.",
         )
+        parser.add_argument(
+            "--migrate-disabled-plugin-config",
+            action="store_true",
+            default=False,
+            help="Migrate a PluginConfig even if its disabled.",
+        )
 
     def handle(self, *args, **options):
         """Handle creation of a BatchExport from a given PluginConfig."""
@@ -82,8 +88,8 @@ class Command(BaseCommand):
             "destination_data": destination_data,
         }
 
-        if dry_run is True:
-            self.stdout.write("No BatchExport will be created as this is a dry run or confirmation check rejected.")
+        if dry_run is True or (options["migrate_disabled_plugin_config"] is False and plugin_config.enabled is False):
+            self.stdout.write("No BatchExport will be created as this is a dry run or existing plugin is disabled.")
             return json.dumps(batch_export_data, indent=4, default=str)
         else:
             destination = BatchExportDestination(**batch_export_data["destination_data"])
@@ -144,13 +150,15 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
     """
     plugin = plugin_config.plugin
 
-    if plugin.name == "S3 Export":
+    if plugin.name == "S3 Export Plugin":
         config = {
             "bucket_name": plugin_config.config["s3BucketName"],
             "region": plugin_config.config["awsRegion"],
             "prefix": plugin_config.config.get("prefix", ""),
             "aws_access_key_id": plugin_config.config["awsAccessKey"],
             "aws_secret_access_key": plugin_config.config["awsSecretAccessKey"],
+            "compression": plugin_config.config["compression"],
+            "exclude_events": plugin_config.config["eventsToIgnore"].split(","),
         }
         export_type = "S3"
     elif plugin.name == "Snowflake Export":
@@ -167,7 +175,7 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
         export_type = "Snowflake"
     else:
         raise CommandError(
-            f"Unsupported Plugin: '{plugin.name}'.  Supported Plugins are: 'Snowflake Export' and 'S3 Export'"
+            f"Unsupported Plugin: '{plugin.name}'.  Supported Plugins are: 'Snowflake Export' and 'S3 Export Plugin'"
         )
 
     return (export_type, config)

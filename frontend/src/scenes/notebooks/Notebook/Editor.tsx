@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { useCallback, useRef } from 'react'
 
 import { Editor as TTEditor } from '@tiptap/core'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { EditorContent, useEditor } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
@@ -13,7 +13,6 @@ import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExampl
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
@@ -26,9 +25,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
-import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
+import { EditorFocusPosition, EditorRange, JSONContent, Node, NotebookEditor, textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
+import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
+import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -54,7 +55,7 @@ export function Editor({
     const updatePreviousNode = useCallback(() => {
         const editor = editorRef.current
         if (editor) {
-            setPreviousNode(getPreviousNode(editor))
+            setPreviousNode(getNodeBeforeActiveNode(editor))
         }
     }, [editorRef.current])
 
@@ -83,7 +84,6 @@ export function Editor({
             }),
             NotebookMarkLink,
             NotebookNodeBacklink,
-            NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,
             NotebookNodeReplayTimestamp,
@@ -92,6 +92,8 @@ export function Editor({
             NotebookNodeFlagCodeExample,
             NotebookNodeFlag,
             NotebookNodeExperiment,
+            NotebookNodeEarlyAccessFeature,
+            NotebookNodeSurvey,
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
@@ -180,9 +182,10 @@ export function Editor({
 
             onCreate({
                 getJSON: () => editor.getJSON(),
+                getText: () => textContent(editor.state.doc),
+                getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
-                getPreviousNode: () => getPreviousNode(editor),
-                getNextNode: () => getNextNode(editor),
+                getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
@@ -197,6 +200,10 @@ export function Editor({
                         editor.chain().focus().insertContentAt(endPosition, content).run()
                         editor.commands.scrollIntoView()
                     }
+                },
+                pasteContent: (position: number, text: string) => {
+                    editor?.chain().focus().setTextSelection(position).run()
+                    editor?.view.pasteText(text)
                 },
                 findNode: (position: number) => findNode(editor, position),
                 findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
@@ -287,16 +294,16 @@ function getChildren(node: Node, direct: boolean = true): Node[] {
     return children
 }
 
-function getPreviousNode(editor: TTEditor): Node | null {
+function getAdjacentNodes(editor: TTEditor, pos: number): { previous: Node | null; next: Node | null } {
+    const { doc } = editor.state
+    const currentIndex = doc.resolve(pos).index(0)
+    return { previous: doc.maybeChild(currentIndex - 1), next: doc.maybeChild(currentIndex + 1) }
+}
+
+function getNodeBeforeActiveNode(editor: TTEditor): Node | null {
     const { doc, selection } = editor.state
     const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
     return doc.maybeChild(currentIndex - 1)
-}
-
-function getNextNode(editor: TTEditor): Node | null {
-    const { doc, selection } = editor.state
-    const currentIndex = doc.resolve(selection.$anchor.pos).index(0)
-    return doc.maybeChild(currentIndex + 1)
 }
 
 export function hasMatchingNode(

@@ -19,10 +19,10 @@ import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const { experiment, experimentLoading, isExperimentRunning } = useValues(experimentLogic({ experimentId: id }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
 
     // experiment progress details
@@ -100,8 +100,13 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
                         size="small"
                         icon={<IconFlag />}
                         onClick={() => {
-                            insertAfter(buildFlagContent(experiment.feature_flag?.id || 'new'))
+                            if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
+                                insertAfter(buildFlagContent(experiment.feature_flag?.id || 'new'))
+                            }
                         }}
+                        disabledReason={
+                            nextNode?.type.name === NotebookNodeType.FeatureFlag && 'Feature flag already exists below'
+                        }
                     >
                         View Feature Flag
                     </LemonButton>
