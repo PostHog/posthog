@@ -103,6 +103,7 @@ export function NotebooksTable(): JSX.Element {
                         setFilters({ search: s })
                     }}
                     value={filters.search}
+                    data-attr={'notebooks-search'}
                 />
                 <div className="flex items-center gap-4 flex-wrap">
                     <ContainsTypeFilters filters={filters} setFilters={setFilters} />
@@ -127,7 +128,7 @@ export function NotebooksTable(): JSX.Element {
                 </div>
             </div>
             <LemonTable
-                data-attr="dashboards-table"
+                data-attr="notebooks-table"
                 pagination={{ pageSize: 100 }}
                 dataSource={notebooksAndTemplates}
                 rowKey="short_id"
