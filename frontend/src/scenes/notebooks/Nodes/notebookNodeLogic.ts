@@ -33,7 +33,13 @@ export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
-    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
+    title:
+        | string
+        | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
+        | {
+              recompute: (attributes: CustomNotebookNodeAttributes) => boolean
+              value: (attributes: CustomNotebookNodeAttributes) => Promise<string>
+          }
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     widgets: NotebookNodeWidget[]
     startExpanded: boolean

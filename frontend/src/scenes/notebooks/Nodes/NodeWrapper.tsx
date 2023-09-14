@@ -29,7 +29,13 @@ import {
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
-    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
+    title:
+        | string
+        | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
+        | {
+              recompute: (attributes: CustomNotebookNodeAttributes) => boolean
+              value: (attributes: CustomNotebookNodeAttributes) => Promise<string>
+          }
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string)

@@ -110,28 +110,31 @@ export const Settings = ({
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: async (attributes) => {
-        const query = attributes.query
-        let title = 'HogQL'
-        if (NodeKind.SavedInsightNode === query.kind) {
-            const response = await api.insights.loadInsight(query.shortId)
-            title = response.results[0].name?.length
-                ? response.results[0].name
-                : response.results[0].derived_name || 'Saved insight'
-        } else if (NodeKind.DataTableNode === query.kind) {
-            if (query.source.kind) {
-                title = query.source.kind.replace('Node', '').replace('Query', '')
-            } else {
-                title = 'Data exploration'
+    title: {
+        recompute: () => true,
+        value: async (attributes) => {
+            const query = attributes.query
+            let title = 'HogQL'
+            if (NodeKind.SavedInsightNode === query.kind) {
+                const response = await api.insights.loadInsight(query.shortId)
+                title = response.results[0].name?.length
+                    ? response.results[0].name
+                    : response.results[0].derived_name || 'Saved insight'
+            } else if (NodeKind.DataTableNode === query.kind) {
+                if (query.source.kind) {
+                    title = query.source.kind.replace('Node', '').replace('Query', '')
+                } else {
+                    title = 'Data exploration'
+                }
+            } else if (NodeKind.InsightVizNode === query.kind) {
+                if (query.source.kind) {
+                    title = query.source.kind.replace('Node', '').replace('Query', '')
+                } else {
+                    title = 'Insight'
+                }
             }
-        } else if (NodeKind.InsightVizNode === query.kind) {
-            if (query.source.kind) {
-                title = query.source.kind.replace('Node', '').replace('Query', '')
-            } else {
-                title = 'Insight'
-            }
-        }
-        return Promise.resolve(title)
+            return Promise.resolve(title)
+        },
     },
     Component,
     heightEstimate: 500,
