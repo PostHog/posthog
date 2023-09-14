@@ -92,6 +92,8 @@ export class PartitionLocker {
                     await new Promise((r) => setTimeout(r, this.delay))
                 }
             }
+
+            status.info('🔒', `PartitionLocker claimed partitions!`)
         } catch (error) {
             status.error('🧨', 'PartitionLocker failed to claim keys', {
                 error: error.message,
