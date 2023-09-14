@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -194,9 +194,12 @@ dependencies:
   monaco-editor:
     specifier: ^0.39.0
     version: 0.39.0
+  papaparse:
+    specifier: ^5.4.1
+    version: 5.4.1
   posthog-js:
-    specifier: 1.78.2
-    version: 1.78.2
+    specifier: 1.78.5
+    version: 1.78.5
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -432,6 +435,9 @@ devDependencies:
   '@types/node':
     specifier: ^18.11.9
     version: 18.11.9
+  '@types/papaparse':
+    specifier: ^5.3.8
+    version: 5.3.8
   '@types/pixelmatch':
     specifier: ^5.2.4
     version: 5.2.4
@@ -6211,6 +6217,12 @@ packages:
   /@types/object.pick@1.3.2:
     resolution: {integrity: sha512-sn7L+qQ6RLPdXRoiaE7bZ/Ek+o4uICma/lBFPyJEKDTPTBP1W8u0c4baj3EiS4DiqLs+Hk+KUGvMVJtAw3ePJg==}
     dev: false
+
+  /@types/papaparse@5.3.8:
+    resolution: {integrity: sha512-ArKIEOOWULbhi53wkAiRy1ze4wvrTfhpAj7Yfzva+EkmX2sV8PpFB+xqzJfzXNzK4me95FJH9QZt5NXFVGzOoQ==}
+    dependencies:
+      '@types/node': 18.11.9
+    dev: true
 
   /@types/parse-json@4.0.0:
     resolution: {integrity: sha512-//oorEZjL6sbPcKUaCdIGlIUeH26mgzimjBB77G6XRgnDl/L5wOnpyBGRe/Mmf5CVW3PwEBE1NjiMZ/ssFh4wA==}
@@ -14265,6 +14277,10 @@ packages:
     resolution: {integrity: sha512-NUcwaKxUxWrZLpDG+z/xZaCgQITkA/Dv4V/T6bw7VON6l1Xz/VnrBqrYjZQ12TamKHzITTfOEIYUj48y2KXImA==}
     dev: true
 
+  /papaparse@5.4.1:
+    resolution: {integrity: sha512-HipMsgJkZu8br23pW15uvo6sib6wne/4woLZPlFf3rpDyMe9ywEXUsuD7+6K9PRkJlVT51j/sCOYDKGGS3ZJrw==}
+    dev: false
+
   /param-case@3.0.4:
     resolution: {integrity: sha512-RXlj7zCYokReqWpOPH9oYivUzLYZ5vAPIfEmCTNViosC78F8F0H9y7T7gG2M39ymgutxF5gcFEsyZQSph9Bp3A==}
     dependencies:
@@ -14908,8 +14924,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.78.2:
-    resolution: {integrity: sha512-jDy0QR+Mt7c4efq4knUsDVx/dT9DKMRLPimR/aSNTPRlAdWDNYD6WFv3oFyUk5tzkOPcKVJItRmmS2ua3tesYA==}
+  /posthog-js@1.78.5:
+    resolution: {integrity: sha512-UUipML52LEyks7Pbx/3dpBJc2iPJrW+Ss6Y0BiIygn+QZoBjIe1WjE4Ep+Fnz7+cX1axex/ZiYholBnW7E4Aug==}
     dependencies:
       fflate: 0.4.8
     dev: false

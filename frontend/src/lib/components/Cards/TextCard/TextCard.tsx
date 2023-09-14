@@ -24,15 +24,15 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     showEditingControls?: boolean
 }
 
-interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'style'> {
+interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'style' | 'className'> {
     text: string
     closeDetails?: () => void
 }
 
-export function TextContent({ text, closeDetails, style }: TextCardBodyProps): JSX.Element {
+export function TextContent({ text, closeDetails, style, className }: TextCardBodyProps): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div className="p-2 w-full overflow-auto" onClick={() => closeDetails?.()} style={style}>
+        <div className={clsx('p-2 w-full overflow-auto', className)} onClick={() => closeDetails?.()} style={style}>
             <ReactMarkdown>{text}</ReactMarkdown>
         </div>
     )

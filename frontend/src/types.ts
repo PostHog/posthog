@@ -3020,6 +3020,8 @@ export type NotebookListItemType = {
 export type NotebookType = NotebookListItemType & {
     content: JSONContent // TODO: Type this better
     version: number
+    // used to power text-based search
+    text_content?: string | null
 }
 
 export enum NotebookNodeType {
@@ -3095,6 +3097,8 @@ export type BatchExportDestinationS3 = {
         aws_secret_access_key: string
         exclude_events: string[]
         compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
     }
 }
 
