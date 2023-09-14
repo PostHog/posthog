@@ -6,13 +6,16 @@ import { InsightShortId, NotebookNodeType } from '~/types'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { LemonButton } from '@posthog/lemon-ui'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import clsx from 'clsx'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 
 import './NotebookNodeQuery.scss'
-import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { IconSettings } from 'lib/lemon-ui/icons'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -89,7 +92,31 @@ export const Settings = ({
         return modifiedQuery
     }, [attributes.query])
 
-    return (
+    const detachSavedInsight = (): void => {
+        if (attributes.query.kind === NodeKind.SavedInsightNode) {
+            const logic = insightLogic.findMounted({ dashboardItemId: attributes.query.shortId })
+            if (logic && logic.values.insight.filters) {
+                const query: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: filtersToQueryNode(logic.values.insight.filters),
+                }
+                updateAttributes({ query: query })
+            }
+        }
+    }
+
+    return attributes.query.kind === NodeKind.SavedInsightNode ? (
+        <div className="p-3">
+            <div className="text-lg font-semibold">You cannot edit saved insights in notebooks</div>
+            <div>
+                Changes either need to be made on the insight or you can detach the query so that it is no longer
+                conntected and make changes here
+            </div>
+
+            <LemonButton to={urls.insightEdit(attributes.query.shortId)}>Edit insight</LemonButton>
+            <LemonButton onClick={detachSavedInsight}>Detach insight</LemonButton>
+        </div>
+    ) : (
         <div className="p-3">
             <Query
                 query={modifiedQuery}
