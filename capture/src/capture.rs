@@ -140,10 +140,10 @@ pub fn extract_and_verify_token(events: &[RawEvent]) -> Result<String, String> {
     };
 }
 
-pub async fn process_events(
+pub async fn process_events<'a>(
     sink: Arc<dyn sink::EventSink + Send + Sync>,
-    events: &[RawEvent],
-    context: &ProcessingContext,
+    events: &'a [RawEvent],
+    context: &'a ProcessingContext,
 ) -> Result<(), String> {
     let events: Vec<ProcessedEvent> = match events
         .iter()

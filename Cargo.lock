@@ -212,6 +212,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "capture",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"

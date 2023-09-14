@@ -1,11 +1,10 @@
-[package]
-name = "capture"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+  "capture",
+  "capture-server"
+]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+[workspace.dependencies]
 axum = "0.6.15"
 axum-client-ip = "0.4.1"
 tokio = { version = "1.0", features = ["full"] }
@@ -26,8 +25,3 @@ async-trait = "0.1.68"
 serde_urlencoded = "0.7.1"
 rand = "0.8.5"
 rdkafka = { version = "0.34", features = ["cmake-build"] }
-
-[dev-dependencies]
-assert-json-diff = "2.0.2"
-axum-test-helper = "0.2.0"
-mockall = "0.11.2"

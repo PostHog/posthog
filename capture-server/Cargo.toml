@@ -1,0 +1,11 @@
+[package]
+name = "capture-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+capture = { path = "../capture" }
+axum = { workspace = true }
+tokio = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing = { workspace = true }

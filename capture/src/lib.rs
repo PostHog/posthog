@@ -1,8 +1,8 @@
 pub mod api;
-mod capture;
+pub mod capture;
 pub mod event;
 pub mod router;
 pub mod sink;
 pub mod time;
-mod token;
-mod utils;
+pub mod token;
+pub mod utils;
