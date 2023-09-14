@@ -67,8 +67,7 @@ describe('Notebooks', () => {
             cy.get('[data-attr="new-notebook"]').click()
             // we don't actually get a new notebook because the API is mocked
             // so, "exit" the timestamp block we start in
-            cy.get('.NotebookEditor').type('esc')
-            cy.get('.NotebookEditor').type('{enter}')
+            cy.get('.NotebookEditor').type('{esc}{enter}{enter}')
         })
 
         it('Can add a number list', () => {
