@@ -1,8 +1,8 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, SavedInsightNode } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { BindLogic, useMountedLogic, useValues } from 'kea'
-import { InsightShortId, NotebookNodeType } from '~/types'
+import { useMountedLogic, useValues } from 'kea'
+import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
@@ -10,11 +10,10 @@ import clsx from 'clsx'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
-
-import './NotebookNodeQuery.scss'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+
+import './NotebookNodeQuery.scss'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -32,11 +31,9 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
 
-    // insightLogic
-    const logic = insightLogic({
+    const insightProps: InsightLogicProps = {
         dashboardItemId: (propsQuery as SavedInsightNode).shortId || 'new',
-    })
-    const { insightProps } = useValues(logic)
+    }
     const { query } = useValues(insightDataLogic(insightProps))
 
     const modifiedQuery = useMemo(() => {
@@ -67,16 +64,14 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <Query
-                    query={modifiedQuery}
-                    uniqueKey={props.attributes.nodeId}
-                    readOnly={true}
-                    context={{
-                        insightProps,
-                    }}
-                />
-            </BindLogic>
+            <Query
+                query={modifiedQuery}
+                uniqueKey={props.attributes.nodeId}
+                readOnly={true}
+                context={{
+                    insightProps,
+                }}
+            />
         </div>
     )
 }
@@ -89,11 +84,9 @@ export const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
-    // insightLogic
-    const logic = insightLogic({
+    const insightProps: InsightLogicProps = {
         dashboardItemId: (attributes.query as SavedInsightNode).shortId || 'new',
-    })
-    const { insightProps } = useValues(logic)
+    }
     const { query } = useValues(insightDataLogic(insightProps))
 
     const modifiedQuery = useMemo(() => {
@@ -117,24 +110,22 @@ export const Settings = ({
 
     return (
         <div className="p-3">
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <Query
-                    query={modifiedQuery}
-                    uniqueKey={attributes.nodeId}
-                    readOnly={false}
-                    context={{
-                        insightProps,
-                    }}
-                    setQuery={(t) => {
-                        updateAttributes({
-                            query: {
-                                ...attributes.query,
-                                source: (t as DataTableNode | InsightVizNode).source,
-                            } as QuerySchema,
-                        })
-                    }}
-                />
-            </BindLogic>
+            <Query
+                query={modifiedQuery}
+                uniqueKey={attributes.nodeId}
+                readOnly={false}
+                context={{
+                    insightProps,
+                }}
+                setQuery={(t) => {
+                    updateAttributes({
+                        query: {
+                            ...attributes.query,
+                            source: (t as DataTableNode | InsightVizNode).source,
+                        } as QuerySchema,
+                    })
+                }}
+            />
         </div>
     )
 }
