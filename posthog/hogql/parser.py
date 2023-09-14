@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Dict, List, Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
@@ -23,40 +24,67 @@ def parse_expr(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure("parse_expr"):
-        parse_tree = get_parser(expr).expr()
-        node = HogQLParseTreeConverter(start=start).visit(parse_tree)
-        if placeholders:
-            with timings.measure("replace_placeholders"):
-                return replace_placeholders(node, placeholders)
+        node = expr_to_node(expr, start)
+        # parse_tree = get_parser(expr).expr()
+        # node = HogQLParseTreeConverter(start=start).visit(parse_tree)
+    if placeholders:
+        with timings.measure("replace_placeholders"):
+            return replace_placeholders(node, placeholders)
     return node
 
 
+@lru_cache(maxsize=1000)
+def expr_to_node(expr: str, start=0) -> ast.Expr:
+    parse_tree = get_parser(expr).expr()
+    return HogQLParseTreeConverter(start=start).visit(parse_tree)
+
+
 def parse_order_expr(
-    order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, timings: Optional[HogQLTimings] = None
+    order_expr: str,
+    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    start: Optional[int] = 0,
+    timings: Optional[HogQLTimings] = None,
 ) -> ast.Expr:
     if timings is None:
         timings = HogQLTimings()
     with timings.measure("parse_order_expr"):
-        parse_tree = get_parser(order_expr).orderExpr()
-        node = HogQLParseTreeConverter().visit(parse_tree)
-        if placeholders:
-            with timings.measure("replace_placeholders"):
-                return replace_placeholders(node, placeholders)
+        node = order_expr_to_node(order_expr, start)
+        # parse_tree = get_parser(order_expr).orderExpr()
+        # node = HogQLParseTreeConverter().visit(parse_tree)
+    if placeholders:
+        with timings.measure("replace_placeholders"):
+            return replace_placeholders(node, placeholders)
     return node
 
 
+@lru_cache(maxsize=1000)
+def order_expr_to_node(expr: str, start=0) -> ast.Expr:
+    parse_tree = get_parser(expr).orderExpr()
+    return HogQLParseTreeConverter(start=start).visit(parse_tree)
+
+
 def parse_select(
-    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, timings: Optional[HogQLTimings] = None
+    statement: str,
+    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    start: Optional[int] = 0,
+    timings: Optional[HogQLTimings] = None,
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
     if timings is None:
         timings = HogQLTimings()
     with timings.measure("parse_select"):
-        parse_tree = get_parser(statement).select()
-        node = HogQLParseTreeConverter().visit(parse_tree)
-        if placeholders:
-            with timings.measure("replace_placeholders"):
-                node = replace_placeholders(node, placeholders)
+        # parse_tree = get_parser(statement).select()
+        # node = HogQLParseTreeConverter().visit(parse_tree)
+        node = select_to_node(statement, start)
+    if placeholders:
+        with timings.measure("replace_placeholders"):
+            node = replace_placeholders(node, placeholders)
     return node
+
+
+@lru_cache(maxsize=1000)
+def select_to_node(statement: str, start=0) -> ast.SelectQuery | ast.SelectUnionQuery:
+    parse_tree = get_parser(statement).select()
+    return HogQLParseTreeConverter(start=start).visit(parse_tree)
 
 
 def get_parser(query: str) -> HogQLParser:
