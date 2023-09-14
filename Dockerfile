@@ -22,5 +22,5 @@ WORKDIR app
 
 USER nobody
 
-COPY --from=builder /app/target/release/capture /usr/local/bin
-ENTRYPOINT ["/usr/local/bin/capture"]
+COPY --from=builder /app/target/release/capture-server /usr/local/bin
+ENTRYPOINT ["/usr/local/bin/capture-server"]
