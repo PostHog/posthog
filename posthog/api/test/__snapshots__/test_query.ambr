@@ -195,7 +195,8 @@
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key
      FROM events
      WHERE equals(events.team_id, 2)
-     ORDER BY toTimeZone(events.timestamp, 'UTC') ASC) AS event_view
+     ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+     LIMIT 100) AS event_view
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=True
