@@ -177,6 +177,12 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     })),
 
     selectors({
+        fullMenuVisible: [
+            (s) => [s.moreMenuVisible, s.heatmapInfoVisible, s.actionsInfoVisible, s.flagsVisible],
+            (moreMenuVisible, heatmapInfoVisible, actionsInfoVisible, flagsVisible) => {
+                return moreMenuVisible || heatmapInfoVisible || actionsInfoVisible || flagsVisible
+            },
+        ],
         dragPosition: [
             (s) => [s.lastDragPosition, s.windowWidth, s.windowHeight],
             (lastDragPosition, windowWidth, windowHeight) => {

@@ -29,7 +29,6 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { HELP_URL } from './ToolbarButton'
 import { useLayoutEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -100,8 +99,8 @@ function MoreMenu({
 /**
  * Some toolbar modes show a peek of information before opening the full menu.
  * */
-function PeekMenu(): JSX.Element {
-    const { heatmapInfoVisible, actionsInfoVisible, flagsVisible } = useValues(toolbarButtonLogic)
+function PeekMenu(): JSX.Element | null {
+    const { menuPlacement, fullMenuVisible, heatmapInfoVisible, actionsInfoVisible } = useValues(toolbarButtonLogic)
     const { showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } = useActions(toolbarButtonLogic)
 
     const { buttonActionsVisible } = useValues(actionsTabLogic)
@@ -110,65 +109,68 @@ function PeekMenu(): JSX.Element {
 
     const { heatmapEnabled, heatmapLoading, elementCount } = useValues(heatmapLogic)
 
-    const { countFlagsOverridden } = useValues(featureFlagsLogic)
+    // const { countFlagsOverridden } = useValues(featureFlagsLogic)
 
-    return (
-        <div className={'flex flex-row gap-2 w-full items-center justify-between px-2 pt-1 h-12'}>
-            {heatmapEnabled ? (
-                <>
-                    <div className={'flex flex-grow'}>
-                        <h5 className={'flex flex-row items-center'}>
-                            Heatmap: {heatmapLoading ? <Spinner textColored={true} /> : <>{elementCount} elements</>}
-                        </h5>
-                    </div>
-                    <LemonButton
-                        size={'small'}
-                        icon={heatmapInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
-                        status={'stealth'}
-                        onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
-                        active={heatmapInfoVisible}
-                    />
-                </>
-            ) : null}
+    const peekMenuVisible = !fullMenuVisible && (heatmapEnabled || buttonActionsVisible)
 
-            {buttonActionsVisible ? (
-                <>
-                    <div className={'flex flex-grow'}>
-                        <h5 className={'flex flex-row items-center'}>
-                            Actions:{' '}
-                            <div className="whitespace-nowrap text-center">
-                                {allActionsLoading ? (
-                                    <Spinner textColored={true} />
-                                ) : (
-                                    <LemonBadge.Number size={'small'} count={actionCount} showZero />
-                                )}
-                            </div>
-                        </h5>
-                    </div>
-                    <LemonButton
-                        size={'small'}
-                        icon={actionsInfoVisible ? <IconArrowDown /> : <IconArrowUp />}
-                        status={'stealth'}
-                        onClick={
-                            actionsInfoVisible
-                                ? () => {
-                                      hideActionsInfo()
-                                      hideButtonActions()
-                                  }
-                                : showActionsInfo
-                        }
-                        active={actionsInfoVisible}
-                    />
-                </>
-            ) : null}
+    const clickHandler = heatmapEnabled
+        ? heatmapInfoVisible
+            ? hideHeatmapInfo
+            : showHeatmapInfo
+        : buttonActionsVisible
+        ? actionsInfoVisible
+            ? () => {
+                  hideActionsInfo()
+                  hideButtonActions()
+              }
+            : showActionsInfo
+        : () => {}
 
-            {flagsVisible ? (
-                <div className={'flex flex-grow'}>
-                    <h5 className={'flex flex-row items-center'}>Feature flags: {countFlagsOverridden} overridden</h5>
+    if (!peekMenuVisible) {
+        return null
+    } else {
+        const title = heatmapEnabled ? (
+            <>Heatmap: {heatmapLoading ? <Spinner textColored={true} /> : <>{elementCount} elements</>}</>
+        ) : buttonActionsVisible ? (
+            <>
+                Actions:{' '}
+                <div className="whitespace-nowrap text-center">
+                    {allActionsLoading ? (
+                        <Spinner textColored={true} />
+                    ) : (
+                        <LemonBadge.Number size={'small'} count={actionCount} showZero />
+                    )}
                 </div>
-            ) : null}
-        </div>
-    )
+            </>
+        ) : null
+
+        return (
+            <div
+                className={
+                    'flex flex-row gap-2 w-full items-center align-center justify-between px-2 pt-1 cursor-pointer'
+                }
+                onClick={clickHandler}
+            >
+                <div className={'flex flex-grow'}>
+                    <h5 className={'flex flex-row items-center mb-0'}>{title}</h5>
+                </div>
+                <LemonButton
+                    size={'small'}
+                    icon={menuPlacement === 'top' ? <IconArrowUp /> : <IconArrowDown />}
+                    status={'stealth'}
+                    onClick={clickHandler}
+                />
+
+                {/*{flagsVisible ? (*/}
+                {/*    <div className={'flex flex-grow'}>*/}
+                {/*        <h5 className={'flex flex-row items-center mb-0'}>*/}
+                {/*            Feature flags: {countFlagsOverridden} overridden*/}
+                {/*        </h5>*/}
+                {/*    </div>*/}
+                {/*) : null}*/}
+            </div>
+        )
+    }
 }
 
 function FullMenu(): JSX.Element {
@@ -235,7 +237,7 @@ function ToolbarInfoMenu(): JSX.Element {
         <div
             ref={menuRef}
             className={clsx(
-                'absolute Toolbar3000 justify-between Toolbar3000__menu rounded-lg flex flex-col items-center',
+                'absolute Toolbar3000 Toolbar3000__menu rounded-lg flex flex-col',
                 menuPlacement === 'top' ? 'bottom' : 'top-12'
             )}
         >
