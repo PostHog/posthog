@@ -312,6 +312,8 @@ export class SessionRecordingIngesterV2 {
 
                 const recordingMessages: IncomingRecordingMessage[] = []
 
+                await this.partitionLocker.claim(messages)
+
                 for (const message of messages) {
                     const { partition, offset, timestamp } = message
 
@@ -542,9 +544,9 @@ export class SessionRecordingIngesterV2 {
             this.offsetHighWaterMarker.revoke(topicPartition)
         })
 
+        await this.partitionLocker.release(topicPartitions)
         await this.destroySessions(sessionsToDrop)
         await this.offsetsRefresher.refresh()
-        await this.partitionLocker.release(topicPartitions)
     }
 
     async flushAllReadySessions(): Promise<void> {

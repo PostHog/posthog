@@ -20,6 +20,7 @@ export const topicPartitionKey = (prefix: string, tp: TopicPartition) => {
 export class PartitionLocker {
     consumerID = randomUUID()
     delay = 1000
+    ttl = 30000
 
     constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/locks') {}
 
@@ -45,10 +46,12 @@ export class PartitionLocker {
     */
     public async claim(tps: TopicPartition[]) {
         const keys = this.keys(tps)
-        const unclaimedKeys = [...keys]
+        const blockingConsumers = new Set(...[this.consumerID])
 
         try {
-            while (unclaimedKeys.length > 0) {
+            while (blockingConsumers.size !== 0) {
+                blockingConsumers.clear()
+
                 await this.run(`claim keys that belong to this consumer`, async (client) => {
                     await Promise.allSettled(
                         keys.map(async (key) => {
@@ -56,21 +59,29 @@ export class PartitionLocker {
 
                             if (existingClaim && existingClaim !== this.consumerID) {
                                 // Still claimed by someone else!
+                                blockingConsumers.add(existingClaim)
                                 return
                             }
 
                             // Set the key so it is claimed by us
-                            const success = await client.set(key, this.consumerID, 'NX', 'EX', 30)
-
-                            if (success) {
-                                unclaimedKeys.splice(unclaimedKeys.indexOf(key), 1)
+                            const res = await client.set(key, this.consumerID, 'PX', this.ttl)
+                            if (!res) {
+                                blockingConsumers.add(this.consumerID)
                             }
                         })
                     )
                 })
 
-                if (unclaimedKeys.length > 0) {
-                    status.warn('🧨', `PartitionLocker failed to claim keys. Waiting ${this.delay} before retrying...`)
+                if (blockingConsumers.size > 0) {
+                    status.warn(
+                        '🧨',
+                        `PartitionLocker failed to claim keys. Waiting ${this.delay} before retrying...`,
+                        {
+                            id: this.consumerID,
+                            blockingConsumers,
+                        }
+                    )
+                    await new Promise((r) => setTimeout(r, this.delay))
                 }
             }
         } catch (error) {
@@ -115,123 +126,4 @@ export class PartitionLocker {
             })
         }
     }
-
-    // public async getWaterMarks(tp: TopicPartition): Promise<OffsetHighWaterMarks> {
-    //     const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
-
-    //     // If we already have a watermark promise then we return it (i.e. we don't want to load the watermarks twice)
-    //     if (!this.topicPartitionWaterMarks[key]) {
-    //         this.topicPartitionWaterMarks[key] = this.run(`read all offset high-water mark for ${key} `, (client) =>
-    //             client.zrange(key, 0, -1, 'WITHSCORES')
-    //         ).then((redisValue) => {
-    //             // NOTE: We do this in a secondary promise to release the previous redis client
-
-    //             // redisValue is an array of [key, offset, key, offset, ...]
-    //             // we want to convert it to an object of { key: offset, key: offset, ... }
-    //             const highWaterMarks = redisValue.reduce((acc: OffsetHighWaterMarks, value: string, index: number) => {
-    //                 if (index % 2 === 0) {
-    //                     acc[value] = parseInt(redisValue[index + 1])
-    //                 }
-    //                 return acc
-    //             }, {})
-
-    //             this.topicPartitionWaterMarks[key] = Promise.resolve(highWaterMarks)
-
-    //             return highWaterMarks
-    //         })
-    //     }
-
-    //     return this.topicPartitionWaterMarks[key]!
-    // }
-
-    // public async add(tp: TopicPartition, id: string, offset: number): Promise<void> {
-    //     const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
-    //     const watermarks = await this.getWaterMarks(tp)
-
-    //     if (offset <= (watermarks[id] ?? -1)) {
-    //         // SANITY CHECK: We don't want to add an offset that is less than or equal to the current offset
-    //         return
-    //     }
-
-    //     // Immediately update the value so any subsequent calls to getWaterMarks will get the latest value
-    //     watermarks[id] = offset
-    //     this.topicPartitionWaterMarks[key] = Promise.resolve(watermarks)
-
-    //     try {
-    //         await this.run(`write offset high-water mark ${key} `, async (client) => {
-    //             await client.zadd(key, 'GT', offset, id)
-    //         })
-    //     } catch (error) {
-    //         status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
-    //             error: error.message,
-    //             key,
-    //             ...tp,
-    //             id,
-    //             offset,
-    //         })
-    //         captureException(error, {
-    //             extra: {
-    //                 key,
-    //                 offset,
-    //             },
-    //             tags: {
-    //                 ...tp,
-    //                 id,
-    //             },
-    //         })
-    //     }
-    // }
-
-    // public async clear(tp: TopicPartition, offset: number): Promise<void> {
-    //     const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
-
-    //     const watermarks = await this.getWaterMarks(tp)
-    //     let hadDeletion = false
-    //     Object.entries(watermarks).forEach(([id, value]) => {
-    //         if (value && value <= offset) {
-    //             delete watermarks[id]
-    //             hadDeletion = true
-    //         }
-    //     })
-
-    //     if (!hadDeletion) {
-    //         return
-    //     }
-
-    //     try {
-    //         return await this.run(`clear all below offset high-water mark for ${key} `, async (client) => {
-    //             await client.zremrangebyscore(key, '-Inf', offset)
-    //         })
-    //     } catch (error) {
-    //         status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
-    //             error: error.message,
-    //             key,
-    //             ...tp,
-    //         })
-    //         captureException(error, {
-    //             extra: {
-    //                 key,
-    //             },
-    //             tags: {
-    //                 ...tp,
-    //             },
-    //         })
-    //     }
-    // }
-
-    // /**
-    //  * if there isn't already a high-water mark for this topic partition
-    //  * then this method calls getAll to get all the high-water marks for this topic partition
-    //  * it assumes that it has the latest high-water marks for this topic partition
-    //  * so that callers are safe to drop messages
-    //  */
-    // public async isBelowHighWaterMark(tp: TopicPartition, id: string, offset: number): Promise<boolean> {
-    //     const highWaterMarks = await this.getWaterMarks(tp)
-
-    //     return offset <= (highWaterMarks[id] ?? -1)
-    // }
-
-    // public revoke(tp: TopicPartition) {
-    //     delete this.topicPartitionWaterMarks[offsetHighWaterMarkKey(this.keyPrefix, tp)]
-    // }
 }
