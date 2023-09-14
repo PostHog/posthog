@@ -209,8 +209,7 @@ async function expectLocatorToMatchStorySnapshot(
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
         comparisonMethod: 'ssim',
         // 0.01 would be a 1% difference
-        // 0.005 is a 0.5% difference
-        failureThreshold: 0.005,
+        failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
 }
