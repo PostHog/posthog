@@ -19,10 +19,10 @@ class QueryRunner:
         self.timings = timings or HogQLTimings()
 
     def run(self) -> BaseModel:
-        pass
+        raise NotImplementedError()
 
     def to_ast(self) -> ast.SelectQuery:
-        pass
+        raise NotImplementedError()
 
     def to_hogql(self) -> str:
         with self.timings.measure("to_hogql"):
@@ -31,3 +31,9 @@ class QueryRunner:
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True, timings=self.timings),
                 "hogql",
             )
+
+    def to_persons_ast(self) -> str:
+        raise NotImplementedError()
+
+    def person_breakdown_options(self) -> list:
+        raise NotImplementedError()

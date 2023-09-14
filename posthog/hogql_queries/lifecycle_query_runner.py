@@ -26,12 +26,8 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_ast(self) -> ast.SelectQuery:
         placeholders = {
-            "event_filter": self.event_filter,
-            "interval": self.query_date_range.interval_period_string_as_hogql_constant(),
-            "one_interval_period": self.query_date_range.one_interval_period(),
-            "number_interval_period": self.query_date_range.number_interval_periods(),
-            "date_from": self.query_date_range.date_from_as_hogql(),
-            "date_to": self.query_date_range.date_to_as_hogql(),
+            **self.query_date_range.to_placeholders(),
+            "events_query": self.events_query,
         }
 
         with self.timings.measure("periods_query"):
@@ -51,35 +47,6 @@ class LifecycleQueryRunner(QueryRunner):
                 placeholders=placeholders,
                 timings=self.timings,
             )
-
-        with self.timings.measure("events_query"):
-            placeholders["events_query"] = parse_select(
-                """
-                    SELECT
-                        events.person.id as person_id,
-                        min(events.person.created_at) AS created_at,
-                        arraySort(groupUniqArray(dateTrunc({interval}, events.timestamp))) AS all_activity,
-                        arrayPopBack(arrayPushFront(all_activity, dateTrunc({interval}, created_at))) as previous_activity,
-                        arrayPopFront(arrayPushBack(all_activity, dateTrunc({interval}, toDateTime('1970-01-01 00:00:00')))) as following_activity,
-                        arrayMap((previous, current, index) -> (previous = current ? 'new' : ((current - {one_interval_period}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
-                        arrayMap((current, next) -> (current + {one_interval_period} = next ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
-                        arrayMap(x -> x + {one_interval_period}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
-                        arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
-                        arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
-                        arrayJoin(temp_concat) as period_status_pairs,
-                        period_status_pairs.1 as start_of_period,
-                        period_status_pairs.2 as status
-                    FROM events
-                    WHERE {event_filter}
-                    GROUP BY person_id
-                """,
-                placeholders=placeholders,
-                timings=self.timings,
-            )
-            sampling_factor = self.query.samplingFactor
-            if sampling_factor is not None and isinstance(sampling_factor, float):
-                sample_expr = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=sampling_factor)))
-                placeholders["events_query"].select_from.sample = sample_expr
 
         with self.timings.measure("lifecycle_query"):
             lifecycle_query = parse_select(
@@ -122,6 +89,18 @@ class LifecycleQueryRunner(QueryRunner):
             )
         return lifecycle_query
 
+    def to_persons_ast(self) -> str:
+        with self.timings.measure("persons_query"):
+            return parse_select(
+                """
+                SELECT
+                    person_id, start_of_period as breakdown_1, status as breakdown_2
+                FROM
+                    {events_query}
+                """,
+                placeholders={"events_query": self.events_query},
+            )
+
     def run(self) -> LifecycleQueryResponse:
         response = execute_hogql_query(
             query_type="LifecycleQuery",
@@ -130,8 +109,8 @@ class LifecycleQueryRunner(QueryRunner):
             timings=self.timings,
         )
 
-        # TODO: move the below part into the SQL query as well (or write the Hog language and move it in there)
-        # Doing that means we will be able to use "to_hogql" in the interface, and convert insights to HogQL.
+        # TODO: move the data mangling part from below part into a SQL query as well
+        # This would enable us to swap LifecycleQuery with HogQLQuery in the contxt of an insight, if requested.
 
         # ensure that the items are in a deterministic order
         order = {"new": 1, "returning": 2, "resurrecting": 3, "dormant": 4}
@@ -231,3 +210,39 @@ class LifecycleQueryRunner(QueryRunner):
             return event_filters[0]
         else:
             return ast.And(exprs=event_filters)
+
+    @cached_property
+    def events_query(self):
+        with self.timings.measure("events_query"):
+            events_query = parse_select(
+                """
+                    SELECT
+                        events.person.id as person_id,
+                        min(events.person.created_at) AS created_at,
+                        arraySort(groupUniqArray(dateTrunc({interval}, events.timestamp))) AS all_activity,
+                        arrayPopBack(arrayPushFront(all_activity, dateTrunc({interval}, created_at))) as previous_activity,
+                        arrayPopFront(arrayPushBack(all_activity, dateTrunc({interval}, toDateTime('1970-01-01 00:00:00')))) as following_activity,
+                        arrayMap((previous, current, index) -> (previous = current ? 'new' : ((current - {one_interval_period}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                        arrayMap((current, next) -> (current + {one_interval_period} = next ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
+                        arrayMap(x -> x + {one_interval_period}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                        arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                        arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                        arrayJoin(temp_concat) as period_status_pairs,
+                        period_status_pairs.1 as start_of_period,
+                        period_status_pairs.2 as status
+                    FROM events
+                    WHERE {event_filter}
+                    GROUP BY person_id
+                """,
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    "event_filter": self.event_filter,
+                },
+                timings=self.timings,
+            )
+            sampling_factor = self.query.samplingFactor
+            if sampling_factor is not None and isinstance(sampling_factor, float):
+                sample_expr = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=sampling_factor)))
+                events_query.select_from.sample = sample_expr
+
+        return events_query
