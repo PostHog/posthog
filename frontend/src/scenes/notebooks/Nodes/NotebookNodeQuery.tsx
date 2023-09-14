@@ -2,20 +2,19 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { useValues } from 'kea'
-import { InsightShortId, NotebookNodeType } from '~/types'
+import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 import { LemonButton } from '@posthog/lemon-ui'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import clsx from 'clsx'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 
 import './NotebookNodeQuery.scss'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -94,13 +93,13 @@ export const Settings = ({
 
     const detachSavedInsight = (): void => {
         if (attributes.query.kind === NodeKind.SavedInsightNode) {
-            const logic = insightLogic.findMounted({ dashboardItemId: attributes.query.shortId })
-            if (logic && logic.values.insight.filters) {
-                const query: InsightVizNode = {
-                    kind: NodeKind.InsightVizNode,
-                    source: filtersToQueryNode(logic.values.insight.filters),
-                }
-                updateAttributes({ query: query })
+            const insightProps: InsightLogicProps = { dashboardItemId: attributes.query.shortId }
+            const dataLogic = insightDataLogic.findMounted(insightProps)
+
+            if (dataLogic) {
+                updateAttributes({
+                    query: { ...dataLogic.values.query, full: false } as QuerySchema,
+                })
             }
         }
     }
