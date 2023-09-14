@@ -274,7 +274,9 @@ export class SessionManager {
      * Flushing takes the current buffered file and moves it to the flush buffer
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
-    public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
+    public async flush(
+        reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime' | 'parition_shutdown'
+    ): Promise<void> {
         // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
         if (this.flushBuffer) {
             status.warn('🚽', '[session-manager] flush called but we already have a flush buffer', {

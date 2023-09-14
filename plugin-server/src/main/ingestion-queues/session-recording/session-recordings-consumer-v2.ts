@@ -19,6 +19,7 @@ import { ObjectStorage } from '../../services/object_storage'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
+import { PartitionLocker } from './services/partition-locker'
 import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { SessionManager } from './services/session-manager'
@@ -95,12 +96,14 @@ export class SessionRecordingIngesterV2 {
     offsetHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager
     replayEventsIngester: ReplayEventsIngester
+    paritionLocker: PartitionLocker
     batchConsumer?: BatchConsumer
     flushInterval: NodeJS.Timer | null = null
     partitionAssignments: Record<number, PartitionMetrics> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
     offsetsRefresher: BackgroundRefresher<Record<number, number>>
     recordingConsumerConfig: PluginsServerConfig
+    topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 
     constructor(
         private serverConfig: PluginsServerConfig,
@@ -110,6 +113,7 @@ export class SessionRecordingIngesterV2 {
     ) {
         this.recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
         this.realtimeManager = new RealtimeManager(this.redisPool, this.recordingConsumerConfig)
+        this.paritionLocker = new PartitionLocker(this.redisPool)
 
         this.offsetHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
@@ -294,6 +298,13 @@ export class SessionRecordingIngesterV2 {
 
                 const recordingMessages: IncomingRecordingMessage[] = []
 
+                const parititonTopics = messages.map((message) => ({
+                    partition: message.partition,
+                    topic: message.topic,
+                }))
+
+                await this.paritionLocker.check(parititonTopics)
+
                 for (const message of messages) {
                     const { partition, offset, timestamp } = message
 
@@ -417,53 +428,11 @@ export class SessionRecordingIngesterV2 {
              * e.g. round-robin and cooperative strategies will assign partitions differently
              */
             if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-                /**
-                 * The assign_partitions indicates that the consumer group has new assignments.
-                 * We don't need to do anything, but it is useful to log for debugging.
-                 */
-
-                topicPartitions.forEach((topicPartition: TopicPartition) => {
-                    this.partitionAssignments[topicPartition.partition] = {}
-                })
-
-                await this.offsetsRefresher.refresh()
-
-                return
+                return this.onAssignPartitions(topicPartitions)
             }
 
             if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                /**
-                 * The revoke_partitions indicates that the consumer group has had partitions revoked.
-                 * As a result, we need to drop all sessions currently managed for the revoked partitions
-                 */
-
-                const revokedPartitions = topicPartitions.map((x) => x.partition)
-                if (!revokedPartitions.length) {
-                    return
-                }
-
-                const sessionsToDrop = Object.entries(this.sessions).filter(([_, sessionManager]) =>
-                    revokedPartitions.includes(sessionManager.partition)
-                )
-
-                gaugeSessionsRevoked.set(sessionsToDrop.length)
-                gaugeSessionsHandled.remove()
-
-                topicPartitions.forEach((topicPartition: TopicPartition) => {
-                    const partition = topicPartition.partition
-
-                    delete this.partitionAssignments[partition]
-                    gaugeLag.remove({ partition })
-                    gaugeLagMilliseconds.remove({ partition })
-                    gaugeOffsetCommitted.remove({ partition })
-                    gaugeOffsetCommitFailed.remove({ partition })
-                    this.offsetHighWaterMarker.revoke(topicPartition)
-                })
-
-                await this.destroySessions(sessionsToDrop)
-                await this.offsetsRefresher.refresh()
-
-                return
+                return this.onRevokePartitions(topicPartitions)
             }
 
             // We had a "real" error
@@ -482,15 +451,88 @@ export class SessionRecordingIngesterV2 {
             status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
             await this.stop()
         })
+    }
 
-        // // We trigger the flushes from this level to reduce the number of running timers
-        // this.flushInterval = setInterval(async () => {
-        //     status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
+    public async stop(): Promise<void> {
+        status.info('🔁', 'blob_ingester_consumer - stopping')
 
-        //     await this.flushAllReadySessions(false)
+        if (this.flushInterval) {
+            clearInterval(this.flushInterval)
+        }
 
-        //     status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
-        // }, flushIntervalTimeoutMs)
+        // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
+        await this.batchConsumer?.stop()
+
+        // simulate a revoke command to try and flush all sessions
+        await this.onRevokePartitions(
+            Object.keys(this.partitionAssignments).map((partition) => ({
+                partition: parseInt(partition),
+                topic: this.topic,
+            })) as TopicPartition[]
+        )
+
+        await this.realtimeManager.unsubscribe()
+        await this.replayEventsIngester.stop()
+
+        // This is inefficient but currently necessary due to new instances restarting from the committed offset point
+        await this.destroySessions(Object.entries(this.sessions))
+
+        this.sessions = {}
+
+        gaugeRealtimeSessions.reset()
+    }
+
+    public isHealthy() {
+        // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
+        return this.batchConsumer?.isHealthy()
+    }
+
+    async onAssignPartitions(topicPartitions: TopicPartition[]): Promise<void> {
+        topicPartitions.forEach((topicPartition: TopicPartition) => {
+            this.partitionAssignments[topicPartition.partition] = {}
+        })
+
+        await this.offsetsRefresher.refresh()
+    }
+
+    async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
+        /**
+         * The revoke_partitions indicates that the consumer group has had partitions revoked.
+         * As a result, we need to drop all sessions currently managed for the revoked partitions
+         */
+
+        const revokedPartitions = topicPartitions.map((x) => x.partition)
+        if (!revokedPartitions.length) {
+            return
+        }
+
+        const sessionsToDrop = Object.entries(this.sessions).filter(([_, sessionManager]) =>
+            revokedPartitions.includes(sessionManager.partition)
+        )
+
+        gaugeSessionsRevoked.set(sessionsToDrop.length)
+        gaugeSessionsHandled.remove()
+
+        // Attempt to flush all sessions
+        // TODO: Improve this to
+        // - work from oldest to newest
+        // - have some sort of timeout so we don't get stuck here forever
+        status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
+        await Promise.all(sessionsToDrop.map(([_, sessionManager]) => sessionManager.flush('parition_shutdown')))
+
+        topicPartitions.forEach((topicPartition: TopicPartition) => {
+            const partition = topicPartition.partition
+
+            delete this.partitionAssignments[partition]
+            gaugeLag.remove({ partition })
+            gaugeLagMilliseconds.remove({ partition })
+            gaugeOffsetCommitted.remove({ partition })
+            gaugeOffsetCommitFailed.remove({ partition })
+            this.offsetHighWaterMarker.revoke(topicPartition)
+        })
+
+        await this.destroySessions(sessionsToDrop)
+        await this.offsetsRefresher.refresh()
     }
 
     async flushAllReadySessions(wait: boolean): Promise<void> {
@@ -536,25 +578,6 @@ export class SessionRecordingIngesterV2 {
         gaugeRealtimeSessions.set(
             Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtimeTail ? 1 : 0), 0)
         )
-    }
-
-    public async stop(): Promise<void> {
-        status.info('🔁', 'blob_ingester_consumer - stopping')
-
-        if (this.flushInterval) {
-            clearInterval(this.flushInterval)
-        }
-
-        await this.realtimeManager.unsubscribe()
-        await this.replayEventsIngester.stop()
-        await this.batchConsumer?.stop()
-
-        // This is inefficient but currently necessary due to new instances restarting from the committed offset point
-        await this.destroySessions(Object.entries(this.sessions))
-
-        this.sessions = {}
-
-        gaugeRealtimeSessions.reset()
     }
 
     // Given a topic and partition and a list of offsets, commit the highest offset
