@@ -9,7 +9,6 @@ import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recordin
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import recording_playlists from './__mocks__/recording_playlists.json'
-import { ReplayTabs } from '~/types'
 
 const meta: Meta = {
     title: 'Scenes-App/Recordings',
@@ -17,6 +16,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        waitForSelector: '.PlayerFrameOverlay__content[aria-busy="false"]',
     },
     decorators: [
         mswDecorator({
@@ -97,16 +97,10 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function RecordingsList(): JSX.Element {
+
+export function RecentRecordings(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.replay())
-    }, [])
-    return <App />
-}
-
-export function RecordingsPlayLists(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replay(ReplayTabs.Playlists))
     }, [])
     return <App />
 }
