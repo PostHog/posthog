@@ -25,3 +25,5 @@ async-trait = "0.1.68"
 serde_urlencoded = "0.7.1"
 rand = "0.8.5"
 rdkafka = { version = "0.34", features = ["cmake-build"] }
+metrics = "0.21.1"
+metrics-exporter-prometheus = "0.12.1"

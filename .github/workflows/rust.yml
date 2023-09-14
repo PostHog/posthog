@@ -30,7 +30,7 @@ jobs:
         key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Run cargo build
-      run: cargo build --all --locked --release && strip target/release/capture
+      run: cargo build --all --locked --release && strip target/release/capture-server
 
   test:
     runs-on: buildjet-4vcpu-ubuntu-2204

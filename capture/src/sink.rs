@@ -20,6 +20,8 @@ impl EventSink for PrintSink {
     async fn send(&self, event: ProcessedEvent) -> Result<()> {
         tracing::info!("single event: {:?}", event);
 
+        metrics::increment_counter!("capture_events_total");
+
         Ok(())
     }
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<()> {
@@ -27,6 +29,7 @@ impl EventSink for PrintSink {
         let _enter = span.enter();
 
         for event in events {
+            metrics::increment_counter!("capture_events_total");
             tracing::info!("event: {:?}", event);
         }
 
@@ -68,9 +71,15 @@ impl KafkaSink {
             timestamp: None,
             headers: None,
         }) {
-            Ok(_) => {}
+            Ok(_) => {
+                metrics::increment_counter!("capture_events_total");
+            }
             Err(e) => {
                 tracing::error!("failed to produce event: {}", e.0);
+
+                // TODO(maybe someday): Don't drop them but write them somewhere and try again
+                // later?
+                metrics::increment_counter!("capture_events_dropped");
 
                 // TODO: Improve error handling
                 return Err(anyhow!("failed to produce event {}", e.0));

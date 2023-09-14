@@ -1,3 +1,4 @@
+use std::future::ready;
 use std::sync::Arc;
 
 use axum::{
@@ -7,6 +8,8 @@ use axum::{
 use tower_http::trace::TraceLayer;
 
 use crate::{capture, sink, time::TimeSource};
+
+use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 #[derive(Clone)]
 pub struct State {
@@ -24,23 +27,30 @@ pub fn router<
 >(
     timesource: TZ,
     sink: S,
+    metrics: bool,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
     };
 
-    Router::new()
+    let router = Router::new()
         // TODO: use NormalizePathLayer::trim_trailing_slash
         .route("/", get(index))
-        .route("/capture", post(capture::event))
-        .route("/capture/", post(capture::event))
-        .route("/batch", post(capture::event))
-        .route("/batch/", post(capture::event))
-        .route("/e", post(capture::event))
-        .route("/e/", post(capture::event))
-        .route("/engage", post(capture::event))
-        .route("/engage/", post(capture::event))
+        .route("/i/v0/e", post(capture::event))
+        .route("/i/v0/e/", post(capture::event))
         .layer(TraceLayer::new_for_http())
-        .with_state(state)
+        .layer(axum::middleware::from_fn(track_metrics))
+        .with_state(state);
+
+    // Don't install metrics unless asked to
+    // Installing a global recorder when capture is used as a library (during tests etc)
+    // does not work well.
+    if metrics {
+        let recorder_handle = setup_metrics_recorder();
+
+        router.route("/metrics", get(move || ready(recorder_handle.render())))
+    } else {
+        router
+    }
 }

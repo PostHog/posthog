@@ -1,6 +1,7 @@
 pub mod api;
 pub mod capture;
 pub mod event;
+pub mod prometheus;
 pub mod router;
 pub mod sink;
 pub mod time;

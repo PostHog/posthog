@@ -26,6 +26,8 @@ async-trait = { workspace = true }
 serde_urlencoded = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = "2.0.2"
