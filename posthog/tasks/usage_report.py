@@ -701,7 +701,7 @@ def _get_teams_for_usage_reports() -> Sequence[Team]:
     )
 
 
-def _get_team_report(all_data: Dict[str, Any], team: Team):
+def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounters:
     decide_requests_count_in_month = all_data["teams_with_decide_requests_count_in_month"].get(team.id, 0)
     decide_requests_count_in_period = all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0)
     local_evaluation_requests_count_in_period = all_data["teams_with_local_evaluation_requests_count_in_period"].get(
@@ -751,7 +751,7 @@ def _get_team_report(all_data: Dict[str, Any], team: Team):
 
 def _add_team_report_to_org_reports(
     org_reports: Dict[str, OrgReport], team: Team, team_report: UsageReportCounters, period_start: datetime
-):
+) -> None:
     org_id = str(team.organization.id)
     if org_id not in org_reports:
         org_report = OrgReport(
@@ -805,7 +805,7 @@ def _get_full_org_usage_report(org_report: OrgReport, instance_metadata: Instanc
     )
 
 
-def _get_full_org_usage_report_as_dict(full_report: FullUsageReport):
+def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> Dict[str, Any]:
     return dataclasses.asdict(full_report)
 
 
