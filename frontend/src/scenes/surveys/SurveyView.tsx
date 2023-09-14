@@ -319,7 +319,9 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                     kind: NodeKind.TrendsQuery,
                     dateRange: {
                         date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
-                        date_to: dayjs().format('YYYY-MM-DD'),
+                        date_to: survey.end_date
+                            ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                            : dayjs().format('YYYY-MM-DD'),
                     },
                     series: [
                         {

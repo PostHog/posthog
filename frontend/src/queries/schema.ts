@@ -440,6 +440,11 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
 
+export interface LifecycleQueryResponse {
+    result: Record<string, any>[]
+    timings?: QueryTiming[]
+}
+
 export interface LifecycleQuery extends InsightsQueryBase {
     kind: NodeKind.LifecycleQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -448,6 +453,7 @@ export interface LifecycleQuery extends InsightsQueryBase {
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
+    response?: LifecycleQueryResponse
 }
 
 export type InsightQueryNode =
