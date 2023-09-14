@@ -285,7 +285,7 @@ export function EditSubscription({
                                         >
                                             {({ value, onChange }) => (
                                                 <LemonSelectMultiple
-                                                    onChange={(val: string[]) => onChange(val)}
+                                                    onChange={(val: string) => onChange(val)}
                                                     value={value}
                                                     disabled={slackDisabled}
                                                     mode="single"
