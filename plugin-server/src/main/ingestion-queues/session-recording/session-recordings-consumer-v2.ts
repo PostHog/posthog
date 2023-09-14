@@ -493,6 +493,7 @@ export class SessionRecordingIngesterV2 {
             this.partitionAssignments[topicPartition.partition] = {}
         })
 
+        await this.paritionLocker.claim(topicPartitions)
         await this.offsetsRefresher.refresh()
     }
 
@@ -536,6 +537,7 @@ export class SessionRecordingIngesterV2 {
 
         await this.destroySessions(sessionsToDrop)
         await this.offsetsRefresher.refresh()
+        await this.paritionLocker.releae(topicPartitions)
     }
 
     async flushAllReadySessions(): Promise<void> {
