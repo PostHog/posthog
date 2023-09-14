@@ -86,7 +86,7 @@ export class OffsetHighWaterMarker {
                 await client.zadd(key, 'GT', offset, id)
             })
         } catch (error) {
-            status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
+            status.error('🧨', 'OffsetHighWaterMarker failed to add high-water mark for partition', {
                 error: error.message,
                 key,
                 ...tp,
@@ -127,7 +127,7 @@ export class OffsetHighWaterMarker {
                 await client.zremrangebyscore(key, '-Inf', offset)
             })
         } catch (error) {
-            status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
+            status.error('🧨', 'OffsetHighWaterMarker failed to commit high-water mark for partition', {
                 error: error.message,
                 key,
                 ...tp,

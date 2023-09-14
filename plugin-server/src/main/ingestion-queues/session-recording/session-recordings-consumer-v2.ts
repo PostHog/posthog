@@ -31,6 +31,8 @@ require('@sentry/tracing')
 
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
+const HIGH_WATERMARK_KEY = 'session_replay_blob_ingester'
+
 // const flushIntervalTimeoutMs = 30000
 
 const gaugeSessionsHandled = new Gauge({
@@ -96,7 +98,7 @@ export class SessionRecordingIngesterV2 {
     offsetHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager
     replayEventsIngester: ReplayEventsIngester
-    paritionLocker: PartitionLocker
+    partitionLocker: PartitionLocker
     batchConsumer?: BatchConsumer
     flushInterval: NodeJS.Timer | null = null
     partitionAssignments: Record<number, PartitionMetrics> = {}
@@ -113,7 +115,7 @@ export class SessionRecordingIngesterV2 {
     ) {
         this.recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
         this.realtimeManager = new RealtimeManager(this.redisPool, this.recordingConsumerConfig)
-        this.paritionLocker = new PartitionLocker(this.redisPool)
+        this.partitionLocker = new PartitionLocker(this.redisPool)
 
         this.offsetHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
@@ -171,17 +173,30 @@ export class SessionRecordingIngesterV2 {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const { partition, topic, offset } = event.metadata
+        const { offset } = event.metadata
 
         const highWaterMarkSpan = sentrySpan?.startChild({
             op: 'checkHighWaterMark',
         })
 
-        if (await this.offsetHighWaterMarker.isBelowHighWaterMark({ topic, partition }, session_id, offset)) {
+        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, offset)) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
                     drop_cause: 'high_water_mark',
+                })
+                .inc()
+
+            highWaterMarkSpan?.finish()
+            return
+        }
+
+        // Check that we are not past the high water mark for this partition
+        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, HIGH_WATERMARK_KEY, offset)) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'high_water_mark_partition',
                 })
                 .inc()
 
@@ -293,17 +308,9 @@ export class SessionRecordingIngesterV2 {
             { message: 'Processing batch is taking longer than 60 seconds', timeout: 60 * 1000 },
             async () => {
                 const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
-
                 histogramKafkaBatchSize.observe(messages.length)
 
                 const recordingMessages: IncomingRecordingMessage[] = []
-
-                const parititonTopics = messages.map((message) => ({
-                    partition: message.partition,
-                    topic: message.topic,
-                }))
-
-                await this.paritionLocker.check(parititonTopics)
 
                 for (const message of messages) {
                     const { partition, offset, timestamp } = message
@@ -493,7 +500,7 @@ export class SessionRecordingIngesterV2 {
             this.partitionAssignments[topicPartition.partition] = {}
         })
 
-        await this.paritionLocker.claim(topicPartitions)
+        await this.partitionLocker.claim(topicPartitions)
         await this.offsetsRefresher.refresh()
     }
 
@@ -537,7 +544,7 @@ export class SessionRecordingIngesterV2 {
 
         await this.destroySessions(sessionsToDrop)
         await this.offsetsRefresher.refresh()
-        await this.paritionLocker.releae(topicPartitions)
+        await this.partitionLocker.release(topicPartitions)
     }
 
     async flushAllReadySessions(): Promise<void> {
@@ -587,6 +594,7 @@ export class SessionRecordingIngesterV2 {
     // that is no longer found across any of the existing sessions.
     // This approach is fault-tolerant in that if anything goes wrong, the next commit on that partition will work
     public async commitOffset(topic: string, partition: number, offset: number): Promise<void> {
+        const topicPartition = { topic, partition }
         let potentiallyBlockingSession: SessionManager | undefined
 
         for (const sessionManager of Object.values(this.sessions)) {
@@ -627,13 +635,13 @@ export class SessionRecordingIngesterV2 {
         })
 
         this.batchConsumer?.consumer.commit({
-            topic,
-            partition,
+            ...topicPartition,
             // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
             // for some reason you commit the next offset you expect to read and not the one you actually have
             offset: highestOffsetToCommit + 1,
         })
 
+        await this.offsetHighWaterMarker.add(topicPartition, HIGH_WATERMARK_KEY, highestOffsetToCommit)
         await this.offsetHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
         gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
     }

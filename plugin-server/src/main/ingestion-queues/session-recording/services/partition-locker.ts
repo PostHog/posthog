@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { TopicPartition } from 'node-rdkafka-acosom'
 
@@ -6,17 +7,20 @@ import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
+export const topicPartitionKey = (prefix: string, tp: TopicPartition) => {
+    return `${prefix}/${tp.topic}/${tp.partition}`
+}
+
 /**
- * If a file is written to S3 we need to know the offset of the last message in that file so that we can
- * commit it to Kafka. But we don't write every offset as we bundle files to reduce the number of writes.
+ * Due to the nature of batching, we can't rely solely on Kafka for consumer locking.
  *
- * And not every attempted commit will succeed
- *
- * That means if a consumer restarts or a rebalance moves a partition to another consumer we need to know
- * which offsets have been written to S3 for each session, and which haven't
- * so that we don't re-process those messages.
+ * When a rebalance occurs we try to flush data to S3 so that the new consumer doesn't have to re-process it.
+ * To do this we keep a "lock" in place until we have flushed as much data as possible.
  */
 export class PartitionLocker {
+    consumerID = randomUUID()
+    delay = 1000
+
     constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/locks') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
@@ -30,30 +34,86 @@ export class PartitionLocker {
         }
     }
 
-    /* 
-        ## Check that partitions are locked to this consumer
-        - If the lock is claimed and not cleared after the timeout, this will eventually throw an error
-    */
-    public async check(tps: TopicPartition[]) {
-        await new Promise((r) => setTimeout(r, 1000))
+    private keys(tps: TopicPartition[]): string[] {
+        return tps.map((tp) => topicPartitionKey(this.keyPrefix, tp))
     }
-
     /* 
-        ## Claim the lock for partitions for this consumer
+        Claim the lock for partitions for this consumer
         - If already locked, we extend the TTL
         - If it is claimed, we wait and retry until it is cleared 
         - If unclaimed, we claim it
     */
     public async claim(tps: TopicPartition[]) {
-        await new Promise((r) => setTimeout(r, 1000))
+        const keys = this.keys(tps)
+        const unclaimedKeys = [...keys]
+
+        try {
+            while (unclaimedKeys.length > 0) {
+                await this.run(`claim keys that belong to this consumer`, async (client) => {
+                    await Promise.allSettled(
+                        keys.map(async (key) => {
+                            const existingClaim = await client.get(key)
+
+                            if (existingClaim && existingClaim !== this.consumerID) {
+                                // Still claimed by someone else!
+                                return
+                            }
+
+                            // Set the key so it is claimed by us
+                            const success = await client.set(key, this.consumerID, 'NX', 'EX', 30)
+
+                            if (success) {
+                                unclaimedKeys.splice(unclaimedKeys.indexOf(key), 1)
+                            }
+                        })
+                    )
+                })
+
+                if (unclaimedKeys.length > 0) {
+                    status.warn('🧨', `PartitionLocker failed to claim keys. Waiting ${this.delay} before retrying...`)
+                }
+            }
+        } catch (error) {
+            status.error('🧨', 'PartitionLocker failed to claim keys', {
+                error: error.message,
+                keys,
+            })
+            captureException(error, {
+                extra: {
+                    keys,
+                },
+            })
+        }
     }
 
     /* 
-        ## Release a lock for a partition
+        Release a lock for a partition
         - Clear our claim if it is set to our consumer so that another can claim it
     */
-    public async releae(tps: TopicPartition[]) {
-        await new Promise((r) => setTimeout(r, 1000))
+    public async release(tps: TopicPartition[]) {
+        const keys = this.keys(tps)
+        try {
+            await this.run(`release keys that belong to this consumer`, async (client) => {
+                await Promise.allSettled(
+                    keys.map(async (key) => {
+                        const value = await client.get(key)
+                        if (value === this.consumerID) {
+                            await client.del(key)
+                        }
+                    })
+                )
+            })
+        } catch (error) {
+            status.error('🧨', 'PartitionLocker failed to release keys', {
+                error: error.message,
+                keys,
+            })
+            captureException(error, {
+                extra: {
+                    keys,
+                },
+            })
+        }
     }
 
     // public async getWaterMarks(tp: TopicPartition): Promise<OffsetHighWaterMarks> {
