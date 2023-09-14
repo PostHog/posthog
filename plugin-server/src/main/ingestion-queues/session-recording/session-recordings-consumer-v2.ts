@@ -191,7 +191,7 @@ export class SessionRecordingIngesterV2 {
             return
         }
 
-        // Check that we are not past the high water mark for this partition
+        // Check that we are not below the high water mark for this partition (another consumer may have flushed further than us when revoking)
         if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, HIGH_WATERMARK_KEY, offset)) {
             eventDroppedCounter
                 .labels({
