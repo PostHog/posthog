@@ -40,11 +40,11 @@ import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { entityFilterLogicType } from '../entityFilterLogicType'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import { useSortable } from '@dnd-kit/sortable'
-import { SyntheticListenerMap } from '@dnd-kit/core/dist/hooks/utilities'
 import { CSS } from '@dnd-kit/utilities'
 import { LocalFilter } from '../entityFilterLogic'
+import { DraggableSyntheticListeners } from '@dnd-kit/core'
 
-const DragHandle = (props: SyntheticListenerMap | undefined): JSX.Element => (
+const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
     <span className="ActionFilterRowDragHandle" {...props}>
         <SortableDragIcon />
     </span>
