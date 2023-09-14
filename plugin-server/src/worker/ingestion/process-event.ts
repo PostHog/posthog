@@ -272,7 +272,7 @@ export interface SummarizedSessionRecordingEvent {
     team_id: number
     distinct_id: string
     session_id: string
-    first_url: string | undefined
+    first_url: string | null
     click_count: number
     keypress_count: number
     mouse_activity_count: number
@@ -281,6 +281,8 @@ export interface SummarizedSessionRecordingEvent {
     console_warn_count: number
     console_error_count: number
     size: number
+    event_count: number
+    message_count: number
 }
 
 export const createSessionReplayEvent = (
@@ -311,7 +313,7 @@ export const createSessionReplayEvent = (
     let consoleLogCount = 0
     let consoleWarnCount = 0
     let consoleErrorCount = 0
-    let url: string | undefined = undefined
+    let url: string | null = null
     events.forEach((event) => {
         if (event.type === 3) {
             mouseActivity += 1
@@ -322,7 +324,7 @@ export const createSessionReplayEvent = (
                 keypressCount += 1
             }
         }
-        if (!!event.data?.href?.trim().length && url === undefined) {
+        if (url === null && !!event.data?.href?.trim().length) {
             url = event.data.href
         }
         if (event.type === 6 && event.data?.plugin === 'rrweb/console@1') {
@@ -339,22 +341,26 @@ export const createSessionReplayEvent = (
 
     const activeTime = activeMilliseconds(events)
 
+    // NB forces types to be correct e.g. by truncating or rounding
+    // to ensure we don't send floats when we should send an integer
     const data: SummarizedSessionRecordingEvent = {
         uuid,
         team_id: team_id,
-        distinct_id: distinct_id,
+        distinct_id: String(distinct_id),
         session_id: session_id,
         first_timestamp: timestamps[0],
         last_timestamp: timestamps[timestamps.length - 1],
-        click_count: clickCount,
-        keypress_count: keypressCount,
-        mouse_activity_count: mouseActivity,
+        click_count: Math.trunc(clickCount),
+        keypress_count: Math.trunc(keypressCount),
+        mouse_activity_count: Math.trunc(mouseActivity),
         first_url: url,
-        active_milliseconds: activeTime,
-        console_log_count: consoleLogCount,
-        console_warn_count: consoleWarnCount,
-        console_error_count: consoleErrorCount,
-        size: Buffer.byteLength(JSON.stringify(events), 'utf8'),
+        active_milliseconds: Math.round(activeTime),
+        console_log_count: Math.trunc(consoleLogCount),
+        console_warn_count: Math.trunc(consoleWarnCount),
+        console_error_count: Math.trunc(consoleErrorCount),
+        size: Math.trunc(Buffer.byteLength(JSON.stringify(events), 'utf8')),
+        event_count: Math.trunc(events.length),
+        message_count: 1,
     }
 
     return data

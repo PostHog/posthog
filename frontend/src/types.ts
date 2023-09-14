@@ -2191,6 +2191,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     rollout_percentage: number | null
     experiment_set: string[] | null
     features: EarlyAccessFeatureType[] | null
+    surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -3019,6 +3020,8 @@ export type NotebookListItemType = {
 export type NotebookType = NotebookListItemType & {
     content: JSONContent // TODO: Type this better
     version: number
+    // used to power text-based search
+    text_content?: string | null
 }
 
 export enum NotebookNodeType {
@@ -3035,6 +3038,11 @@ export enum NotebookNodeType {
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+}
+
+export type NotebookNodeResource = {
+    attrs: Record<string, any>
+    type: NotebookNodeType
 }
 
 export enum NotebookTarget {
@@ -3089,6 +3097,8 @@ export type BatchExportDestinationS3 = {
         aws_secret_access_key: string
         exclude_events: string[]
         compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
     }
 }
 

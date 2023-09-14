@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { useCallback, useRef } from 'react'
 
 import { Editor as TTEditor } from '@tiptap/core'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { EditorContent, useEditor } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
@@ -25,7 +25,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
-import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
+import { EditorFocusPosition, EditorRange, JSONContent, Node, NotebookEditor, textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
@@ -182,6 +182,8 @@ export function Editor({
 
             onCreate({
                 getJSON: () => editor.getJSON(),
+                getText: () => textContent(editor.state.doc),
+                getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
@@ -198,6 +200,10 @@ export function Editor({
                         editor.chain().focus().insertContentAt(endPosition, content).run()
                         editor.commands.scrollIntoView()
                     }
+                },
+                pasteContent: (position: number, text: string) => {
+                    editor?.chain().focus().setTextSelection(position).run()
+                    editor?.view.pasteText(text)
                 },
                 findNode: (position: number) => findNode(editor, position),
                 findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),

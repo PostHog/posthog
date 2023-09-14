@@ -81,9 +81,13 @@ export const notebookLogic = kea<notebookLogicType>([
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
         scrollToSelection: true,
+        pasteAfterLastNode: (content: string) => ({
+            content,
+        }),
         insertAfterLastNode: (content: JSONContent) => ({
             content,
         }),
+
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
             content,
             nodeType,
@@ -174,6 +178,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         response = {
                             ...values.scratchpadNotebook,
                             content: {},
+                            text_content: null,
                             version: 0,
                         }
                     } else if (props.shortId.startsWith('template-')) {
@@ -206,6 +211,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
                             content: notebook.content,
+                            text_content: values.editor?.getText() || '',
                             title: notebook.title,
                         })
 
@@ -238,6 +244,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
                     const response = await api.notebooks.create({
                         content: values.content || values.notebook.content,
+                        text_content: values.editor?.getText() || '',
                         title: values.title || values.notebook.title,
                     })
 
@@ -356,6 +363,15 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             )
         },
+        pasteAfterLastNode: async ({ content }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    const endPosition = values.editor?.getEndPosition() || 0
+                    values.editor?.pasteContent(endPosition, content)
+                }
+            )
+        },
         insertAfterLastNodeOfType: async ({ content, nodeType, knownStartingPosition }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor,
@@ -417,6 +433,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
             const jsonContent = values.editor.getJSON()
+
             actions.setLocalContent(jsonContent)
             actions.onUpdateEditor()
         },

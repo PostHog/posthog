@@ -129,6 +129,7 @@ export interface PluginsServerConfig {
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
+    KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -188,6 +189,7 @@ export interface PluginsServerConfig {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number

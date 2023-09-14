@@ -99,7 +99,7 @@ class ActivityLog(UUIDModel):
 
 
 field_exclusions: Dict[ActivityScope, List[str]] = {
-    "Notebook": ["id", "last_modified_at", "last_modified_by", "created_at", "created_by"],
+    "Notebook": ["id", "last_modified_at", "last_modified_by", "created_at", "created_by", "text_content"],
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
     "Person": [
         "id",
