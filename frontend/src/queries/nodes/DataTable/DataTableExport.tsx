@@ -72,7 +72,7 @@ const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query
                     }
 
                     if (col === 'person') {
-                        return n.result?.[colIndex]?.properties?.email || n.result?.[colIndex]?.uuid
+                        return asDisplay(n.result?.[colIndex])
                     }
 
                     return n.result?.[colIndex]
@@ -161,7 +161,7 @@ function copyTableToJson(dataTableRows: DataTableRow[], columns: string[], query
     try {
         const tableData = getJsonTableData(dataTableRows, columns, query)
 
-        const json = JSON.stringify(tableData)
+        const json = JSON.stringify(tableData, null, 4)
 
         navigator.clipboard.writeText(json).then(() => {
             lemonToast.success('Table copied to clipboard!')
