@@ -808,9 +808,9 @@ def send_all_org_usage_reports(
                 **dataclasses.asdict(instance_metadata),
             )
             full_report_dict = dataclasses.asdict(full_report)
-            all_reports.append(full_report_dict)
 
             if dry_run:
+                all_reports.append(full_report_dict)
                 continue
 
             # First capture the events to PostHog

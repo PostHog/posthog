@@ -42,6 +42,4 @@ class Command(BaseCommand):
 
             if dry_run:
                 print("Dry run so not sent.")  # noqa T201
-            else:
-                print(f"{len(results)} Reports sent!")  # noqa T201
         print("Done!")  # noqa T201
