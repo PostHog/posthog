@@ -2,28 +2,9 @@ import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
 import { Editor as TTEditor } from '@tiptap/core'
-
-export function useJsonNodeState<T>(
-    attributes: NodeViewProps['node']['attrs'],
-    updateAttributes: NodeViewProps['updateAttributes'],
-    key: string
-): [T, (value: T) => void] {
-    let value = attributes[key]
-    try {
-        value = typeof value === 'string' ? JSON.parse(value) : value
-    } catch (e) {
-        console.error("Couldn't parse query", e)
-        value = {}
-    }
-
-    const setValue = (value: any): void => {
-        updateAttributes({
-            [key]: JSON.stringify(value),
-        })
-    }
-
-    return [value, setValue]
-}
+import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Notebook/utils'
+import { useCallback, useMemo, useRef } from 'react'
+import { tryJsonParse, uuid } from 'lib/utils'
 
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
@@ -110,4 +91,49 @@ export function selectFile(options: { contentType: string; multiple: boolean }):
 
         input.click()
     })
+}
+
+export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
+    props: NodeViewProps
+): [NotebookNodeAttributes<T>, (attrs: Partial<NotebookNodeAttributes<T>>) => void] {
+    const nodeId = useMemo(() => props.node.attrs.nodeId ?? uuid(), [props.node.attrs.nodeId])
+    const previousNodeAttrs = useRef<NodeViewProps['node']['attrs']>()
+    const parsedAttrs = useRef<NotebookNodeAttributes<T>>({} as NotebookNodeAttributes<T>)
+
+    if (previousNodeAttrs.current !== props.node.attrs) {
+        const newParsedAttrs = {}
+
+        Object.keys(props.node.attrs).forEach((key) => {
+            if (previousNodeAttrs.current?.[key] !== props.node.attrs[key]) {
+                // If changed, set it whilst trying to parse
+                newParsedAttrs[key] = tryJsonParse(props.node.attrs[key], props.node.attrs[key])
+            } else if (parsedAttrs.current) {
+                // Otherwise use the old value to preserve object equality
+                newParsedAttrs[key] = parsedAttrs.current[key]
+            }
+        })
+
+        parsedAttrs.current = newParsedAttrs as NotebookNodeAttributes<T>
+        parsedAttrs.current.nodeId = nodeId
+    }
+
+    previousNodeAttrs.current = props.node.attrs
+
+    const updateAttributes = useCallback(
+        (attrs: Partial<NotebookNodeAttributes<T>>): void => {
+            // We call the update whilst json stringifying
+            const stringifiedAttrs = Object.keys(attrs).reduce(
+                (acc, x) => ({
+                    ...acc,
+                    [x]: attrs[x] && typeof attrs[x] === 'object' ? JSON.stringify(attrs[x]) : attrs[x],
+                }),
+                {}
+            )
+
+            props.updateAttributes(stringifiedAttrs)
+        },
+        [props.updateAttributes]
+    )
+
+    return [parsedAttrs.current, updateAttributes]
 }
