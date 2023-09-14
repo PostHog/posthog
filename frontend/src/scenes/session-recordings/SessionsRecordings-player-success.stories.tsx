@@ -16,7 +16,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        waitForSelector: '.PlayerFrameOverlay__content[aria-busy="false"]',
+        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
     },
     decorators: [
         mswDecorator({
@@ -81,7 +81,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings?limit=100': (req) => {
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings': (req) => {
                     const playlistId = req.params.playlist_id
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
@@ -89,6 +89,12 @@ const meta: Meta = {
                 // without the session-recording-blob-replay feature flag, we only load via ClickHouse
                 '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
+                'api/projects/:team/notebooks': {
+                    count: 0,
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
             },
             post: {
                 '/api/projects/:team/query': recordingEventsJson,
