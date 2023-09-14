@@ -32,7 +32,15 @@
             height: 0;
         }
 
-        > ul,
+        ul {
+            list-style-type: disc;
+        }
+
+        ol {
+            list-style-type: decimal;
+        }
+
+        ul,
         ol {
             padding-left: 1rem;
 
@@ -40,11 +48,11 @@
                 p {
                     margin-bottom: 0.2rem;
                 }
-            }
-        }
 
-        > ul {
-            list-style: initial;
+                > p {
+                    display: inline-block;
+                }
+            }
         }
 
         > pre {
