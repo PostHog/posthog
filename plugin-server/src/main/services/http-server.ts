@@ -46,7 +46,7 @@ export function createHttpServer(
             //   }
             // }
             const checkResults = await Promise.all(
-                // Note that we do not ues `Promise.allSettled` here so we can
+                // Note that we do not use `Promise.allSettled` here so we can
                 // assume that all promises have resolved. If there was a
                 // rejected promise, the http server should catch it and return
                 // a 500 status code.
