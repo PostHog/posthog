@@ -13,8 +13,6 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookSidebar } from './NotebookSidebar'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
@@ -99,9 +97,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                 ) : null}
 
                 <div className="flex flex-1 justify-center space-x-2">
-                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOK_SETTINGS_WIDGETS}>
-                        <NotebookSidebar />
-                    </FlaggedFeature>
+                    <NotebookSidebar />
                     <ErrorBoundary>
                         <Editor
                             initialContent={content}
