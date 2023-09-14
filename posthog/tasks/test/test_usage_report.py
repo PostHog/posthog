@@ -20,6 +20,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Organization, Plugin, Team
 from posthog.models.dashboard import Dashboard
+from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -27,7 +28,14 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.schema import EventsQuery
 from posthog.session_recordings.test.test_factory import create_snapshot
-from posthog.tasks.usage_report import capture_event, send_all_org_usage_reports
+from posthog.tasks.usage_report import (
+    _get_all_org_reports,
+    _get_full_org_usage_report,
+    _get_full_org_usage_report_as_dict,
+    capture_event,
+    get_instance_metadata,
+    send_all_org_usage_reports,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -37,8 +45,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from posthog.models.event.util import create_event
-from posthog.utils import get_machine_id
+from posthog.utils import get_machine_id, get_previous_day
 
 logger = structlog.get_logger(__name__)
 
@@ -907,18 +914,26 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
-        all_reports = send_all_org_usage_reports(dry_run=False)
+        period = get_previous_day()
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+        full_report_as_dict = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
+        )
+        send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
         token = build_billing_token(license, self.organization)
         mock_post.assert_called_once_with(
-            f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
+            f"{BILLING_SERVICE_URL}/api/usage",
+            json=full_report_as_dict,
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         mock_posthog.capture.assert_any_call(
             get_machine_id(),
             "organization usage report",
-            {**all_reports[0], "scope": "machine"},
+            {**full_report_as_dict, "scope": "machine"},
             groups={"instance": ANY},
             timestamp=None,
         )
