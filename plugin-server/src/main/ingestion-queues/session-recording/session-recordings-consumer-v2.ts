@@ -360,7 +360,7 @@ export class SessionRecordingIngesterV2 {
 
                 await this.replayEventsIngester.consumeBatch(recordingMessages)
                 const timeout = timeoutGuard(`Flushing sessions timed out`, {}, 120 * 1000)
-                await this.flushAllReadySessions(true)
+                await this.flushAllReadySessions()
                 clearTimeout(timeout)
 
                 transaction.finish()
@@ -518,7 +518,7 @@ export class SessionRecordingIngesterV2 {
         // - work from oldest to newest
         // - have some sort of timeout so we don't get stuck here forever
         status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
-        await Promise.all(sessionsToDrop.map(([_, sessionManager]) => sessionManager.flush('parition_shutdown')))
+        await Promise.allSettled(sessionsToDrop.map(([_, sessionManager]) => sessionManager.flush('parition_shutdown')))
 
         topicPartitions.forEach((topicPartition: TopicPartition) => {
             const partition = topicPartition.partition
@@ -535,7 +535,7 @@ export class SessionRecordingIngesterV2 {
         await this.offsetsRefresher.refresh()
     }
 
-    async flushAllReadySessions(wait: boolean): Promise<void> {
+    async flushAllReadySessions(): Promise<void> {
         const promises: Promise<void>[] = []
         for (const [key, sessionManager] of Object.entries(this.sessions)) {
             // in practice, we will always have a values for latestKafkaMessageTimestamp,
@@ -570,9 +570,7 @@ export class SessionRecordingIngesterV2 {
             promises.push(flushPromise)
         }
 
-        if (wait) {
-            await Promise.allSettled(promises)
-        }
+        await Promise.allSettled(promises)
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
         gaugeRealtimeSessions.set(
