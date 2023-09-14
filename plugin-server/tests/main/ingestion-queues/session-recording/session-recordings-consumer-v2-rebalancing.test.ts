@@ -51,7 +51,6 @@ describe('ingester rebalancing tests', () => {
         ingesterOne = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
 
         await ingesterOne.start()
-
         await ingesterOne.consume(createIncomingRecordingMessage({ session_id: new UUIDT().toString() }))
         await ingesterOne.consume(createIncomingRecordingMessage({ session_id: new UUIDT().toString() }))
 

@@ -36,7 +36,10 @@ export class PartitionLocker {
     }
 
     private keys(tps: TopicPartition[]): string[] {
-        return tps.map((tp) => topicPartitionKey(this.keyPrefix, tp))
+        // Return a unique set of topicpartition keys
+        const keys = new Set<string>()
+        tps.forEach((tp) => keys.add(topicPartitionKey(this.keyPrefix, tp)))
+        return [...keys]
     }
     /* 
         Claim the lock for partitions for this consumer
@@ -47,6 +50,11 @@ export class PartitionLocker {
     public async claim(tps: TopicPartition[]) {
         const keys = this.keys(tps)
         const blockingConsumers = new Set(...[this.consumerID])
+
+        status.debug('🔒', `PartitionLocker trying to claim partitions...`, {
+            id: this.consumerID,
+            partitions: keys,
+        })
 
         try {
             while (blockingConsumers.size !== 0) {

@@ -303,7 +303,7 @@ export class SessionRecordingIngesterV2 {
         return recordingMessage
     }
 
-    private async handleEachBatch(messages: Message[]): Promise<void> {
+    public async handleEachBatch(messages: Message[]): Promise<void> {
         await asyncTimeoutGuard(
             { message: 'Processing batch is taking longer than 60 seconds', timeout: 60 * 1000 },
             async () => {

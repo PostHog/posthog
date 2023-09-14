@@ -1,3 +1,5 @@
+import { Message } from 'node-rdkafka-acosom'
+
 import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import jsonFullSnapshot from './data/snapshot-full.json'
 
@@ -29,4 +31,40 @@ export function createIncomingRecordingMessage(
     }
 
     return message
+}
+
+export function createKafkaMessage(
+    messageOverrides: Partial<Message> = {},
+    eventProperties: Record<string, any> = {}
+): Message {
+    const message: Message = {
+        partition: 1,
+        topic: 'topic',
+        offset: 0,
+        timestamp: messageOverrides.timestamp ?? Date.now(),
+        size: 1,
+        ...messageOverrides,
+
+        value: Buffer.from(
+            JSON.stringify({
+                distinct_id: 'distinct_id',
+                team_id: 1,
+                token: 'token',
+                data: JSON.stringify({
+                    properties: {
+                        $session_id: 'session_id_1',
+                        $window_id: 'window_id_1',
+                        $snapshot_items: [{ ...jsonFullSnapshot }],
+                        ...eventProperties,
+                    },
+                }),
+            })
+        ),
+    }
+
+    return message
+}
+
+export function createTP(partition: number, topic = 'topic') {
+    return { topic, partition }
 }

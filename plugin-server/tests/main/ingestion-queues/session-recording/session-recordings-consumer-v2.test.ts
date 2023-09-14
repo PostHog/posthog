@@ -7,13 +7,11 @@ import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngesterV2 } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v2'
 import { Hub, PluginsServerConfig } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
-import { createIncomingRecordingMessage } from './fixtures'
+import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
-const keyPrefix = 'test-session-offset-high-water-mark'
-
-async function deleteKeysWithPrefix(hub: Hub, keyPrefix: string) {
+async function deleteKeysWithPrefix(hub: Hub) {
     const redisClient = await hub.redisPool.acquire()
-    const keys = await redisClient.keys(`${keyPrefix}*`)
+    const keys = await redisClient.keys(`@posthog/replay/*`)
     const pipeline = redisClient.pipeline()
     keys.forEach(function (key) {
         console.log('deleting key', key)
@@ -24,6 +22,9 @@ async function deleteKeysWithPrefix(hub: Hub, keyPrefix: string) {
 }
 
 const mockCommit = jest.fn()
+const mockQueryWatermarkOffsets = jest.fn((_1, _2, cb) => {
+    cb(null, { highOffset: 0, lowOffset: 0 })
+})
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -37,6 +38,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                     on: jest.fn(),
                     commitSync: mockCommit,
                     commit: mockCommit,
+                    queryWatermarkOffsets: mockQueryWatermarkOffsets,
                 },
             })
         ),
@@ -72,8 +74,9 @@ describe('ingester', () => {
     })
 
     afterEach(async () => {
+        jest.setTimeout(10000)
         jest.runOnlyPendingTimers()
-        await deleteKeysWithPrefix(hub, keyPrefix)
+        await deleteKeysWithPrefix(hub)
         await ingester.stop()
         await closeHub()
     })
@@ -88,7 +91,6 @@ describe('ingester', () => {
         ingester = new SessionRecordingIngesterV2(
             {
                 ...defaultConfig,
-                SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: keyPrefix,
             },
             hub.postgres,
             hub.objectStorage,
@@ -140,7 +142,7 @@ describe('ingester', () => {
             lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
         }
 
-        await ingester.flushAllReadySessions(true)
+        await ingester.flushAllReadySessions()
 
         jest.runOnlyPendingTimers() // flush timer
 
@@ -338,6 +340,114 @@ describe('ingester', () => {
                 ...metadata,
                 offset: 4,
             })
+        })
+    })
+
+    describe('simulated rebalancing', () => {
+        let otherIngester: SessionRecordingIngesterV2
+        jest.setTimeout(10000)
+
+        beforeEach(async () => {
+            otherIngester = new SessionRecordingIngesterV2(
+                {
+                    ...defaultConfig,
+                },
+                hub.postgres,
+                hub.objectStorage,
+                hub.redisPool
+            )
+            await otherIngester.start()
+        })
+
+        afterEach(async () => {
+            jest.setTimeout(10000)
+            await otherIngester.stop()
+        })
+        /**
+         * It is really hard to actually do rebalance tests against kafka, so we instead simulate the various methods and ensure the correct logic occurs
+         */
+        it('rebalances new consumers', async () => {
+            console.log('1')
+            const messages = [
+                createKafkaMessage(
+                    {
+                        partition: 1,
+                        offset: 1,
+                    },
+                    {
+                        $session_id: 'session_id_1',
+                    }
+                ),
+
+                createKafkaMessage(
+                    {
+                        partition: 1,
+                        offset: 2,
+                    },
+                    {
+                        $session_id: 'session_id_2',
+                    }
+                ),
+                createKafkaMessage(
+                    {
+                        partition: 2,
+                        offset: 1,
+                    },
+                    {
+                        $session_id: 'session_id_3',
+                    }
+                ),
+                createKafkaMessage(
+                    {
+                        partition: 2,
+                        offset: 2,
+                    },
+                    {
+                        $session_id: 'session_id_3',
+                    }
+                ),
+            ]
+
+            console.log('2')
+
+            await ingester.onAssignPartitions([createTP(1), createTP(2), createTP(3)])
+            console.log('3')
+            await ingester.handleEachBatch(messages)
+            console.log('4')
+
+            // await waitForExpect(() => {
+            //     // assertIngesterHasExpectedPartitions(ingester, [1])
+            // })
+
+            const rebalancePromises = [
+                ingester.onRevokePartitions([createTP(2), createTP(3)]),
+                otherIngester.onAssignPartitions([createTP(2), createTP(3)]),
+            ]
+
+            // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
+            // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
+            await otherIngester.handleEachBatch([
+                ...messages,
+                createKafkaMessage(
+                    {
+                        partition: 2,
+                        offset: 3,
+                    },
+                    {
+                        $session_id: 'session_id_4',
+                    }
+                ),
+            ])
+
+            await Promise.all(rebalancePromises)
+
+            // await waitForExpect(() => {
+            //     // because the rebalancing strategy is cooperative sticky the partition stays on the same ingester
+            //     assertIngesterHasExpectedPartitions(ingester, [1])
+
+            //     // only one partition so nothing for the new consumer to do
+            //     assertIngesterHasExpectedPartitions(otherIngester, [])
+            // })
         })
     })
 })
