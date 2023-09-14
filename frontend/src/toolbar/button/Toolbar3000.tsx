@@ -185,7 +185,7 @@ function FullMenu(): JSX.Element {
 
 function ToolbarInfoMenu(): JSX.Element {
     const menuRef = useRef<HTMLDivElement | null>(null)
-    const { dragPosition, menuPlacement, heatmapInfoVisible, actionsInfoVisible, flagsVisible } =
+    const { windowHeight, dragPosition, menuPlacement, heatmapInfoVisible, actionsInfoVisible, flagsVisible } =
         useValues(toolbarButtonLogic)
     const { setMenuPlacement } = useActions(toolbarButtonLogic)
     const { heatmapEnabled } = useValues(heatmapLogic)
@@ -210,7 +210,10 @@ function ToolbarInfoMenu(): JSX.Element {
             // needs to be a fixed value for animation to work
             menuRef.current.style.height = '40px'
         } else if (fullIsShowing) {
-            const heightAvailableForMenu = menuRef.current.getBoundingClientRect().bottom
+            let heightAvailableForMenu = menuRef.current.getBoundingClientRect().bottom
+            if (menuPlacement === 'bottom') {
+                heightAvailableForMenu = windowHeight - menuRef.current.getBoundingClientRect().top
+            }
             menuRef.current.style.height = `${heightAvailableForMenu - 10}px`
 
             // TODO what if there is less than 10 available
