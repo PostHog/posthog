@@ -463,7 +463,8 @@ export class SessionRecordingIngesterV2 {
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         await this.batchConsumer?.stop()
 
-        // simulate a revoke command to try and flush all sessions
+        // Simulate a revoke command to try and flush all sessions
+        // The rebalance event should have done this but we do it again as an extra precaution and to await the flushes
         await this.onRevokePartitions(
             Object.keys(this.partitionAssignments).map((partition) => ({
                 partition: parseInt(partition),
@@ -518,7 +519,9 @@ export class SessionRecordingIngesterV2 {
         // - work from oldest to newest
         // - have some sort of timeout so we don't get stuck here forever
         status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
-        await Promise.allSettled(sessionsToDrop.map(([_, sessionManager]) => sessionManager.flush('parition_shutdown')))
+        await Promise.allSettled(
+            sessionsToDrop.map(([_, sessionManager]) => sessionManager.flush('partition_shutdown'))
+        )
 
         topicPartitions.forEach((topicPartition: TopicPartition) => {
             const partition = topicPartition.partition

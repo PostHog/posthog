@@ -277,7 +277,7 @@ export class SessionManager {
      */
 
     public async flush(
-        reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime' | 'parition_shutdown'
+        reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime' | 'partition_shutdown'
     ): Promise<void> {
         if (!this.flushPromise) {
             this.flushPromise = this._flush(reason).finally(() => {
@@ -288,7 +288,7 @@ export class SessionManager {
         return this.flushPromise
     }
     private async _flush(
-        reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime' | 'parition_shutdown'
+        reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime' | 'partition_shutdown'
     ): Promise<void> {
         // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
         if (this.flushBuffer) {
