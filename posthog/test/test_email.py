@@ -71,10 +71,9 @@ class TestEmail(BaseTest):
         with override_instance_config("EMAIL_HOST", "localhost"):
             sent_at = timezone.now() - timezone.timedelta(days=8)
 
-            record, _ = MessagingRecord.objects.get_or_create(
-                raw_email="test0@posthog.com", campaign_key="campaign_2", resend_frequency_days=7
-            )
+            record, _ = MessagingRecord.objects.get_or_create(raw_email="test0@posthog.com", campaign_key="campaign_2")
             record.sent_at = sent_at
+            record.resend_frequency_days = 7
             record.save()
 
             assert record.resend_frequency_days == 7
@@ -103,10 +102,9 @@ class TestEmail(BaseTest):
         with override_instance_config("EMAIL_HOST", "localhost"):
             sent_at = timezone.now() - timezone.timedelta(days=20)
 
-            record, _ = MessagingRecord.objects.get_or_create(
-                raw_email="test0@posthog.com", campaign_key="campaign_2", resend_frequency_days=7
-            )
+            record, _ = MessagingRecord.objects.get_or_create(raw_email="test0@posthog.com", campaign_key="campaign_2")
             record.sent_at = sent_at
+            record.resend_frequency_days = 7
             record.resend_dates = [timezone.now().timestamp() - 10 * 24 * 60 * 60]
             record.save()
 
@@ -130,10 +128,9 @@ class TestEmail(BaseTest):
         with override_instance_config("EMAIL_HOST", "localhost"):
             sent_at = timezone.now() - timezone.timedelta(days=6)
 
-            record, _ = MessagingRecord.objects.get_or_create(
-                raw_email="test0@posthog.com", campaign_key="campaign_2", resend_frequency_days=7
-            )
+            record, _ = MessagingRecord.objects.get_or_create(raw_email="test0@posthog.com", campaign_key="campaign_2")
             record.sent_at = sent_at
+            record.resend_frequency_days = 7
             record.save()
 
             assert record.resend_frequency_days == 7

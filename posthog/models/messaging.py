@@ -31,4 +31,4 @@ class MessagingRecord(UUIDModel):
     resend_dates: models.JSONField = models.JSONField(default=list, null=True, blank=True)
 
     class Meta:
-        unique_together = ("email_hash", "campaign_key", "resend_frequency_days")  # one record per email per campaign
+        unique_together = ("email_hash", "campaign_key")  # one record per email per campaign

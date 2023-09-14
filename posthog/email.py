@@ -88,11 +88,12 @@ def _send_email(
 
     with transaction.atomic():
         for dest in to:
-            record, _ = MessagingRecord.objects.get_or_create(
-                raw_email=dest["raw_email"], campaign_key=campaign_key, resend_frequency_days=resend_frequency_days
-            )
+            record, _ = MessagingRecord.objects.get_or_create(raw_email=dest["raw_email"], campaign_key=campaign_key)
             # Lock object (database-level) while the message is sent
             record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+
+            if resend_frequency_days and resend_frequency_days != record.resend_frequency_days:
+                record.resend_frequency_days = resend_frequency_days
 
             if _should_send_email(record) is False:
                 record.save()
