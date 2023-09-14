@@ -28,6 +28,7 @@ rand = { workspace = true }
 rdkafka = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = "2.0.2"

@@ -4,7 +4,7 @@ use std::io::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use anyhow::{anyhow, Result};
+use crate::api::CaptureError;
 use bytes::{Buf, Bytes};
 use flate2::read::GzDecoder;
 use time::OffsetDateTime;
@@ -52,31 +52,48 @@ pub struct RawEvent {
     pub properties: HashMap<String, Value>,
 }
 
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawRequest {
+    /// Batch of events
+    Batch(Vec<RawEvent>),
+    /// Single event
+    One(RawEvent),
+}
+
+impl RawRequest {
+    pub fn events(self) -> Vec<RawEvent> {
+        match self {
+            RawRequest::Batch(events) => events,
+            RawRequest::One(event) => vec![event],
+        }
+    }
+}
+
 impl RawEvent {
     /// We post up _at least one_ event, so when decompressiong and deserializing there
     /// could be more than one. Hence this function has to return a Vec.
     /// TODO: Use an axum extractor for this
-    pub fn from_bytes(query: &EventQuery, bytes: Bytes) -> Result<Vec<RawEvent>> {
+    pub fn from_bytes(query: &EventQuery, bytes: Bytes) -> Result<Vec<RawEvent>, CaptureError> {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
         let payload = match query.compression {
             Some(Compression::GzipJs) => {
                 let mut d = GzDecoder::new(bytes.reader());
                 let mut s = String::new();
-                d.read_to_string(&mut s)?;
+                d.read_to_string(&mut s).map_err(|e| {
+                    tracing::error!("failed to decode gzip: {}", e);
+                    CaptureError::RequestDecodingError(String::from("invalid gzip data"))
+                })?;
                 s
             }
-            None => String::from_utf8(bytes.into())?,
+            None => String::from_utf8(bytes.into()).map_err(|e| {
+                tracing::error!("failed to decode body: {}", e);
+                CaptureError::RequestDecodingError(String::from("invalid body encoding"))
+            })?,
         };
-
         tracing::debug!(json = payload, "decoded event data");
-        if let Ok(events) = serde_json::from_str::<Vec<RawEvent>>(&payload) {
-            return Ok(events);
-        }
-        if let Ok(events) = serde_json::from_str::<RawEvent>(&payload) {
-            return Ok(vec![events]);
-        }
-        Err(anyhow!("unknown input shape"))
+        Ok(serde_json::from_str::<RawRequest>(&payload)?.events())
     }
 
     pub fn extract_token(&self) -> Option<String> {

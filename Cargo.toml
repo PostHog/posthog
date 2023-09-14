@@ -27,3 +27,4 @@ rand = "0.8.5"
 rdkafka = { version = "0.34", features = ["cmake-build"] }
 metrics = "0.21.1"
 metrics-exporter-prometheus = "0.12.1"
+thiserror = "1.0.48"

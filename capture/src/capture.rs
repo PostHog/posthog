@@ -2,10 +2,9 @@ use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
 use bytes::Bytes;
 
-use axum::{http::StatusCode, Json};
+use axum::Json;
 // TODO: stream this instead
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
@@ -16,7 +15,7 @@ use time::OffsetDateTime;
 use crate::event::ProcessingContext;
 use crate::token::validate_token;
 use crate::{
-    api::{CaptureResponse, CaptureResponseCode},
+    api::{CaptureError, CaptureResponse, CaptureResponseCode},
     event::{EventFormData, EventQuery, ProcessedEvent, RawEvent},
     router, sink,
     utils::uuid_v7,
@@ -28,7 +27,7 @@ pub async fn event(
     meta: Query<EventQuery>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<CaptureResponse>, (StatusCode, String)> {
+) -> Result<Json<CaptureResponse>, CaptureError> {
     tracing::debug!(len = body.len(), "new event request");
 
     let events = match headers
@@ -43,28 +42,14 @@ pub async fn event(
             RawEvent::from_bytes(&meta, payload.into())
         }
         _ => RawEvent::from_bytes(&meta, body),
-    };
-
-    let events = match events {
-        Ok(events) => events,
-        Err(e) => {
-            tracing::error!("failed to decode event: {:?}", e);
-            return Err((
-                StatusCode::BAD_REQUEST,
-                String::from("Failed to decode event"),
-            ));
-        }
-    };
+    }?;
 
     println!("Got events {:?}", &events);
 
     if events.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, String::from("No events in batch")));
+        return Err(CaptureError::EmptyBatch);
     }
-    let token = match extract_and_verify_token(&events) {
-        Ok(token) => token,
-        Err(msg) => return Err((StatusCode::UNAUTHORIZED, msg)),
-    };
+    let token = extract_and_verify_token(&events)?;
 
     let sent_at = meta.sent_at.and_then(|value| {
         let value_nanos: i128 = i128::from(value) * 1_000_000; // Assuming the value is in milliseconds, latest posthog-js releases
@@ -84,11 +69,7 @@ pub async fn event(
         client_ip: ip.to_string(),
     };
 
-    let processed = process_events(state.sink.clone(), &events, &context).await;
-
-    if let Err(msg) = processed {
-        return Err((StatusCode::BAD_REQUEST, msg));
-    }
+    process_events(state.sink.clone(), &events, &context).await?;
 
     Ok(Json(CaptureResponse {
         status: CaptureResponseCode::Ok,
@@ -98,12 +79,12 @@ pub async fn event(
 pub fn process_single_event(
     event: &RawEvent,
     context: &ProcessingContext,
-) -> Result<ProcessedEvent> {
+) -> Result<ProcessedEvent, CaptureError> {
     let distinct_id = match &event.distinct_id {
         Some(id) => id,
         None => match event.properties.get("distinct_id").map(|v| v.as_str()) {
             Some(Some(id)) => id,
-            _ => return Err(anyhow!("missing distinct_id")),
+            _ => return Err(CaptureError::MissingDistinctId),
         },
     };
 
@@ -119,7 +100,7 @@ pub fn process_single_event(
     })
 }
 
-pub fn extract_and_verify_token(events: &[RawEvent]) -> Result<String, String> {
+pub fn extract_and_verify_token(events: &[RawEvent]) -> Result<String, CaptureError> {
     let distinct_tokens: HashSet<Option<String>> = HashSet::from_iter(
         events
             .iter()
@@ -128,15 +109,15 @@ pub fn extract_and_verify_token(events: &[RawEvent]) -> Result<String, String> {
     );
 
     return match distinct_tokens.len() {
-        0 => Err(String::from("no token found in request")),
+        0 => Err(CaptureError::NoTokenError),
         1 => match distinct_tokens.iter().last() {
             Some(Some(token)) => {
-                validate_token(token).map_err(|err| String::from(err.reason()))?;
+                validate_token(token)?;
                 Ok(token.clone())
             }
-            _ => Err(String::from("no token found in request")),
+            _ => Err(CaptureError::NoTokenError),
         },
-        _ => Err(String::from("number of distinct tokens in batch > 1")),
+        _ => Err(CaptureError::MultipleTokensError),
     };
 }
 
@@ -144,34 +125,17 @@ pub async fn process_events<'a>(
     sink: Arc<dyn sink::EventSink + Send + Sync>,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
-) -> Result<(), String> {
-    let events: Vec<ProcessedEvent> = match events
+) -> Result<(), CaptureError> {
+    let events: Vec<ProcessedEvent> = events
         .iter()
         .map(|e| process_single_event(e, context))
-        .collect()
-    {
-        Err(_) => return Err(String::from("Failed to process all events")),
-        Ok(events) => events,
-    };
+        .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
 
     if events.len() == 1 {
-        let sent = sink.send(events[0].clone()).await;
-
-        if let Err(e) = sent {
-            tracing::error!("Failed to send event to sink: {:?}", e);
-
-            return Err(String::from("Failed to send event to sink"));
-        }
+        sink.send(events[0].clone()).await?;
     } else {
-        let sent = sink.send_batch(events).await;
-
-        if let Err(e) = sent {
-            tracing::error!("Failed to send batch events to sink: {:?}", e);
-
-            return Err(String::from("Failed to send batch events to sink"));
-        }
+        sink.send_batch(events).await?;
     }
-
     Ok(())
 }
 
