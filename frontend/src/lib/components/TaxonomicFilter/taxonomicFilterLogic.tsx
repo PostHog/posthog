@@ -527,7 +527,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                             !type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
                     )
                 }
-                q
                 const names = searchGroupTypes.map((type) => {
                     const taxonomicGroup = allTaxonomicGroups.find(
                         (tGroup) => tGroup.type == type
