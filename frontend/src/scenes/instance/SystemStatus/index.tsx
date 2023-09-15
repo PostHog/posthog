@@ -30,7 +30,7 @@ export function SystemStatus(): JSX.Element {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const tabs = [
+    let tabs = [
         {
             key: 'overview',
             label: 'System overview',
@@ -39,7 +39,7 @@ export function SystemStatus(): JSX.Element {
     ] as LemonTab<InstanceStatusTabName>[]
 
     if (user?.is_staff) {
-        tabs.concat([
+        tabs = tabs.concat([
             {
                 key: 'metrics',
                 label: 'Internal metrics',
