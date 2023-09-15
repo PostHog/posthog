@@ -28,26 +28,8 @@ class LifecycleQueryRunner(QueryRunner):
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "events_query": self.events_query,
+            "periods_query": self.periods_query,
         }
-
-        with self.timings.measure("periods_query"):
-            placeholders["periods_query"] = parse_select(
-                """
-                    SELECT (
-                        dateTrunc({interval}, {date_to}) - {number_interval_period}
-                    ) AS start_of_period
-                    FROM numbers(
-                        dateDiff(
-                            {interval},
-                            dateTrunc({interval}, {date_from}),
-                            dateTrunc({interval}, {date_to} + {one_interval_period})
-                        )
-                    )
-                """,
-                placeholders=placeholders,
-                timings=self.timings,
-            )
-
         with self.timings.measure("lifecycle_query"):
             lifecycle_query = parse_select(
                 """
@@ -246,3 +228,24 @@ class LifecycleQueryRunner(QueryRunner):
                 events_query.select_from.sample = sample_expr
 
         return events_query
+
+    @cached_property
+    def periods_query(self):
+        with self.timings.measure("periods_query"):
+            periods_query = parse_select(
+                """
+                    SELECT (
+                        dateTrunc({interval}, {date_to}) - {number_interval_period}
+                    ) AS start_of_period
+                    FROM numbers(
+                        dateDiff(
+                            {interval},
+                            dateTrunc({interval}, {date_from}),
+                            dateTrunc({interval}, {date_to} + {one_interval_period})
+                        )
+                    )
+                """,
+                placeholders=self.query_date_range.to_placeholders(),
+                timings=self.timings,
+            )
+        return periods_query
