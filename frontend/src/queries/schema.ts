@@ -43,6 +43,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
+    SourcedPersonsQuery = 'SourcedPersonsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -75,6 +76,7 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | TimeToSeeDataSessionsQuery
+    | SourcedPersonsQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -454,6 +456,18 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
     response?: LifecycleQueryResponse
+}
+
+export interface SourcedPersonsQueryResponse {
+    results: any[][]
+    hogql: string
+    timings?: QueryTiming[]
+}
+
+export interface SourcedPersonsQuery extends DataNode {
+    kind: NodeKind.SourcedPersonsQuery
+    source: InsightQueryNode
+    response?: SourcedPersonsQueryResponse
 }
 
 export type InsightQueryNode =

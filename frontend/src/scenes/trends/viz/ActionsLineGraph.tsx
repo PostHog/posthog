@@ -9,6 +9,9 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { trendsDataLogic } from '../trendsDataLogic'
+import { InsightQueryNode, NodeKind, SourcedPersonsQuery } from '~/queries/schema'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { combineUrl } from 'kea-router'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -16,6 +19,7 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { query } = useValues(dataNodeLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -76,6 +80,16 @@ export function ActionsLineGraph({
                           const dataset = points.referencePoint.dataset
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
+
+                          if (isLifecycle && query) {
+                              const personsQuery: SourcedPersonsQuery = {
+                                  kind: NodeKind.SourcedPersonsQuery,
+                                  source: query as InsightQueryNode,
+                              }
+                              const { url } = combineUrl('/debug', {}, { q: personsQuery })
+                              window.open(url, '_blank')
+                              return
+                          }
 
                           if (!dataset) {
                               return

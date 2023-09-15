@@ -399,6 +399,15 @@ class ShownAsValue(str, Enum):
     Lifecycle = "Lifecycle"
 
 
+class SourcedPersonsQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    hogql: str
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class StepOrderValue(str, Enum):
     strict = "strict"
     unordered = "unordered"
@@ -1206,6 +1215,15 @@ class InsightVizNode(BaseModel):
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
 
+class SourcedPersonsQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("SourcedPersonsQuery", const=True)
+    response: Optional[SourcedPersonsQueryResponse] = Field(None, description="Cached query response")
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+
+
 class Model(BaseModel):
     __root__: Union[
         DataTableNode,
@@ -1219,7 +1237,16 @@ class Model(BaseModel):
         LifecycleQuery,
         TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, HogQLMetadata, TimeToSeeDataSessionsQuery],
+        Union[
+            EventsNode,
+            EventsQuery,
+            ActionsNode,
+            PersonsNode,
+            HogQLQuery,
+            HogQLMetadata,
+            TimeToSeeDataSessionsQuery,
+            SourcedPersonsQuery,
+        ],
     ]
 
 

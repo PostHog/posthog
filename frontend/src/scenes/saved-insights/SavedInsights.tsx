@@ -241,6 +241,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightSQLIcon,
         inMenu: true,
     },
+    [NodeKind.SourcedPersonsQuery]: {
+        name: 'Sourced Persons',
+        description: 'List of persons derived from a complex query',
+        icon: IconPerson,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [

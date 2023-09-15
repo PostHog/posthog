@@ -26,7 +26,7 @@ from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
@@ -203,7 +203,10 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
 
     tag_queries(query=query_json)
 
-    if query_kind == "EventsQuery":
+    if query_kind == "LifecycleQuery" or query_kind == "SourcedPersonsQuery":
+        query_runner = get_query_runner(query_json, team)
+        return _unwrap_pydantic_dict(query_runner.run())
+    elif query_kind == "EventsQuery":
         events_query = EventsQuery.parse_obj(query_json)
         events_response = run_events_query(query=events_query, team=team, default_limit=default_limit)
         return _unwrap_pydantic_dict(events_response)
@@ -221,9 +224,6 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
         metadata_query = HogQLMetadata.parse_obj(query_json)
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)
         return _unwrap_pydantic_dict(metadata_response)
-    elif query_kind == "LifecycleQuery":
-        lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(lifecycle_query_runner.run())
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)
@@ -245,5 +245,4 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     else:
         if query_json.get("source"):
             return process_query(team, query_json["source"])
-
         raise ValidationError(f"Unsupported query kind: {query_kind}")

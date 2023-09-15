@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any, Dict
 
 from pydantic import BaseModel
 
@@ -7,6 +7,26 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.models import Team
+
+
+def get_query_runner(
+    query: Dict[str, Any] | BaseModel, team: Team, timings: Optional[HogQLTimings] = None
+) -> "QueryRunner":
+    kind = None
+    if isinstance(query, dict):
+        kind = query.get("kind", None)
+    elif hasattr(query, "kind"):
+        kind = query.kind
+
+    if kind == "LifecycleQuery":
+        from .lifecycle_query_runner import LifecycleQueryRunner
+
+        return LifecycleQueryRunner(query=query, team=team, timings=timings)
+    if kind == "SourcedPersonsQuery":
+        from .sourced_persons_query_runner import SourcedPersonsQueryRunner
+
+        return SourcedPersonsQueryRunner(query=query, team=team, timings=timings)
+    raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
 class QueryRunner:

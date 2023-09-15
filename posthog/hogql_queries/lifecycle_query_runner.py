@@ -77,7 +77,7 @@ class LifecycleQueryRunner(QueryRunner):
             return parse_select(
                 """
                 SELECT
-                    person_id, start_of_period as breakdown_1, status as breakdown_2
+                    distinct person_id --, start_of_period as breakdown_1, status as breakdown_2
                 FROM
                     {events_query}
                 """,

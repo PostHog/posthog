@@ -26,13 +26,20 @@ import {
     TimeToSeeDataJSONNode,
     DatabaseSchemaQuery,
     SavedInsightNode,
+    SourcedPersonsQuery,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
-    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
+    return (
+        isEventsQuery(node) ||
+        isPersonsNode(node) ||
+        isTimeToSeeDataSessionsQuery(node) ||
+        isHogQLQuery(node) ||
+        isSourcedPersonsQuery(node)
+    )
 }
 
 function isTimeToSeeDataJSONNode(node?: Node | null): node is TimeToSeeDataJSONNode {
@@ -72,6 +79,10 @@ export function isActionsNode(node?: Node | null): node is ActionsNode {
 
 export function isPersonsNode(node?: Node | null): node is PersonsNode {
     return node?.kind === NodeKind.PersonsNode
+}
+
+export function isSourcedPersonsQuery(node?: Node | null): node is SourcedPersonsQuery {
+    return node?.kind === NodeKind.SourcedPersonsQuery
 }
 
 export function isDataTableNode(node?: Node | null): node is DataTableNode {

@@ -95,6 +95,9 @@
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/SourcedPersonsQuery"
                 }
             ]
         },
@@ -1977,6 +1980,47 @@
         "ShownAsValue": {
             "enum": ["Volume", "Stickiness", "Lifecycle"],
             "type": "string"
+        },
+        "SourcedPersonsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "SourcedPersonsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/SourcedPersonsQueryResponse",
+                    "description": "Cached query response"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "SourcedPersonsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results", "hogql"],
+            "type": "object"
         },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
