@@ -58,9 +58,10 @@ def copy_tsv_to_postgres(tsv_file, postgres_connection, schema: str, table_name:
     tsv_file.seek(0)
 
     with postgres_connection.cursor() as cursor:
+        cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
         cursor.copy_from(
             tsv_file,
-            sql.Identifier(schema, table_name).as_string(postgres_connection),
+            table_name,
             null="",
             columns=schema_columns,
         )
