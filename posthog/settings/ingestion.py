@@ -1,7 +1,11 @@
 import os
 
+import structlog
+
 from posthog.settings.utils import get_from_env, get_list
 from posthog.utils import str_to_bool
+
+logger = structlog.get_logger(__name__)
 
 INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_IDS", ""))
 
