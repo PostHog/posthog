@@ -320,34 +320,16 @@ export function ActionFilterRow({
           ].filter(Boolean)
         : []
 
-    // return (
-    //     <div
-    //         ref={setNodeRef}
-    //         {...attributes}
-    //         style={{
-    //             position: 'relative',
-    //             zIndex: isDragging ? 1 : undefined,
-    //             transform: CSS.Transform.toString(transform),
-    //             transition,
-    //             touchAction: 'none',
-    //             background: index === 0 ? 'blue' : 'red',
-    //         }}
-    //     >
-    //         <DragHandle {...listeners} />
-    //         Hello
-    //     </div>
-    // )
-
     return (
         <li
             className={'ActionFilterRow'}
             ref={setNodeRef}
             {...attributes}
             style={{
+                position: 'relative',
                 zIndex: isDragging ? 1 : undefined,
                 transform: CSS.Translate.toString(transform),
                 transition,
-                position: 'relative',
             }}
         >
             <div className="ActionFilterRow-content">
