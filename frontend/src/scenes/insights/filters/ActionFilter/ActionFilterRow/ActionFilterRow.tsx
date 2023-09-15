@@ -152,7 +152,7 @@ export function ActionFilterRow({
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
-    const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: filter.uuid })
+    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -320,14 +320,34 @@ export function ActionFilterRow({
           ].filter(Boolean)
         : []
 
+    // return (
+    //     <div
+    //         ref={setNodeRef}
+    //         {...attributes}
+    //         style={{
+    //             position: 'relative',
+    //             zIndex: isDragging ? 1 : undefined,
+    //             transform: CSS.Transform.toString(transform),
+    //             transition,
+    //             touchAction: 'none',
+    //             background: index === 0 ? 'blue' : 'red',
+    //         }}
+    //     >
+    //         <DragHandle {...listeners} />
+    //         Hello
+    //     </div>
+    // )
+
     return (
-        <div
+        <li
             className={'ActionFilterRow'}
             ref={setNodeRef}
             {...attributes}
             style={{
+                zIndex: isDragging ? 1 : undefined,
                 transform: CSS.Translate.toString(transform),
                 transition,
+                position: 'relative',
             }}
         >
             <div className="ActionFilterRow-content">
@@ -474,7 +494,7 @@ export function ActionFilterRow({
                     />
                 </div>
             )}
-        </div>
+        </li>
     )
 }
 

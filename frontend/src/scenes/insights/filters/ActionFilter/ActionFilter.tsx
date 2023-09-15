@@ -19,7 +19,7 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { DndContext } from '@dnd-kit/core'
-import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -177,33 +177,40 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                 </BindLogic>
             )}
             {localFilters ? (
-                <DndContext
-                    onDragEnd={({ active, over }) => {
-                        if (over && active.id !== over.id) {
-                            onSortEnd({
-                                oldIndex: sortedItemIds.indexOf(active.id.toString()),
-                                newIndex: sortedItemIds.indexOf(over.id.toString()),
-                            })
-                        }
-                    }}
-                    modifiers={[restrictToVerticalAxis]}
-                >
-                    <SortableContext disabled={!sortable} items={sortedItemIds} strategy={verticalListSortingStrategy}>
-                        {localFilters.map((filter, index) => (
-                            <ActionFilterRow
-                                key={filter.uuid}
-                                typeKey={typeKey}
-                                filter={filter}
-                                index={index}
-                                filterCount={localFilters.length}
-                                showNestedArrow={showNestedArrow}
-                                singleFilter={singleFilter}
-                                hideFilter={hideFilter || readOnly}
-                                {...commonProps}
-                            />
-                        ))}
-                    </SortableContext>
-                </DndContext>
+                <ul>
+                    <DndContext
+                        onDragEnd={({ active, over }) => {
+                            if (over && active.id !== over.id) {
+                                onSortEnd({
+                                    oldIndex: sortedItemIds.indexOf(active.id.toString()),
+                                    newIndex: sortedItemIds.indexOf(over.id.toString()),
+                                })
+                            }
+                        }}
+                        modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                        collisionDetection={verticalSortableListCollisionDetection}
+                    >
+                        <SortableContext
+                            disabled={!sortable}
+                            items={sortedItemIds}
+                            strategy={verticalListSortingStrategy}
+                        >
+                            {localFilters.map((filter, index) => (
+                                <ActionFilterRow
+                                    key={filter.uuid}
+                                    typeKey={typeKey}
+                                    filter={filter}
+                                    index={index}
+                                    filterCount={localFilters.length}
+                                    showNestedArrow={showNestedArrow}
+                                    singleFilter={singleFilter}
+                                    hideFilter={hideFilter || readOnly}
+                                    {...commonProps}
+                                />
+                            ))}
+                        </SortableContext>
+                    </DndContext>
+                </ul>
             ) : null}
             {!singleFilter && (
                 <div className="ActionFilter-footer">
@@ -228,3 +235,71 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         </div>
     )
 })
+
+import { CollisionDetection, DroppableContainer } from '@dnd-kit/core'
+
+export const verticalSortableListCollisionDetection: CollisionDetection = (args) => {
+    if (args.collisionRect.top < (args.active.rect.current?.initial?.top ?? 0)) {
+        return highestDroppableContainerMajorityCovered(args)
+    } else {
+        return lowestDroppableContainerMajorityCovered(args)
+    }
+}
+
+// Look for the first (/ furthest up / highest) droppable container that is at least
+// 50% covered by the top edge of the dragging container.
+const highestDroppableContainerMajorityCovered: CollisionDetection = ({ droppableContainers, collisionRect }) => {
+    const ascendingDroppabaleContainers = droppableContainers.sort(
+        (a, b) => (a?.rect.current?.top || 0) - (b?.rect.current?.top || 0)
+    )
+
+    for (const droppableContainer of ascendingDroppabaleContainers) {
+        const {
+            rect: { current: droppableRect },
+        } = droppableContainer
+
+        if (droppableRect) {
+            const coveredPercentage =
+                (droppableRect.top + droppableRect.height - collisionRect.top) / droppableRect.height
+
+            if (coveredPercentage > 0.5) {
+                return [collision(droppableContainer)]
+            }
+        }
+    }
+
+    // if we haven't found anything then we are off the top, so return the first item
+    return [collision(ascendingDroppabaleContainers[0])]
+}
+
+// Look for the last (/ furthest down / lowest) droppable container that is at least
+// 50% covered by the bottom edge of the dragging container.
+const lowestDroppableContainerMajorityCovered: CollisionDetection = ({ droppableContainers, collisionRect }) => {
+    const descendingDroppabaleContainers = droppableContainers
+        .sort((a, b) => (a?.rect.current?.top || 0) - (b?.rect.current?.top || 0))
+        .reverse()
+
+    for (const droppableContainer of descendingDroppabaleContainers) {
+        const {
+            rect: { current: droppableRect },
+        } = droppableContainer
+
+        if (droppableRect) {
+            const coveredPercentage = (collisionRect.bottom - droppableRect.top) / droppableRect.height
+
+            if (coveredPercentage > 0.5) {
+                return [collision(droppableContainer)]
+            }
+        }
+    }
+
+    // if we haven't found anything then we are off the bottom, so return the last item
+    return [collision(descendingDroppabaleContainers[0])]
+}
+
+const collision = (dropppableContainer?: DroppableContainer) => {
+    return {
+        id: dropppableContainer?.id ?? '',
+        value: dropppableContainer,
+    }
+}
