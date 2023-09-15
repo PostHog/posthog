@@ -166,6 +166,8 @@ export const FEATURE_FLAGS = {
     // owner: #team-monitoring
     SESSION_RECORDING_ALLOW_V1_SNAPSHOTS: 'session-recording-allow-v1-snapshots',
     SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
+    HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
+    WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

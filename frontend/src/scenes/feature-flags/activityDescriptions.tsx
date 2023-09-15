@@ -250,6 +250,7 @@ const featureFlagActionsMapping: Record<
     can_edit: () => null,
     analytics_dashboards: () => null,
     has_enriched_analytics: () => null,
+    surveys: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

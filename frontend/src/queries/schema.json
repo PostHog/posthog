@@ -1411,6 +1411,9 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/LifecycleQueryResponse"
+                },
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
@@ -1431,6 +1434,25 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "LifecycleQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "result": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["result"],
             "type": "object"
         },
         "LifecycleToggle": {

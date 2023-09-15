@@ -85,15 +85,20 @@ class S3MultiPartUploadState(typing.NamedTuple):
     parts: list[dict[str, str | int]]
 
 
+Part = dict[str, str | int]
+
+
 class S3MultiPartUpload:
     """An S3 multi-part upload."""
 
-    def __init__(self, s3_client, bucket_name, key):
+    def __init__(self, s3_client, bucket_name: str, key: str, encryption: str | None, kms_key_id: str | None):
         self.s3_client = s3_client
         self.bucket_name = bucket_name
         self.key = key
-        self.upload_id = None
-        self.parts = []
+        self.encryption = encryption
+        self.kms_key_id = kms_key_id
+        self.upload_id: str | None = None
+        self.parts: list[Part] = []
 
     def to_state(self) -> S3MultiPartUploadState:
         """Produce state tuple that can be used to resume this S3MultiPartUpload."""
@@ -119,10 +124,21 @@ class S3MultiPartUpload:
         if self.is_upload_in_progress() is True:
             raise UploadAlreadyInProgressError(self.upload_id)
 
-        multipart_response = self.s3_client.create_multipart_upload(Bucket=self.bucket_name, Key=self.key)
-        self.upload_id = multipart_response["UploadId"]
+        optional_kwargs = {}
+        if self.encryption:
+            optional_kwargs["ServerSideEncryption"] = self.encryption
+        if self.kms_key_id:
+            optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
 
-        return self.upload_id
+        multipart_response = self.s3_client.create_multipart_upload(
+            Bucket=self.bucket_name,
+            Key=self.key,
+            **optional_kwargs,
+        )
+        upload_id: str = multipart_response["UploadId"]
+        self.upload_id = upload_id
+
+        return upload_id
 
     def continue_from_state(self, state: S3MultiPartUploadState):
         """Continue this S3MultiPartUpload from a previous state."""
@@ -230,6 +246,8 @@ class S3InsertInputs:
     aws_secret_access_key: str | None = None
     compression: str | None = None
     exclude_events: list[str] | None = None
+    encryption: str | None = None
+    kms_key_id: str | None = None
 
 
 def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -241,7 +259,7 @@ def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3Mu
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
     )
-    s3_upload = S3MultiPartUpload(s3_client, inputs.bucket_name, key)
+    s3_upload = S3MultiPartUpload(s3_client, inputs.bucket_name, key, inputs.encryption, inputs.kms_key_id)
 
     details = activity.info().heartbeat_details
 
@@ -442,6 +460,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
             exclude_events=inputs.exclude_events,
+            encryption=inputs.encryption,
+            kms_key_id=inputs.kms_key_id,
         )
         try:
             await workflow.execute_activity(

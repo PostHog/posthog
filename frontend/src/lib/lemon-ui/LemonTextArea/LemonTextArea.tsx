@@ -138,7 +138,11 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 {
                     key: 'preview',
                     label: 'Preview',
-                    content: value ? <TextContent text={value} /> : <i>Nothing to preview</i>,
+                    content: value ? (
+                        <TextContent text={value} className={'LemonTextArea--preview'} />
+                    ) : (
+                        <i>Nothing to preview</i>
+                    ),
                 },
             ]}
         />

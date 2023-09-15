@@ -9,13 +9,13 @@
     overflow-y: auto;
 
     ul {
-        list-style: disc;
-        padding-inline-start: 1.5em;
+        list-style-type: disc;
+        list-style-position: inside;
     }
 
     ol {
-        list-style: numeric;
-        padding-inline-start: 1.5em;
+        list-style-type: numeric;
+        list-style-position: inside;
     }
 
     img {

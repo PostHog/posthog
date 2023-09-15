@@ -91,7 +91,6 @@ export async function createHub(
             : undefined,
         rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
     })
-    await clickhouse.querying('SELECT 1') // test that the connection works
     status.info('👍', `ClickHouse ready`)
 
     status.info('🤔', `Connecting to Kafka...`)
