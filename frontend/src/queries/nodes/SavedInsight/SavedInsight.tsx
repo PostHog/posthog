@@ -2,11 +2,11 @@ import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Query } from '~/queries/Query/Query'
-import { SavedInsightNode, NodeKind, QueryContext } from '~/queries/schema'
+import { SavedInsightNode, QueryContext } from '~/queries/schema'
 import { InsightLogicProps, InsightModel } from '~/types'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
-import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 interface InsightProps {
     query: SavedInsightNode
@@ -14,9 +14,10 @@ interface InsightProps {
     context?: QueryContext
 }
 
-export function SavedInsight({ query, context, cachedResults }: InsightProps): JSX.Element {
-    const insightProps: InsightLogicProps = { dashboardItemId: query.shortId, cachedInsight: cachedResults }
+export function SavedInsight({ query: propsQuery, context, cachedResults }: InsightProps): JSX.Element {
+    const insightProps: InsightLogicProps = { dashboardItemId: propsQuery.shortId, cachedInsight: cachedResults }
     const { insight, insightLoading } = useValues(insightLogic(insightProps))
+    const { query: dataQuery } = useValues(insightDataLogic(insightProps))
 
     if (insightLoading) {
         return (
@@ -30,10 +31,7 @@ export function SavedInsight({ query, context, cachedResults }: InsightProps): J
         throw new Error('InsightNode expects an insight with filters')
     }
 
-    return (
-        <Query
-            query={{ ...query, kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) }}
-            context={{ ...context, insightProps }}
-        />
-    )
+    const query = { ...propsQuery, ...dataQuery, full: propsQuery.full }
+
+    return <Query query={query} context={{ ...context, insightProps }} />
 }
