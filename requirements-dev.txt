@@ -62,7 +62,7 @@ cryptography==37.0.2
     #   -c requirements.txt
     #   pyopenssl
     #   urllib3
-datamodel-code-generator==0.16.1
+datamodel-code-generator==0.21.5
     # via -r requirements-dev.in
 django==3.2.19
     # via
@@ -291,8 +291,6 @@ tomli==1.2.3
     #   mypy
     #   pyproject-hooks
     #   pytest
-typed-ast==1.5.4
-    # via datamodel-code-generator
 types-freezegun==1.1.10
     # via -r requirements-dev.in
 types-markdown==3.3.9

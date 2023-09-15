@@ -2,10 +2,8 @@
 #   filename:  schema.json
 
 from __future__ import annotations
-
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
-
 from pydantic import BaseModel, Extra, Field
 
 
@@ -160,14 +158,6 @@ class EventType(BaseModel):
     properties: Dict[str, Any]
     timestamp: str
     uuid: Optional[str] = None
-
-
-class MathGroupTypeIndex1(float, Enum):
-    number_0 = 0
-    number_1 = 1
-    number_2 = 2
-    number_3 = 3
-    number_4 = 4
 
 
 class Response(BaseModel):
@@ -672,8 +662,8 @@ class EventsNode(BaseModel):
     )
     kind: str = Field("EventsNode", const=True)
     limit: Optional[float] = None
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str, str]] = None
-    math_group_type_index: Optional[MathGroupTypeIndex1] = None
+    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -892,7 +882,7 @@ class ActionsNode(BaseModel):
     )
     id: float
     kind: str = Field("ActionsNode", const=True)
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str, str]] = None
+    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
