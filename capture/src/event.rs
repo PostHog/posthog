@@ -121,7 +121,6 @@ pub struct ProcessedEvent {
     pub uuid: Uuid,
     pub distinct_id: String,
     pub ip: String,
-    pub site_url: String,
     pub data: String,
     pub now: String,
     #[serde(with = "time::serde::rfc3339::option")]

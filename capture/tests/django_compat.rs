@@ -140,7 +140,10 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
                     OffsetDateTime::parse(value.as_str().expect("empty"), &Iso8601::DEFAULT)?;
                 *value = Value::String(sent_at.format(&Rfc3339)?)
             }
-
+            if let Some(object) = expected.as_object_mut() {
+                // site_url is unused in the pipeline now, let's drop it
+                object.remove("site_url");
+            }
             let match_config = assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict);
             if let Err(e) =
                 assert_json_matches_no_panic(&json!(expected), &json!(message), match_config)

@@ -94,7 +94,6 @@ pub fn process_single_event(
         uuid: event.uuid.unwrap_or_else(uuid_v7),
         distinct_id: distinct_id.to_string(),
         ip: context.client_ip.clone(),
-        site_url: String::new(),
         data: String::from("hallo I am some data 😊"),
         now: context.now.clone(),
         sent_at: context.sent_at,
