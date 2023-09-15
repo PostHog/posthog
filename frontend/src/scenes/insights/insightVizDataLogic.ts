@@ -191,7 +191,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         updateDateRange: ({ dateRange }) => {
             const localQuerySource = values.querySource
                 ? values.querySource
@@ -242,6 +242,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         setQuery: ({ query }) => {
+            if (props.setQuery) {
+                props.setQuery(query as InsightVizNode)
+            }
+
             if (isInsightVizNode(query)) {
                 const querySource = query.source
                 const filters = queryNodeToFilter(querySource)
