@@ -24,7 +24,7 @@ class LifecycleQueryRunner(QueryRunner):
         else:
             self.query = LifecycleQuery.parse_obj(query)
 
-    def to_ast(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery:
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "events_query": self.events_query,
@@ -71,7 +71,8 @@ class LifecycleQueryRunner(QueryRunner):
             )
         return lifecycle_query
 
-    def to_persons_ast(self) -> str:
+    def to_persons_query(self) -> str:
+        # TODO: add support for selecting and filtering by breakdowns
         with self.timings.measure("persons_query"):
             return parse_select(
                 """
@@ -86,13 +87,13 @@ class LifecycleQueryRunner(QueryRunner):
     def run(self) -> LifecycleQueryResponse:
         response = execute_hogql_query(
             query_type="LifecycleQuery",
-            query=self.to_ast(),
+            query=self.to_query(),
             team=self.team,
             timings=self.timings,
         )
 
-        # TODO: move the data mangling part from below part into a SQL query as well
-        # This would enable us to swap LifecycleQuery with HogQLQuery in the contxt of an insight, if requested.
+        # TODO: can we move the data conversion part into the query as well? It would make it easier to swap
+        # e.g. the LifecycleQuery with HogQLQuery, while keeping the chart logic the same.
 
         # ensure that the items are in a deterministic order
         order = {"new": 1, "returning": 2, "resurrecting": 3, "dormant": 4}

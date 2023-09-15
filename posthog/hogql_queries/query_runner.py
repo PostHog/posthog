@@ -21,19 +21,17 @@ class QueryRunner:
     def run(self) -> BaseModel:
         raise NotImplementedError()
 
-    def to_ast(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery:
+        raise NotImplementedError()
+
+    def to_persons_query(self) -> str:
+        # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
     def to_hogql(self) -> str:
         with self.timings.measure("to_hogql"):
             return print_ast(
-                self.to_ast(),
+                self.to_query(),
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True, timings=self.timings),
                 "hogql",
             )
-
-    def to_persons_ast(self) -> str:
-        raise NotImplementedError()
-
-    def person_breakdown_options(self) -> list:
-        raise NotImplementedError()
