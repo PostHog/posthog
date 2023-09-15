@@ -14,7 +14,6 @@ import api from 'lib/api'
 
 import './NotebookNodeQuery.scss'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { IconSettings } from 'lib/lemon-ui/icons'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -33,7 +32,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const { expanded } = useValues(nodeLogic)
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...query, full: false }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -78,7 +77,7 @@ export const Settings = ({
     const { query } = attributes
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...query, full: false }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -104,9 +103,7 @@ export const Settings = ({
             const dataLogic = insightDataLogic.findMounted(insightProps)
 
             if (dataLogic) {
-                updateAttributes({
-                    query: { ...dataLogic.values.query, full: false } as QuerySchema,
-                })
+                updateAttributes({ query: dataLogic.values.query as QuerySchema })
             }
         }
     }
@@ -115,8 +112,8 @@ export const Settings = ({
         <div className="p-3 space-y-2">
             <div className="text-lg font-semibold">Insight created outside of this notebook</div>
             <div>
-                Changes made to the original insight will be reflected in the notebook. Or you can detach the from the
-                insight to make changes independently.
+                Changes made to the original insight will be reflected in the notebook. Or you can detach from the
+                insight to make changes independently in the notebook.
             </div>
 
             <div className="space-y-2">
@@ -127,7 +124,7 @@ export const Settings = ({
                     className="flex flex-1"
                     to={urls.insightEdit(attributes.query.shortId)}
                 >
-                    Go to insight
+                    Edit the insight
                 </LemonButton>
                 <LemonButton
                     center={true}
@@ -136,7 +133,7 @@ export const Settings = ({
                     className="flex flex-1"
                     onClick={detachSavedInsight}
                 >
-                    Detach the insight
+                    Detach from insight
                 </LemonButton>
             </div>
         </div>
