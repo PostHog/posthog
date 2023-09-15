@@ -190,6 +190,7 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             <LemonSelect
                                                 options={[
                                                     { value: 'gzip', label: 'gzip' },
+                                                    { value: 'brotli', label: 'brotli' },
                                                     { value: null, label: 'No compression' },
                                                 ]}
                                             />

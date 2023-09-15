@@ -1,6 +1,6 @@
 from dateutil import parser
 
-from posthog.hogql_queries.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import DateRange, IntervalType
 from posthog.test.base import APIBaseTest
 
