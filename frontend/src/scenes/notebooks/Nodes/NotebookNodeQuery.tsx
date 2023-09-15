@@ -7,7 +7,6 @@ import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import clsx from 'clsx'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
@@ -154,7 +153,6 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         {
             key: 'settings',
             label: 'Settings',
-            icon: <IconSettings />,
             Component: Settings,
         },
     ],
