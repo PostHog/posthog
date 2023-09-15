@@ -3,9 +3,10 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional
+from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional, Tuple
 
 from dateutil.parser import ParserError, parse
+from django.conf import settings
 from sentry_sdk.api import capture_exception
 
 from posthog.models import utils
@@ -126,11 +127,15 @@ def legacy_compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 10
         }
 
 
-def split_replay_events(events: List[Event]) -> List[Event]:
+def split_replay_events(events: List[Event]) -> Tuple[List[Event], List[Event]]:
     replay, other = [], []
 
     for event in events:
         replay.append(event) if is_unprocessed_snapshot_event(event) else other.append(event)
+
+    if not settings.SESSION_RECORDING_ALLOW_V1_INGESTION:
+        # if we are not ingesting v1 events, we should remove them from the list
+        other = [e for e in other if not is_snapshot_event(e)]
 
     return replay, other
 
@@ -249,15 +254,18 @@ def chunk_string(string: str, chunk_length: int) -> List[str]:
     return [string[0 + offset : chunk_length + offset] for offset in range(0, len(string), chunk_length)]
 
 
-def is_unprocessed_snapshot_event(event: Dict) -> bool:
+def is_snapshot_event(event) -> bool:
     try:
-        is_snapshot = event["event"] == "$snapshot"
+        return event["event"] == "$snapshot"
     except KeyError:
         raise ValueError('All events must have the event name field "event"!')
     except TypeError:
         raise ValueError(f"All events must be dictionaries not '{type(event).__name__}'!")
+
+
+def is_unprocessed_snapshot_event(event: Dict) -> bool:
     try:
-        return is_snapshot and "compression" not in event["properties"]["$snapshot_data"]
+        return is_snapshot_event(event) and "compression" not in event["properties"]["$snapshot_data"]
     except KeyError:
         capture_exception()
         raise ValueError('$snapshot events must contain property "$snapshot_data"!')

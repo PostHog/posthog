@@ -3,7 +3,6 @@ import json
 import re
 import time
 from datetime import datetime
-from random import random
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
@@ -72,6 +71,11 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
     "Events dropped by capture due to quota-limiting, per resource_type and token.",
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
+)
+
+SESSION_RECORDING_V1_EVENTS_DROPPED_COUNTER = Counter(
+    "capture_session_recording_v1_events_dropped",
+    "Events dropped by capture due to session recording v1 ingestion being disabled",
 )
 
 
@@ -367,19 +371,15 @@ def get_event(request):
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
 
-        consumer_destination = "v2" if random() <= settings.REPLAY_EVENTS_NEW_CONSUMER_RATIO else "v1"
-
         try:
             replay_events, other_events = split_replay_events(events)
             processed_replay_events = replay_events
 
-            if len(replay_events) > 0:
-                # Legacy solution stays in place
+            if len(replay_events) > 0 and settings.SESSION_RECORDING_ALLOW_V1_INGESTION:
+                # Legacy solution stays in place to allow self-hosted systems a chance to upgrade
+                # or to pin their version so that they can continue to ingest recordings to ClickHouse
+                # while not receiving other fixes and upgrades
                 processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
-
-                # Mark all events so that they are only consumed by one consumer
-                for event in processed_replay_events:
-                    event["properties"]["$snapshot_consumer"] = consumer_destination
 
             events = processed_replay_events + other_events
 
@@ -454,14 +454,9 @@ def get_event(request):
 
     try:
         if replay_events:
-            # The new flow we only enable if the dedicated kafka is enabled
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
-
-            # Mark all events so that they are only consumed by one consumer
-            for event in alternative_replay_events:
-                event["properties"]["$snapshot_consumer"] = consumer_destination
 
             futures = []
 
