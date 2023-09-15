@@ -2,7 +2,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
-import { DataWarehousePageTabs, dataWarehouseTabsLogic } from '../DataWarehousePageTabs'
+import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
 import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { useActions, useValues } from 'kea'
@@ -17,7 +17,6 @@ export const scene: SceneExport = {
 
 export function DataWarehousePosthogScene(): JSX.Element {
     const { toggleFieldModal } = useActions(viewLinkLogic)
-    const { tab } = useValues(dataWarehouseTabsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     return (
         <div>
@@ -47,7 +46,7 @@ export function DataWarehousePosthogScene(): JSX.Element {
                     ) : undefined
                 }
             />
-            <DataWarehousePageTabs tab={tab} />
+            <DataWarehousePageTabs tab={DataWarehouseTab.Posthog} />
             <DatabaseTablesContainer />
             <ViewLinkModal tableSelectable={true} />
         </div>
