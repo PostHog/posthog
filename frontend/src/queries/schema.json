@@ -1910,8 +1910,16 @@
         "SavedInsightNode": {
             "additionalProperties": false,
             "properties": {
+                "allowSorting": {
+                    "description": "Can the user click on column headers to sort the table? (default: true)",
+                    "type": "boolean"
+                },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",
+                    "type": "boolean"
+                },
+                "expandable": {
+                    "description": "Can expand row to show raw event data (default: true)",
                     "type": "boolean"
                 },
                 "full": {
@@ -1922,10 +1930,38 @@
                     "const": "SavedInsightNode",
                     "type": "string"
                 },
+                "propertiesViaUrl": {
+                    "description": "Link properties via the URL (default: false)",
+                    "type": "boolean"
+                },
                 "shortId": {
                     "$ref": "#/definitions/InsightShortId"
                 },
+                "showActions": {
+                    "description": "Show the kebab menu at the end of the row",
+                    "type": "boolean"
+                },
+                "showColumnConfigurator": {
+                    "description": "Show a button to configure the table's columns if possible",
+                    "type": "boolean"
+                },
                 "showCorrelationTable": {
+                    "type": "boolean"
+                },
+                "showDateRange": {
+                    "description": "Show date range selector",
+                    "type": "boolean"
+                },
+                "showElapsedTime": {
+                    "description": "Show the time it takes to run a query",
+                    "type": "boolean"
+                },
+                "showEventFilter": {
+                    "description": "Include an event filter above the table (EventsNode only)",
+                    "type": "boolean"
+                },
+                "showExport": {
+                    "description": "Show the export button",
                     "type": "boolean"
                 },
                 "showFilters": {
@@ -1934,16 +1970,52 @@
                 "showHeader": {
                     "type": "boolean"
                 },
+                "showHogQLEditor": {
+                    "description": "Include a HogQL query editor above HogQL tables",
+                    "type": "boolean"
+                },
                 "showLastComputation": {
                     "type": "boolean"
                 },
                 "showLastComputationRefresh": {
                     "type": "boolean"
                 },
+                "showOpenEditorButton": {
+                    "description": "Show a button to open the current query as a new insight. (default: true)",
+                    "type": "boolean"
+                },
+                "showPersistentColumnConfigurator": {
+                    "description": "Show a button to configure and persist the table's default columns if possible",
+                    "type": "boolean"
+                },
+                "showPropertyFilter": {
+                    "description": "Include a property filter above the table",
+                    "type": "boolean"
+                },
+                "showReload": {
+                    "description": "Show a reload button",
+                    "type": "boolean"
+                },
                 "showResults": {
                     "type": "boolean"
                 },
+                "showResultsTable": {
+                    "description": "Show a results table",
+                    "type": "boolean"
+                },
+                "showSavedQueries": {
+                    "description": "Shows a list of saved queries",
+                    "type": "boolean"
+                },
+                "showSearch": {
+                    "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
                 "showTable": {
+                    "type": "boolean"
+                },
+                "showTimings": {
+                    "description": "Show a detailed query timing breakdown",
                     "type": "boolean"
                 }
             },
