@@ -43,4 +43,3 @@ class MessagingRecord(UUIDModel):
     campaign_key: models.CharField = models.CharField(max_length=128)
     sent_at: models.DateTimeField = models.DateTimeField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    attempt_count: models.IntegerField = models.IntegerField(null=True, blank=True)
