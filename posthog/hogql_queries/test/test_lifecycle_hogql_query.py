@@ -1,7 +1,7 @@
 from freezegun import freeze_time
 
+from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.models.utils import UUIDT
-from posthog.hogql_queries.lifecycle_hogql_query import run_lifecycle_query
 from posthog.schema import DateRange, IntervalType, LifecycleQuery, EventsNode
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
@@ -68,7 +68,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = LifecycleQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to), interval=interval, series=series
         )
-        return run_lifecycle_query(team=self.team, query=query)
+        return LifecycleQueryRunner(team=self.team, query=query).run()
 
     def test_lifecycle_query_whole_range(self):
         self._create_test_events()
