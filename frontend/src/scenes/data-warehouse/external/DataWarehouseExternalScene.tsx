@@ -30,13 +30,15 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    <LemonButton
-                        type="primary"
-                        to={urls.dataWarehouseTable('new')}
-                        data-attr="new-data-warehouse-table"
-                    >
-                        New Table
-                    </LemonButton>
+                    !shouldShowProductIntroduction ? (
+                        <LemonButton
+                            type="primary"
+                            to={urls.dataWarehouseTable('new')}
+                            data-attr="new-data-warehouse-table"
+                        >
+                            New Table
+                        </LemonButton>
+                    ) : undefined
                 }
                 caption={
                     <div>
