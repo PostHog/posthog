@@ -373,7 +373,7 @@ def get_event(request):
 
         try:
             replay_events, other_events = split_replay_events(events)
-            processed_replay_events = replay_events
+            processed_replay_events = []
 
             if len(replay_events) > 0 and settings.SESSION_RECORDING_ALLOW_V1_INGESTION:
                 # Legacy solution stays in place to allow self-hosted systems a chance to upgrade
