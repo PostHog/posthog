@@ -1793,7 +1793,6 @@ export enum RecordingWindowFilter {
 
 export interface EditorFilterProps {
     query: InsightQueryNode
-    setQuery: (node: InsightQueryNode) => void
     insightProps: InsightLogicProps
 }
 
@@ -2055,6 +2054,7 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
     /** query when used as ad-hoc insight */
     query?: InsightVizNode
+    setQuery?: (node: InsightVizNode) => void
 }
 
 export interface SetInsightOptions {
