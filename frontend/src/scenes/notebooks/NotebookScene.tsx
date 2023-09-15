@@ -4,7 +4,6 @@ import { notebookLogic } from './Notebook/notebookLogic'
 import { Notebook } from './Notebook/Notebook'
 import { NotFound } from 'lib/components/NotFound'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
-import { NotebookMode } from '~/types'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { notebookPopoverLogic } from './Notebook/notebookPopoverLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
@@ -32,8 +31,7 @@ export const scene: SceneExport = {
 }
 
 export function NotebookScene(): JSX.Element {
-    const { notebookId, mode } = useValues(notebookSceneLogic)
-    const { setNotebookMode } = useActions(notebookSceneLogic)
+    const { notebookId } = useValues(notebookSceneLogic)
     const { notebook, notebookLoading, conflictWarningVisible } = useValues(notebookLogic({ shortId: notebookId }))
     const { exportJSON } = useActions(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setVisibility } = useActions(notebookPopoverLogic)
@@ -65,13 +63,13 @@ export function NotebookScene(): JSX.Element {
         )
     }
 
-    const editEnabled = !notebook?.is_template
+    const isTemplate = notebook?.is_template
 
     return (
         <div className="NotebookScene">
             <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-3000 z-10">
                 <div className="flex gap-2 items-center">
-                    {notebook?.is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
+                    {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                 </div>
 
@@ -89,7 +87,7 @@ export function NotebookScene(): JSX.Element {
                                             exportJSON()
                                         },
                                     },
-                                    editEnabled && {
+                                    !isTemplate && {
                                         label: 'Delete',
                                         icon: <IconDelete />,
                                         status: 'danger',
@@ -135,32 +133,10 @@ export function NotebookScene(): JSX.Element {
                     >
                         Pin to side
                     </LemonButton>
-
-                    {!editEnabled ? null : mode === NotebookMode.Edit ? (
-                        <>
-                            <LemonButton
-                                size={buttonSize}
-                                type="primary"
-                                onClick={() => setNotebookMode(NotebookMode.View)}
-                            >
-                                Done
-                            </LemonButton>
-                        </>
-                    ) : (
-                        <>
-                            <LemonButton
-                                size={buttonSize}
-                                type="primary"
-                                onClick={() => setNotebookMode(NotebookMode.Edit)}
-                            >
-                                Edit
-                            </LemonButton>
-                        </>
-                    )}
                 </div>
             </div>
 
-            <Notebook key={notebookId} shortId={notebookId} editable={editEnabled && mode === NotebookMode.Edit} />
+            <Notebook key={notebookId} shortId={notebookId} editable={!isTemplate} />
         </div>
     )
 }

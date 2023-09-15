@@ -1,8 +1,8 @@
 import datetime
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from zoneinfo import ZoneInfo
 
-import pytz
 import structlog
 from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
@@ -191,5 +191,5 @@ def offset_time_series_date_by_interval(date: datetime.datetime, *, filter: F, t
     else:  # "day" is the default interval
         date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
     if date.tzinfo is None:
-        date = pytz.timezone(team.timezone).localize(date)
+        date = date.replace(tzinfo=ZoneInfo(team.timezone))
     return date

@@ -9,7 +9,6 @@ import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recordin
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import recording_playlists from './__mocks__/recording_playlists.json'
-import { ReplayTabs } from '~/types'
 
 const meta: Meta = {
     title: 'Scenes-App/Recordings',
@@ -17,6 +16,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
     },
     decorators: [
         mswDecorator({
@@ -81,7 +81,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings?limit=100': (req) => {
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings': (req) => {
                     const playlistId = req.params.playlist_id
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
@@ -89,6 +89,12 @@ const meta: Meta = {
                 // without the session-recording-blob-replay feature flag, we only load via ClickHouse
                 '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
+                'api/projects/:team/notebooks': {
+                    count: 0,
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
             },
             post: {
                 '/api/projects/:team/query': recordingEventsJson,
@@ -97,16 +103,10 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function RecordingsList(): JSX.Element {
+
+export function RecentRecordings(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.replay())
-    }, [])
-    return <App />
-}
-
-export function RecordingsPlayLists(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replay(ReplayTabs.Playlists))
     }, [])
     return <App />
 }

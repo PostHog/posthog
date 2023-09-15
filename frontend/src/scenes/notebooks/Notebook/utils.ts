@@ -6,6 +6,7 @@ import {
     getText,
     JSONContent as TTJSONContent,
     Range as EditorRange,
+    TextSerializer,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
 import { NodeViewProps } from '@tiptap/react'
@@ -28,29 +29,34 @@ export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T &
     height?: string | number
 }
 
-type NotebookNode<T extends CustomNotebookNodeAttributes> = Omit<PMNode, 'attrs'> & {
-    attrs: NotebookNodeAttributes<T>
-}
+// NOTE: Pushes users to use the parsed "attributes" instead
+export type NotebookNode = Omit<PMNode, 'attrs'>
 
-export type NotebookNodeWidgetSettings<T extends CustomNotebookNodeAttributes> = {
+export type NotebookNodeAttributeProperties<T extends CustomNotebookNodeAttributes> = {
     attributes: NotebookNodeAttributes<T>
-    updateAttributes: (attributes: Partial<T>) => void
+    updateAttributes: (attributes: Partial<NotebookNodeAttributes<T>>) => void
 }
 
-export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit<NodeViewProps, 'node'> & {
-    node: NotebookNode<T>
-}
+export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit<
+    NodeViewProps,
+    'node' | 'updateAttributes'
+> &
+    NotebookNodeAttributeProperties<T> & {
+        node: NotebookNode
+    }
 
 export type NotebookNodeWidget = {
     key: string
     label: string
     icon: JSX.Element
-    // using 'any' here shouldn't be necessary but I couldn't figure out how to set a generic on the notebookNodeLogic props
-    Component: ({ attributes, updateAttributes }: NotebookNodeWidgetSettings<any>) => JSX.Element
+    // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
+    Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
 }
 
 export interface NotebookEditor {
     getJSON: () => JSONContent
+    getText: () => string
+    getEndPosition: () => number
     getSelectedNode: () => Node | null
     getAdjacentNodes: (pos: number) => { previous: Node | null; next: Node | null }
     setEditable: (editable: boolean) => void
@@ -62,6 +68,7 @@ export interface NotebookEditor {
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
+    pasteContent: (position: number, text: string) => void
     findNode: (position: number) => Node | null
     findNodePositionByAttrs: (attrs: Record<string, any>) => any
     nextNode: (position: number) => { node: Node; position: number } | null
@@ -83,12 +90,39 @@ export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     return false
 }
 
-const textContent = (node: any): string => {
+export const textContent = (node: any): string => {
+    // we've extended the node schema to support a custom serializedText function
+    // each custom node type needs to implement this function, or have an alternative in the map below
+    const customOrTitleSerializer: TextSerializer = (props): string => {
+        // TipTap chooses whether to add a separator based on a couple of factors
+        // but, we always want a separator since this text is for search purposes
+        const serializedText = props.node.type.spec.serializedText(props.node.attrs) || props.node.attrs?.title || ''
+        if (serializedText.length > 0 && serializedText[serializedText.length - 1] !== '\n') {
+            return serializedText + '\n'
+        }
+        return serializedText
+    }
+
+    // we want the type system to complain if we forget to add a custom serializer
+    const customNodeTextSerializers: Record<NotebookNodeType, TextSerializer> = {
+        'ph-backlink': customOrTitleSerializer,
+        'ph-early-access-feature': customOrTitleSerializer,
+        'ph-experiment': customOrTitleSerializer,
+        'ph-feature-flag': customOrTitleSerializer,
+        'ph-feature-flag-code-example': customOrTitleSerializer,
+        'ph-image': customOrTitleSerializer,
+        'ph-insight': customOrTitleSerializer,
+        'ph-person': customOrTitleSerializer,
+        'ph-query': customOrTitleSerializer,
+        'ph-recording': customOrTitleSerializer,
+        'ph-recording-playlist': customOrTitleSerializer,
+        'ph-replay-timestamp': customOrTitleSerializer,
+        'ph-survey': customOrTitleSerializer,
+    }
+
     return getText(node, {
-        blockSeparator: ' ',
-        textSerializers: {
-            [NotebookNodeType.ReplayTimestamp]: ({ node }) => `${node.attrs.playbackTime || '00:00'}: `,
-        },
+        blockSeparator: '\n',
+        textSerializers: customNodeTextSerializers,
     })
 }
 
