@@ -45,27 +45,20 @@ def _should_send_email(record: MessagingRecord) -> bool:
     """
     Returns whether an email should be sent to a given user.
     """
-
-    if not record.sent_at:
-        return True
-
-    if record.resend_frequency_days:
-        return _is_past_resend_frequency_date(record)
-
-    return False
+    return not record.sent_at
 
 
-def _is_past_resend_frequency_date(record: MessagingRecord) -> bool:
+def _is_past_resend_frequency_date(record: MessagingRecord, resend_frequency_days: int) -> bool:
     """
-    Returns whether an email should be sent based on the last send and the resend frequency.
+    Returns whether an email should be sent based on the sent_at and the resend frequency.
     """
-    # resend dates are timestamps
-    last_resend_date = (
-        timezone.make_aware(timezone.datetime.fromtimestamp(record.resend_dates[-1]))
-        if record.resend_dates
-        else record.sent_at
+    print("record.sent_at", record.sent_at)
+    print("timezone.now()", timezone.now())
+    print(
+        "record.sent_at and (timezone.now() - record.sent_at).days",
+        record.sent_at and (timezone.now() - record.sent_at).days,
     )
-    return (timezone.now() - last_resend_date).days >= record.resend_frequency_days
+    return record.sent_at and (timezone.now() - record.sent_at).days >= resend_frequency_days
 
 
 @app.task(ignore_result=True, max_retries=3)
@@ -88,12 +81,22 @@ def _send_email(
 
     with transaction.atomic():
         for dest in to:
-            record, _ = MessagingRecord.objects.get_or_create(raw_email=dest["raw_email"], campaign_key=campaign_key)
-            # Lock object (database-level) while the message is sent
-            record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+            # record, _ = MessagingRecord.objects.get_or_create(raw_email=dest["raw_email"], campaign_key=campaign_key)
+            # get all records with the email and campaign key, sorted by created_at with most recent first
+            campaign_records = MessagingRecord.objects.filter(
+                raw_email=dest["raw_email"], campaign_key=campaign_key
+            ).order_by("-created_at")
+            if not campaign_records or (
+                campaign_records
+                and resend_frequency_days
+                and _is_past_resend_frequency_date(campaign_records[0], resend_frequency_days)
+            ):
+                record = MessagingRecord.objects.create(raw_email=dest["raw_email"], campaign_key=campaign_key)
+            else:
+                record = campaign_records[0]
 
-            if resend_frequency_days and resend_frequency_days != record.resend_frequency_days:
-                record.resend_frequency_days = resend_frequency_days
+            # Lock object (database-level) while the message is sent
+            record: MessagingRecord = MessagingRecord.objects.select_for_update().get(pk=record.pk)
 
             if _should_send_email(record) is False:
                 record.save()
@@ -129,9 +132,7 @@ def _send_email(
             connection.send_messages(messages)
 
             for record in records:
-                if record.sent_at:
-                    record.resend_dates.append(timezone.now().timestamp())
-                else:
+                if not record.sent_at:
                     record.sent_at = timezone.now()
                 record.save()
 

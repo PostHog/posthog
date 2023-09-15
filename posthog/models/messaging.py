@@ -19,6 +19,22 @@ class MessagingRecordManager(models.Manager):
 
         return super().get_or_create(defaults, **kwargs)
 
+    def filter(self, *args, **kwargs):
+        raw_email = kwargs.pop("raw_email", None)
+
+        if raw_email:
+            kwargs["email_hash"] = get_email_hash(raw_email)
+
+        return super().filter(*args, **kwargs)
+
+    def create(self, *args, **kwargs):
+        raw_email = kwargs.pop("raw_email", None)
+
+        if raw_email:
+            kwargs["email_hash"] = get_email_hash(raw_email)
+
+        return super().create(*args, **kwargs)
+
 
 class MessagingRecord(UUIDModel):
     objects = MessagingRecordManager()
@@ -27,8 +43,4 @@ class MessagingRecord(UUIDModel):
     campaign_key: models.CharField = models.CharField(max_length=128)
     sent_at: models.DateTimeField = models.DateTimeField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    resend_frequency_days: models.IntegerField = models.IntegerField(null=True, blank=True)
-    resend_dates: models.JSONField = models.JSONField(default=list, null=True, blank=True)
-
-    class Meta:
-        unique_together = ("email_hash", "campaign_key")  # one record per email per campaign
+    attempt_count: models.IntegerField = models.IntegerField(null=True, blank=True)
