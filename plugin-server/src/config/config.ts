@@ -149,6 +149,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
+
+        SESSION_RECORDING_ALLOW_V1_INGESTION: true,
     }
 }
 

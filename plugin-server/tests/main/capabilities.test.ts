@@ -3,10 +3,12 @@ import { startGraphileWorker } from '../../src/main/graphile-worker/worker-setup
 import { Hub, LogLevel } from '../../src/types'
 import { PluginServerMode, stringToPluginServerMode } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
+import { status } from '../../src/utils/status'
 import Piscina from '../../src/worker/piscina'
 
 jest.mock('../../src/main/ingestion-queues/kafka-queue')
 jest.mock('../../src/main/graphile-worker/schedule')
+jest.mock('../../src/utils/status')
 
 describe('stringToPluginServerMode', () => {
     test('gives the right value for async -> PluginServerMode.plugins_async', () => {
@@ -32,6 +34,33 @@ describe('capabilities', () => {
 
     afterEach(async () => {
         await closeHub()
+    })
+
+    describe('recordings ingestion', () => {
+        it('starts with default config and warns', () => {
+            expect(hub.capabilities.sessionRecordingIngestion).toBeTruthy()
+            expect(hub.capabilities.sessionRecordingBlobIngestion).toBeTruthy()
+
+            expect((status.warn as any).mock.calls).toEqual([
+                [
+                    '⚠️',
+                    'SESSION_RECORDING_ALLOW_V1_INGESTION is deprecated and will be removed. You must setup blob storage. Future versions of PostHog will not support storing recordings in ClickHouse.',
+                ],
+            ])
+        })
+
+        it('can be disabled by config', async () => {
+            ;[hub, closeHub] = await createHub({
+                SESSION_RECORDING_ALLOW_V1_INGESTION: false,
+                LOG_LEVEL: LogLevel.Warn,
+            })
+            ;(status.warn as any).mockClear()
+
+            expect(hub.capabilities.sessionRecordingIngestion).toBeFalsy()
+            expect(hub.capabilities.sessionRecordingBlobIngestion).toBeTruthy()
+
+            expect((status.warn as any).mock.calls).toEqual([])
+        })
     })
 
     describe('startGraphileWorker()', () => {
