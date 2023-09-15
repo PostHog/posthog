@@ -7,6 +7,7 @@ import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngesterV2 } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v2'
 import { Hub, PluginsServerConfig } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { getFirstTeam } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
 async function deleteKeysWithPrefix(hub: Hub) {
@@ -14,7 +15,6 @@ async function deleteKeysWithPrefix(hub: Hub) {
     const keys = await redisClient.keys(`@posthog/replay/*`)
     const pipeline = redisClient.pipeline()
     keys.forEach(function (key) {
-        console.log('deleting key', key)
         pipeline.del(key)
     })
     await pipeline.exec()
@@ -57,25 +57,21 @@ describe('ingester', () => {
 
     let hub: Hub
     let closeHub: () => Promise<void>
+    let teamToken = ''
 
     beforeAll(() => {
-        jest.useFakeTimers({
-            // magic is for evil wizards
-            // setInterval in blob consumer doesn't fire
-            // if legacyFakeTimers is false
-            // 🤷
-            legacyFakeTimers: true,
-        })
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
     })
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
+        const team = await getFirstTeam(hub)
+        teamToken = team.api_token
+        await deleteKeysWithPrefix(hub)
     })
 
     afterEach(async () => {
         jest.setTimeout(10000)
-        jest.runOnlyPendingTimers()
         await deleteKeysWithPrefix(hub)
         await ingester.stop()
         await closeHub()
@@ -143,8 +139,6 @@ describe('ingester', () => {
         }
 
         await ingester.flushAllReadySessions()
-
-        jest.runOnlyPendingTimers() // flush timer
 
         expect(ingester.sessions['1-session_id_1']).not.toBeDefined()
     })
@@ -345,7 +339,7 @@ describe('ingester', () => {
 
     describe('simulated rebalancing', () => {
         let otherIngester: SessionRecordingIngesterV2
-        jest.setTimeout(10000)
+        jest.setTimeout(5000) // Increased to cover lock delay
 
         beforeEach(async () => {
             otherIngester = new SessionRecordingIngesterV2(
@@ -360,16 +354,15 @@ describe('ingester', () => {
         })
 
         afterEach(async () => {
-            jest.setTimeout(10000)
             await otherIngester.stop()
         })
         /**
          * It is really hard to actually do rebalance tests against kafka, so we instead simulate the various methods and ensure the correct logic occurs
          */
         it('rebalances new consumers', async () => {
-            console.log('1')
-            const messages = [
+            const partitionMsgs1 = [
                 createKafkaMessage(
+                    teamToken,
                     {
                         partition: 1,
                         offset: 1,
@@ -380,6 +373,7 @@ describe('ingester', () => {
                 ),
 
                 createKafkaMessage(
+                    teamToken,
                     {
                         partition: 1,
                         offset: 2,
@@ -388,7 +382,11 @@ describe('ingester', () => {
                         $session_id: 'session_id_2',
                     }
                 ),
+            ]
+
+            const partitionMsgs2 = [
                 createKafkaMessage(
+                    teamToken,
                     {
                         partition: 2,
                         offset: 1,
@@ -398,26 +396,23 @@ describe('ingester', () => {
                     }
                 ),
                 createKafkaMessage(
+                    teamToken,
                     {
                         partition: 2,
                         offset: 2,
                     },
                     {
-                        $session_id: 'session_id_3',
+                        $session_id: 'session_id_4',
                     }
                 ),
             ]
 
-            console.log('2')
-
             await ingester.onAssignPartitions([createTP(1), createTP(2), createTP(3)])
-            console.log('3')
-            await ingester.handleEachBatch(messages)
-            console.log('4')
+            await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
 
-            // await waitForExpect(() => {
-            //     // assertIngesterHasExpectedPartitions(ingester, [1])
-            // })
+            expect(
+                Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
+            ).toEqual(['1:session_id_1:1', '1:session_id_2:1', '2:session_id_3:1', '2:session_id_4:1'])
 
             const rebalancePromises = [
                 ingester.onRevokePartitions([createTP(2), createTP(3)]),
@@ -427,8 +422,9 @@ describe('ingester', () => {
             // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
             // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
             await otherIngester.handleEachBatch([
-                ...messages,
+                ...partitionMsgs2,
                 createKafkaMessage(
+                    teamToken,
                     {
                         partition: 2,
                         offset: 3,
@@ -441,13 +437,15 @@ describe('ingester', () => {
 
             await Promise.all(rebalancePromises)
 
-            // await waitForExpect(() => {
-            //     // because the rebalancing strategy is cooperative sticky the partition stays on the same ingester
-            //     assertIngesterHasExpectedPartitions(ingester, [1])
+            // Should still have the partition 1 sessions that didnt move
+            expect(
+                Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
+            ).toEqual(['1:session_id_1:1', '1:session_id_2:1'])
 
-            //     // only one partition so nothing for the new consumer to do
-            //     assertIngesterHasExpectedPartitions(otherIngester, [])
-            // })
+            // Should have session_id_4 but not session_id_3 as it was flushed
+            expect(
+                Object.values(otherIngester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
+            ).toEqual(['2:session_id_4:1'])
         })
     })
 })

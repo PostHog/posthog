@@ -34,6 +34,7 @@ export function createIncomingRecordingMessage(
 }
 
 export function createKafkaMessage(
+    token: number | string,
     messageOverrides: Partial<Message> = {},
     eventProperties: Record<string, any> = {}
 ): Message {
@@ -48,9 +49,9 @@ export function createKafkaMessage(
         value: Buffer.from(
             JSON.stringify({
                 distinct_id: 'distinct_id',
-                team_id: 1,
-                token: 'token',
+                token: token,
                 data: JSON.stringify({
+                    event: '$snapshot_items',
                     properties: {
                         $session_id: 'session_id_1',
                         $window_id: 'window_id_1',

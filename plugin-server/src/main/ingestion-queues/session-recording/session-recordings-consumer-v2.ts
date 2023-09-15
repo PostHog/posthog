@@ -256,7 +256,7 @@ export class SessionRecordingIngesterV2 {
         }
 
         if (event.event !== '$snapshot_items' || !event.properties?.$snapshot_items?.length) {
-            status.debug('🙈', 'Received non-snapshot message, ignoring')
+            status.warn('🙈', 'Received non-snapshot message, ignoring')
             return
         }
 
@@ -346,6 +346,7 @@ export class SessionRecordingIngesterV2 {
                     const recordingMessage = await this.parseKafkaMessage(message, (token) =>
                         this.teamsRefresher.get().then((teams) => teams[token] || null)
                     )
+
                     if (recordingMessage) {
                         recordingMessages.push(recordingMessage)
                     }

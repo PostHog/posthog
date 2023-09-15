@@ -51,11 +51,6 @@ export class PartitionLocker {
         const keys = this.keys(tps)
         const blockingConsumers = new Set(...[this.consumerID])
 
-        status.debug('🔒', `PartitionLocker trying to claim partitions...`, {
-            id: this.consumerID,
-            partitions: keys,
-        })
-
         try {
             while (blockingConsumers.size !== 0) {
                 blockingConsumers.clear()
@@ -82,7 +77,7 @@ export class PartitionLocker {
 
                 if (blockingConsumers.size > 0) {
                     status.warn(
-                        '🧨',
+                        '🔒',
                         `PartitionLocker failed to claim keys. Waiting ${this.delay} before retrying...`,
                         {
                             id: this.consumerID,
@@ -92,10 +87,8 @@ export class PartitionLocker {
                     await new Promise((r) => setTimeout(r, this.delay))
                 }
             }
-
-            status.info('🔒', `PartitionLocker claimed partitions!`)
         } catch (error) {
-            status.error('🧨', 'PartitionLocker failed to claim keys', {
+            status.error('🧨', 'PartitionLocker errored to claim keys', {
                 error: error.message,
                 keys,
             })
