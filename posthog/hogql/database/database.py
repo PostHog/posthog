@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional, TypedDict
+from typing import Any, ClassVar, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 
@@ -58,7 +58,7 @@ class Database(BaseModel):
     numbers: NumbersTable = NumbersTable()
 
     # clunky: keep table names in sync with above
-    _table_names: List[str] = [
+    _table_names: ClassVar[List[str]] = [
         "events",
         "groups",
         "person",
