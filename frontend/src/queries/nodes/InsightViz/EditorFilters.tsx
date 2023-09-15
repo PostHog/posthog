@@ -42,12 +42,11 @@ import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
-    setQuery: (node: InsightQueryNode) => void
     showing: boolean
     embedded: boolean
 }
 
-export function EditorFilters({ query, setQuery, showing, embedded }: EditorFiltersProps): JSX.Element {
+export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
 
@@ -280,7 +279,6 @@ export function EditorFilters({ query, setQuery, showing, embedded }: EditorFilt
                             insight={insight}
                             insightProps={insightProps}
                             query={query}
-                            setQuery={setQuery}
                         />
                     ))}
                 </div>
