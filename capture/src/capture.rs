@@ -69,6 +69,8 @@ pub async fn event(
         client_ip: ip.to_string(),
     };
 
+    println!("Got context {:?}", &context);
+
     process_events(state.sink.clone(), &events, &context).await?;
 
     Ok(Json(CaptureResponse {
@@ -130,6 +132,8 @@ pub async fn process_events<'a>(
         .iter()
         .map(|e| process_single_event(e, context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
+
+    println!("Processed events: {:?}", events);
 
     if events.len() == 1 {
         sink.send(events[0].clone()).await?;

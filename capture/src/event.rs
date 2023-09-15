@@ -13,8 +13,10 @@ use uuid::Uuid;
 #[derive(Deserialize, Default)]
 pub enum Compression {
     #[default]
-    #[serde(rename = "gzip-js")]
-    GzipJs,
+    Unsupported,
+
+    #[serde(rename = "gzip", alias = "gzip-js")]
+    Gzip,
 }
 
 #[derive(Deserialize, Default)]
@@ -26,15 +28,6 @@ pub struct EventQuery {
 
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
-
-    #[serde(skip_serializing)]
-    pub token: Option<String>, // Filled by handler
-
-    #[serde(skip_serializing)]
-    pub now: Option<String>, // Filled by handler from timesource
-
-    #[serde(skip_serializing)]
-    pub client_ip: Option<String>, // Filled by handler
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,7 +71,7 @@ impl RawEvent {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
         let payload = match query.compression {
-            Some(Compression::GzipJs) => {
+            Some(Compression::Gzip) => {
                 let mut d = GzDecoder::new(bytes.reader());
                 let mut s = String::new();
                 d.read_to_string(&mut s).map_err(|e| {
@@ -87,6 +80,12 @@ impl RawEvent {
                 })?;
                 s
             }
+            Some(_) => {
+                return Err(CaptureError::RequestDecodingError(String::from(
+                    "unsupported compression format",
+                )))
+            }
+
             None => String::from_utf8(bytes.into()).map_err(|e| {
                 tracing::error!("failed to decode body: {}", e);
                 CaptureError::RequestDecodingError(String::from("invalid body encoding"))
@@ -108,6 +107,7 @@ impl RawEvent {
     }
 }
 
+#[derive(Debug)]
 pub struct ProcessingContext {
     pub lib_version: Option<String>,
     pub sent_at: Option<OffsetDateTime>,
@@ -116,14 +116,7 @@ pub struct ProcessingContext {
     pub client_ip: String,
 }
 
-time::serde::format_description!(
-    django_iso,
-    OffsetDateTime,
-    "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6][offset_hour \
-         sign:mandatory]:[offset_minute]"
-);
-
-#[derive(Clone, Default, Debug, Serialize)]
+#[derive(Clone, Default, Debug, Serialize, Eq, PartialEq)]
 pub struct ProcessedEvent {
     pub uuid: Uuid,
     pub distinct_id: String,
@@ -131,7 +124,7 @@ pub struct ProcessedEvent {
     pub site_url: String,
     pub data: String,
     pub now: String,
-    #[serde(with = "django_iso::option")]
+    #[serde(with = "time::serde::rfc3339::option")]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
 }
@@ -160,16 +153,13 @@ mod tests {
         let bytes = Bytes::from(decoded_horrible_blob);
         let events = RawEvent::from_bytes(
             &EventQuery {
-                compression: Some(Compression::GzipJs),
+                compression: Some(Compression::Gzip),
                 lib_version: None,
                 sent_at: None,
-                token: None,
-                now: None,
-                client_ip: None,
             },
             bytes,
         );
 
-        assert_eq!(events.is_ok(), true);
+        assert!(events.is_ok());
     }
 }

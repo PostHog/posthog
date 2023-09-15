@@ -10,7 +10,7 @@ impl TimeSource for SystemTime {
     fn current_time(&self) -> String {
         let time = time::OffsetDateTime::now_utc();
 
-        time.format(&time::format_description::well_known::Iso8601::DEFAULT)
-            .expect("failed to iso8601 format timestamp")
+        time.format(&time::format_description::well_known::Rfc3339)
+            .expect("failed to format timestamp")
     }
 }

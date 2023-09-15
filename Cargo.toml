@@ -14,7 +14,7 @@ serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.96"
 governor = "0.5.1"
 tower_governor = "0.0.4"
-time = { version = "0.3.20", features = ["formatting", "macros", "serde"] }
+time = { version = "0.3.20", features = ["formatting", "macros", "parsing", "serde"] }
 tower-http = { version = "0.4.0", features = ["trace"] }
 bytes = "1"
 anyhow = "1.0"

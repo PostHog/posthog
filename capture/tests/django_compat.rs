@@ -1,4 +1,4 @@
-use assert_json_diff::assert_json_eq;
+use assert_json_diff::assert_json_matches_no_panic;
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum_test_helper::TestClient;
@@ -14,6 +14,8 @@ use serde_json::{json, Value};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
+use time::format_description::well_known::{Iso8601, Rfc3339};
+use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize)]
 struct RequestDump {
@@ -74,8 +76,10 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
     let file = File::open(REQUESTS_DUMP_FILE_NAME)?;
     let reader = BufReader::new(file);
 
-    for line in reader.lines() {
-        let case: RequestDump = serde_json::from_str(&line?)?;
+    let mut mismatches = 0;
+
+    for (line_number, line_contents) in reader.lines().enumerate() {
+        let case: RequestDump = serde_json::from_str(&line_contents?)?;
         if !case.path.starts_with("/e/") {
             println!("Skipping {} test case", &case.path);
             continue;
@@ -93,7 +97,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let app = router(timesource, sink.clone(), false);
 
         let client = TestClient::new(app);
-        let mut req = client.post("/i/v0/e/").body(raw_body);
+        let mut req = client.post(&format!("/i/v0{}", case.path)).body(raw_body);
         if !case.content_encoding.is_empty() {
             req = req.header("Content-encoding", case.content_encoding);
         }
@@ -104,15 +108,51 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             req = req.header("X-Forwarded-For", case.ip);
         }
         let res = req.send().await;
-        assert_eq!(res.status(), StatusCode::OK, "{}", res.text().await);
+        assert_eq!(
+            res.status(),
+            StatusCode::OK,
+            "line {} rejected: {}",
+            line_number,
+            res.text().await
+        );
         assert_eq!(
             Some(CaptureResponse {
                 status: CaptureResponseCode::Ok
             }),
             res.json().await
         );
-        assert_eq!(sink.len(), case.output.len());
-        assert_json_eq!(json!(case.output), json!(sink.events()))
+        assert_eq!(
+            sink.len(),
+            case.output.len(),
+            "event count mismatch on line {}",
+            line_number
+        );
+
+        for (event_number, (message, expected)) in
+            sink.events().iter().zip(case.output.iter()).enumerate()
+        {
+            // Normalizing the expected event to align with known django->rust inconsistencies
+            let mut expected = expected.clone();
+            if let Some(value) = expected.get_mut("sent_at") {
+                // Default ISO format is different between python and rust, both are valid
+                // Parse and re-print the value before comparison
+                let sent_at =
+                    OffsetDateTime::parse(value.as_str().expect("empty"), &Iso8601::DEFAULT)?;
+                *value = Value::String(sent_at.format(&Rfc3339)?)
+            }
+
+            let match_config = assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict);
+            if let Err(e) =
+                assert_json_matches_no_panic(&json!(expected), &json!(message), match_config)
+            {
+                println!(
+                    "mismatch at line {}, event {}: {}",
+                    line_number, event_number, e
+                );
+                mismatches += 1;
+            }
+        }
     }
+    assert_eq!(0, mismatches, "some events didn't match");
     Ok(())
 }
