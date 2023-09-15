@@ -508,6 +508,49 @@ class TestSurvey(APIBaseTest):
             ],
         }
 
+    def test_updating_survey_name_validates(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey without targeting",
+                "type": "popover",
+            },
+            format="json",
+        ).json()
+
+        updated_survey_deletes_targeting_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "name": "survey without targeting",
+            },
+        )
+
+        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
+        )
+
 
 class TestSurveysAPIList(BaseTest, QueryMatchingTest):
     def setUp(self):
