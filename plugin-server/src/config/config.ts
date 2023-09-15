@@ -7,6 +7,8 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './kafka-topics'
 
+export const DEFAULT_HTTP_SERVER_PORT = 6738
+
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
 export function getDefaultConfig(): PluginsServerConfig {
@@ -75,7 +77,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
         SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
-        HTTP_SERVER_PORT: 6738,
+        HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         STATSD_HOST: null,
         STATSD_PORT: 8125,
         STATSD_PREFIX: 'plugin-server.',
