@@ -444,7 +444,7 @@ async def test_s3_export_workflow_with_minio_bucket(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "interval,compression,encryption,exclude_events",
-    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, "AES256"], [None, ["test-exclude"]]),
+    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, "AES256", "aws:kms"], [None, ["test-exclude"]]),
 )
 async def test_s3_export_workflow_with_s3_bucket(interval, compression, encryption, exclude_events):
     """Test S3 Export Workflow end-to-end by using an S3 bucket.
@@ -457,6 +457,7 @@ async def test_s3_export_workflow_with_s3_bucket(interval, compression, encrypti
     records to the S3 bucket.
     """
     bucket_name = os.getenv("S3_TEST_BUCKET")
+    kms_key_id = os.getenv("S3_TEST_KMS_KEY_ID")
     prefix = f"posthog-events-{str(uuid4())}"
     destination_data = {
         "type": "S3",
@@ -469,6 +470,7 @@ async def test_s3_export_workflow_with_s3_bucket(interval, compression, encrypti
             "compression": compression,
             "exclude_events": exclude_events,
             "encryption": encryption,
+            "kms_key_id": kms_key_id if encryption == "aws:kms" else None,
         },
     }
 
