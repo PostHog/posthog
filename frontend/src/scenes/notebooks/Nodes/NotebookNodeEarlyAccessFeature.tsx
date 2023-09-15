@@ -16,7 +16,7 @@ import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
 import { buildFlagContent } from './NotebookNodeFlag'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const { earlyAccessFeature, earlyAccessFeatureLoading } = useValues(earlyAccessFeatureLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)

@@ -1,9 +1,8 @@
 import json
 from typing import Any, Dict, List, Optional, cast
 
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Q
 from django.conf import settings
-from django.db.models.query_utils import Q
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -70,6 +69,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     rollout_percentage = serializers.SerializerMethodField()
 
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
     analytics_dashboards = serializers.PrimaryKeyRelatedField(
@@ -100,6 +100,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "rollout_percentage",
             "ensure_experience_continuity",
             "experiment_set",
+            "surveys",
             "features",
             "rollback_conditions",
             "performed_rollback",
@@ -128,6 +129,12 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         from posthog.api.early_access_feature import MinimalEarlyAccessFeatureSerializer
 
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
+
+    def get_surveys(self, feature_flag: FeatureFlag) -> Dict:
+        from posthog.api.survey import SurveyAPISerializer
+
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data  # type: ignore
+        # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
@@ -343,7 +350,9 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 .prefetch_related("experiment_set")
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
+                .prefetch_related("surveys_linked_flag")
             )
+
             survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
                 "targeting_flag_id", flat=True
             )
@@ -434,6 +443,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             .prefetch_related("experiment_set")
             .prefetch_related("features")
             .prefetch_related("analytics_dashboards")
+            .prefetch_related("surveys_linked_flag")
             .select_related("created_by")
             .order_by("-created_at")
         )

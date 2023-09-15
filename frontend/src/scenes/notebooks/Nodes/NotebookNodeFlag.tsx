@@ -2,7 +2,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FeatureFlagType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
-import { IconFlag, IconRecording, IconRocketLaunch } from 'lib/lemon-ui/icons'
+import { IconFlag, IconRecording, IconRocketLaunch, IconSurveys } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
@@ -15,21 +15,27 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import api from 'lib/api'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
 import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
+import { buildSurveyContent } from './NotebookNodeSurvey'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const {
         featureFlag,
         featureFlagLoading,
         recordingFilterForFlag,
         hasEarlyAccessFeatures,
         newEarlyAccessFeatureLoading,
+        canCreateEarlyAccessFeature,
+        hasSurveys,
+        newSurveyLoading,
     } = useValues(featureFlagLogic({ id }))
-    const { createEarlyAccessFeature } = useActions(featureFlagLogic({ id }))
+    const { createEarlyAccessFeature, createSurvey } = useActions(featureFlagLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
 
-    const { shouldDisableInsertEarlyAccessFeature } = useValues(notebookNodeFlagLogic({ id, insertAfter }))
+    const { shouldDisableInsertEarlyAccessFeature, shouldDisableInsertSurvey } = useValues(
+        notebookNodeFlagLogic({ id, insertAfter })
+    )
 
     return (
         <div>
@@ -64,37 +70,67 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
 
                 <LemonDivider className="my-0" />
                 <div className="p-2 mr-1 flex justify-end gap-2">
+                    {canCreateEarlyAccessFeature && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRocketLaunch />}
+                            loading={newEarlyAccessFeatureLoading}
+                            onClick={(e) => {
+                                // prevent expanding the node if it isn't expanded
+                                e.stopPropagation()
+
+                                if (!hasEarlyAccessFeatures) {
+                                    createEarlyAccessFeature()
+                                } else {
+                                    if ((featureFlag?.features?.length || 0) <= 0) {
+                                        return
+                                    }
+                                    if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
+                                        insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
+                                    }
+                                }
+                            }}
+                            disabledReason={
+                                shouldDisableInsertEarlyAccessFeature(nextNode) &&
+                                'Early access feature already exists below'
+                            }
+                        >
+                            {hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature
+                        </LemonButton>
+                    )}
                     <LemonButton
                         type="secondary"
                         size="small"
-                        icon={<IconRocketLaunch />}
-                        loading={newEarlyAccessFeatureLoading}
+                        icon={<IconSurveys />}
+                        loading={newSurveyLoading}
                         onClick={(e) => {
                             // prevent expanding the node if it isn't expanded
                             e.stopPropagation()
-                            if (!hasEarlyAccessFeatures) {
-                                createEarlyAccessFeature()
+
+                            if (!hasSurveys) {
+                                createSurvey()
                             } else {
-                                if ((featureFlag?.features?.length || 0) <= 0) {
+                                if ((featureFlag?.surveys?.length || 0) <= 0) {
                                     return
                                 }
-                                if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
-                                    insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
+                                if (!shouldDisableInsertSurvey(nextNode) && featureFlag.surveys) {
+                                    insertAfter(buildSurveyContent(featureFlag.surveys[0].id))
                                 }
                             }
                         }}
-                        disabledReason={
-                            shouldDisableInsertEarlyAccessFeature(nextNode) &&
-                            'Early access feature already exists below'
-                        }
+                        disabledReason={shouldDisableInsertSurvey(nextNode) && 'Survey already exists below'}
                     >
-                        {hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature
+                        {hasSurveys ? 'View' : 'Create'} survey
                     </LemonButton>
                     <LemonButton
                         type="secondary"
                         size="small"
                         icon={<IconFlag />}
-                        onClick={() => {
+                        onClick={(e) => {
+                            // prevent expanding the node if it isn't expanded
+                            e.stopPropagation()
+
                             if (nextNode?.type.name !== NotebookNodeType.FeatureFlagCodeExample) {
                                 insertAfter(buildCodeExampleContent(id))
                             }
@@ -107,7 +143,10 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
                         Show implementation
                     </LemonButton>
                     <LemonButton
-                        onClick={() => {
+                        onClick={(e) => {
+                            // prevent expanding the node if it isn't expanded
+                            e.stopPropagation()
+
                             if (nextNode?.type.name !== NotebookNodeType.RecordingPlaylist) {
                                 insertAfter(buildPlaylistContent(recordingFilterForFlag))
                             }

@@ -15,15 +15,14 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { IconSettings } from 'lib/lemon-ui/icons'
-import { JSONContent, NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>): JSX.Element => {
-    const id = props.node.attrs.id
-    const noInspector: boolean = props.node.attrs.noInspector
+    const id = props.attributes.id
+    const noInspector: boolean = props.attributes.noInspector
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
@@ -58,7 +57,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
 export const Settings = ({
     attributes,
     updateAttributes,
-}: NotebookNodeWidgetSettings<NotebookNodeRecordingAttributes>): JSX.Element => {
+}: NotebookNodeAttributeProperties<NotebookNodeRecordingAttributes>): JSX.Element => {
     return (
         <div className="p-3">
             <LemonSwitch
@@ -102,10 +101,12 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         {
             key: 'settings',
             label: 'Settings',
-            icon: <IconSettings />,
             Component: Settings,
         },
     ],
+    serializedText: (attrs) => {
+        return attrs.id
+    },
 })
 
 export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {

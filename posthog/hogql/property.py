@@ -15,7 +15,7 @@ from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
-from posthog.schema import PropertyOperator
+from posthog.schema import PropertyOperator, PropertyGroupFilter, PropertyGroupFilterValue, FilterLogicalOperator
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -59,16 +59,30 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         return ast.And(exprs=properties)
     elif isinstance(property, Property):
         pass
-    elif isinstance(property, PropertyGroup):
-        if property.type != PropertyOperatorType.AND and property.type != PropertyOperatorType.OR:
+    elif (
+        isinstance(property, PropertyGroup)
+        or isinstance(property, PropertyGroupFilter)
+        or isinstance(property, PropertyGroupFilterValue)
+    ):
+        if (
+            isinstance(property, PropertyGroup)
+            and property.type != PropertyOperatorType.AND
+            and property.type != PropertyOperatorType.OR
+        ):
             raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
+        if (
+            (isinstance(property, PropertyGroupFilter) or isinstance(property, PropertyGroupFilterValue))
+            and property.type != FilterLogicalOperator.AND
+            and property.type != FilterLogicalOperator.OR
+        ):
+            raise NotImplementedException(f'PropertyGroupFilter of unknown type "{property.type}"')
 
         if len(property.values) == 0:
             return ast.Constant(value=True)
         if len(property.values) == 1:
             return property_to_expr(property.values[0], team)
 
-        if property.type == PropertyOperatorType.AND:
+        if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND:
             return ast.And(exprs=[property_to_expr(p, team) for p in property.values])
         else:
             return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])

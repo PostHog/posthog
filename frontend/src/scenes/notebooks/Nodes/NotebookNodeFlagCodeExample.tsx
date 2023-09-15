@@ -9,7 +9,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import api from 'lib/api'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
+    const { id } = props.attributes
     const { featureFlag } = useValues(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
 

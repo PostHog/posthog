@@ -60,7 +60,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, setHasTargetingFlag } = useActions(surveyLogic)
+    const { loadSurvey, editingSurvey, setSurveyValue } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
@@ -374,7 +374,9 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         type="secondary"
                                         className="w-max"
-                                        onClick={() => setHasTargetingFlag(true)}
+                                        onClick={() => {
+                                            setSurveyValue('targeting_flag_filters', { groups: [] })
+                                        }}
                                     >
                                         Add user targeting
                                     </LemonButton>
@@ -389,7 +391,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                 type="secondary"
                                                 status="danger"
                                                 className="w-max"
-                                                onClick={() => setHasTargetingFlag(false)}
+                                                onClick={() => {
+                                                    setSurveyValue('targeting_flag_filters', undefined)
+                                                    setSurveyValue('targeting_flag', null)
+                                                }}
                                             >
                                                 Remove all user properties
                                             </LemonButton>

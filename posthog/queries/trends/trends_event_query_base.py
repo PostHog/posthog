@@ -104,14 +104,14 @@ class TrendsEventQueryBase(EventQuery):
             return f"""AND "$group_{self._entity.math_group_type_index}" != ''"""
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
-        date_filter = ""
-        query_params: Dict[str, Any] = {}
+        date_query = ""
+        date_params: Dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team)
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
 
-        query_params.update(date_from_params)
-        query_params.update(date_to_params)
+        date_params.update(date_from_params)
+        date_params.update(date_to_params)
 
         self.parsed_date_from = parsed_date_from
         self.parsed_date_to = parsed_date_to
@@ -121,17 +121,17 @@ class TrendsEventQueryBase(EventQuery):
                 self._filter, self._entity, self._team_id
             )
             self.active_user_params = active_user_format_params
-            query_params.update(active_user_query_params)
+            date_params.update(active_user_query_params)
 
-            date_filter = "{parsed_date_from_prev_range} {parsed_date_to}".format(
+            date_query = "{parsed_date_from_prev_range} {parsed_date_to}".format(
                 **active_user_format_params, parsed_date_to=parsed_date_to
             )
         else:
-            date_filter = "{parsed_date_from} {parsed_date_to}".format(
+            date_query = "{parsed_date_from} {parsed_date_to}".format(
                 parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
             )
 
-        return date_filter, query_params
+        return date_query, date_params
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
         entity_params, entity_format_params = get_entity_filtering_params(

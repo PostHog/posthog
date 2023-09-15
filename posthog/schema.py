@@ -369,17 +369,45 @@ class SavedInsightNode(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    allowSorting: Optional[bool] = Field(
+        None, description="Can the user click on column headers to sort the table? (default: true)"
+    )
     embedded: Optional[bool] = Field(None, description="Query is embedded inside another bordered component")
+    expandable: Optional[bool] = Field(None, description="Can expand row to show raw event data (default: true)")
     full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in insight scene.")
     kind: str = Field("SavedInsightNode", const=True)
+    propertiesViaUrl: Optional[bool] = Field(None, description="Link properties via the URL (default: false)")
     shortId: str
+    showActions: Optional[bool] = Field(None, description="Show the kebab menu at the end of the row")
+    showColumnConfigurator: Optional[bool] = Field(
+        None, description="Show a button to configure the table's columns if possible"
+    )
     showCorrelationTable: Optional[bool] = None
+    showDateRange: Optional[bool] = Field(None, description="Show date range selector")
+    showElapsedTime: Optional[bool] = Field(None, description="Show the time it takes to run a query")
+    showEventFilter: Optional[bool] = Field(
+        None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showExport: Optional[bool] = Field(None, description="Show the export button")
     showFilters: Optional[bool] = None
     showHeader: Optional[bool] = None
+    showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
     showLastComputation: Optional[bool] = None
     showLastComputationRefresh: Optional[bool] = None
+    showOpenEditorButton: Optional[bool] = Field(
+        None, description="Show a button to open the current query as a new insight. (default: true)"
+    )
+    showPersistentColumnConfigurator: Optional[bool] = Field(
+        None, description="Show a button to configure and persist the table's default columns if possible"
+    )
+    showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
+    showReload: Optional[bool] = Field(None, description="Show a reload button")
     showResults: Optional[bool] = None
+    showResultsTable: Optional[bool] = Field(None, description="Show a results table")
+    showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
+    showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
     showTable: Optional[bool] = None
+    showTimings: Optional[bool] = Field(None, description="Show a detailed query timing breakdown")
 
 
 class SessionPropertyFilter(BaseModel):
@@ -592,6 +620,14 @@ class LifecycleFilter(BaseModel):
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     toggledLifecycles: Optional[List[LifecycleToggle]] = None
+
+
+class LifecycleQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    result: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class PersonPropertyFilter(BaseModel):
@@ -1143,6 +1179,7 @@ class LifecycleQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
+    response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
 

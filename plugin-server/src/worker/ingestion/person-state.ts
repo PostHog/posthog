@@ -17,9 +17,17 @@ import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
+
+export const mergeFinalFailuresCounter = new Counter({
+    name: 'person_merge_final_failure_total',
+    help: 'Number of person merge final failures.',
+})
+
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
-const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
+// used to prevent identify from being used with generic IDs
+// that we can safely assume stem from a bug or mistake
+const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'anonymous',
     'guest',
     'distinctid',
@@ -30,17 +38,34 @@ const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
     'undefined',
     'true',
     'false',
-])
+]
 
-export const mergeFinalFailuresCounter = new Counter({
-    name: 'person_merge_final_failure_total',
-    help: 'Number of person merge final failures.',
-})
+const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
 
-const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined'])
+// we have seen illegal ids received but wrapped in double quotes
+// to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
+const singleQuoteIds = (ids: string[]) => ids.map((id) => `'${id}'`)
+const doubleQuoteIds = (ids: string[]) => ids.map((id) => `"${id}"`)
+
+// some ids are illegal regardless of casing
+// while others are illegal only when cased
+// so, for example, we want to forbid `NaN` but not `nan`
+// but, we will forbid `uNdEfInEd` and `undefined`
+const CASE_INSENSITIVE_ILLEGAL_IDS = new Set(
+    BARE_CASE_INSENSITIVE_ILLEGAL_IDS.concat(singleQuoteIds(BARE_CASE_INSENSITIVE_ILLEGAL_IDS)).concat(
+        doubleQuoteIds(BARE_CASE_INSENSITIVE_ILLEGAL_IDS)
+    )
+)
+
+const CASE_SENSITIVE_ILLEGAL_IDS = new Set(
+    BARE_CASE_SENSITIVE_ILLEGAL_IDS.concat(singleQuoteIds(BARE_CASE_SENSITIVE_ILLEGAL_IDS)).concat(
+        doubleQuoteIds(BARE_CASE_SENSITIVE_ILLEGAL_IDS)
+    )
+)
 
 const isDistinctIdIllegal = (id: string): boolean => {
-    return id.trim() === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
+    const trimmed = id.trim()
+    return trimmed === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
 }
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
@@ -245,7 +270,7 @@ export class PersonState {
                     this.teamId,
                     this.timestamp
                 )
-            } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
+            } else if (this.event.event === '$identify' && '$anon_distinct_id' in this.eventProperties) {
                 return await this.merge(
                     String(this.eventProperties['$anon_distinct_id']),
                     this.distinctId,

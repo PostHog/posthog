@@ -8,7 +8,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { asDisplay } from './person-utils'
-import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export type PersonPreviewProps = {
     distinctId: string | undefined
@@ -41,7 +41,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                     <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
                 </Link>
 
-                <NotebookAddButton
+                <NotebookSelectButton
                     resource={{
                         attrs: {
                             id: person?.distinct_ids[0],

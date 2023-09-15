@@ -211,7 +211,6 @@ describe('ingester', () => {
                     timestamp: 1,
                     topic: 'the_topic',
                 },
-                replayIngestionConsumer: 'v2',
                 session_id: '018a47c2-2f4a-70a8-b480-5e51d8b8d070',
                 team_id: 1,
                 window_id: '018a47c2-2f4a-70a8-b480-5e52f5480448',

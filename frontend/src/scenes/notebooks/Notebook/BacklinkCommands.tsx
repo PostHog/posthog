@@ -6,6 +6,7 @@ import { PluginKey } from '@tiptap/pm/state'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { forwardRef } from 'react'
 import {
+    TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
@@ -41,18 +42,18 @@ const BacklinkCommands = forwardRef<ReactRenderer, BacklinkCommandsProps>(functi
     const { editor } = useValues(notebookLogic)
 
     const onSelect = (
-        { type }: TaxonomicFilterGroup,
+        group: TaxonomicFilterGroup,
         value: TaxonomicFilterValue,
-        { id, name }: { id: number; name: string }
+        item: TaxonomicDefinitionTypes
     ): void => {
         if (!editor) {
             return
         }
 
         const attrs = {
-            id: type === TaxonomicFilterGroupType.Events ? id : value,
-            title: name,
-            type: type,
+            id: group.type === TaxonomicFilterGroupType.Events ? item.id : value,
+            title: group.getName?.(item),
+            type: group.type,
         }
 
         editor
@@ -81,6 +82,7 @@ const BacklinkCommands = forwardRef<ReactRenderer, BacklinkCommandsProps>(functi
             TaxonomicFilterGroupType.FeatureFlags,
             TaxonomicFilterGroupType.Experiments,
             TaxonomicFilterGroupType.Dashboards,
+            TaxonomicFilterGroupType.Notebooks,
         ],
         optionsFromProp: undefined,
         popoverEnabled: true,

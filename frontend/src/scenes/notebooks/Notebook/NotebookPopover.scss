@@ -32,18 +32,29 @@
         max-width: calc(100vw - 2rem);
         width: 50rem; // This will be controlable
         pointer-events: all;
-
         display: flex;
         flex-direction: column;
-        border-radius: var(--radius);
-        background-color: var(--bg-light);
-        border: 1px solid var(--border-3000);
-        transition: transform var(--notebook-popover-transition-properties), box-shadow 150ms linear,
-            width var(--notebook-popover-transition-properties);
 
         // Transition properties that are overwritten
         transform: translateX(calc(100% + 1rem));
-        box-shadow: 0px 16px 16px rgba(0, 0, 0, 0);
+        transition: transform var(--notebook-popover-transition-properties),
+            width var(--notebook-popover-transition-properties);
+
+        > * + * {
+            margin-top: 1rem;
+        }
+
+        .NotebookPopover__content__card {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-radius: var(--radius);
+            background-color: var(--bg-light);
+            border: 1px solid var(--border-3000);
+            box-shadow: 0px 16px 16px rgba(0, 0, 0, 0);
+            transition: box-shadow 150ms linear;
+            overflow: hidden;
+        }
     }
 
     &--visible {
@@ -54,14 +65,19 @@
 
         .NotebookPopover__content {
             transform: translateX(0);
-            box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
+            .NotebookPopover__content__card {
+                box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
+            }
         }
     }
 
     &--peek {
         .NotebookPopover__content {
+            transition: none; // NOTE: This shouldn't be none as it affects other transitions
             transform: translateX(calc(100% - 5rem));
-            box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
+            .NotebookPopover__content__card {
+                box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
+            }
         }
     }
 
@@ -76,5 +92,58 @@
         .NotebookPopover__content {
             width: calc(100vw - 2rem);
         }
+    }
+}
+
+.NotebookPopoverDropzone {
+    box-shadow: 0px 16px 16px rgba(0, 0, 0, 0.15);
+    border: 2px dashed var(--border-3000);
+    border-radius: var(--radius);
+
+    transition: all 150ms;
+    height: 4rem;
+    backdrop-filter: blur(5px);
+    display: flex;
+
+    .NotebookPopoverDropzone__message {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        font-weight: 700;
+        font-size: 1rem;
+        color: var(--muted-alt);
+        text-align: center;
+        pointer-events: none;
+        background-color: var(--bg-light);
+        padding: 1rem;
+        opacity: 0.75;
+        transition: all 150ms;
+    }
+
+    .NotebookPopoverDropzone__dropped {
+        overflow: hidden;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    &--active {
+        border-color: var(--primary);
+        height: 8rem;
+
+        .NotebookPopoverDropzone__message {
+            opacity: 1;
+        }
+    }
+
+    &--dropped {
+        padding: 1rem;
+        border-color: var(--primary);
+        background-color: var(--bg-light);
+        height: 100%;
+        justify-content: flex-start;
+        align-items: initial;
     }
 }

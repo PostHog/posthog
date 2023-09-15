@@ -28,7 +28,7 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -471,8 +471,27 @@ export function LineGraph_({
                                     }}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
-                                        ((value: number): string =>
-                                            formatPercentStackAxisValue(trendsFilter, value, isPercentStackView))
+                                        ((value: number): string => {
+                                            if (!isPercentStackView) {
+                                                return formatAggregationAxisValue(trendsFilter, value)
+                                            }
+
+                                            const total = seriesData.reduce((a, b) => a + b.count, 0)
+                                            const percentageLabel: number = parseFloat(
+                                                ((value / total) * 100).toFixed(1)
+                                            )
+
+                                            const isNaN = Number.isNaN(percentageLabel)
+
+                                            if (isNaN) {
+                                                return formatAggregationAxisValue(trendsFilter, value)
+                                            }
+
+                                            return `${formatAggregationAxisValue(
+                                                trendsFilter,
+                                                value
+                                            )} (${percentageLabel}%)`
+                                        })
                                     }
                                     entitiesAsColumnsOverride={formula ? false : undefined}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}

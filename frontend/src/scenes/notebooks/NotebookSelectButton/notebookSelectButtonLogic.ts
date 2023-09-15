@@ -1,28 +1,25 @@
-import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType, NotebookNodeType } from '~/types'
+import { NotebookListItemType, NotebookNodeResource } from '~/types'
 
 import api from 'lib/api'
 
-import type { notebookAddButtonLogicType } from './notebookAddButtonLogicType'
+import type { notebookSelectButtonLogicType } from './notebookSelectButtonLogicType'
 
-export interface NotebookAddButtonLogicProps {
-    resource: {
-        attrs: Record<string, any>
-        type: NotebookNodeType
-    }
+export interface NotebookSelectButtonLogicProps {
+    resource?: NotebookNodeResource
     // allows callers (e.g. storybook) to control starting visibility of the popover
     visible?: boolean
 }
 
-export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'NotebookAddButton', 'multiNotebookAddButtonLogic', key]),
-    props({} as NotebookAddButtonLogicProps),
-    key((props) => JSON.stringify(props.resource)),
+export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'NotebookSelectButton', 'multiNotebookSelectButtonLogic', key]),
+    props({} as NotebookSelectButtonLogicProps),
+    key((props) => JSON.stringify(props.resource || 'load')),
     actions({
         setShowPopover: (visible: boolean) => ({ visible }),
         setSearchQuery: (query: string) => ({ query }),
-        loadContainingNotebooks: true,
+        loadNotebooksContainingResource: true,
         loadAllNotebooks: true,
     }),
     reducers(({ props }) => ({
@@ -40,9 +37,10 @@ export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
-        setSearchQuery: () => {
+        setSearchQuery: async (_, breakpoint) => {
+            await breakpoint(300)
             actions.loadAllNotebooks()
-            actions.loadContainingNotebooks()
+            actions.loadNotebooksContainingResource()
         },
     })),
     loaders(({ props, values }) => ({
@@ -57,13 +55,18 @@ export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
                 },
             },
         ],
-        containingNotebooks: [
+        notebooksContainingResource: [
             [] as NotebookListItemType[],
             {
-                loadContainingNotebooks: async (_, breakpoint) => {
+                loadNotebooksContainingResource: async (_, breakpoint) => {
                     breakpoint(100)
+                    if (!props.resource) {
+                        return []
+                    }
                     const response = await api.notebooks.list(
-                        [{ type: props.resource.type, attrs: { id: props.resource.attrs?.id } }],
+                        props.resource
+                            ? [{ type: props.resource.type, attrs: { id: props.resource.attrs?.id } }]
+                            : undefined,
                         undefined,
                         values.searchQuery ?? undefined
                     )
@@ -73,16 +76,18 @@ export const notebookAddButtonLogic = kea<notebookAddButtonLogicType>([
             },
         ],
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadAllNotebooks()
-            actions.loadContainingNotebooks()
-        },
-    })),
     selectors(() => ({
+        notebooksNotContainingResource: [
+            (s) => [s.allNotebooks, s.notebooksContainingResource],
+            (allNotebooks, notebooksContainingResource) =>
+                allNotebooks.filter(
+                    (notebook) => !notebooksContainingResource.find((n) => n.short_id === notebook.short_id)
+                ),
+        ],
         notebooksLoading: [
-            (s) => [s.allNotebooksLoading, s.containingNotebooksLoading],
-            (allNotebooksLoading, containingNotebooksLoading) => allNotebooksLoading || containingNotebooksLoading,
+            (s) => [s.allNotebooksLoading, s.notebooksContainingResourceLoading],
+            (allNotebooksLoading, notebooksContainingResourceLoading) =>
+                allNotebooksLoading || notebooksContainingResourceLoading,
         ],
     })),
 ])
