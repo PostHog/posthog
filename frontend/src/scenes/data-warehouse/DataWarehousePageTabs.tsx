@@ -18,7 +18,7 @@ const tabUrls = {
     [DataWarehouseTab.Views]: urls.dataWarehouseSavedQueries(),
 }
 
-export const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>({
+const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>({
     path: ['scenes', 'warehouse', 'dataWarehouseTabsLogic'],
     actions: {
         setTab: (tab: DataWarehouseTab) => ({ tab }),
