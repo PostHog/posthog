@@ -16,13 +16,10 @@ from posthog.schema import LifecycleQuery, ActionsNode, EventsNode, LifecycleQue
 
 class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
+    query_type = LifecycleQuery
 
     def __init__(self, query: LifecycleQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
-        super().__init__(team, timings)
-        if isinstance(query, LifecycleQuery):
-            self.query = query
-        else:
-            self.query = LifecycleQuery.model_validate(query)
+        super().__init__(query, team, timings)
 
     def to_query(self) -> ast.SelectQuery:
         placeholders = {
