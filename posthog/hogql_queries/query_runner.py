@@ -1,23 +1,22 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Type, Dict
 
-from pydantic import BaseModel
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.models import Team
+from posthog.types import InsightQueryNode
 from posthog.utils import generate_cache_key
 
 
 class QueryRunner(ABC):
-    query: BaseModel
-    query_type: Type[BaseModel]
+    query: InsightQueryNode
+    query_type: Type[InsightQueryNode]
     team: Team
     timings: HogQLTimings
 
-    def __init__(self, query: BaseModel | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
+    def __init__(self, query: InsightQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
         self.team = team
         self.timings = timings or HogQLTimings()
         if isinstance(query, self.query_type):
@@ -26,7 +25,7 @@ class QueryRunner(ABC):
             self.query = self.query_type.model_validate(query)
 
     @abstractmethod
-    def run(self) -> BaseModel:
+    def run(self) -> InsightQueryNode:
         raise NotImplementedError()
 
     @abstractmethod
