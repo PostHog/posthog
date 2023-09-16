@@ -407,7 +407,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
             query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
-            query.response = HogQLQueryResponse.parse_obj(api_response)
+            query.response = HogQLQueryResponse.model_validate(api_response)
 
             self.assertEqual(query.response.results and len(query.response.results), 4)
             self.assertEqual(
@@ -510,7 +510,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             query = HogQLQuery(query="select * from event_view")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
-            query.response = HogQLQueryResponse.parse_obj(api_response)
+            query.response = HogQLQueryResponse.model_validate(api_response)
 
             self.assertEqual(query.response.results and len(query.response.results), 4)
             self.assertEqual(

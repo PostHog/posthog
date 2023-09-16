@@ -50,7 +50,7 @@ class QuerySchemaParser(JSONParser):
     @staticmethod
     def validate_query(data) -> Dict:
         try:
-            schema.Model.parse_obj(data)
+            schema.Model.model_validate(data)
             # currently we have to return data not the parsed Model
             # because pydantic doesn't know to discriminate on 'kind'
             # if we can get this correctly typed we can return the parsed model
@@ -204,11 +204,11 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     tag_queries(query=query_json)
 
     if query_kind == "EventsQuery":
-        events_query = EventsQuery.parse_obj(query_json)
+        events_query = EventsQuery.model_validate(query_json)
         events_response = run_events_query(query=events_query, team=team, default_limit=default_limit)
         return _unwrap_pydantic_dict(events_response)
     elif query_kind == "HogQLQuery":
-        hogql_query = HogQLQuery.parse_obj(query_json)
+        hogql_query = HogQLQuery.model_validate(query_json)
         hogql_response = execute_hogql_query(
             query_type="HogQLQuery",
             query=hogql_query.query,
@@ -218,7 +218,7 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
         )
         return _unwrap_pydantic_dict(hogql_response)
     elif query_kind == "HogQLMetadata":
-        metadata_query = HogQLMetadata.parse_obj(query_json)
+        metadata_query = HogQLMetadata.model_validate(query_json)
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)
         return _unwrap_pydantic_dict(metadata_response)
     elif query_kind == "LifecycleQuery":
