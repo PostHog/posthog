@@ -1,16 +1,19 @@
-from typing import Any, List, Optional, Type
+from typing import Any, List, Literal, Optional, Type
 from pydantic import BaseModel
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
+from posthog.types import InsightQueryNode
 
 
 class TestQuery(BaseModel):
+    kind: Literal["TestQuery"] = "TestQuery"
     some_attr: str
-    other_attr: Optional[List[Any]] = None
+    other_attr: Optional[List[Any]] = []
 
 
 class QueryRunnerTest(BaseTest):
-    def setup_test_query_runner_class(self, query_class: Type[BaseModel] = TestQuery):
+    def setup_test_query_runner_class(self, query_class: Type[InsightQueryNode] = TestQuery):  # type: ignore
         """Setup required methods and attributes of the abstract base class."""
 
         class TestQueryRunner(QueryRunner):
@@ -62,8 +65,9 @@ class QueryRunnerTest(BaseTest):
 
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(pk=42, organization=self.organization)
 
-        runner = TestQueryRunner(query={"some_attr": "bla", "other_attr": []}, team=self.team)  # type: ignore
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
         cache_key = runner.cache_key()
-        self.assertEqual(cache_key, "abc")
+        self.assertEqual(cache_key, "cache_1369df4664cabf82e3357fd4e70705ba")
