@@ -181,7 +181,7 @@ class SerializedField(_SerializedFieldBase, total=False):
 def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
     tables: Dict[str, List[SerializedField]] = {}
 
-    for table_key in database.__fields__.keys():
+    for table_key in database.model_fields.keys():
         field_input: Dict[str, Any] = {}
         table = getattr(database, table_key, None)
         if isinstance(table, FunctionCallTable):
