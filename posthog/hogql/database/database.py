@@ -1,6 +1,6 @@
 from typing import Any, ClassVar, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from pydantic import BaseModel, Extra
+from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.database.models import (
     FieldTraverser,
@@ -33,8 +33,7 @@ from posthog.utils import PersonOnEventsMode
 
 
 class Database(BaseModel):
-    class Config:
-        extra = Extra.allow
+    model_config = ConfigDict(extra="allow")
 
     # Users can query from the tables below
     events: EventsTable = EventsTable()
