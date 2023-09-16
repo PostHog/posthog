@@ -6,7 +6,7 @@ from uuid import UUID
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init, task_success
+from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init, task_success, task_failure
 from django.conf import settings
 from django.db import connection
 from django.dispatch import receiver
@@ -34,6 +34,12 @@ CELERY_TASK_PRE_RUN_COUNTER = Counter(
 CELERY_TASK_SUCCESS_COUNTER = Counter(
     "posthog_celery_task_success",
     "task success signal is dispatched when a task succeeds.",
+    labelnames=["task_name"],
+)
+
+CELERY_TASK_FAILURE_COUNTER = Counter(
+    "posthog_celery_task_failure",
+    "task failure signal is dispatched when a task succeeds.",
     labelnames=["task_name"],
 )
 
@@ -227,6 +233,11 @@ def pre_run_signal_handler(task_id, task, **kwargs):
 @task_success.connect
 def success_signal_handler(sender, **kwargs):
     CELERY_TASK_SUCCESS_COUNTER.labels(task_name=sender.name).inc()
+
+
+@task_failure.connect
+def failure_signal_handler(sender, **kwargs):
+    CELERY_TASK_FAILURE_COUNTER.labels(task_name=sender.name).inc()
 
 
 @task_postrun.connect
