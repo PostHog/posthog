@@ -12,12 +12,12 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.session_recording_api import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.api.test.test_team import create_team
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.test.test_factory import create_session_recording_events
