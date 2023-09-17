@@ -12,7 +12,8 @@ import { urls } from 'scenes/urls'
 export const OnboardingProductIntro = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { currentAndUpgradePlans, isPricingModalOpen } = useValues(billingProductLogic({ product }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product }))
-    const { incrementOnboardingStep } = useActions(onboardingLogic)
+    const { setCurrentOnboardingStepNumber } = useActions(onboardingLogic)
+    const { currentOnboardingStepNumber } = useValues(onboardingLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
 
     const pricingBenefits = [
@@ -47,7 +48,10 @@ export const OnboardingProductIntro = ({ product }: { product: BillingProductV2T
                         <h1 className="text-5xl font-bold">{product.name}</h1>
                         <h2 className="font-bold mb-6">{product.description}</h2>
                         <div className="flex gap-x-2">
-                            <LemonButton type="primary" onClick={incrementOnboardingStep}>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)}
+                            >
                                 Get started
                             </LemonButton>
                             {product.docs_url && (

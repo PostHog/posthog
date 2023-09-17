@@ -15,8 +15,8 @@ export const OnboardingStep = ({
     children: React.ReactNode
     showSkip?: boolean
 }): JSX.Element => {
-    const { onboardingStep, totalOnboardingSteps } = useValues(onboardingLogic)
-    const { setOnboardingStep, completeOnboarding } = useActions(onboardingLogic)
+    const { currentOnboardingStepNumber, totalOnboardingSteps } = useValues(onboardingLogic)
+    const { setCurrentOnboardingStepNumber, completeOnboarding } = useActions(onboardingLogic)
     return (
         <BridgePage
             view="onboarding-step"
@@ -24,9 +24,12 @@ export const OnboardingStep = ({
             hedgehog={false}
             fixedWidth={false}
             header={
-                onboardingStep > 1 && (
+                currentOnboardingStepNumber > 1 && (
                     <div className="mb-4">
-                        <LemonButton icon={<IconArrowLeft />} onClick={() => setOnboardingStep(onboardingStep - 1)}>
+                        <LemonButton
+                            icon={<IconArrowLeft />}
+                            onClick={() => setCurrentOnboardingStepNumber(currentOnboardingStepNumber - 1)}
+                        >
                             Back
                         </LemonButton>
                     </div>
@@ -42,9 +45,9 @@ export const OnboardingStep = ({
                         <LemonButton
                             type="tertiary"
                             onClick={() =>
-                                onboardingStep == totalOnboardingSteps
+                                currentOnboardingStepNumber == totalOnboardingSteps
                                     ? completeOnboarding()
-                                    : setOnboardingStep(onboardingStep + 1)
+                                    : setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
                             }
                             status="muted"
                         >
@@ -54,13 +57,13 @@ export const OnboardingStep = ({
                     <LemonButton
                         type="primary"
                         onClick={() =>
-                            onboardingStep == totalOnboardingSteps
+                            currentOnboardingStepNumber == totalOnboardingSteps
                                 ? completeOnboarding()
-                                : setOnboardingStep(onboardingStep + 1)
+                                : setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
                         }
-                        sideIcon={onboardingStep !== totalOnboardingSteps ? <IconArrowRight /> : null}
+                        sideIcon={currentOnboardingStepNumber !== totalOnboardingSteps ? <IconArrowRight /> : null}
                     >
-                        {onboardingStep == totalOnboardingSteps ? 'Finish' : 'Continue'}
+                        {currentOnboardingStepNumber == totalOnboardingSteps ? 'Finish' : 'Continue'}
                     </LemonButton>
                 </div>
             </div>

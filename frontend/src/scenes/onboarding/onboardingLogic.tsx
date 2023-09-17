@@ -8,6 +8,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
 }
+export type AllOnboardingSteps = JSX.Element[]
 
 export const onboardingLogic = kea<onboardingLogicType>({
     props: {} as OnboardingLogicProps,
@@ -19,11 +20,10 @@ export const onboardingLogic = kea<onboardingLogicType>({
     actions: {
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
-        setOnboardingStep: (onboardingStep: number) => ({ onboardingStep }),
-        incrementOnboardingStep: true,
-        decrementOnboardingStep: true,
-        setTotalOnboardingSteps: (totalOnboardingSteps: number) => ({ totalOnboardingSteps }),
+        setCurrentOnboardingStepNumber: (currentOnboardingStepNumber: number) => ({ currentOnboardingStepNumber }),
         completeOnboarding: true,
+        setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
+        setStepKey: (stepKey: string) => ({ stepKey }),
     },
     reducers: () => ({
         productKey: [
@@ -38,12 +38,16 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 setProduct: (_, { product }) => product,
             },
         ],
-        onboardingStep: [
+        currentOnboardingStepNumber: [
             1,
             {
-                setOnboardingStep: (_, { onboardingStep }) => onboardingStep,
-                incrementOnboardingStep: (state) => state + 1,
-                decrementOnboardingStep: (state) => state - 1,
+                setCurrentOnboardingStepNumber: (_, { currentOnboardingStepNumber }) => currentOnboardingStepNumber,
+            },
+        ],
+        allOnboardingSteps: [
+            [] as AllOnboardingSteps,
+            {
+                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps as AllOnboardingSteps,
             },
         ],
         totalOnboardingSteps: [
@@ -70,6 +74,9 @@ export const onboardingLogic = kea<onboardingLogicType>({
             },
         ],
     }),
+    selectors: {
+        totalOnboardingSteps: [(s) => [s.allOnboardingSteps], (allOnboardingSteps) => allOnboardingSteps.length],
+    },
     listeners: ({ actions, values }) => ({
         loadBillingSuccess: () => {
             actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
@@ -100,7 +107,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 return
             }
             actions.setProductKey(productKey)
-            actions.setOnboardingStep(1)
+            actions.setCurrentOnboardingStepNumber(1)
         },
     }),
 })

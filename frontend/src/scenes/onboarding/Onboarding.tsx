@@ -7,10 +7,10 @@ import { urls } from 'scenes/urls'
 import { onboardingLogic } from './onboardingLogic'
 import { SDKs } from './sdks/SDKs'
 import { OnboardingProductIntro } from './OnboardingProductIntro'
-import { OnboardingStep } from './OnboardingStep'
 import { ProductKey } from '~/types'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
+import { OnboardingBillingStep } from './OnboardingBillingStep'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -18,8 +18,8 @@ export const scene: SceneExport = {
 }
 
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { onboardingStep } = useValues(onboardingLogic)
-    const { setTotalOnboardingSteps } = useActions(onboardingLogic)
+    const { currentOnboardingStepNumber } = useValues(onboardingLogic)
+    const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
@@ -28,7 +28,10 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     }, [children])
 
     useEffect(() => {
-        setTotalOnboardingSteps(allSteps.length)
+        if (!allSteps.length) {
+            return
+        }
+        setAllOnboardingSteps(allSteps)
     }, [allSteps])
 
     if (!product || !children) {
@@ -42,19 +45,16 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         } else {
             setAllSteps([ProductIntro, children as JSX.Element])
         }
-        setTotalOnboardingSteps(Array.isArray(children) ? children.length : 1)
     }
 
-    return (allSteps[onboardingStep - 1] as JSX.Element) || <></>
+    return (allSteps[currentOnboardingStepNumber - 1] as JSX.Element) || <></>
 }
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <SDKs usersAction="collecting events" sdkInstructionMap={ProductAnalyticsSDKInstructions} />
-            <OnboardingStep title="my onboarding step" subtitle="my onboarding subtitle">
-                <div>my onboarding content</div>
-            </OnboardingStep>
+            <OnboardingBillingStep />
         </OnboardingWrapper>
     )
 }
@@ -66,6 +66,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library."
             />
+            <OnboardingBillingStep />
         </OnboardingWrapper>
     )
 }
