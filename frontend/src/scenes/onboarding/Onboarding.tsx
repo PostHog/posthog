@@ -17,8 +17,11 @@ export const scene: SceneExport = {
     logic: onboardingLogic,
 }
 
+/**
+ * Wrapper for custom onboarding content. This automatically includes the product intro and billing step.
+ */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { currentOnboardingStepNumber } = useValues(onboardingLogic)
+    const { currentOnboardingStepNumber, shouldShowBillingStep } = useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
@@ -46,9 +49,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         } else {
             steps = [ProductIntro, children as JSX.Element]
         }
-        if (!product.subscribed) {
-            // TODO: if sub'd during this onboarding, we do want to still show the billing step
-            // also if they don't have all addons, show the billing step
+        if (shouldShowBillingStep) {
             const BillingStep = <OnboardingBillingStep product={product} />
             steps = [...steps, BillingStep]
         }

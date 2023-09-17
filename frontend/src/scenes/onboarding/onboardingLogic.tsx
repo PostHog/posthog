@@ -24,6 +24,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
         completeOnboarding: true,
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: string) => ({ stepKey }),
+        setSubscribedDuringOnboarding: (subscribedDuringOnboarding) => ({ subscribedDuringOnboarding }),
     },
     reducers: () => ({
         productKey: [
@@ -67,11 +68,24 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 },
             },
         ],
+        subscribedDuringOnboarding: [
+            false,
+            {
+                setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
+            },
+        ],
     }),
     selectors: {
         totalOnboardingSteps: [
             (s) => [s.allOnboardingSteps],
             (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
+        ],
+        shouldShowBillingStep: [
+            (s) => [s.product, s.subscribedDuringOnboarding],
+            (product: BillingProductV2Type | null, subscribedDuringOnboarding: boolean) => {
+                const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
+                return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
+            },
         ],
     },
     listeners: ({ actions, values }) => ({
@@ -98,10 +112,13 @@ export const onboardingLogic = kea<onboardingLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/onboarding/:productKey': ({ productKey }) => {
+        '/onboarding/:productKey': ({ productKey }, { success }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
+            }
+            if (success) {
+                actions.setSubscribedDuringOnboarding(true)
             }
             actions.setProductKey(productKey)
             actions.setCurrentOnboardingStepNumber(1)
