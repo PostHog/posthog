@@ -81,8 +81,6 @@ def _send_email(
 
     with transaction.atomic():
         for dest in to:
-            # record, _ = MessagingRecord.objects.get_or_create(raw_email=dest["raw_email"], campaign_key=campaign_key)
-            # get all records with the email and campaign key, sorted by created_at with most recent first
             campaign_records = MessagingRecord.objects.filter(
                 raw_email=dest["raw_email"], campaign_key=campaign_key
             ).order_by("-created_at")
