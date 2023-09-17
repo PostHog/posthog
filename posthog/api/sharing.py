@@ -15,7 +15,6 @@ from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.models import SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change
 from posthog.models.dashboard import Dashboard
@@ -24,6 +23,7 @@ from posthog.models.insight import Insight
 from posthog.models import SessionRecording
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 
