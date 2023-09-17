@@ -200,7 +200,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
                 f"{recording.build_object_storage_path('2023-08-01')}/c",
             ]
 
-    @patch("ee.models.session_recording_extensions.report_team_action")
+    @patch("ee.session_recordings.session_recording_extensions.report_team_action")
     def test_persist_tracks_correct_to_posthog(self, mock_capture):
         two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=timezone.utc)
 

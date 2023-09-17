@@ -209,8 +209,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert {x["id"] for x in result["results"]} == {session_one, session_two}
         assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
-    @patch("ee.models.session_recording_extensions.object_storage.list_objects")
-    @patch("ee.models.session_recording_extensions.object_storage.copy_objects")
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.list_objects")
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
     def test_fetch_playlist_recordings(self, mock_copy_objects: MagicMock, mock_list_objects: MagicMock) -> None:
         # all sessions have been blob ingested and had data to copy into the LTS storage location
         mock_copy_objects.return_value = 1
