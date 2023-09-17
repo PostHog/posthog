@@ -321,7 +321,7 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
-psycopg2-binary==2.8.6
+psycopg2-binary==2.9.7
     # via -r requirements.in
 ptyprocess==0.6.0
     # via pexpect
