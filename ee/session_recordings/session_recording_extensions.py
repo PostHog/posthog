@@ -137,8 +137,8 @@ def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedR
     # and will not be loaded here
     if not recording.storage_version:
         try:
-            content = object_storage.read(recording.object_storage_path)
-            decompressed = json.loads(decompress(content))
+            content = object_storage.read(str(recording.object_storage_path))
+            decompressed = json.loads(decompress(content)) if content else None
             logger.info(
                 "Persisting recording load: loaded!",
                 recording_id=recording.session_id,

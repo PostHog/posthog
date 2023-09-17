@@ -221,7 +221,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     create_snapshot(
                         has_full_snapshot=True,
                         distinct_id=distinct_id,
-                        session_id=i,
+                        session_id=str(i),
                         timestamp=now() - relativedelta(hours=12),
                         team_id=self.org_1_team_2.id,
                     )
@@ -232,7 +232,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     create_snapshot(
                         has_full_snapshot=True,
                         distinct_id=distinct_id,
-                        session_id=i + 10,
+                        session_id=str(i + 10),
                         timestamp=now() - relativedelta(hours=48),
                         team_id=self.org_1_team_2.id,
                     )
