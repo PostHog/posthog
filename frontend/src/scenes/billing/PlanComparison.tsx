@@ -6,7 +6,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, 
 import './PlanComparison.scss'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { convertLargeNumberToWords, getUpgradeAllProductsLink } from './billing-utils'
+import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 
 export function PlanIcon({
@@ -98,11 +98,7 @@ export const PlanComparison = ({
         return (
             <td key={`${plan.key}-cta`} className="PlanTable__td__upgradeButton">
                 <LemonButton
-                    to={
-                        includeAddons
-                            ? getUpgradeAllProductsLink(product, plan.plan_key || '', redirectPath)
-                            : `/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`
-                    }
+                    to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
                     type={plan.current_plan ? 'secondary' : 'primary'}
                     fullWidth
                     center

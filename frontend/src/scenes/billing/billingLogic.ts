@@ -74,7 +74,11 @@ export const billingLogic = kea<billingLogicType>([
             '' as string,
             {
                 setRedirectPath: () => {
-                    return window.location.pathname.includes('/ingestion') ? urls.ingestion() + '/billing' : ''
+                    return window.location.pathname.includes('/ingestion')
+                        ? urls.ingestion() + '/billing'
+                        : window.location.pathname.includes('/onboarding')
+                        ? window.location.pathname
+                        : ''
                 },
             },
         ],

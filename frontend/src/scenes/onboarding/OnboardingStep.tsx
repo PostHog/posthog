@@ -9,11 +9,13 @@ export const OnboardingStep = ({
     subtitle,
     children,
     showSkip = false,
+    continueOverride,
 }: {
     title: string
     subtitle?: string
     children: React.ReactNode
     showSkip?: boolean
+    continueOverride?: JSX.Element
 }): JSX.Element => {
     const { currentOnboardingStepNumber, totalOnboardingSteps } = useValues(onboardingLogic)
     const { setCurrentOnboardingStepNumber, completeOnboarding } = useActions(onboardingLogic)
@@ -36,7 +38,7 @@ export const OnboardingStep = ({
                 )
             }
         >
-            <div className="max-w-md">
+            <div className="w-md">
                 <h1 className="font-bold">{title}</h1>
                 <p>{subtitle}</p>
                 {children}
@@ -54,17 +56,21 @@ export const OnboardingStep = ({
                             Skip for now
                         </LemonButton>
                     )}
-                    <LemonButton
-                        type="primary"
-                        onClick={() =>
-                            currentOnboardingStepNumber == totalOnboardingSteps
-                                ? completeOnboarding()
-                                : setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
-                        }
-                        sideIcon={currentOnboardingStepNumber !== totalOnboardingSteps ? <IconArrowRight /> : null}
-                    >
-                        {currentOnboardingStepNumber == totalOnboardingSteps ? 'Finish' : 'Continue'}
-                    </LemonButton>
+                    {continueOverride ? (
+                        continueOverride
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            onClick={() =>
+                                currentOnboardingStepNumber == totalOnboardingSteps
+                                    ? completeOnboarding()
+                                    : setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
+                            }
+                            sideIcon={currentOnboardingStepNumber !== totalOnboardingSteps ? <IconArrowRight /> : null}
+                        >
+                            {currentOnboardingStepNumber == totalOnboardingSteps ? 'Finish' : 'Continue'}
+                        </LemonButton>
+                    )}
                 </div>
             </div>
         </BridgePage>
