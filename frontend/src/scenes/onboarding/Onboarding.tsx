@@ -40,11 +40,19 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 
     const createAllSteps = (): void => {
         const ProductIntro = <OnboardingProductIntro product={product} />
+        let steps = []
         if (Array.isArray(children)) {
-            setAllSteps([ProductIntro, ...children])
+            steps = [ProductIntro, ...children]
         } else {
-            setAllSteps([ProductIntro, children as JSX.Element])
+            steps = [ProductIntro, children as JSX.Element]
         }
+        if (!product.subscribed) {
+            // TODO: if sub'd during this onboarding, we do want to still show the billing step
+            // also if they don't have all addons, show the billing step
+            const BillingStep = <OnboardingBillingStep product={product} />
+            steps = [...steps, BillingStep]
+        }
+        setAllSteps(steps)
     }
 
     return (allSteps[currentOnboardingStepNumber - 1] as JSX.Element) || <></>
@@ -54,7 +62,6 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <SDKs usersAction="collecting events" sdkInstructionMap={ProductAnalyticsSDKInstructions} />
-            <OnboardingBillingStep />
         </OnboardingWrapper>
     )
 }
@@ -66,7 +73,6 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library."
             />
-            <OnboardingBillingStep />
         </OnboardingWrapper>
     )
 }
