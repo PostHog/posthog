@@ -1,13 +1,32 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Type, Dict
 
+from prometheus_client import Counter
+from django.utils.timezone import now
+from django.core.cache import cache
+from django.conf import settings
+
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.types import InsightQueryNode
-from posthog.utils import generate_cache_key
+from posthog.utils import generate_cache_key, get_safe_cache
+
+QUERY_CACHE_WRITE_COUNTER = Counter(
+    "query_cache_write_total",
+    "When a query result was persisted in the cache.",
+    labelnames=[LABEL_TEAM_ID],
+)
+
+QUERY_CACHE_HIT_COUNTER = Counter(
+    "query_cache_hit_total",
+    "Whether we could fetch the query from the cache or not.",
+    labelnames=[LABEL_TEAM_ID, "cache_hit"],
+)
 
 
 class QueryRunner(ABC):
@@ -27,6 +46,36 @@ class QueryRunner(ABC):
     @abstractmethod
     def run(self) -> InsightQueryNode:
         raise NotImplementedError()
+
+    @abstractmethod
+    def run_cached(self, refresh_requested: bool) -> InsightQueryNode:
+        cache_key = self.cache_key()
+        tag_queries(cache_key=cache_key)
+
+        if not refresh_requested:
+            cached_result_package = get_safe_cache(cache_key)
+
+            if cached_result_package and cached_result_package.get("result"):
+                if not self.is_stale(cached_result_package):
+                    cached_result_package["is_cached"] = True
+                    QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=True).inc()
+                    return cached_result_package
+                else:
+                    QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=False).inc()
+            else:
+                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=False).inc()
+
+        fresh_result_package = self.run()
+        if isinstance(fresh_result_package, dict):
+            result = fresh_result_package.get("result")
+            if not isinstance(result, dict) or not result.get("loading"):
+                timestamp = now()
+                fresh_result_package["last_refresh"] = timestamp
+                fresh_result_package["is_cached"] = False
+                cache.set(cache_key, result, settings.CACHED_RESULTS_TTL)
+                QUERY_CACHE_WRITE_COUNTER.inc()
+
+        return fresh_result_package
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery:
@@ -54,3 +103,7 @@ class QueryRunner(ABC):
             payload += f"_{cache_invalidation_key}"
 
         return generate_cache_key(payload)
+
+    @abstractmethod
+    def is_stale(self, cached_result_package):
+        raise NotImplementedError()

@@ -1,6 +1,7 @@
 from typing import Optional, Any, Dict, List
 
 from django.utils.timezone import datetime
+from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -247,3 +248,8 @@ class LifecycleQueryRunner(QueryRunner):
                 timings=self.timings,
             )
         return periods_query
+
+    def is_stale(self, cached_result_package):
+        date_to = self.query_date_range.date_to()
+        interval = self.query_date_range.interval_name
+        return is_stale(self.team, date_to, interval, cached_result_package)

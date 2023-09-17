@@ -35,6 +35,7 @@ from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySeria
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
+from posthog.utils import refresh_requested_by_client
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -92,10 +93,10 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def list(self, request: Request, **kw) -> HttpResponse:
         self._tag_client_query_id(request.GET.get("client_query_id"))
         query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
-
+        refresh_requested = refresh_requested_by_client(request)
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json), safe=False)
+            return JsonResponse(process_query(self.team, query_json, refresh_requested=refresh_requested), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -105,9 +106,10 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         request_json = request.data
         query_json = request_json.get("query")
         self._tag_client_query_id(request_json.get("client_query_id"))
+        refresh_requested = refresh_requested_by_client(request)
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json), safe=False)
+            return JsonResponse(process_query(self.team, query_json, refresh_requested=refresh_requested), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -196,7 +198,9 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
     return cast(dict, _unwrap_pydantic(response))
 
 
-def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:
+def process_query(
+    team: Team, query_json: Dict, default_limit: Optional[int] = None, refresh_requested: bool = False
+) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
@@ -223,7 +227,7 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
         return _unwrap_pydantic_dict(metadata_response)
     elif query_kind == "LifecycleQuery":
         lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(lifecycle_query_runner.run())
+        return _unwrap_pydantic_dict(lifecycle_query_runner.run_cached(refresh_requested=refresh_requested))
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)
