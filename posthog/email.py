@@ -91,12 +91,14 @@ def _send_email(
                 and resend_frequency_days
                 and _is_past_resend_frequency_date(campaign_records[0], resend_frequency_days)
             ):
-                record = MessagingRecord.objects.create(raw_email=dest["raw_email"], campaign_key=campaign_key)
+                record: MessagingRecord = MessagingRecord.objects.create(
+                    raw_email=dest["raw_email"], campaign_key=campaign_key
+                )
             else:
                 record = campaign_records[0]
 
             # Lock object (database-level) while the message is sent
-            record: MessagingRecord = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+            record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
 
             if _should_send_email(record) is False:
                 record.save()
