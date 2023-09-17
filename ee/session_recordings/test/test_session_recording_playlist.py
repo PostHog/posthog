@@ -12,7 +12,7 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem
-from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.settings import (

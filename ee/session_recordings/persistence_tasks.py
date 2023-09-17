@@ -3,9 +3,9 @@ from datetime import timedelta
 import structlog
 from django.utils import timezone
 
-from ee.models.session_recording_extensions import persist_recording
+from ee.session_recordings.session_recording_extensions import persist_recording
 from posthog.celery import app
-from posthog.models.session_recording.session_recording import SessionRecording
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 logger = structlog.get_logger(__name__)
 

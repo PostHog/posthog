@@ -25,19 +25,19 @@ from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Filter, User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.session_recording.session_recording import SessionRecording
-from posthog.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 
-from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
+from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
     SessionIdEventsQuery,
 )
-from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
+from posthog.session_recordings.queries.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
 from posthog.storage import object_storage

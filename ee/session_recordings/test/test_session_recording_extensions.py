@@ -7,11 +7,11 @@ from boto3 import resource
 from botocore.config import Config
 from freezegun import freeze_time
 
-from ee.models.session_recording_extensions import load_persisted_recording, persist_recording
-from posthog.models.session_recording.session_recording import SessionRecording
-from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
-from posthog.models.session_recording_playlist_item.session_recording_playlist_item import SessionRecordingPlaylistItem
-from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
+from ee.session_recordings.session_recording_extensions import load_persisted_recording, persist_recording
+from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,

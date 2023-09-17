@@ -11,8 +11,8 @@ from sentry_sdk import capture_exception, capture_message
 
 from posthog import settings
 from posthog.event_usage import report_team_action
-from posthog.models.session_recording.metadata import PersistedRecordingV1
-from posthog.models.session_recording.session_recording import SessionRecording
+from posthog.session_recordings.models.metadata import PersistedRecordingV1
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_helpers import compress_to_string, decompress
 from posthog.storage import object_storage
 

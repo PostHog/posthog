@@ -9,7 +9,7 @@ from dateutil.parser import ParserError, parse
 from sentry_sdk.api import capture_exception
 
 from posthog.models import utils
-from posthog.models.session_recording.metadata import (
+from posthog.session_recordings.models.metadata import (
     DecompressedRecordingData,
     SessionRecordingEventSummary,
     SnapshotData,

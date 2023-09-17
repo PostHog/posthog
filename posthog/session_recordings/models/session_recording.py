@@ -6,15 +6,15 @@ from django.dispatch import receiver
 
 from posthog.celery import ee_persist_single_recording
 from posthog.models.person.person import Person
-from posthog.models.session_recording.metadata import (
+from posthog.session_recordings.models.metadata import (
     DecompressedRecordingData,
     RecordingMatchingEvents,
     RecordingMetadata,
 )
-from posthog.models.session_recording_event.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.queries.session_recordings.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from django.conf import settings
 
 
@@ -98,7 +98,7 @@ class SessionRecording(UUIDModel):
         return True
 
     def load_snapshots(self, limit=20, offset=0) -> None:
-        from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
+        from posthog.session_recordings.queries.session_recording_events import SessionRecordingEvents
 
         if self._snapshots:
             return
@@ -117,7 +117,7 @@ class SessionRecording(UUIDModel):
         This is only called in the to-be deprecated v1 of session recordings snapshot API
         """
         try:
-            from ee.models.session_recording_extensions import load_persisted_recording
+            from ee.session_recordings.session_recording_extensions import load_persisted_recording
         except ImportError:
             load_persisted_recording = lambda *args: None
 

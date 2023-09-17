@@ -12,13 +12,13 @@ from posthog.models import Person, Cohort
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.session_replay_event.sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.models.team import Team
-from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
+from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
     ttl_days,
 )
-from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,

@@ -8,7 +8,7 @@ from rest_framework.request import Request
 
 from posthog.models import Filter
 from posthog.models.team import Team
-from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
+from posthog.session_recordings.queries.session_recording_events import SessionRecordingEvents
 from posthog.session_recordings.session_recording_helpers import (
     DecompressedRecordingData,
 )
