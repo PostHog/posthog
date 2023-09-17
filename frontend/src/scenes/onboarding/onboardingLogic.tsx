@@ -50,12 +50,6 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps as AllOnboardingSteps,
             },
         ],
-        totalOnboardingSteps: [
-            1,
-            {
-                setTotalOnboardingSteps: (_, { totalOnboardingSteps }) => totalOnboardingSteps,
-            },
-        ],
         onCompleteOnbardingRedirectUrl: [
             urls.default() as string,
             {
@@ -75,7 +69,10 @@ export const onboardingLogic = kea<onboardingLogicType>({
         ],
     }),
     selectors: {
-        totalOnboardingSteps: [(s) => [s.allOnboardingSteps], (allOnboardingSteps) => allOnboardingSteps.length],
+        totalOnboardingSteps: [
+            (s) => [s.allOnboardingSteps],
+            (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
+        ],
     },
     listeners: ({ actions, values }) => ({
         loadBillingSuccess: () => {
