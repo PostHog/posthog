@@ -1,10 +1,18 @@
+import math
+import zoneinfo
 from datetime import datetime
+from random import Random
+from typing import List, Any
 
+from dateutil.parser import isoparse
 from freezegun import freeze_time
 
+from posthog.constants import TRENDS_LIFECYCLE
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.models import Filter
 from posthog.models.utils import UUIDT
+from posthog.queries.trends.trends import Trends
 from posthog.schema import DateRange, IntervalType, LifecycleQuery, EventsNode
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
@@ -45,6 +53,31 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             for timestamp in timestamps:
                 _create_event(team=self.team, event=event, distinct_id=id, timestamp=timestamp)
         return person_result
+
+    def _create_prng_events(self, num_people: int, num_events_per_person: int, start_date: str, end_date: str, seed=42):
+        random = Random(seed)
+        start_ts = isoparse(start_date).timestamp()
+        end_ts = isoparse(end_date).timestamp()
+
+        if end_ts <= start_ts:
+            raise ValueError("Dates wrong way round")
+
+        data = [
+            (
+                f"p{p}",
+                [
+                    datetime.fromtimestamp(ts, tz=zoneinfo.ZoneInfo("UTC"))
+                    for ts in sorted(
+                        [
+                            random.randrange(start=math.floor(start_ts), stop=math.floor(end_ts))
+                            for _ in range(num_events_per_person)
+                        ]
+                    )
+                ],
+            )
+            for p in range(num_people)
+        ]
+        self._create_events(data=data)
 
     def _create_test_events(self):
         self._create_events(
@@ -89,6 +122,24 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def _run_lifecycle_query(self, date_from, date_to, interval):
         return self._create_query_runner(date_from, date_to, interval).run()
+
+    def _run_lifecycle_query_non_hogql(self, date_from, date_to, interval):
+        return Trends().run(
+            Filter(
+                data={
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "total"}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                    "interval": interval,
+                }
+            ),
+            self.team,
+        )
+
+    def _strip_to_lcd(self, data: List[Any]):
+        common = ["data", "count", "labels", "days", "status"]
+        return {x["status"]: {k: x[k] for k in common} for x in data}
 
     def test_lifecycle_query_whole_range(self):
         self._create_test_events()
@@ -331,3 +382,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             },
             set(response.results),
         )
+
+    def test_equivalence_to_non_hogql(self):
+        date_from = "2020-01-01"
+        date_to = "2020-01-30"
+        self._create_prng_events(num_people=50, num_events_per_person=50, start_date=date_from, end_date=date_to)
+        hogql_response = self._strip_to_lcd(self._run_lifecycle_query(date_from, date_to, IntervalType.day).result)
+        non_hogql_response = self._strip_to_lcd(
+            self._run_lifecycle_query_non_hogql(date_from, date_to, IntervalType.day)
+        )
+
+        self.assertEqual(hogql_response, non_hogql_response)
