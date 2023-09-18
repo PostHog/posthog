@@ -55,7 +55,7 @@ export const TARGET_AREA_TO_NAME = {
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
-    tool_bar: 'Toolbar & heatmaps',
+    toolbar: 'Toolbar & heatmaps',
     surveys: 'Surveys',
 }
 
