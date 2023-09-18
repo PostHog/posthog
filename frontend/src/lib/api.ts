@@ -1245,17 +1245,20 @@ const api = {
                 .getResponse()
 
             try {
-                const textLines = await response.text()
+                const contentBuffer = new Uint8Array(await response.arrayBuffer())
+                const textLines = strFromU8(contentBuffer)
 
-                if (textLines) {
+                if (textLines.startsWith('{')) {
+                    // it is not gzipped
                     return textLines.split('\n')
+                } else {
+                    const s = strFromU8(decompressSync(contentBuffer))
+                    return s.trim().split('\n')
                 }
             } catch (e) {
                 // Must be gzipped
+                console.error(e)
             }
-
-            const contentBuffer = new Uint8Array(await response.arrayBuffer())
-            return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
 
         async updateRecording(
