@@ -376,6 +376,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         className="w-max"
                                         onClick={() => {
                                             setSurveyValue('targeting_flag_filters', { groups: [] })
+                                            setSurveyValue('remove_targeting_flag', false)
                                         }}
                                     >
                                         Add user targeting
@@ -386,19 +387,18 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         <div className="mt-2">
                                             <FeatureFlagReleaseConditions excludeTitle={true} />
                                         </div>
-                                        {id === 'new' && (
-                                            <LemonButton
-                                                type="secondary"
-                                                status="danger"
-                                                className="w-max"
-                                                onClick={() => {
-                                                    setSurveyValue('targeting_flag_filters', undefined)
-                                                    setSurveyValue('targeting_flag', null)
-                                                }}
-                                            >
-                                                Remove all user properties
-                                            </LemonButton>
-                                        )}
+                                        <LemonButton
+                                            type="secondary"
+                                            status="danger"
+                                            className="w-max"
+                                            onClick={() => {
+                                                setSurveyValue('targeting_flag_filters', null)
+                                                setSurveyValue('targeting_flag', null)
+                                                setSurveyValue('remove_targeting_flag', true)
+                                            }}
+                                        >
+                                            Remove all user properties
+                                        </LemonButton>
                                     </>
                                 )}
                             </BindLogic>
