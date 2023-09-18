@@ -1442,6 +1442,9 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "hogql": {
+                    "type": "string"
+                },
                 "result": {
                     "items": {
                         "type": "object"
@@ -1455,7 +1458,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["result", "hogql"],
             "type": "object"
         },
         "LifecycleToggle": {

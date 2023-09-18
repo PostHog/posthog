@@ -447,6 +447,7 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
 export interface LifecycleQueryResponse {
     result: Record<string, any>[]
     timings?: QueryTiming[]
+    hogql: string
 }
 
 export interface LifecycleQuery extends InsightsQueryBase {

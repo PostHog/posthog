@@ -637,6 +637,7 @@ class LifecycleQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    hogql: str
     result: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
 

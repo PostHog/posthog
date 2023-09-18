@@ -4,6 +4,7 @@ from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -85,9 +86,12 @@ class LifecycleQueryRunner(QueryRunner):
             )
 
     def run(self) -> LifecycleQueryResponse:
+        query = self.to_query()
+        hogql = to_printed_hogql(query, self.team.pk)
+
         response = execute_hogql_query(
             query_type="LifecycleQuery",
-            query=self.to_query(),
+            query=query,
             team=self.team,
             timings=self.timings,
         )
@@ -123,7 +127,7 @@ class LifecycleQueryRunner(QueryRunner):
                 }
             )
 
-        return LifecycleQueryResponse(result=res, timings=response.timings)
+        return LifecycleQueryResponse(result=res, timings=response.timings, hogql=hogql)
 
     @cached_property
     def query_date_range(self):
