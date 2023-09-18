@@ -469,6 +469,14 @@ class TrendsFilter(BaseModel):
     smoothing_intervals: Optional[float] = None
 
 
+class TrendsQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    result: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
