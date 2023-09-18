@@ -26,10 +26,7 @@ export type CustomNotebookNodeAttributes = Record<string, any>
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
     height?: string | number
-    title:
-        | string
-        | ((attributes: T) => Promise<string>)
-        | { recompute: (attributes: T) => boolean; value: (attributes: T) => Promise<string> }
+    title: string
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead
