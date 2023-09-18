@@ -23,6 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.database.s3_table import S3Table
 from posthog.models.action.action import Action
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.cohort import Cohort
@@ -853,3 +854,14 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
             prop.values = [clear_excess_levels(p, skip=True) for p in prop.values]
 
     return prop
+
+
+class S3TableVisitor(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.tables = set()
+
+    def visit_table_type(self, node):
+        if isinstance(node.table, S3Table):
+            self.tables.add(node.table.name)
+        super().visit_table_type(node)

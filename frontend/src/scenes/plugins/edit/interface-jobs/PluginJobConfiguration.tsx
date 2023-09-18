@@ -3,7 +3,6 @@ import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } fro
 import { Tooltip, Radio, InputNumber } from 'antd'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import MonacoEditor from '@monaco-editor/react'
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { JobPayloadFieldOptions } from '~/types'
@@ -15,7 +14,7 @@ import { LemonCalendarRangeInline } from 'lib/lemon-ui/LemonCalendarRange/LemonC
 import { dayjs } from 'lib/dayjs'
 import { formatDate, formatDateRange } from 'lib/utils'
 import { DatePicker } from 'lib/components/DatePicker'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { CodeEditor } from 'lib/components/CodeEditors'
 
 // keep in sync with plugin-server's export-historical-events.ts
 export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
@@ -108,15 +107,13 @@ function FieldInput({
             return <InputNumber value={value} onChange={onChange} />
         case 'json':
             return (
-                <MonacoEditor
-                    theme="vs-dark"
+                <CodeEditor
                     options={{ codeLens: false, lineNumbers: 'off' }}
                     className="plugin-job-json-editor"
                     language="json"
                     height={200}
                     value={value}
                     onChange={onChange}
-                    loading={<Spinner />}
                 />
             )
         case 'boolean':

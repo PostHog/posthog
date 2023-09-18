@@ -15,7 +15,7 @@ export type LemonTagType =
     | 'caution'
     | 'none'
 
-interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
     type?: LemonTagType
     children: React.ReactNode
     size?: 'small' | 'medium'

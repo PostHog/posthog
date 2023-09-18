@@ -1,15 +1,16 @@
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Dict, Literal, Optional, Tuple
+from zoneinfo import ZoneInfo
 
-import pytz
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
+from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters import AnyFilter
+from posthog.models.filters.mixins.interval import IntervalMixin
 
 from posthog.models.team import Team
-from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
+from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp, get_start_of_interval_sql
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 
@@ -81,17 +82,7 @@ class QueryDateRange:
         return self._localize_to_team(timezone.now())
 
     def _localize_to_team(self, target: datetime):
-        return target.astimezone(pytz.timezone(self._team.timezone))
-
-    @cached_property
-    def interval_annotation(self) -> str:
-        period = getattr(self._filter, "interval", None)
-        if period is None:
-            period = "day"
-        ch_function = PERIOD_TO_TRUNC_FUNC.get(period.lower())
-        if ch_function is None:
-            raise ValidationError(f"Period {period} is unsupported.")
-        return ch_function
+        return target.astimezone(ZoneInfo(self._team.timezone))
 
     @cached_property
     def date_to_clause(self):
@@ -124,7 +115,14 @@ class QueryDateRange:
         event_timestamp_expr = self._normalize_datetime(column=f"{self._table}timestamp")
         date_expr = self._normalize_datetime(param=date_param)
         if operator == ">=" and self.should_round:  # Round date_from to start of interval if `should_round` is true
-            date_expr = self._truncate_normalized_datetime(date_expr, self.interval_annotation)
+            if not (isinstance(self._filter, BaseFilter) and isinstance(self._filter, IntervalMixin)):
+                raise ValueError("Cannot round with a filter that's not based on BaseFilter with IntervalMixin")
+            date_expr = get_start_of_interval_sql(
+                self._filter.interval,
+                team=self._team,
+                source=date_expr,
+                ensure_datetime=True,
+            )
         return f"AND {event_timestamp_expr} {operator} {date_expr}"
 
     @staticmethod
@@ -145,23 +143,6 @@ class QueryDateRange:
             return f"toDateTime(%({param})s, %(timezone)s)"
         else:
             raise ValueError("Must provide either column or param")
-
-    @classmethod
-    def _truncate_normalized_datetime(cls, normalized_datetime_expr: str, trunc_func: str) -> str:
-        """Return expression with normalized datetime truncated to the start of the interval."""
-        extra_trunc_func_args = cls.determine_extra_trunc_func_args(trunc_func)
-        # toDateTime is important here, as otherwise we'd get a date in many cases, which breaks comparisons
-        return f"toDateTime({trunc_func}({normalized_datetime_expr}{extra_trunc_func_args}), %(timezone)s)"
-
-    @staticmethod
-    def determine_extra_trunc_func_args(trunc_func: str) -> str:
-        """
-        Returns any extra arguments to be passed to the toStartOfWeek, toStartOfMonth, and other date truncation functions.
-
-        Currently only one of those functions requires extra args: toStartOfWeek. It takes a second argument indicating
-        if weeks should be Sunday-based (mode=0) or Monday-based (mode=1). We want Sunday-based, so we set that mode to 0.
-        """
-        return ", 0" if trunc_func == "toStartOfWeek" else ""
 
     @cached_property
     def delta(self) -> timedelta:

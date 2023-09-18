@@ -176,7 +176,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "toStartOfMonth": HogQLFunctionMeta("toStartOfMonth", 1, 1),
     "toLastDayOfMonth": HogQLFunctionMeta("toLastDayOfMonth", 1, 1),
     "toMonday": HogQLFunctionMeta("toMonday", 1, 1),
-    "toStartOfWeek": HogQLFunctionMeta("toStartOfWeek", 1, 1),
+    "toStartOfWeek": HogQLFunctionMeta("toStartOfWeek", 1, 2),
     "toStartOfDay": HogQLFunctionMeta("toStartOfDay", 1, 2),
     "toLastDayOfWeek": HogQLFunctionMeta("toLastDayOfWeek", 1, 2),
     "toStartOfHour": HogQLFunctionMeta("toStartOfHour", 1, 1),

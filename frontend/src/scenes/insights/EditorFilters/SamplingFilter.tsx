@@ -23,7 +23,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
                     infoLink="https://posthog.com/manual/sampling"
                 >
-                    Sampling<LemonTag type="warning">BETA</LemonTag>
+                    Sampling <LemonTag type="warning">BETA</LemonTag>
                 </LemonLabel>
                 <LemonSwitch
                     className="m-2"

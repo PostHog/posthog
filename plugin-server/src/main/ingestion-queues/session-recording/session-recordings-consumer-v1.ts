@@ -35,6 +35,7 @@ export const startSessionRecordingEventsConsumerV1 = async ({
     consumerMaxWaitMs,
     consumerErrorBackoffMs,
     batchingTimeoutMs,
+    topicCreationTimeoutMs,
 }: {
     teamManager: TeamManager
     kafkaConfig: KafkaConfig
@@ -43,6 +44,7 @@ export const startSessionRecordingEventsConsumerV1 = async ({
     consumerMaxWaitMs: number
     consumerErrorBackoffMs: number
     batchingTimeoutMs: number
+    topicCreationTimeoutMs: number
 }) => {
     /*
         For Session Recordings we need to prepare the data for ClickHouse.
@@ -90,6 +92,7 @@ export const startSessionRecordingEventsConsumerV1 = async ({
         consumerErrorBackoffMs,
         fetchBatchSize,
         batchingTimeoutMs,
+        topicCreationTimeoutMs,
         eachBatch: eachBatchWithContext,
     })
 

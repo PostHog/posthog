@@ -67,6 +67,11 @@ Loading.args = {
     ...Default.args,
     loading: true,
 }
+Loading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const Small: Story = Template.bind({})
 Small.args = {

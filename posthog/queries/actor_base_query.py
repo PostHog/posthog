@@ -263,7 +263,7 @@ def get_people(
 
 
 def serialize_people(
-    team: Team, data: QuerySet[Person], value_per_actor_id: Optional[Dict[str, float]]
+    team: Team, data: Union[QuerySet[Person], List[Person]], value_per_actor_id: Optional[Dict[str, float]] = None
 ) -> List[SerializedPerson]:
     from posthog.api.person import get_person_name
 

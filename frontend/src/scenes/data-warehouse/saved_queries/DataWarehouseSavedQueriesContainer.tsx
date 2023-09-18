@@ -68,7 +68,7 @@ export function DataWarehouseSavedQueriesContainer(): JSX.Element {
                                             status="danger"
                                             onClick={() => {
                                                 deleteWithUndo({
-                                                    endpoint: `projects/${currentTeamId}/warehouse_saved_query`,
+                                                    endpoint: `projects/${currentTeamId}/warehouse_saved_queries`,
                                                     object: { name: warehouseView.name, id: warehouseView.id },
                                                     callback: loadDataWarehouseSavedQueries,
                                                 })

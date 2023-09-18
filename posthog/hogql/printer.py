@@ -35,6 +35,7 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 from posthog.utils import PersonOnEventsMode
 
@@ -69,12 +70,16 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> ast.Expr:
-    context.database = context.database or create_hogql_database(context.team_id)
+    with context.timings.measure("create_hogql_database"):
+        context.database = context.database or create_hogql_database(context.team_id)
 
-    node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
+    with context.timings.measure("resolve_types"):
+        node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
-        node = resolve_property_types(node, context)
-        resolve_lazy_tables(node, stack, context)
+        with context.timings.measure("resolve_property_types"):
+            node = resolve_property_types(node, context)
+        with context.timings.measure("resolve_lazy_tables"):
+            resolve_lazy_tables(node, stack, context)
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
 
@@ -86,8 +91,9 @@ def print_prepared_ast(
     stack: Optional[List[ast.SelectQuery]] = None,
     settings: Optional[HogQLSettings] = None,
 ) -> str:
-    # _Printer also adds a team_id guard if printing clickhouse
-    return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
+    with context.timings.measure("printer"):
+        # _Printer also adds a team_id guard if printing clickhouse
+        return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
 
 
 @dataclass
@@ -628,7 +634,7 @@ class _Printer(Visitor):
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
                                 args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
                             else:
-                                args.append(f"toDateTime({self.visit(arg)})")
+                                args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
                         else:
                             args.append(self.visit(arg))
                 elif node.name == "concat":
@@ -674,6 +680,10 @@ class _Printer(Visitor):
                     ):
                         args.append("6")  # These two CH functions require the precision argument before timezone
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
+                if node.name == "toStartOfWeek" and len(node.args) == 1:
+                    # If week mode hasn't been specified, use the project's default.
+                    # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
+                    args.insert(1, self._get_week_start_day().clickhouse_mode)
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
 
@@ -962,8 +972,11 @@ class _Printer(Visitor):
         except ModuleNotFoundError:
             return None
 
-    def _get_timezone(self):
+    def _get_timezone(self) -> str:
         return self.context.database.get_timezone() if self.context.database else "UTC"
+
+    def _get_week_start_day(self) -> WeekStartDay:
+        return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_nullable(self, node: ast.Expr) -> bool:
         if isinstance(node, ast.Constant):

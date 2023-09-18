@@ -10,7 +10,7 @@ import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
-import { defaultConfig } from '../../config/config'
+import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
@@ -94,7 +94,6 @@ export async function createHub(
             : undefined,
         rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
     })
-    await clickhouse.querying('SELECT 1') // test that the connection works
     status.info('👍', `ClickHouse ready`)
 
     status.info('🤔', `Connecting to Kafka...`)
@@ -186,6 +185,7 @@ export async function createHub(
         promiseManager,
         conversionBufferEnabledTeams,
         fetchHostnameGuardTeams,
+        pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
     }
 
     // :TODO: This is only used on worker threads, not main
@@ -196,6 +196,11 @@ export async function createHub(
     const closeHub = async () => {
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
+
+        // Break circular references to allow the hub to be GCed when running unit tests
+        // TODO: change these structs to not directly reference the hub
+        hub.eventsProcessor = undefined
+        hub.appMetrics = undefined
     }
 
     return [hub as Hub, closeHub]

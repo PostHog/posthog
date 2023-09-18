@@ -91,7 +91,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     })),
     selectors({
         pointsPerTick: [
-            () => [(_, props) => props.ticks],
+            (_, p) => [p.ticks],
             (ticks): number => {
                 if (ticks.length < 2) {
                     return 0
@@ -123,7 +123,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         relevantAnnotations: [
-            (s) => [s.annotations, s.dateRange, (_, props) => props.insightNumericId],
+            (s, p) => [s.annotations, s.dateRange, p.insightNumericId],
             (annotations, dateRange, insightNumericId) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,

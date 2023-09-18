@@ -65,7 +65,7 @@ import { PostHogFeature } from 'posthog-js/react'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
-import { NotebookAddButton } from 'scenes/notebooks/NotebookAddButton/NotebookAddButton'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -514,7 +514,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     buttons={
                                         <>
                                             <div className="flex items-center gap-2 mb-2">
-                                                <NotebookAddButton
+                                                <NotebookSelectButton
                                                     resource={{
                                                         type: NotebookNodeType.FeatureFlag,
                                                         attrs: { id: featureFlag.id },

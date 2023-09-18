@@ -45,6 +45,11 @@ export const elementsLogic = kea<elementsLogicType>({
         setRelativePositionCompensation: (compensation: number) => ({ compensation }),
     },
 
+    connect: () => ({
+        values: [actionsTabLogic, ['actionForm']],
+        actions: [actionsTabLogic, ['selectAction']],
+    }),
+
     reducers: () => ({
         inspectEnabledRaw: [
             false,
@@ -87,7 +92,7 @@ export const elementsLogic = kea<elementsLogicType>({
                 disableInspect: () => null,
                 createAction: () => null,
                 [heatmapLogic.actionTypes.disableHeatmap]: () => null,
-                [actionsTabLogic.actionTypes.selectAction]: () => null,
+                selectAction: () => null,
             },
         ],
         enabledLast: [
@@ -149,12 +154,12 @@ export const elementsLogic = kea<elementsLogicType>({
         ],
 
         allActionElements: [
-            (s) => [s.displayActionElements, actionsTabLogic.selectors.selectedEditedAction],
-            (displayActionElements, selectedEditedAction): ElementWithMetadata[] => {
-                if (displayActionElements && selectedEditedAction?.steps) {
+            (s) => [s.displayActionElements, s.actionForm],
+            (displayActionElements, actionForm): ElementWithMetadata[] => {
+                if (displayActionElements && actionForm?.steps) {
                     const allElements = collectAllElementsDeep('*', document)
                     const steps: ElementWithMetadata[] = []
-                    selectedEditedAction.steps.forEach((step, index) => {
+                    actionForm.steps.forEach((step, index) => {
                         const element = getElementForStep(step, allElements)
                         if (element) {
                             steps.push({

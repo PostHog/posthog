@@ -26,16 +26,16 @@ import { ProductPricingModal } from './ProductPricingModal'
 import { PlanComparisonModal } from './PlanComparisonModal'
 
 export const getTierDescription = (
-    tier: BillingV2TierType,
+    tiers: BillingV2TierType[],
     i: number,
     product: BillingProductV2Type | BillingProductV2AddonType,
     interval: string
 ): string => {
     return i === 0
-        ? `First ${summarizeUsage(tier.up_to)} ${product.unit}s / ${interval}`
-        : tier.up_to
-        ? `${summarizeUsage(product.tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tier.up_to)}`
-        : `> ${summarizeUsage(product.tiers?.[i - 1].up_to || null)}`
+        ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
+        : tiers[i].up_to
+        ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
+        : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
@@ -209,49 +209,56 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
-    const tableTierData: TableTierDatum[] | undefined = product.tiers
-        ?.map((tier, i) => {
-            const addonPricesForTier = product.addons?.map((addon) => ({
-                [`${addon.type}-price`]: `${
-                    addon.tiers?.[i]?.unit_amount_usd !== '0' ? '$' + addon.tiers?.[i]?.unit_amount_usd : 'Free'
-                }`,
-            }))
-            // take the tier.current_amount_usd and add it to the same tier level for all the addons
-            const totalForTier =
-                parseFloat(tier.current_amount_usd || '') +
-                (product.addons?.reduce(
-                    (acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
-                    0
-                    // if there aren't any addons we get NaN from the above, so we need to default to 0
-                ) || 0)
-            const projectedTotalForTier =
-                (parseFloat(tier.projected_amount_usd || '') || 0) +
-                product.addons?.reduce(
-                    (acc, addon) => acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
-                    0
-                )
+    const tableTierData: TableTierDatum[] | undefined =
+        product.tiers && product.tiers.length > 0
+            ? product.tiers
+                  ?.map((tier, i) => {
+                      const addonPricesForTier = product.addons?.map((addon) => ({
+                          [`${addon.type}-price`]: `${
+                              addon.tiers?.[i]?.unit_amount_usd !== '0'
+                                  ? '$' + addon.tiers?.[i]?.unit_amount_usd
+                                  : 'Free'
+                          }`,
+                      }))
+                      // take the tier.current_amount_usd and add it to the same tier level for all the addons
+                      const totalForTier =
+                          parseFloat(tier.current_amount_usd || '') +
+                          (product.addons?.reduce(
+                              (acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
+                              0
+                              // if there aren't any addons we get NaN from the above, so we need to default to 0
+                          ) || 0)
+                      const projectedTotalForTier =
+                          (parseFloat(tier.projected_amount_usd || '') || 0) +
+                          product.addons?.reduce(
+                              (acc, addon) => acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
+                              0
+                          )
 
-            const tierData = {
-                volume: getTierDescription(tier, i, product, billing?.billing_period?.interval || ''),
-                basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
-                usage: compactNumber(tier.current_usage),
-                total: `$${totalForTier.toFixed(2) || '0.00'}`,
-                projectedTotal: `$${projectedTotalForTier.toFixed(2) || '0.00'}`,
-            }
-            // if there are any addon prices we need to include, put them in the table
-            addonPricesForTier?.map((addonPrice) => {
-                Object.assign(tierData, addonPrice)
-            })
-            return tierData
-        })
-        // Add a row at the end for the total
-        .concat({
-            volume: 'Total',
-            basePrice: '',
-            usage: '',
-            total: `$${product.current_amount_usd || '0.00'}`,
-            projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
-        })
+                      const tierData = {
+                          volume: product.tiers // this is silly because we know there are tiers since we check above, but typescript doesn't
+                              ? getTierDescription(product.tiers, i, product, billing?.billing_period?.interval || '')
+                              : '',
+                          basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
+                          usage: compactNumber(tier.current_usage),
+                          total: `$${totalForTier.toFixed(2) || '0.00'}`,
+                          projectedTotal: `$${projectedTotalForTier.toFixed(2) || '0.00'}`,
+                      }
+                      // if there are any addon prices we need to include, put them in the table
+                      addonPricesForTier?.map((addonPrice) => {
+                          Object.assign(tierData, addonPrice)
+                      })
+                      return tierData
+                  })
+                  // Add a row at the end for the total
+                  .concat({
+                      volume: 'Total',
+                      basePrice: '',
+                      usage: '',
+                      total: `$${product.current_amount_usd || '0.00'}`,
+                      projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
+                  })
+            : undefined
 
     if (billing?.discount_percent && parseFloat(product.projected_amount_usd || '')) {
         // If there is a discount, add a row for the total after discount if there is also a projected amount

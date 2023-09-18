@@ -5,7 +5,12 @@ import { notebookLogic } from './notebookLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 
 export const NotebookSidebar = (): JSX.Element | null => {
-    const { selectedNodeLogic, isShowingSidebar } = useValues(notebookLogic)
+    const { selectedNodeLogic, isShowingSidebar, isEditable } = useValues(notebookLogic)
+    const { setIsShowingSidebar } = useActions(notebookLogic)
+
+    if (!isEditable) {
+        return null
+    }
 
     return (
         <div
@@ -13,24 +18,32 @@ export const NotebookSidebar = (): JSX.Element | null => {
                 'NotebookSidebar--showing': isShowingSidebar,
             })}
         >
-            <div className="NotebookSidebar__content">{selectedNodeLogic && <Widgets logic={selectedNodeLogic} />}</div>
+            <div className="NotebookSidebar__content">
+                {selectedNodeLogic && isShowingSidebar && (
+                    <Widgets logic={selectedNodeLogic} onClose={() => setIsShowingSidebar(false)} />
+                )}
+            </div>
         </div>
     )
 }
 
-export const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element | null => {
+export const Widgets = ({
+    logic,
+    onClose,
+}: {
+    logic: BuiltLogic<notebookNodeLogicType>
+    onClose: () => void
+}): JSX.Element | null => {
     const { widgets, nodeAttributes } = useValues(logic)
     const { updateAttributes } = useActions(logic)
 
-    if (widgets.length === 0) {
-        return null
-    }
-
     return (
-        <div className="NotebookNodeSettings__widgets space-y-2 w-full max-w-80">
+        <div className="NotebookNodeSettings__widgets space-y-2 w-full">
             {widgets.map(({ key, label, Component }) => (
-                <LemonWidget key={key} title={label}>
-                    <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
+                <LemonWidget key={key} title={label} collapsible={false} onClose={onClose}>
+                    <div className="NotebookNodeSettings__widgets__content">
+                        <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
+                    </div>
                 </LemonWidget>
             ))}
         </div>

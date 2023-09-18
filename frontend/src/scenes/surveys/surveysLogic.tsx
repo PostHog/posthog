@@ -1,11 +1,13 @@
-import { afterMount, kea, listeners, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { Breadcrumb, ProgressStatus, Survey } from '~/types'
+import { AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 import { urls } from 'scenes/urls'
 
 import type { surveysLogicType } from './surveysLogicType'
 import { lemonToast } from '@posthog/lemon-ui'
+import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -18,6 +20,7 @@ export function getSurveyStatus(survey: Survey): ProgressStatus {
 
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
+    connect([userLogic]),
     loaders(({ values }) => ({
         surveys: {
             __default: [] as Survey[],
@@ -38,6 +41,7 @@ export const surveysLogic = kea<surveysLogicType>([
     listeners(() => ({
         deleteSurveySuccess: () => {
             lemonToast.success('Survey deleted')
+            router.actions.push(urls.surveys())
         },
         updateSurveySuccess: () => {
             lemonToast.success('Survey updated')
@@ -60,6 +64,10 @@ export const surveysLogic = kea<surveysLogicType>([
         archivedSurveys: [
             (s) => [s.surveys],
             (surveys: Survey[]): Survey[] => surveys.filter((survey) => survey.archived),
+        ],
+        whitelabelAvailable: [
+            () => [userLogic.selectors.user],
+            (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
         ],
     }),
     afterMount(async ({ actions }) => {

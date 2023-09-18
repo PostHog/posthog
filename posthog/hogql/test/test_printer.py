@@ -4,12 +4,13 @@ from django.test import override_settings
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.models.team.team import WeekStartDay
 from posthog.test.base import BaseTest
 from posthog.utils import PersonOnEventsMode
 
@@ -626,9 +627,10 @@ class TestPrinter(BaseTest):
         )
 
     def test_print_timezone(self):
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        context.database = create_hogql_database(self.team.pk)
-        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, database=Database(None, WeekStartDay.SUNDAY)
+        )
+        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
         self.assertEqual(
             self._select(
@@ -704,6 +706,23 @@ class TestPrinter(BaseTest):
             f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
         )
 
+    def test_to_start_of_week_gets_mode(self):
+        sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.SUNDAY))
+        monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.MONDAY))
+
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)"),  # Sunday is the default
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
+        )
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)", sunday_week_context),
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
+        )
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)", monday_week_context),
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 3)",
+        )
+
     def test_functions_expecting_datetime_arg(self):
         self.assertEqual(
             self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
@@ -711,7 +730,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._expr("tumble(now(), toIntervalDay('1'))"),
-            f"tumble(toDateTime(now64(6, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s))",
+            f"tumble(toDateTime(now64(6, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s))",
         )
         self.assertEqual(
             self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1'))"),
@@ -723,7 +742,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._select("SELECT tumble(timestamp, toIntervalDay('1')) FROM events"),
-            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
 
     def test_field_nullable_equals(self):

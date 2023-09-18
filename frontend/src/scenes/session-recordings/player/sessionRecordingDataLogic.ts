@@ -219,9 +219,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshotsV2Success: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
+                const canFallbackToClickHouse = values.canFallbackToClickHouseForData
                 // We got the snapshot response for realtime, and it was empty, so we fall back to the old API
                 // Until we migrate over we need to fall back to the old API if the new one returns no snapshots
-                actions.loadRecordingSnapshotsV1()
+                posthog.capture('recording_snapshots_v2_empty_response', {
+                    source: sources[0],
+                    canFallbackToClickHouse,
+                })
+
+                if (canFallbackToClickHouse) {
+                    actions.loadRecordingSnapshotsV1()
+                }
                 return
             }
 
@@ -231,8 +239,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             if (nextSourceToLoad) {
                 actions.loadRecordingSnapshotsV2(nextSourceToLoad)
-            } else {
-                actions.reportUsageIfFullyLoaded()
             }
         },
         loadRecordingSnapshotsV1Success: ({ sessionPlayerSnapshotData }) => {
@@ -246,8 +252,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             if (values.sessionPlayerSnapshotData?.next) {
                 actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
-            } else {
-                actions.reportUsageIfFullyLoaded()
             }
             if (values.chunkPaginationIndex === 1 || values.loadedFromBlobStorage) {
                 // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
@@ -257,9 +261,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
-
-                actions.reportViewed()
             }
+        },
+        loadRecordingSnapshotsSuccess: () => {
+            actions.reportViewed()
+            actions.reportUsageIfFullyLoaded()
         },
         loadRecordingSnapshotsV1Failure: () => {
             actions.loadRecordingSnapshotsFailure()
@@ -559,6 +565,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     selectors({
+        canFallbackToClickHouseForData: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_ALLOW_V1_SNAPSHOTS]
+            },
+        ],
         sessionPlayerData: [
             (s) => [
                 s.sessionPlayerMetaData,

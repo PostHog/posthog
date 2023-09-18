@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { objectClean, toParams } from 'lib/utils'
+import { objectClean, objectsEqual, toParams } from 'lib/utils'
 import {
     AnyPropertyFilter,
     PropertyFilterType,
@@ -157,12 +157,8 @@ export const defaultPageviewPropertyEntityFilter = (
     }
 }
 
-export function generateSessionRecordingListLogicKey(props: SessionRecordingListLogicProps): string {
-    return `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
-}
-
 export interface SessionRecordingListLogicProps {
-    key?: string
+    logicKey?: string
     playlistShortId?: string
     personUUID?: PersonUUID
     filters?: RecordingFilters
@@ -174,7 +170,12 @@ export interface SessionRecordingListLogicProps {
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key]),
     props({} as SessionRecordingListLogicProps),
-    key(generateSessionRecordingListLogicKey),
+    key(
+        (props: SessionRecordingListLogicProps) =>
+            `${props.logicKey}-${props.playlistShortId}-${props.personUUID}-${
+                props.updateSearchParams ? '-with-search' : ''
+            }`
+    ),
     connect({
         actions: [
             eventUsageLogic,
@@ -206,7 +207,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         loadPrev: true,
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        if (props.filters !== oldProps.filters) {
+        if (!objectsEqual(props.filters, oldProps.filters)) {
             props.filters ? actions.setFilters(props.filters) : actions.resetFilters()
         }
     }),

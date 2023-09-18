@@ -26,7 +26,7 @@ export const insightsTableLogic = kea<insightsTableLogicType>({
         // Only allow table aggregation options when the math is total volume otherwise double counting will happen when the math is set to uniques
         // Except when view type is Table
         showTotalCount: [
-            () => [(_, props) => props.filters],
+            (_, p) => [p.filters],
             (filters: Partial<FilterType>) => {
                 if (isTrendsFilter(filters) && filters.display == ChartDisplayType.ActionsTable) {
                     return true

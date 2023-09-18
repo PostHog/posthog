@@ -147,6 +147,10 @@ module.exports = {
                         element: 'a',
                         message: 'use <Link> instead',
                     },
+                    {
+                        element: 'ReactMarkdown',
+                        message: 'use <LemonMarkdown> instead',
+                    },
                 ],
             },
         ],
@@ -173,6 +177,10 @@ module.exports = {
                     {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
+                    },
+                    {
+                        element: 'MonacoEditor',
+                        message: 'use <CodeEditor> instead',
                     },
                 ],
             },

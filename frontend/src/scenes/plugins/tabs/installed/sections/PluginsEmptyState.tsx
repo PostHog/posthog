@@ -1,5 +1,5 @@
 import { CaretRightOutlined } from '@ant-design/icons'
-import { Button, Col, Empty, Row, Skeleton } from 'antd'
+import { Empty, Skeleton } from 'antd'
 import { Subtitle } from 'lib/components/PageHeader'
 import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 import { useActions, useValues } from 'kea'
@@ -7,6 +7,7 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginTab } from 'scenes/plugins/types'
 import { canGloballyManagePlugins } from 'scenes/plugins/access'
 import { userLogic } from 'scenes/userLogic'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function PluginsEmptyState(): JSX.Element {
     const { setPluginTab } = useActions(pluginsLogic)
@@ -31,17 +32,19 @@ export function PluginsEmptyState(): JSX.Element {
             ) : (
                 <>
                     <Subtitle subtitle="Installed apps" />
-                    <Row gutter={16} style={{ marginTop: 16 }}>
-                        <Col span={24}>
-                            <Empty description={<span>You haven't installed any apps yet</span>}>
-                                {canGloballyManagePlugins(user?.organization) && (
-                                    <Button type="default" onClick={() => setPluginTab(PluginTab.Repository)}>
-                                        Open the App Repository
-                                    </Button>
-                                )}
-                            </Empty>
-                        </Col>
-                    </Row>
+                    <div className="mt-4">
+                        <Empty description={<span>You haven't installed any apps yet</span>}>
+                            {canGloballyManagePlugins(user?.organization) && (
+                                <LemonButton
+                                    onClick={() => setPluginTab(PluginTab.Repository)}
+                                    status="muted"
+                                    type="secondary"
+                                >
+                                    Open the App Repository
+                                </LemonButton>
+                            )}
+                        </Empty>
+                    </div>
                 </>
             )}
         </>

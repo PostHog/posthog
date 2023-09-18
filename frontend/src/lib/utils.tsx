@@ -1439,6 +1439,14 @@ export function validateJson(value: string): boolean {
     }
 }
 
+export function tryJsonParse(value: string, fallback?: any): any {
+    try {
+        return JSON.parse(value)
+    } catch (error) {
+        return fallback
+    }
+}
+
 export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
     return validateJson(value) ? Promise.resolve() : Promise.reject('Not valid JSON!')
 }

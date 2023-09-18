@@ -3,7 +3,6 @@ from pydantic import BaseModel, Extra
 
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
-
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
@@ -149,3 +148,16 @@ class SavedQuery(Table):
 
     query: str
     name: str
+
+    # Note: redundancy for safety. This validation is used in the data model already
+    def to_printed_clickhouse(self, context):
+        from posthog.warehouse.models import validate_saved_query_name
+
+        validate_saved_query_name(self.name)
+        return self.name
+
+    def to_printed_hogql(self):
+        from posthog.warehouse.models import validate_saved_query_name
+
+        validate_saved_query_name(self.name)
+        return self.name

@@ -241,8 +241,8 @@ export function FeatureFlagReleaseConditions({
                             </div>
                         </LemonTag>
                     ) : (
-                        <div className="feature-flag-form-row">
-                            <div className="centered">
+                        <div className="feature-flag-form-row gap-2">
+                            <div className="flex items-center gap-1">
                                 Roll out to{' '}
                                 <InputNumber
                                     style={{ width: 100, marginLeft: 8, marginRight: 8 }}
@@ -255,34 +255,34 @@ export function FeatureFlagReleaseConditions({
                                     addonAfter="%"
                                 />{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
-                                {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
-                                    <>
-                                        Will match approximately{' '}
-                                        {affectedUsers[index] !== undefined ? (
-                                            <b>
-                                                {`${
-                                                    computeBlastRadiusPercentage(
-                                                        group.rollout_percentage,
-                                                        index
-                                                    ).toPrecision(2) * 1
-                                                    // Multiplying by 1 removes trailing zeros after the decimal
-                                                    // point added by toPrecision
-                                                }% `}
-                                            </b>
-                                        ) : (
-                                            <Spinner className="mr-1" />
-                                        )}{' '}
-                                        {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
-                                            ? `(${humanFriendlyNumber(
-                                                  Math.floor(
-                                                      (affectedUsers[index] * (group.rollout_percentage ?? 100)) / 100
-                                                  )
-                                              )} / ${humanFriendlyNumber(totalUsers)})`
-                                            : ''}{' '}
-                                        of total {aggregationTargetName}.
-                                    </>
-                                )}
                             </div>
+                            {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
+                                <div>
+                                    Will match approximately{' '}
+                                    {affectedUsers[index] !== undefined ? (
+                                        <b>
+                                            {`${
+                                                computeBlastRadiusPercentage(
+                                                    group.rollout_percentage,
+                                                    index
+                                                ).toPrecision(2) * 1
+                                                // Multiplying by 1 removes trailing zeros after the decimal
+                                                // point added by toPrecision
+                                            }% `}
+                                        </b>
+                                    ) : (
+                                        <Spinner className="mr-1" />
+                                    )}{' '}
+                                    {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
+                                        ? `(${humanFriendlyNumber(
+                                              Math.floor(
+                                                  (affectedUsers[index] * (group.rollout_percentage ?? 100)) / 100
+                                              )
+                                          )} / ${humanFriendlyNumber(totalUsers)})`
+                                        : ''}{' '}
+                                    of total {aggregationTargetName}.
+                                </div>
+                            )}
                         </div>
                     )}
                     {nonEmptyVariants.length > 0 && (

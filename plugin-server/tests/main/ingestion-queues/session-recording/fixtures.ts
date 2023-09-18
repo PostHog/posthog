@@ -16,7 +16,6 @@ export function createIncomingRecordingMessage(
         session_id: 'session_id_1',
         window_id: 'window_id_1',
         events: [{ ...jsonFullSnapshot }],
-        replayIngestionConsumer: 'v2',
         ...partialIncomingMessage,
 
         metadata: {

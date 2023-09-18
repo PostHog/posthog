@@ -1,5 +1,5 @@
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Tag } from 'antd'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 export function CommunityTag({ isCommunity, noun = 'app' }: { isCommunity?: boolean; noun?: string }): JSX.Element {
     return (
@@ -10,7 +10,7 @@ export function CommunityTag({ isCommunity, noun = 'app' }: { isCommunity?: bool
                     : `This ${noun} was built by the PostHog team.`
             }
         >
-            <Tag color={isCommunity ? 'cyan' : 'geekblue'}>{isCommunity ? 'Community' : 'Official'}</Tag>
+            <LemonTag type={isCommunity ? 'highlight' : 'success'}>{isCommunity ? 'Community' : 'Official'}</LemonTag>
         </Tooltip>
     )
 }

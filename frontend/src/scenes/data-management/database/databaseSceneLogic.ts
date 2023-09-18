@@ -45,6 +45,14 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
                     .sort((a, b) => a.name.localeCompare(b.name))
             },
         ],
+        tableOptions: [
+            (s) => [s.filteredTables],
+            (filteredTables: DatabaseSceneRow[]) =>
+                filteredTables.map((row) => ({
+                    value: row,
+                    label: row.name,
+                })),
+        ],
     }),
     afterMount(({ actions }) => actions.loadDatabase()),
 ])

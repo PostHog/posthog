@@ -14,7 +14,7 @@ const meta: Meta<typeof TaxonomicFilter> = {
     component: TaxonomicFilter,
     decorators: [taxonomicFilterMocksDecorator],
     parameters: {
-        testOptions: { waitForLoadersToDisappear: '.definition-popover' },
+        testOptions: { waitForSelector: '.definition-popover' },
     },
 }
 export default meta

@@ -46,7 +46,7 @@ jobs:
                   images: ghcr.io/${{ steps.lowercase.outputs.repository }}/cdp
 
             # Make the image tags used for docker cache. We use this rather than
-            # ${{ github.repository }} directly because the repository
+            # ${{ github.repository }} directly because the repository
             # organization name is has upper case characters, which are not
             # allowed in docker image names.
             - uses: docker/metadata-action@v4

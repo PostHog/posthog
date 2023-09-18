@@ -4,22 +4,29 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { RawClickHouseEvent } from '../../../types'
 import { convertToIngestionEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
-import { groupIntoBatches } from '../../../utils/utils'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
+import { eachBatchHandlerHelper } from './each-batch-webhooks'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
 export async function eachMessageAppsOnEventHandlers(
-    message: KafkaMessage,
+    clickHouseEvent: RawClickHouseEvent,
     queue: KafkaJSIngestionConsumer
 ): Promise<void> {
-    const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+    const pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
+    if (pluginConfigs) {
+        // Elements parsing can be extremely slow, so we skip it for some plugins
+        // # SKIP_ELEMENTS_PARSING_PLUGINS
+        const skipElementsChain = pluginConfigs.every(
+            (pluginConfig) =>
+                queue.pluginsServer.pluginConfigsToSkipElementsParsing &&
+                queue.pluginsServer.pluginConfigsToSkipElementsParsing(pluginConfig.plugin_id)
+        )
 
-    if (queue.pluginsServer.pluginConfigsPerTeam.has(clickHouseEvent.team_id)) {
-        const event = convertToIngestionEvent(clickHouseEvent)
+        const event = convertToIngestionEvent(clickHouseEvent, skipElementsChain)
         await runInstrumentedFunction({
             event: event,
             func: () => queue.workerMethods.runAppsOnEventPipeline(event),
@@ -41,7 +48,14 @@ export async function eachBatchAppsOnEventHandlers(
     payload: EachBatchPayload,
     queue: KafkaJSIngestionConsumer
 ): Promise<void> {
-    await eachBatch(payload, queue, eachMessageAppsOnEventHandlers, groupIntoBatches, 'async_handlers_on_event')
+    await eachBatchHandlerHelper(
+        payload,
+        (teamId) => queue.pluginsServer.pluginConfigsPerTeam.has(teamId),
+        (event) => eachMessageAppsOnEventHandlers(event, queue),
+        queue.pluginsServer.statsd,
+        queue.pluginsServer.WORKER_CONCURRENCY * queue.pluginsServer.TASKS_PER_WORKER,
+        'on_event'
+    )
 }
 
 export async function eachBatch(

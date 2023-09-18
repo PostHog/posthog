@@ -120,6 +120,9 @@ class _KafkaProducer:
                 security_protocol=kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
                 compression_type=compression_type,
                 **{"max_request_size": max_request_size} if max_request_size else {},
+                **{"api_version_auto_timeout_ms": 30000}
+                if settings.DEBUG
+                else {},  # Local development connections could be really slow
                 **_sasl_params(),
             )
 

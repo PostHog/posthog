@@ -1,8 +1,7 @@
 import { useState } from 'react'
-import MonacoEditor from '@monaco-editor/react'
 import './JSONEditorInput.scss'
 import { JsonType } from '~/types'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { CodeEditor } from 'lib/components/CodeEditors'
 
 interface EditorProps {
     onChange?: (val: string | undefined) => void
@@ -43,8 +42,7 @@ export function JSONEditorInput({
 
     return (
         <div className="JsonEditorInput" onFocus={onFocus} onBlur={onBlur}>
-            <MonacoEditor
-                theme="vs-light"
+            <CodeEditor
                 className="border"
                 language={'json'}
                 height={height}
@@ -56,8 +54,6 @@ export function JSONEditorInput({
                         enabled: false,
                     },
                     scrollbar: {
-                        vertical: 'hidden',
-                        horizontal: 'hidden',
                         alwaysConsumeMouseWheel: false,
                     },
                     padding: {
@@ -82,7 +78,6 @@ export function JSONEditorInput({
                     updateHeight(val)
                     onChange?.(val)
                 }}
-                loading={<Spinner />}
             />
             {!focused && !value?.toString() && placeholder && (
                 <div className="placeholder">

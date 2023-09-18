@@ -20,5 +20,13 @@ export function humanizeDestination(destination: BatchExportDestination): string
         return `snowflake:${destination.config.account}:${destination.config.database}:${destination.config.table_name}`
     }
 
+    if (destination.type === 'Postgres') {
+        return `postgresql://${destination.config.user}:***@${destination.config.host}:${destination.config.port}/${destination.config.database}`
+    }
+
+    if (destination.type === 'BigQuery') {
+        return `bigquery:${destination.config.project_id}:${destination.config.dataset_id}:${destination.config.table_id}`
+    }
+
     return 'Unknown'
 }

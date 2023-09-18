@@ -1,12 +1,12 @@
 import { AnyFilterType, BaseMathType, Entity, EntityTypes, InsightType, PropertyGroupFilter } from '~/types'
 
-import { clean, compareFilters } from './compareFilters'
+import { cleanFilter, compareFilters } from './compareFilters'
 
 describe('clean', () => {
     it('runs cleanFilters on the input', () => {
         const filters: Partial<AnyFilterType> = {}
 
-        const result = clean(filters, false)
+        const result = cleanFilter(filters, false)
 
         expect(result.insight).toEqual('TRENDS')
         expect(filters.insight).toBeUndefined() // doesn't mutate original
@@ -19,7 +19,7 @@ describe('clean', () => {
             properties: {} as PropertyGroupFilter,
         }
 
-        const result = clean(filters, false)
+        const result = cleanFilter(filters, false)
 
         // undefined values
         expect(result.hasOwnProperty('filter_test_accounts')).toEqual(false)
@@ -37,7 +37,7 @@ describe('clean', () => {
     it('removes unnecessary order from events', () => {
         const filters: Partial<AnyFilterType> = { events: [{ type: 'events', order: 0 }] }
 
-        const result = clean(filters, false)
+        const result = cleanFilter(filters, false)
 
         expect(result.events?.[0].order).toBeUndefined()
         expect(filters.events?.[0].order).toEqual(0) // doesn't mutate original
@@ -46,7 +46,7 @@ describe('clean', () => {
     it('removes unnecessary default math type from events', () => {
         const filters: Partial<AnyFilterType> = { events: [{ type: 'events', math: BaseMathType.TotalCount }] }
 
-        const result = clean(filters, false)
+        const result = cleanFilter(filters, false)
 
         expect(result.events?.[0].math).toBeUndefined()
         expect(filters.events?.[0].math).toEqual('total') // doesn't mutate original
@@ -55,7 +55,7 @@ describe('clean', () => {
     it('removes unnecessary order from actions', () => {
         const filters: Partial<AnyFilterType> = { actions: [{ type: 'actions', order: 0 }] as Entity[] }
 
-        const result = clean(filters, false)
+        const result = cleanFilter(filters, false)
 
         expect(result.actions?.[0].order).toBeUndefined()
         expect(filters.actions?.[0].order).toEqual(0) // doesn't mutate original
@@ -64,7 +64,7 @@ describe('clean', () => {
     it('removes entity_type for persons modal from result', () => {
         const filters: Partial<AnyFilterType> = { entity_type: EntityTypes.EVENTS }
 
-        const result = clean(filters, false)
+        const result = cleanFilter(filters, false)
 
         expect(result.entity_type).toBeUndefined()
         expect(filters.entity_type).toEqual(EntityTypes.EVENTS) // doesn't mutate original

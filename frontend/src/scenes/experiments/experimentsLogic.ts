@@ -59,7 +59,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     if (!values.hasExperimentAvailableFeature) {
                         return []
                     }
-                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
+                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments?limit=1000`)
                     return response.results as Experiment[]
                 },
                 deleteExperiment: async (id: number) => {

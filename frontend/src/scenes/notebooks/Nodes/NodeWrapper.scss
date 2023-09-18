@@ -26,7 +26,6 @@
 
     .NotebookNode__content {
         transition: box-shadow 150ms ease-out;
-        border-radius: var(--radius);
     }
 
     &--selected {

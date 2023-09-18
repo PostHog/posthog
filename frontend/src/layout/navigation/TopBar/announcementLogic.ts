@@ -18,7 +18,7 @@ export enum AnnouncementType {
 }
 
 export const DEFAULT_CLOUD_ANNOUNCEMENT =
-    "We're experiencing technical difficulties, see more at [status.posthog.com](https://status.posthog.com)"
+    "We're experiencing technical difficulties. Check [status.posthog.com](https://status.posthog.com) for updates."
 
 // Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
 const ShowNewFeatureAnnouncement = false

@@ -1,5 +1,6 @@
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -28,10 +29,17 @@ def get_hogql_metadata(
             translate_hogql(query.expr, context=context)
         elif isinstance(query.select, str):
             context = HogQLContext(team_id=team.pk, enable_select_queries=True)
+
             select_ast = parse_select(query.select)
+            if query.filters:
+                select_ast = replace_filters(select_ast, query.filters, team)
             _is_valid_view = is_valid_view(select_ast)
             response.isValidView = _is_valid_view
-            print_ast(parse_select(query.select), context=context, dialect="clickhouse")
+            print_ast(
+                select_ast,
+                context=context,
+                dialect="clickhouse",
+            )
         else:
             raise ValueError("Either expr or select must be provided")
         response.warnings = context.warnings

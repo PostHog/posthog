@@ -49,7 +49,6 @@ import { queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
-import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
@@ -91,10 +90,8 @@ export const insightLogic = kea<insightLogicType>([
             ['mathDefinitions'],
             userLogic,
             ['user'],
-            globalInsightLogic,
-            ['globalInsightFilters'],
         ],
-        actions: [tagsModel, ['loadTags'], globalInsightLogic, ['setGlobalInsightFilters']],
+        actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
     }),
 
@@ -548,9 +545,6 @@ export const insightLogic = kea<insightLogicType>([
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
         },
-        setGlobalInsightFilters: ({ globalInsightFilters }) => {
-            actions.setFilters({ ...values.filters, ...globalInsightFilters })
-        },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
@@ -659,11 +653,7 @@ export const insightLogic = kea<insightLogicType>([
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
-            eventUsageLogic.actions.reportInsightSaved(
-                filters || {},
-                values.globalInsightFilters,
-                insightNumericId === undefined
-            )
+            eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',

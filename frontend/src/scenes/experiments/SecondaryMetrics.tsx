@@ -145,7 +145,7 @@ export function SecondaryMetrics({
             >
                 <Form
                     logic={secondaryMetricsLogic}
-                    props={{ onMetricsChange, initialMetrics, experimentId }}
+                    props={{ onMetricsChange, initialMetrics, experimentId, defaultAggregationType }}
                     formKey="secondaryMetricModal"
                     id="secondary-metric-modal-form"
                     className="space-y-4"

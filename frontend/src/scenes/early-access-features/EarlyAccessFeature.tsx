@@ -1,5 +1,5 @@
 import { LemonButton, LemonDivider, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useActions, useValues, BindLogic } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -201,9 +201,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <div>
                                 <LemonTag
                                     type={
-                                        earlyAccessFeature.stage === 'beta'
+                                        earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                             ? 'warning'
-                                            : earlyAccessFeature.stage === 'general-availability'
+                                            : earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
                                             ? 'success'
                                             : 'default'
                                     }
@@ -308,7 +308,7 @@ interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
 }
 
-function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
+export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
     const { implementOptInInstructionsModal, activeTab } = useValues(earlyAccessFeatureLogic)
     const { toggleImplementOptInInstructionsModal, setActiveTab } = useActions(earlyAccessFeatureLogic)
 
@@ -387,17 +387,29 @@ interface PersonsTableByFilterProps {
     emptyState?: JSX.Element
 }
 
-function PersonsTableByFilter({ properties, emptyState }: PersonsTableByFilterProps): JSX.Element {
-    const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
-
+export function PersonsTableByFilter({ properties, emptyState }: PersonsTableByFilterProps): JSX.Element {
     const personsLogicProps: PersonsLogicProps = {
         cohort: undefined,
         syncWithUrl: false,
         fixedProperties: properties,
     }
-    const logic = personsLogic(personsLogicProps)
-    const { persons, personsLoading, listFilters } = useValues(logic)
-    const { loadPersons, setListFilters } = useActions(logic)
+
+    return (
+        <BindLogic logic={personsLogic} props={personsLogicProps}>
+            <PersonsTableByFilterComponent emptyState={emptyState} />
+        </BindLogic>
+    )
+}
+
+interface PersonsTableByFilterComponentProps {
+    emptyState?: JSX.Element
+}
+
+function PersonsTableByFilterComponent({ emptyState }: PersonsTableByFilterComponentProps): JSX.Element {
+    const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
+
+    const { persons, personsLoading, listFilters } = useValues(personsLogic)
+    const { loadPersons, setListFilters } = useActions(personsLogic)
 
     return (
         <div className="space-y-2">

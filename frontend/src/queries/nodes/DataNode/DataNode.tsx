@@ -1,4 +1,3 @@
-import MonacoEditor from '@monaco-editor/react'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '~/queries/schema'
@@ -6,6 +5,7 @@ import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
+import { CodeEditor } from 'lib/components/CodeEditors'
 
 interface DataNodeProps {
     query: DataNodeType
@@ -35,13 +35,11 @@ export function DataNode(props: DataNodeProps): JSX.Element {
             ) : (
                 <AutoSizer disableWidth>
                     {({ height }) => (
-                        <MonacoEditor
-                            theme="vs-light"
+                        <CodeEditor
                             className="border"
                             language={'json'}
                             value={JSON.stringify(response ?? responseErrorObject, null, 2)}
                             height={Math.max(height, 300)}
-                            loading={<Spinner />}
                         />
                     )}
                 </AutoSizer>

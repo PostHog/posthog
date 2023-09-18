@@ -243,7 +243,7 @@ export function ActionFilterRow({
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
 
     const propertyFiltersButton = (
-        <IconWithCount count={filter.properties?.length || 0} showZero={false}>
+        <IconWithCount key="property-filter" count={filter.properties?.length || 0} showZero={false}>
             <LemonButton
                 icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
                 status="primary-alt"
@@ -262,6 +262,7 @@ export function ActionFilterRow({
 
     const renameRowButton = (
         <LemonButton
+            key="rename"
             icon={<IconEdit />}
             status="primary-alt"
             title="Rename graph series"
@@ -276,6 +277,7 @@ export function ActionFilterRow({
 
     const duplicateRowButton = (
         <LemonButton
+            key="duplicate"
             icon={<IconCopy />}
             status="primary-alt"
             title="Duplicate graph series"
@@ -289,6 +291,7 @@ export function ActionFilterRow({
 
     const deleteButton = (
         <LemonButton
+            key="delete"
             icon={<IconDelete />}
             status="primary-alt"
             title="Delete graph series"
@@ -300,7 +303,7 @@ export function ActionFilterRow({
 
     const rowStartElements = [
         sortable && filterCount > 1 ? <DragHandle /> : null,
-        showSeriesIndicator && <div>{seriesIndicator}</div>,
+        showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
     const rowEndElements = !readOnly

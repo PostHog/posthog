@@ -1,12 +1,16 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { SortableContainer, SortableElement } from 'react-sortable-hoc'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import clsx from 'clsx'
 import { useState } from 'react'
+
+import { DndContext, closestCenter } from '@dnd-kit/core'
+import { useSortable, SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { restrictToHorizontalAxis } from '@dnd-kit/modifiers'
 
 export interface PersonPropertySelectProps {
     addText: string
@@ -15,25 +19,32 @@ export interface PersonPropertySelectProps {
     sortable?: boolean
 }
 
-const PropertyTag = ({
+const SortableProperty = ({
     name,
     onRemove,
-    sortable = false,
+    sortable,
 }: {
     name: string
     onRemove: (val: string) => void
     sortable?: boolean
-}): JSX.Element => (
-    <span className={clsx(sortable ? 'cursor-move' : 'cursor-auto')}>
-        <LemonSnack onClose={() => onRemove(name)}>{name}</LemonSnack>
-    </span>
-)
+}): JSX.Element => {
+    const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: name })
 
-const SortableProperty = SortableElement(PropertyTag)
-
-const SortablePropertyList = SortableContainer(({ children }: { children: React.ReactNode }) => {
-    return <span className="flex items-center gap-2">{children}</span>
-})
+    return (
+        <span
+            ref={setNodeRef}
+            className={clsx(sortable ? 'cursor-move' : 'cursor-auto')}
+            {...attributes}
+            {...listeners}
+            style={{
+                transform: CSS.Translate.toString(transform),
+                transition,
+            }}
+        >
+            <LemonSnack onClose={() => onRemove(name)}>{name}</LemonSnack>
+        </span>
+    )
+}
 
 export const PersonPropertySelect = ({
     onChange,
@@ -60,23 +71,36 @@ export const PersonPropertySelect = ({
 
     return (
         <div className="flex items-center flex-wrap gap-2">
-            {sortable ? (
-                <SortablePropertyList onSortEnd={handleSort} axis="x" lockAxis="x" lockToContainerEdges distance={5}>
-                    {selectedProperties.map((value, index) => (
-                        <SortableProperty
-                            key={`item-${value}`}
-                            index={index}
-                            name={value}
-                            onRemove={handleRemove}
-                            sortable
-                        />
-                    ))}
-                </SortablePropertyList>
-            ) : (
-                selectedProperties?.map((value) => (
-                    <PropertyTag key={`item-${value}`} name={value} onRemove={handleRemove} />
-                ))
-            )}
+            <DndContext
+                onDragEnd={({ active, over }) => {
+                    if (over && active.id !== over.id) {
+                        handleSort({
+                            oldIndex: selectedProperties.indexOf(active.id.toString()),
+                            newIndex: selectedProperties.indexOf(over.id.toString()),
+                        })
+                    }
+                }}
+                collisionDetection={closestCenter}
+                modifiers={[restrictToHorizontalAxis]}
+            >
+                <SortableContext
+                    disabled={!sortable}
+                    items={selectedProperties}
+                    strategy={horizontalListSortingStrategy}
+                >
+                    <div className="flex items-center gap-2">
+                        {selectedProperties.map((value) => (
+                            <SortableProperty
+                                key={`item-${value}`}
+                                name={value}
+                                onRemove={handleRemove}
+                                sortable={sortable}
+                            />
+                        ))}
+                    </div>
+                </SortableContext>
+            </DndContext>
+
             <Popover
                 visible={open}
                 onClickOutside={() => setOpen(false)}

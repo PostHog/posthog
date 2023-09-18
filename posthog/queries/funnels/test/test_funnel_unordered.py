@@ -1081,3 +1081,38 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(result[0]["count"], 1)
         self.assertEqual(result[1]["count"], 1)
+
+    def test_funnel_unordered_entity_filters(self):
+        _create_person(distinct_ids=["user"], team=self.team)
+        _create_event(event="user signed up", distinct_id="user", properties={"prop_a": "some value"}, team=self.team)
+        _create_event(
+            event="user signed up", distinct_id="user", properties={"prop_b": "another value"}, team=self.team
+        )
+
+        filters = {
+            "events": [
+                {
+                    "type": "events",
+                    "id": "user signed up",
+                    "order": 0,
+                    "name": "user signed up",
+                    "math": "total",
+                    "properties": [{"key": "prop_a", "value": ["some value"], "operator": "exact", "type": "event"}],
+                },
+                {
+                    "type": "events",
+                    "id": "user signed up",
+                    "order": 1,
+                    "name": "user signed up",
+                    "math": "total",
+                    "properties": [{"key": "prop_b", "value": "another", "operator": "icontains", "type": "event"}],
+                },
+            ],
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelUnordered(filter, self.team)
+        result = funnel.run()
+
+        self.assertEqual(result[0]["count"], 1)
+        self.assertEqual(result[1]["count"], 1)

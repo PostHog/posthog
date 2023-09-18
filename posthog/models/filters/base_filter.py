@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import PROPERTIES
 
 if TYPE_CHECKING:
-    from posthog.models.team import Team
+    from posthog.models.team.team import Team
 
 
 class BaseFilter(BaseParamMixin):
