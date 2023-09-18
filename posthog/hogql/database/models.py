@@ -1,5 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
-from pydantic import ConfigDict, BaseModel
+from pydantic import BaseModel, Extra
 
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -16,7 +16,8 @@ class DatabaseField(FieldOrTable):
     Base class for a field in a database table.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    class Config:
+        extra = Extra.forbid
 
     name: str
     array: Optional[bool] = None
@@ -56,14 +57,17 @@ class BooleanDatabaseField(DatabaseField):
 
 
 class FieldTraverser(FieldOrTable):
-    model_config = ConfigDict(extra="forbid")
+    class Config:
+        extra = Extra.forbid
 
     chain: List[str]
 
 
 class Table(FieldOrTable):
     fields: Dict[str, FieldOrTable]
-    model_config = ConfigDict(extra="forbid")
+
+    class Config:
+        extra = Extra.forbid
 
     def has_field(self, name: str) -> bool:
         return name in self.fields
@@ -98,7 +102,8 @@ class Table(FieldOrTable):
 
 
 class LazyJoin(FieldOrTable):
-    model_config = ConfigDict(extra="forbid")
+    class Config:
+        extra = Extra.forbid
 
     join_function: Callable[[str, str, Dict[str, Any]], Any]
     join_table: Table
@@ -110,7 +115,8 @@ class LazyTable(Table):
     A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain])`
     """
 
-    model_config = ConfigDict(extra="forbid")
+    class Config:
+        extra = Extra.forbid
 
     def lazy_select(self, requested_fields: Dict[str, List[str]]) -> Any:
         raise NotImplementedException("LazyTable.lazy_select not overridden")
@@ -121,7 +127,8 @@ class VirtualTable(Table):
     A nested table that reuses the parent for storage. E.g. events.person.* fields with PoE enabled.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    class Config:
+        extra = Extra.forbid
 
 
 class FunctionCallTable(Table):

@@ -1,6 +1,6 @@
-from typing import Any, ClassVar, Dict, List, Literal, Optional, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from pydantic import ConfigDict, BaseModel
+from pydantic import BaseModel, Extra
 
 from posthog.hogql.database.models import (
     FieldTraverser,
@@ -33,7 +33,8 @@ from posthog.utils import PersonOnEventsMode
 
 
 class Database(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    class Config:
+        extra = Extra.allow
 
     # Users can query from the tables below
     events: EventsTable = EventsTable()
@@ -57,7 +58,7 @@ class Database(BaseModel):
     numbers: NumbersTable = NumbersTable()
 
     # clunky: keep table names in sync with above
-    _table_names: ClassVar[List[str]] = [
+    _table_names: List[str] = [
         "events",
         "groups",
         "person",
@@ -181,7 +182,7 @@ class SerializedField(_SerializedFieldBase, total=False):
 def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
     tables: Dict[str, List[SerializedField]] = {}
 
-    for table_key in database.model_fields.keys():
+    for table_key in database.__fields__.keys():
         field_input: Dict[str, Any] = {}
         table = getattr(database, table_key, None)
         if isinstance(table, FunctionCallTable):

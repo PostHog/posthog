@@ -15,8 +15,6 @@ amqp==2.6.0
     # via
     #   -r requirements.in
     #   kombu
-annotated-types==0.5.0
-    # via pydantic
 antlr4-python3-runtime==4.13.0
     # via -r requirements.in
 asgiref==3.3.2
@@ -339,10 +337,8 @@ pycparser==2.20
     # via cffi
 pycryptodomex==3.18.0
     # via snowflake-connector-python
-pydantic==2.3.0
+pydantic==1.10.4
     # via -r requirements.in
-pydantic-core==2.6.3
-    # via pydantic
 pyjwt==2.4.0
     # via
     #   -r requirements.in
@@ -484,10 +480,9 @@ types-protobuf==4.22.0.0
     # via temporalio
 types-s3transfer==0.6.1
     # via boto3-stubs
-typing-extensions==4.7.1
+typing-extensions==4.4.0
     # via
     #   pydantic
-    #   pydantic-core
     #   qrcode
     #   snowflake-connector-python
     #   temporalio
