@@ -116,6 +116,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             }}
                         />
                     </span>
+                    {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div className="resize-y overflow-hidden" style={{ height: 222 }}>
                         <CodeEditor
                             className="py-2 border rounded overflow-hidden h-full"
