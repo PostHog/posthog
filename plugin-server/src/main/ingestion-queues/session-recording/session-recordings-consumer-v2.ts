@@ -31,6 +31,7 @@ require('@sentry/tracing')
 
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
+const PARTITION_LOCK_INTERVAL_MS = 10000
 const HIGH_WATERMARK_KEY = 'session_replay_blob_ingester'
 
 // const flushIntervalTimeoutMs = 30000
@@ -100,8 +101,8 @@ export class SessionRecordingIngesterV2 {
     replayEventsIngester: ReplayEventsIngester
     partitionLocker: PartitionLocker
     batchConsumer?: BatchConsumer
-    flushInterval: NodeJS.Timer | null = null
     partitionAssignments: Record<number, PartitionMetrics> = {}
+    partitionLockInterval: NodeJS.Timer | null = null
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
     offsetsRefresher: BackgroundRefresher<Record<number, number>>
     recordingConsumerConfig: PluginsServerConfig
@@ -399,6 +400,15 @@ export class SessionRecordingIngesterV2 {
 
         await this.replayEventsIngester.start()
 
+        this.partitionLockInterval = setInterval(async () => {
+            await this.partitionLocker.claim(
+                Object.keys(this.partitionAssignments).map((partition) => ({
+                    partition: parseInt(partition),
+                    topic: this.topic,
+                }))
+            )
+        }, PARTITION_LOCK_INTERVAL_MS)
+
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.recordingConsumerConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -466,8 +476,8 @@ export class SessionRecordingIngesterV2 {
     public async stop(): Promise<void> {
         status.info('🔁', 'blob_ingester_consumer - stopping')
 
-        if (this.flushInterval) {
-            clearInterval(this.flushInterval)
+        if (this.partitionLockInterval) {
+            clearInterval(this.partitionLockInterval)
         }
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
