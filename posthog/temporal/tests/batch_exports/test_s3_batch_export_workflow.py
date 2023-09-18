@@ -25,6 +25,7 @@ from posthog.temporal.tests.batch_exports.base import (
     EventValues,
     amaterialize,
     insert_events,
+    to_isoformat,
 )
 from posthog.temporal.tests.batch_exports.fixtures import (
     acreate_batch_export,
@@ -124,12 +125,19 @@ def assert_events_in_s3(
     if exclude_events is None:
         exclude_events = []
 
-    expected_events = [
-        {k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]}
-        for event in events
-        if event["event"] not in exclude_events
-    ]
-    expected_events.sort(key=lambda x: x["timestamp"])
+    def to_expected_event(event):
+        mapping_functions = {
+            "timestamp": to_isoformat,
+            "inserted_at": to_isoformat,
+            "created_at": to_isoformat,
+        }
+        return {
+            k: mapping_functions.get(k, lambda x: x)(v) for k, v in event.items() if k not in ["team_id", "_timestamp"]
+        }
+
+    expected_events = list(map(to_expected_event, (event for event in events if event["event"] not in exclude_events)))
+
+    expected_events.sort(key=lambda x: x["timestamp"] if x["timestamp"] is not None else 0)
 
     # First check one event, the first one, so that we can get a nice diff if
     # the included data is different.

@@ -296,9 +296,6 @@
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "black",
             "ruff"
-        ],
-        "*.png": [
-            "optipng -clobber -o4 -strip all"
         ]
     },
     "browserslist": {
