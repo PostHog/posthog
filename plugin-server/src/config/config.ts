@@ -146,6 +146,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024 * 50, // 50MB
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
         SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
+        SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: false,
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
     }

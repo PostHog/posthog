@@ -216,6 +216,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_BUFFER_AGE_JITTER: number
     SESSION_RECORDING_REMOTE_FOLDER: string
     SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined

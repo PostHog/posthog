@@ -313,7 +313,9 @@ export class SessionRecordingIngesterV2 {
 
                 const recordingMessages: IncomingRecordingMessage[] = []
 
-                await this.partitionLocker.claim(messages)
+                if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
+                    await this.partitionLocker.claim(messages)
+                }
 
                 for (const message of messages) {
                     const { partition, offset, timestamp } = message
@@ -400,14 +402,16 @@ export class SessionRecordingIngesterV2 {
 
         await this.replayEventsIngester.start()
 
-        this.partitionLockInterval = setInterval(async () => {
-            await this.partitionLocker.claim(
-                Object.keys(this.partitionAssignments).map((partition) => ({
-                    partition: parseInt(partition),
-                    topic: this.topic,
-                }))
-            )
-        }, PARTITION_LOCK_INTERVAL_MS)
+        if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
+            this.partitionLockInterval = setInterval(async () => {
+                await this.partitionLocker.claim(
+                    Object.keys(this.partitionAssignments).map((partition) => ({
+                        partition: parseInt(partition),
+                        topic: this.topic,
+                    }))
+                )
+            }, PARTITION_LOCK_INTERVAL_MS)
+        }
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.recordingConsumerConfig)
 
@@ -539,10 +543,12 @@ export class SessionRecordingIngesterV2 {
         // TODO: Improve this to
         // - work from oldest to newest
         // - have some sort of timeout so we don't get stuck here forever
-        status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
-        await Promise.allSettled(
-            sessionsToDrop.map(([_, sessionManager]) => sessionManager.flush('partition_shutdown'))
-        )
+        if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
+            status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
+            await Promise.allSettled(
+                sessionsToDrop.map(([_, sessionManager]) => sessionManager.flush('partition_shutdown'))
+            )
+        }
 
         topicPartitions.forEach((topicPartition: TopicPartition) => {
             const partition = topicPartition.partition
@@ -555,7 +561,9 @@ export class SessionRecordingIngesterV2 {
             this.offsetHighWaterMarker.revoke(topicPartition)
         })
 
-        await this.partitionLocker.release(topicPartitions)
+        if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
+            await this.partitionLocker.release(topicPartitions)
+        }
         await this.destroySessions(sessionsToDrop)
         await this.offsetsRefresher.refresh()
     }

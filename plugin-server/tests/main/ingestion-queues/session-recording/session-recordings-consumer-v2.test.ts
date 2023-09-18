@@ -7,7 +7,7 @@ import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngesterV2 } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v2'
 import { Hub, PluginsServerConfig } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
-import { getFirstTeam } from '../../../helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
 async function deleteKeysWithPrefix(hub: Hub) {
@@ -59,8 +59,9 @@ describe('ingester', () => {
     let closeHub: () => Promise<void>
     let teamToken = ''
 
-    beforeAll(() => {
+    beforeAll(async () => {
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
+        await resetTestDatabase()
     })
 
     beforeEach(async () => {
@@ -87,6 +88,7 @@ describe('ingester', () => {
         ingester = new SessionRecordingIngesterV2(
             {
                 ...defaultConfig,
+                SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: true,
             },
             hub.postgres,
             hub.objectStorage,
@@ -345,6 +347,7 @@ describe('ingester', () => {
             otherIngester = new SessionRecordingIngesterV2(
                 {
                     ...defaultConfig,
+                    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: true,
                 },
                 hub.postgres,
                 hub.objectStorage,
