@@ -16,6 +16,16 @@ const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig
     return config
 }
 
+const maskEmails = (text: string): string => {
+    // A simple email regex - you may want to use something more advanced
+    const emailRegex = /(\S+)@(\S+\.\S+)/g
+
+    return text.replace(emailRegex, (_match, g1, g2) => {
+        // Replace each email with asterisks - ben@posthog.com becomes ***@***********
+        return '*'.repeat(g1.length) + '@' + '*'.repeat(g2.length)
+    })
+}
+
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(
@@ -36,6 +46,24 @@ export function loadPostHogJS(): void {
                     } else {
                         posthog.opt_in_capturing()
                     }
+                },
+                session_recording: {
+                    maskAllInputs: true,
+                    maskInputFn: (text, element) => {
+                        const maskTypes = ['email', 'password']
+
+                        if (
+                            maskTypes.indexOf(element?.attributes['type']?.value) !== -1 ||
+                            maskTypes.indexOf(element?.attributes['id']?.value) !== -1
+                        ) {
+                            return '*'.repeat(text.length)
+                        }
+                        return maskEmails(text)
+                    },
+                    maskTextSelector: '*',
+                    maskTextFn(text) {
+                        return maskEmails(text)
+                    },
                 },
             })
         )
