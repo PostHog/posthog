@@ -266,13 +266,13 @@ export class HookCommander {
         postgres: PostgresRouter,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
-        fetchHostnameGuardTeams: Set<number>,
+        fetchHostnameGuardTeams?: Set<number>,
         statsd?: StatsD
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
         this.organizationManager = organizationManager
-        this.fetchHostnameGuardTeams = fetchHostnameGuardTeams
+        this.fetchHostnameGuardTeams = fetchHostnameGuardTeams || new Set()
         if (process.env.SITE_URL) {
             this.siteUrl = process.env.SITE_URL
         } else {
