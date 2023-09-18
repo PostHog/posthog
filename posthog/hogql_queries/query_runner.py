@@ -113,7 +113,7 @@ class QueryRunner(ABC):
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
     def _cache_key(self):
-        return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}")
+        return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}_{self.team.timezone}")
 
     @abstractmethod
     def _is_stale(self, cached_result_package):
