@@ -1,5 +1,8 @@
+import base64
+import gzip
 import json
 from datetime import datetime, timedelta
+from io import BytesIO
 from typing import Any, List, Type, cast
 
 import posthoganalytics
@@ -371,9 +374,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
             with requests.get(url=url, stream=True) as r:
                 r.raise_for_status()
-                response = HttpResponse(content=r.raw, content_type="application/json")
-                response["Content-Disposition"] = "inline"
-                return response
+                # if the encoding is not utf-8 then this is likely "legacy" base64 encoded gzipped data
+                # so, we need to decode it before returning it
+                if r.apparent_encoding != "utf-8":
+                    return self._handle_original_version_lts_recording(r, recording, url)
+                else:
+                    response = HttpResponse(content=r.raw, content_type="application/json")
+                    response["Content-Disposition"] = "inline"
+                    return response
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
 
@@ -488,6 +496,33 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_serializer.is_valid(raise_exception=True)
 
         return Response({"results": session_recording_serializer.data})
+
+    def _handle_original_version_lts_recording(self, r, recording, url):
+        # the original version of the LTS recording was a single file
+        # its contents were gzipped and then base64 encoded.
+        # we can't simply stream it back to the requester
+
+        # first base64 decode the contents
+        try:
+            decoded_content = base64.b64decode(r.content)
+        except base64.binascii.Error:
+            raise exceptions.ValidationError("Snapshot file is not valid base64")
+
+        # then we have to unzip it
+        buffer = BytesIO(decoded_content)
+        with gzip.GzipFile(fileobj=buffer, mode="rb") as f:
+            uncompressed_content = f.read()
+
+        # its contents aren't usable as is, so we need to convert it to JSON
+        try:
+            json_content = json.loads(uncompressed_content)
+        except json.JSONDecodeError:
+            return HttpResponse(content="The content is not valid JSON.", status=400)
+
+        # and frustratingly then dump it back to bytes
+        byte_content = json.dumps(json_content).encode("utf-8")
+
+        return HttpResponse(content=byte_content, content_type="application/json")
 
 
 def list_recordings(filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]) -> dict:

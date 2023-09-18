@@ -61,9 +61,9 @@ import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/human
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { QuerySchema } from '~/queries/schema'
-import { decompressSync, strFromU8 } from 'fflate'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { encodeParams } from 'kea-router'
+import { captureException } from '@sentry/react'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -1245,19 +1245,12 @@ const api = {
                 .getResponse()
 
             try {
-                const contentBuffer = new Uint8Array(await response.arrayBuffer())
-                const textLines = strFromU8(contentBuffer)
-
-                if (textLines.startsWith('{')) {
-                    // it is not gzipped
-                    return textLines.split('\n')
-                } else {
-                    const s = strFromU8(decompressSync(contentBuffer))
-                    return s.trim().split('\n')
-                }
+                const textLines = await response.text()
+                return textLines.split('\n')
             } catch (e) {
-                // Must be gzipped
-                console.error(e)
+                // we no longer support any response that requires "manual" decompressing in the browser
+                captureException(e, { extra: { response, blobKey }, tags: { sessionRecordingId: recordingId } })
+                throw e
             }
         },
 
