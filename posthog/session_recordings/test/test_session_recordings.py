@@ -566,7 +566,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     # New snapshot loading method
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.object_storage.list_objects")
     def test_get_snapshots_v2_default_response(self, mock_list_objects) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
@@ -602,7 +602,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data")
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.object_storage.list_objects")
     def test_get_snapshots_upgrade_to_v2_if_stored_recording_requires_it(self, mock_list_objects: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
@@ -627,7 +627,40 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.assert_not_called()
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.object_storage.list_objects")
+    def test_get_original_format_snapshots_from_lts(self, mock_list_objects: MagicMock) -> None:
+        session_id = str(uuid.uuid4())
+        start = now() - timedelta(hours=1)
+        end = now()
+
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_id,
+            deleted=False,
+            storage_version=None,
+            object_storage_path="an lts stored object file",
+            start_time=start,
+            end_time=end,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
+        response_data = response.json()
+
+        mock_list_objects.assert_not_called()
+
+        assert response_data == {
+            "sources": [
+                {
+                    "source": "blob",
+                    "start_timestamp": start.isoformat().replace("+00:00", "Z"),
+                    "end_timestamp": end.isoformat().replace("+00:00", "Z"),
+                    "blob_key": "an lts stored object file",
+                },
+            ]
+        }
+
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.object_storage.list_objects")
     def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
@@ -679,12 +712,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ]
         }
         assert mock_list_objects.call_args_list == [
-            call(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data"),
             call("an lts stored object path"),
         ]
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.object_storage.list_objects")
     def test_get_snapshots_v2_default_response_no_realtime_if_old(self, mock_list_objects) -> None:
         session_id = str(uuid.uuid4())
         old_timestamp = round((now() - timedelta(hours=26)).timestamp() * 1000)
@@ -707,8 +739,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.requests")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.requests")
     def test_can_get_session_recording_blob(
         self, _mock_requests, mock_presigned_url, mock_get_session_recording
     ) -> None:
@@ -732,8 +764,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
 
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.requests")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.requests")
     def test_cannot_get_session_recording_blob_for_made_up_sessions(
         self, _mock_requests, mock_presigned_url, mock_get_session_recording
     ) -> None:
@@ -749,7 +781,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert mock_presigned_url.call_count == 0
 
-    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.snapshots.load_snapshots.object_storage.get_presigned_url")
     def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
         session_id = str(uuid.uuid4())
         blob_key = f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/1682608337071"

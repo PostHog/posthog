@@ -97,6 +97,7 @@ def gather_snapshot_sources(recording: SessionRecording) -> Dict:
         if recording.storage_version == "2023-08-01":
             blob_keys = object_storage.list_objects(cast(str, recording.object_storage_path))
         else:
+            # originally LTS stored recordings were a single file
             sources.append(
                 {
                     "source": "blob",
