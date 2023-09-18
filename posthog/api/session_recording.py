@@ -273,12 +273,25 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         if not source:
             sources: List[dict] = []
-            blob_prefix = recording.build_blob_ingestion_storage_path()
-            blob_keys = object_storage.list_objects(blob_prefix)
+            might_have_realtime = True
+            newest_timestamp = None
 
-            if not blob_keys and recording.storage_version == "2023-08-01":
+            if recording.object_storage_path:
                 blob_prefix = recording.object_storage_path
-                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                if recording.storage_version == "2023-08-01":
+                    blob_keys = object_storage.list_objects(cast(str, recording.object_storage_path))
+                else:
+                    blob_keys = {
+                        "source": "blob_file",
+                        "start_timestamp": 0,
+                        "end_timestamp": 1,
+                        "blob_file": recording.object_storage_path,
+                    }
+                    might_have_realtime = False
+
+            else:
+                blob_prefix = recording.build_blob_ingestion_storage_path()
+                blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
                 for full_key in blob_keys:
@@ -295,15 +308,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         }
                     )
 
-            might_have_realtime = True
-            newest_timestamp = None
-
             if sources:
                 sources = sorted(sources, key=lambda x: x["start_timestamp"])
                 oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
                 newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
-                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
+                if might_have_realtime:
+                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
 
             if might_have_realtime:
                 sources.append(
@@ -333,7 +344,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 raise exceptions.ValidationError("Must provide a snapshot file blob key")
 
             # very short-lived pre-signed URL
-            file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+
+            file_key = (
+                f"{recording.object_storage_path}/{blob_key}"
+                if recording.object_storage_path
+                else f"{recording.build_blob_ingestion_storage_path()}/{blob_key}"
+            )
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
@@ -343,6 +359,31 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             posthoganalytics.capture(
                 self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
             )
+
+            with requests.get(url=url, stream=True) as r:
+                r.raise_for_status()
+                response = HttpResponse(content=r.raw, content_type="application/json")
+                response["Content-Disposition"] = "inline"
+                return response
+        elif source == "blob_file":
+            blob_file = request.GET.get("blob_file", "")
+            if not blob_file:
+                raise exceptions.ValidationError("Must provide a snapshot file blob file")
+
+            # very short-lived pre-signed URL
+
+            if recording.object_storage_path != blob_file:
+                raise exceptions.ValidationError("Blob file not found for this recording")
+
+            url = object_storage.get_presigned_url(blob_file, expiration=60)
+            if not url:
+                raise exceptions.NotFound("Snapshot file not found")
+
+            event_properties["source"] = "blob_file"
+            event_properties["blob_file"] = blob_file
+            # posthoganalytics.capture(
+            #     self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
+            # )
 
             with requests.get(url=url, stream=True) as r:
                 r.raise_for_status()
