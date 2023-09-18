@@ -445,6 +445,8 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
 export interface LifecycleQueryResponse {
     result: Record<string, any>[]
     timings?: QueryTiming[]
+    last_refresh?: string
+    is_cached?: boolean
 }
 
 export interface LifecycleQuery extends InsightsQueryBase {

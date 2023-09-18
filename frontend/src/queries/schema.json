@@ -1439,6 +1439,12 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
                 "result": {
                     "items": {
                         "type": "object"

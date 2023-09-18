@@ -623,6 +623,8 @@ class LifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
     result: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
 

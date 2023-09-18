@@ -17,13 +17,13 @@ from posthog.types import InsightQueryNode
 from posthog.utils import generate_cache_key, get_safe_cache
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
-    "query_cache_write_total",
+    "posthog_query_cache_write_total",
     "When a query result was persisted in the cache.",
     labelnames=[LABEL_TEAM_ID],
 )
 
 QUERY_CACHE_HIT_COUNTER = Counter(
-    "query_cache_hit_total",
+    "posthog_query_cache_hit_total",
     "Whether we could fetch the query from the cache or not.",
     labelnames=[LABEL_TEAM_ID, "cache_hit"],
 )
@@ -47,7 +47,6 @@ class QueryRunner(ABC):
     def run(self) -> InsightQueryNode:
         raise NotImplementedError()
 
-    @abstractmethod
     def run_cached(self, refresh_requested: bool) -> InsightQueryNode:
         cache_key = self.cache_key()
         tag_queries(cache_key=cache_key)
@@ -55,25 +54,21 @@ class QueryRunner(ABC):
         if not refresh_requested:
             cached_result_package = get_safe_cache(cache_key)
 
-            if cached_result_package and cached_result_package.get("result"):
+            if cached_result_package and cached_result_package.result:
                 if not self.is_stale(cached_result_package):
                     cached_result_package["is_cached"] = True
-                    QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=True).inc()
+                    QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                     return cached_result_package
                 else:
-                    QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=False).inc()
+                    QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
             else:
-                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=False).inc()
+                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
 
         fresh_result_package = self.run()
-        if isinstance(fresh_result_package, dict):
-            result = fresh_result_package.get("result")
-            if not isinstance(result, dict) or not result.get("loading"):
-                timestamp = now()
-                fresh_result_package["last_refresh"] = timestamp
-                fresh_result_package["is_cached"] = False
-                cache.set(cache_key, result, settings.CACHED_RESULTS_TTL)
-                QUERY_CACHE_WRITE_COUNTER.inc()
+        fresh_result_package.last_refresh = now()
+        fresh_result_package.is_cached = False
+        cache.set(cache_key, fresh_result_package, settings.CACHED_RESULTS_TTL)
+        QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
         return fresh_result_package
 
