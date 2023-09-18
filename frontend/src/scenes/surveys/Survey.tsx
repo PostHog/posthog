@@ -376,6 +376,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         className="w-max"
                                         onClick={() => {
                                             setSurveyValue('targeting_flag_filters', { groups: [] })
+                                            setSurveyValue('remove_targeting_flag', false)
                                         }}
                                     >
                                         Add user targeting
@@ -391,8 +392,9 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                             status="danger"
                                             className="w-max"
                                             onClick={() => {
-                                                setSurveyValue('targeting_flag_filters', undefined)
+                                                setSurveyValue('targeting_flag_filters', null)
                                                 setSurveyValue('targeting_flag', null)
+                                                setSurveyValue('remove_targeting_flag', true)
                                             }}
                                         >
                                             Remove all user properties

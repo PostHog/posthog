@@ -21,9 +21,9 @@ from .api import (
     organization_resource_access,
     role,
     sentry_stats,
-    session_recording_playlist,
     subscription,
 )
+from .session_recordings import session_recording_playlist
 
 
 def extend_api_router(
