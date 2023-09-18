@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import typing
 
@@ -71,3 +72,10 @@ async def insert_events(client: ClickHouseClient, events: list[EventValues]):
 def amaterialize(table: typing.Literal["events", "person", "groups"], column: str):
     """Materialize a column in a table."""
     return materialize(table, column)
+
+
+def to_isoformat(d: str | None) -> str | None:
+    """Parse a string and return it as default isoformatted."""
+    if d is None:
+        return None
+    return dt.datetime.fromisoformat(d).replace(tzinfo=dt.timezone.utc).isoformat()
