@@ -684,7 +684,6 @@ export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
     next?: string
-    blob_keys?: string[]
 }
 
 export interface SessionPlayerData {

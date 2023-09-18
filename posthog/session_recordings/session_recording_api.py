@@ -1,16 +1,16 @@
-from datetime import datetime, timedelta
-
 import json
+from datetime import datetime, timedelta
 from typing import Any, List, Type, cast
 
 import posthoganalytics
-from dateutil import parser
 import requests
+from dateutil import parser
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -25,24 +25,22 @@ from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Filter, User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
-from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-
 from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
     SessionIdEventsQuery,
 )
 from posthog.session_recordings.queries.session_recording_properties import SessionRecordingProperties
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
 from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
-from prometheus_client import Counter
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 
@@ -273,12 +271,28 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         if not source:
             sources: List[dict] = []
-            blob_prefix = recording.build_blob_ingestion_storage_path()
-            blob_keys = object_storage.list_objects(blob_prefix)
+            might_have_realtime = True
+            newest_timestamp = None
+            blob_keys: List[str] = []
 
-            if not blob_keys and recording.storage_version == "2023-08-01":
+            if recording.object_storage_path:
                 blob_prefix = recording.object_storage_path
-                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                if recording.storage_version == "2023-08-01":
+                    blob_keys = object_storage.list_objects(cast(str, recording.object_storage_path))
+                else:
+                    sources.append(
+                        {
+                            "source": "blob",
+                            "start_timestamp": recording.start_time,
+                            "end_timestamp": recording.end_time,
+                            "blob_key": recording.object_storage_path,
+                        }
+                    )
+                    might_have_realtime = False
+
+            else:
+                blob_prefix = recording.build_blob_ingestion_storage_path()
+                blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
                 for full_key in blob_keys:
@@ -295,15 +309,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         }
                     )
 
-            might_have_realtime = True
-            newest_timestamp = None
-
             if sources:
                 sources = sorted(sources, key=lambda x: x["start_timestamp"])
                 oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
                 newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
-                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
+                if might_have_realtime:
+                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
 
             if might_have_realtime:
                 sources.append(
@@ -317,7 +329,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             response_data["sources"] = sources
 
         elif source == "realtime":
-            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
+            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id) or []
 
             event_properties["source"] = "realtime"
             event_properties["snapshots_length"] = len(snapshots)
@@ -333,7 +345,16 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 raise exceptions.ValidationError("Must provide a snapshot file blob key")
 
             # very short-lived pre-signed URL
-            file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+
+            if recording.object_storage_path == blob_key:
+                # This is the case when a legacy lts recording is loaded (single file)
+                file_key = recording.object_storage_path
+            else:
+                file_key = (
+                    f"{recording.object_storage_path}/{blob_key}"
+                    if recording.object_storage_path
+                    else f"{recording.build_blob_ingestion_storage_path()}/{blob_key}"
+                )
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
@@ -343,6 +364,10 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             posthoganalytics.capture(
                 self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
             )
+
+            # if recording.object_storage_path == blob_key:
+            #     # This is the case when a legacy lts recording is loaded (single file)
+            #     return HttpResponse(content=requests.get(url=url).content, content_type="application/json")
 
             with requests.get(url=url, stream=True) as r:
                 r.raise_for_status()
