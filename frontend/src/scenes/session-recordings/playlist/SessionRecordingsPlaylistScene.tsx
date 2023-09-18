@@ -124,6 +124,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         <EditableField
                             multiline
                             name="description"
+                            markdown
                             value={playlist.description || ''}
                             placeholder="Description (optional)"
                             onSave={(value) => updatePlaylist({ description: value })}
