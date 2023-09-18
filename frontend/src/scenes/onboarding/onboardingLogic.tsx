@@ -112,12 +112,12 @@ export const onboardingLogic = kea<onboardingLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/onboarding/:productKey': ({ productKey }, { success }) => {
+        '/onboarding/:productKey': ({ productKey }, { success, upgraded }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
             }
-            if (success) {
+            if (success || upgraded) {
                 actions.setSubscribedDuringOnboarding(true)
             }
             actions.setProductKey(productKey)
