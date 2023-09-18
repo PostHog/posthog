@@ -159,7 +159,7 @@ export const Settings = ({
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
     title: {
-        recompute: () => true,
+        recompute: (attributes) => attributes.query.kind === NodeKind.SavedInsightNode,
         value: async (attributes) => {
             const query = attributes.query
             let title = 'HogQL'
