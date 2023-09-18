@@ -82,7 +82,7 @@ class LifecycleQueryRunner(QueryRunner):
                 placeholders={"events_query": self.events_query},
             )
 
-    def run(self) -> LifecycleQueryResponse:
+    def calculate(self) -> LifecycleQueryResponse:
         response = execute_hogql_query(
             query_type="LifecycleQuery",
             query=self.to_query(),

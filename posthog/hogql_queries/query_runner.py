@@ -44,10 +44,10 @@ class QueryRunner(ABC):
             self.query = self.query_type.model_validate(query)
 
     @abstractmethod
-    def run(self) -> InsightQueryNode:
+    def calculate(self) -> InsightQueryNode:
         raise NotImplementedError()
 
-    def run_cached(self, refresh_requested: bool) -> InsightQueryNode:
+    def run(self, refresh_requested: bool) -> InsightQueryNode:
         cache_key = self.cache_key()
         tag_queries(cache_key=cache_key)
 
@@ -64,7 +64,7 @@ class QueryRunner(ABC):
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
 
-        fresh_result_package = self.run()
+        fresh_result_package = self.calculate()
         fresh_result_package.last_refresh = now()
         fresh_result_package.is_cached = False
         cache.set(cache_key, fresh_result_package, settings.CACHED_RESULTS_TTL)

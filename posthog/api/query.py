@@ -227,7 +227,7 @@ def process_query(
         return _unwrap_pydantic_dict(metadata_response)
     elif query_kind == "LifecycleQuery":
         lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(lifecycle_query_runner.run_cached(refresh_requested=refresh_requested))
+        return _unwrap_pydantic_dict(lifecycle_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)
