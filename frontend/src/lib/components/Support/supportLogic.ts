@@ -55,6 +55,7 @@ export const TARGET_AREA_TO_NAME = {
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
+    toolbar: 'Toolbar & heatmaps',
     surveys: 'Surveys',
 }
 
@@ -81,7 +82,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     persons: 'data_integrity',
     groups: 'data_integrity',
     app: 'apps',
-    toolbar: 'analytics',
+    toolbar: 'session_replay',
     warehouse: 'data_warehouse',
     surveys: 'surveys',
 }
