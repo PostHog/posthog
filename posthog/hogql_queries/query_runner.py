@@ -93,7 +93,7 @@ class QueryRunner(ABC):
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
     def cache_key(self, cache_invalidation_key: Optional[str] = None):
-        payload = f"query_{self.query.kind}_{self.toJSON()}_{self.team.pk}"
+        payload = f"query_{self.toJSON()}_{self.team.pk}"
         if cache_invalidation_key:
             payload += f"_{cache_invalidation_key}"
 
