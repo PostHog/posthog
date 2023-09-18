@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Type, Dict
+from datetime import datetime
+from typing import Any, Generic, List, Optional, Type, Dict, TypeVar
 
 from prometheus_client import Counter
-from django.utils.timezone import now
 from django.core.cache import cache
 from django.conf import settings
+from pydantic import BaseModel, ConfigDict
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -13,6 +14,7 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
+from posthog.schema import QueryTiming
 from posthog.types import InsightQueryNode
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -27,6 +29,24 @@ QUERY_CACHE_HIT_COUNTER = Counter(
     "Whether we could fetch the query from the cache or not.",
     labelnames=[LABEL_TEAM_ID, "cache_hit"],
 )
+
+DataT = TypeVar("DataT")
+
+
+class QueryResponse(BaseModel, Generic[DataT]):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    result: DataT
+    timings: Optional[List[QueryTiming]] = None
+
+
+class CachedQueryResponse(QueryResponse):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    is_cached: bool
+    last_refresh: str
 
 
 class QueryRunner(ABC):
@@ -44,33 +64,32 @@ class QueryRunner(ABC):
             self.query = self.query_type.model_validate(query)
 
     @abstractmethod
-    def calculate(self) -> InsightQueryNode:
+    def calculate(self) -> QueryResponse:
         raise NotImplementedError()
 
-    def run(self, refresh_requested: bool) -> InsightQueryNode:
+    def run(self, refresh_requested: bool) -> CachedQueryResponse:
         cache_key = self.cache_key()
         tag_queries(cache_key=cache_key)
 
         if not refresh_requested:
-            cached_result_package = get_safe_cache(cache_key)
+            cached_response = get_safe_cache(cache_key)
 
-            if cached_result_package and cached_result_package.result:
-                if not self.is_stale(cached_result_package):
-                    cached_result_package.is_cached = True
+            if cached_response and cached_response.result:
+                if not self.is_stale(cached_response):
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
-                    return cached_result_package
+                    cached_response.is_cached = True
+                    return cached_response
                 else:
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
 
-        fresh_result_package = self.calculate()
-        fresh_result_package.last_refresh = now()
-        fresh_result_package.is_cached = False
-        cache.set(cache_key, fresh_result_package, settings.CACHED_RESULTS_TTL)
+        fresh_response = CachedQueryResponse(**self.calculate().model_dump())
+        fresh_response.last_refresh = datetime.now().isoformat()
+        fresh_response.is_cached = False
+        cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
-
-        return fresh_result_package
+        return fresh_response
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery:
