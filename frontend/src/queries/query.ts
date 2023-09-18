@@ -141,7 +141,7 @@ export async function query<N extends DataNode = DataNode>(
                 methodOptions
             )
         } else {
-            response = await api.query(queryNode, methodOptions, queryId)
+            response = await api.query(queryNode, methodOptions, queryId, refresh)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
