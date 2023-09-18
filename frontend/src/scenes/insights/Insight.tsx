@@ -30,7 +30,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     // insightDataLogic
     const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
-    const { setQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -58,7 +57,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
                 <Query
                     query={isInsightVizNode(query) ? { ...query, full: true } : query}
-                    setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
                     readOnly={insightMode !== ItemMode.Edit}
                     context={{
                         showOpenEditorButton: false,

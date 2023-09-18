@@ -219,13 +219,205 @@ class TestSurvey(APIBaseTest):
         updated_survey_updates_targeting_flag = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
             data={
-                "targeting_flag_filters": {"groups": [{"variant": None, "rollout_percentage": None, "properties": []}]},
+                "targeting_flag_filters": {"groups": [{"variant": None, "rollout_percentage": 20, "properties": []}]},
             },
         )
         assert updated_survey_updates_targeting_flag.status_code == status.HTTP_200_OK
         assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).get().filters == {
-            "groups": [{"variant": None, "properties": [], "rollout_percentage": None}]
+            "groups": [{"variant": None, "properties": [], "rollout_percentage": 20}]
         }
+
+    def test_updating_survey_to_remove_targeting_deletes_targeting_flag(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        flagId = survey_with_targeting["targeting_flag"]["id"]
+        assert FeatureFlag.objects.filter(id=flagId).exists()
+
+        updated_survey_deletes_targeting_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "name": "other",
+                # "targeting_flag_filters": None, # delete these
+            },
+        )
+
+        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
+        assert updated_survey_deletes_targeting_flag.json()["name"] == "other"
+        assert updated_survey_deletes_targeting_flag.json()["targeting_flag"] is None
+
+        with self.assertRaises(FeatureFlag.DoesNotExist):
+            FeatureFlag.objects.get(id=flagId)
+
+    def test_updating_survey_to_send_none_targeting_deletes_targeting_flag(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        flagId = survey_with_targeting["targeting_flag"]["id"]
+        assert FeatureFlag.objects.filter(id=flagId).exists()
+
+        updated_survey_deletes_targeting_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "targeting_flag_filters": None,  # delete these
+            },
+        )
+
+        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
+        assert updated_survey_deletes_targeting_flag.json()["name"] == "survey with targeting"
+        assert updated_survey_deletes_targeting_flag.json()["targeting_flag"] is None
+
+        with self.assertRaises(FeatureFlag.DoesNotExist):
+            FeatureFlag.objects.get(id=flagId)
+
+    def test_survey_targeting_flag_validation(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        flagId = survey_with_targeting["targeting_flag"]["id"]
+        assert FeatureFlag.objects.filter(id=flagId).exists()
+
+        updated_survey_deletes_targeting_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [],
+                        }
+                    ]
+                },
+            },
+        )
+
+        invalid_detail = "Invalid operation: User targeting rolls out to everyone. If you want to roll out to everyone, delete this targeting"
+
+        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_400_BAD_REQUEST
+        assert updated_survey_deletes_targeting_flag.json()["detail"] == invalid_detail
+
+        updated_survey_deletes_targeting_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": 100,
+                            "properties": [{"key": "value"}],
+                        },
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [],
+                        },
+                    ]
+                },
+            },
+        )
+
+        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_400_BAD_REQUEST
+        assert updated_survey_deletes_targeting_flag.json()["detail"] == invalid_detail
+
+        updated_survey_deletes_targeting_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": 100,
+                            "properties": [{"key": "value"}],
+                        },
+                        {
+                            "variant": None,
+                            "rollout_percentage": 100,
+                            "properties": [],
+                        },
+                    ]
+                },
+            },
+        )
+
+        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_400_BAD_REQUEST
+        assert updated_survey_deletes_targeting_flag.json()["detail"] == invalid_detail
+
+        updated_survey_deletes_targeting_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": 100,
+                            "properties": [{"key": "value", "type": "person", "value": "bleh"}],
+                        },
+                        {
+                            "variant": None,
+                            "rollout_percentage": 30,
+                            "properties": [],
+                        },
+                    ]
+                },
+            },
+        )
+
+        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
 
     def test_deleting_survey_does_not_delete_linked_flag(self):
         linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
@@ -315,6 +507,49 @@ class TestSurvey(APIBaseTest):
                 }
             ],
         }
+
+    def test_updating_survey_name_validates(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey without targeting",
+                "type": "popover",
+            },
+            format="json",
+        ).json()
+
+        updated_survey_deletes_targeting_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
+            data={
+                "name": "survey without targeting",
+            },
+        )
+
+        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
+        )
 
 
 class TestSurveysAPIList(BaseTest, QueryMatchingTest):
