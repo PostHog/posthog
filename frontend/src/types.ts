@@ -2074,7 +2074,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
-    conditions: { url: string; selector: string; is_headless?: boolean; seenSurveyWaitPeriodInDays?: number } | null
+    conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
@@ -2113,7 +2113,7 @@ interface SurveyQuestionBase {
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
-    type: SurveyQuestionType.Open
+    type: SurveyQuestionType.Open | SurveyQuestionType.NPS
 }
 
 export interface LinkSurveyQuestion extends SurveyQuestionBase {
@@ -2140,6 +2140,7 @@ export enum SurveyQuestionType {
     Open = 'open',
     MultipleChoice = 'multiple_choice',
     SingleChoice = 'single_choice',
+    NPS = 'nps',
     Rating = 'rating',
     Link = 'link',
 }
