@@ -88,10 +88,10 @@ def is_stale_filter(
 
 
 def is_stale(team: Team, date_to: datetime, interval: str, cached_result: Any) -> bool:
-    """Indicates wether a cache item is obviously outdated based on filters,
-    i.e. the next time interval was entered since the last computation. For
-    example an insight with -7d date range that was last computed yesterday.
-    The same insight refreshed today wouldn't be marked as stale.
+    """Indicates wether a cache item is obviously outdated based on the last
+    requested date (date_to) and the granularity of the query (interval).
+    It is considered outdated when the next time interval was entered since the
+    last computation.
     """
 
     if stale_cache_invalidation_disabled(team):
