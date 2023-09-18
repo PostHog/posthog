@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import parser
@@ -96,7 +96,9 @@ def is_stale(team: Team, date_to: datetime, interval: str, cached_result: Any) -
     if stale_cache_invalidation_disabled(team):
         return False
 
-    last_refresh = cached_result.get("last_refresh", None)
+    last_refresh = (
+        cached_result.get("last_refresh", None) if isinstance(cached_result, Dict) else cached_result.last_refresh
+    )
     date_to = min([date_to, datetime.now(tz=ZoneInfo("UTC"))])  # can't be later than now
 
     if last_refresh is None:

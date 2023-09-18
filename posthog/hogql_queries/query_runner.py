@@ -56,7 +56,7 @@ class QueryRunner(ABC):
 
             if cached_result_package and cached_result_package.result:
                 if not self.is_stale(cached_result_package):
-                    cached_result_package["is_cached"] = True
+                    cached_result_package.is_cached = True
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                     return cached_result_package
                 else:
