@@ -23,6 +23,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { ChartDisplayType } from '~/types'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -44,6 +46,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showPaths,
         showFunnelDisplayLayout,
         showFunnelBins,
+        hogQL,
         display,
         trendsFilter,
         hasLegend,
@@ -150,6 +153,18 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 {showFunnelBins && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
+                    </ConfigFilter>
+                )}
+                {!!hogQL && (
+                    <ConfigFilter>
+                        <LemonButton
+                            size="small"
+                            onClick={() => {
+                                router.actions.push(urls.insightNewHogQL(hogQL))
+                            }}
+                        >
+                            <span className="font-medium whitespace-nowrap">Edit SQL</span>
+                        </LemonButton>
                     </ConfigFilter>
                 )}
             </div>

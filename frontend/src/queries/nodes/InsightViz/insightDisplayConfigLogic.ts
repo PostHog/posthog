@@ -34,6 +34,7 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
                 'trendsFilter',
                 'hasLegend',
                 'showLegend',
+                'insightData',
             ],
             funnelDataLogic(props),
             ['isEmptyFunnel', 'isStepsFunnel', 'isTimeToConvertFunnel', 'isTrendsFunnel'],
@@ -85,5 +86,14 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
         showPaths: [(s) => [s.isPaths], (isPaths) => !!isPaths],
         showFunnelDisplayLayout: [(s) => [s.isStepsFunnel], (isStepsFunnel) => !!isStepsFunnel],
         showFunnelBins: [(s) => [s.isTimeToConvertFunnel], (isTimeToConvertFunnel) => !!isTimeToConvertFunnel],
+        hogQL: [
+            (s) => [s.insightData],
+            (insightData): string | null => {
+                if (insightData && 'hogql' in insightData && insightData.hogql !== '') {
+                    return insightData.hogql
+                }
+                return null
+            },
+        ],
     }),
 ])

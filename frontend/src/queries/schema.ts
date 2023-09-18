@@ -21,6 +21,8 @@ import {
     HogQLMathType,
     InsightLogicProps,
     InsightShortId,
+    PersonPropertyFilter,
+    HogQLPropertyFilter,
 } from '~/types'
 
 /**
@@ -278,7 +280,7 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node, DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
+    source: EventsNode | EventsQuery | PersonsNode | SourcedPersonsQuery | HogQLQuery | TimeToSeeDataSessionsQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -471,6 +473,10 @@ export interface SourcedPersonsQueryResponse {
 export interface SourcedPersonsQuery extends DataNode {
     kind: NodeKind.SourcedPersonsQuery
     source: InsightQueryNode
+    day?: string
+    group?: string
+    search?: string
+    properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
     response?: SourcedPersonsQueryResponse
 }
 

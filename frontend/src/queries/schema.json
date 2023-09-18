@@ -388,6 +388,9 @@
                             "$ref": "#/definitions/PersonsNode"
                         },
                         {
+                            "$ref": "#/definitions/SourcedPersonsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {

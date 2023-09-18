@@ -1,5 +1,5 @@
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -9,9 +9,9 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { trendsDataLogic } from '../trendsDataLogic'
-import { InsightQueryNode, NodeKind, SourcedPersonsQuery } from '~/queries/schema'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { combineUrl } from 'kea-router'
+import { DataTableNode, NodeKind, SourcedPersonsQuery } from '~/queries/schema'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { isInsightVizNode } from '~/queries/utils'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -19,7 +19,8 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
-    const { query } = useValues(dataNodeLogic)
+    const { setQuery } = useActions(insightDataLogic(insightProps))
+    const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
         labelGroupType,
@@ -81,13 +82,17 @@ export function ActionsLineGraph({
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
-                          if (isLifecycle && query) {
+                          if (isLifecycle && query && isInsightVizNode(query)) {
                               const personsQuery: SourcedPersonsQuery = {
                                   kind: NodeKind.SourcedPersonsQuery,
-                                  source: query as InsightQueryNode,
+                                  source: query.source,
                               }
-                              const { url } = combineUrl('/debug', {}, { q: personsQuery })
-                              window.open(url, '_blank')
+                              const dataTable: DataTableNode = {
+                                  kind: NodeKind.DataTableNode,
+                                  full: true,
+                                  source: personsQuery,
+                              }
+                              setQuery(dataTable)
                               return
                           }
 

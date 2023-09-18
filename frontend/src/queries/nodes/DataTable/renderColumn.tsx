@@ -7,7 +7,14 @@ import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery, trimQuotes } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isHogQLQuery,
+    isPersonsNode,
+    isSourcedPersonsQuery,
+    isTimeToSeeDataSessionsQuery,
+    trimQuotes,
+} from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
@@ -17,6 +24,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 export function renderColumn(
     key: string,
@@ -209,7 +217,7 @@ export function renderColumn(
                 <PersonDisplay noLink withIcon person={personRecord} noPopover />
             </Link>
         )
-    } else if (key === 'person.$delete' && isPersonsNode(query.source)) {
+    } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isSourcedPersonsQuery(query.source))) {
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
@@ -228,6 +236,15 @@ export function renderColumn(
     } else if (key.startsWith('user.') && isTimeToSeeDataSessionsQuery(query.source)) {
         const [parent, child] = key.split('.')
         return typeof record === 'object' ? record[parent][child] : 'unknown'
+    } else if (isSourcedPersonsQuery(query.source)) {
+        if (key === 'id') {
+            return <div>{String(record[0])}</div>
+        } else if (key === 'created_at') {
+            return <TZLabel time={record[1]} showSeconds />
+        } else if (key === 'person') {
+            return asDisplay({ properties: JSON.parse(record[2]) })
+        }
+        return <div>{String(value)}</div>
     } else {
         if (typeof value === 'object' && value !== null) {
             return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

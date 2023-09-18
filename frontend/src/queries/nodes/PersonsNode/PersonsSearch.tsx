@@ -1,16 +1,16 @@
-import { PersonsNode } from '~/queries/schema'
+import { PersonsNode, SourcedPersonsQuery } from '~/queries/schema'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
 
 interface PersonSearchProps {
-    query: PersonsNode
-    setQuery?: (query: PersonsNode) => void
+    query: PersonsNode | SourcedPersonsQuery
+    setQuery?: (query: PersonsNode | SourcedPersonsQuery) => void
 }
 
 export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Element {
-    const { value, onChange } = useDebouncedQuery<PersonsNode, string>(
+    const { value, onChange } = useDebouncedQuery<PersonsNode | SourcedPersonsQuery, string>(
         query,
         setQuery,
         (query) => query.search || '',

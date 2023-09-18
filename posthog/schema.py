@@ -956,52 +956,6 @@ class ActionsNode(BaseModel):
     response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
 
 
-class DataTableNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    allowSorting: Optional[bool] = Field(
-        None, description="Can the user click on column headers to sort the table? (default: true)"
-    )
-    columns: Optional[List[str]] = Field(
-        None, description="Columns shown in the table, unless the `source` provides them."
-    )
-    embedded: Optional[bool] = Field(None, description="Uses the embedded version of LemonTable")
-    expandable: Optional[bool] = Field(None, description="Can expand row to show raw event data (default: true)")
-    full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in scenes.")
-    hiddenColumns: Optional[List[str]] = Field(
-        None, description="Columns that aren't shown in the table, even if in columns or returned data"
-    )
-    kind: str = Field("DataTableNode", const=True)
-    propertiesViaUrl: Optional[bool] = Field(None, description="Link properties via the URL (default: false)")
-    showActions: Optional[bool] = Field(None, description="Show the kebab menu at the end of the row")
-    showColumnConfigurator: Optional[bool] = Field(
-        None, description="Show a button to configure the table's columns if possible"
-    )
-    showDateRange: Optional[bool] = Field(None, description="Show date range selector")
-    showElapsedTime: Optional[bool] = Field(None, description="Show the time it takes to run a query")
-    showEventFilter: Optional[bool] = Field(
-        None, description="Include an event filter above the table (EventsNode only)"
-    )
-    showExport: Optional[bool] = Field(None, description="Show the export button")
-    showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
-    showOpenEditorButton: Optional[bool] = Field(
-        None, description="Show a button to open the current query as a new insight. (default: true)"
-    )
-    showPersistentColumnConfigurator: Optional[bool] = Field(
-        None, description="Show a button to configure and persist the table's default columns if possible"
-    )
-    showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
-    showReload: Optional[bool] = Field(None, description="Show a reload button")
-    showResultsTable: Optional[bool] = Field(None, description="Show a results table")
-    showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
-    showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    showTimings: Optional[bool] = Field(None, description="Show a detailed query timing breakdown")
-    source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
-        ..., description="Source of the events"
-    )
-
-
 class PropertyGroupFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -1253,6 +1207,52 @@ class SourcedPersonsQuery(BaseModel):
     kind: str = Field("SourcedPersonsQuery", const=True)
     response: Optional[SourcedPersonsQueryResponse] = Field(None, description="Cached query response")
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+
+
+class DataTableNode(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    allowSorting: Optional[bool] = Field(
+        None, description="Can the user click on column headers to sort the table? (default: true)"
+    )
+    columns: Optional[List[str]] = Field(
+        None, description="Columns shown in the table, unless the `source` provides them."
+    )
+    embedded: Optional[bool] = Field(None, description="Uses the embedded version of LemonTable")
+    expandable: Optional[bool] = Field(None, description="Can expand row to show raw event data (default: true)")
+    full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in scenes.")
+    hiddenColumns: Optional[List[str]] = Field(
+        None, description="Columns that aren't shown in the table, even if in columns or returned data"
+    )
+    kind: str = Field("DataTableNode", const=True)
+    propertiesViaUrl: Optional[bool] = Field(None, description="Link properties via the URL (default: false)")
+    showActions: Optional[bool] = Field(None, description="Show the kebab menu at the end of the row")
+    showColumnConfigurator: Optional[bool] = Field(
+        None, description="Show a button to configure the table's columns if possible"
+    )
+    showDateRange: Optional[bool] = Field(None, description="Show date range selector")
+    showElapsedTime: Optional[bool] = Field(None, description="Show the time it takes to run a query")
+    showEventFilter: Optional[bool] = Field(
+        None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showExport: Optional[bool] = Field(None, description="Show the export button")
+    showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
+    showOpenEditorButton: Optional[bool] = Field(
+        None, description="Show a button to open the current query as a new insight. (default: true)"
+    )
+    showPersistentColumnConfigurator: Optional[bool] = Field(
+        None, description="Show a button to configure and persist the table's default columns if possible"
+    )
+    showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
+    showReload: Optional[bool] = Field(None, description="Show a reload button")
+    showResultsTable: Optional[bool] = Field(None, description="Show a results table")
+    showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
+    showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
+    showTimings: Optional[bool] = Field(None, description="Show a detailed query timing breakdown")
+    source: Union[
+        EventsNode, EventsQuery, PersonsNode, SourcedPersonsQuery, HogQLQuery, TimeToSeeDataSessionsQuery
+    ] = Field(..., description="Source of the events")
 
 
 class Model(BaseModel):

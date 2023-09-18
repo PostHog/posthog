@@ -5,8 +5,11 @@ import {
     EventsNode,
     EventsQuery,
     HogQLQuery,
+    InsightVizNode,
+    NodeKind,
     PersonsNode,
     QueryContext,
+    SourcedPersonsQuery,
 } from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
@@ -28,7 +31,14 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
-import { isEventsQuery, isHogQlAggregation, isHogQLQuery, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isHogQlAggregation,
+    isHogQLQuery,
+    isPersonsNode,
+    isSourcedPersonsQuery,
+    taxonomicFilterToHogQl,
+} from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -46,7 +56,7 @@ import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
-    setQuery?: (query: DataTableNode) => void
+    setQuery?: (query: DataTableNode | InsightVizNode) => void
     /** Custom table columns */
     context?: QueryContext
     /* Cached Results are provided when shared or exported,
@@ -323,24 +333,36 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery) => setQuery?.({ ...query, source }),
+        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | SourcedPersonsQuery) =>
+            setQuery?.({ ...query, source }),
         [setQuery]
     )
 
     const firstRowLeft = [
+        isSourcedPersonsQuery(query.source) ? (
+            <LemonButton
+                onClick={() =>
+                    isSourcedPersonsQuery(query.source)
+                        ? setQuery?.({ kind: NodeKind.InsightVizNode, source: query.source.source, full: true })
+                        : null
+                }
+            >
+                Back
+            </LemonButton>
+        ) : null,
         showDateRange && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
             <DateRange query={query.source} setQuery={setQuerySource} />
         ) : null,
         showEventFilter && isEventsQuery(query.source) ? (
             <EventName query={query.source} setQuery={setQuerySource} />
         ) : null,
-        showSearch && isPersonsNode(query.source) ? (
+        showSearch && (isPersonsNode(query.source) || isSourcedPersonsQuery(query.source)) ? (
             <PersonsSearch query={query.source} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
             <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
         ) : null,
-        showPropertyFilter && isPersonsNode(query.source) ? (
+        showPropertyFilter && (isPersonsNode(query.source) || isSourcedPersonsQuery(query.source)) ? (
             <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
         ) : null,
     ].filter((x) => !!x)
