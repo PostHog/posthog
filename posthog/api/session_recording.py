@@ -275,18 +275,21 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             sources: List[dict] = []
             might_have_realtime = True
             newest_timestamp = None
+            blob_keys: List[str] = []
 
             if recording.object_storage_path:
                 blob_prefix = recording.object_storage_path
                 if recording.storage_version == "2023-08-01":
                     blob_keys = object_storage.list_objects(cast(str, recording.object_storage_path))
                 else:
-                    blob_keys = {
-                        "source": "blob_file",
-                        "start_timestamp": 0,
-                        "end_timestamp": 1,
-                        "blob_file": recording.object_storage_path,
-                    }
+                    sources.append(
+                        {
+                            "source": "blob",
+                            "start_timestamp": recording.start_time,
+                            "end_timestamp": recording.end_time,
+                            "blob_key": recording.object_storage_path,
+                        }
+                    )
                     might_have_realtime = False
 
             else:
@@ -345,11 +348,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
             # very short-lived pre-signed URL
 
-            file_key = (
-                f"{recording.object_storage_path}/{blob_key}"
-                if recording.object_storage_path
-                else f"{recording.build_blob_ingestion_storage_path()}/{blob_key}"
-            )
+            if recording.object_storage_path == blob_key:
+                # This is the case when a legacy lts recording is loaded (single file)
+                file_key = recording.object_storage_path
+            else:
+                file_key = (
+                    f"{recording.object_storage_path}/{blob_key}"
+                    if recording.object_storage_path
+                    else f"{recording.build_blob_ingestion_storage_path()}/{blob_key}"
+                )
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
@@ -360,30 +367,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
             )
 
-            with requests.get(url=url, stream=True) as r:
-                r.raise_for_status()
-                response = HttpResponse(content=r.raw, content_type="application/json")
-                response["Content-Disposition"] = "inline"
-                return response
-        elif source == "blob_file":
-            blob_file = request.GET.get("blob_file", "")
-            if not blob_file:
-                raise exceptions.ValidationError("Must provide a snapshot file blob file")
-
-            # very short-lived pre-signed URL
-
-            if recording.object_storage_path != blob_file:
-                raise exceptions.ValidationError("Blob file not found for this recording")
-
-            url = object_storage.get_presigned_url(blob_file, expiration=60)
-            if not url:
-                raise exceptions.NotFound("Snapshot file not found")
-
-            event_properties["source"] = "blob_file"
-            event_properties["blob_file"] = blob_file
-            # posthoganalytics.capture(
-            #     self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
-            # )
+            # if recording.object_storage_path == blob_key:
+            #     # This is the case when a legacy lts recording is loaded (single file)
+            #     return HttpResponse(content=requests.get(url=url).content, content_type="application/json")
 
             with requests.get(url=url, stream=True) as r:
                 r.raise_for_status()
