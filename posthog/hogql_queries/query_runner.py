@@ -84,9 +84,10 @@ class QueryRunner(ABC):
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
 
-        fresh_response = CachedQueryResponse(**self.calculate().model_dump())
-        fresh_response.last_refresh = datetime.now().isoformat()
-        fresh_response.is_cached = False
+        fresh_response_dict = self.calculate().model_dump()
+        fresh_response_dict["is_cached"] = False
+        fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        fresh_response = CachedQueryResponse(**fresh_response_dict)
         cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response

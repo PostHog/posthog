@@ -1,4 +1,5 @@
 from datetime import datetime
+from dateutil.parser import isoparse
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from zoneinfo import ZoneInfo
 
@@ -103,6 +104,9 @@ def is_stale(team: Team, date_to: datetime, interval: str, cached_result: Any) -
 
     if last_refresh is None:
         raise Exception("Cached results require a last_refresh")
+
+    if isinstance(last_refresh, str):
+        last_refresh = isoparse(last_refresh)
 
     if interval == "hour":
         return start_of_hour(date_to) > start_of_hour(last_refresh)
