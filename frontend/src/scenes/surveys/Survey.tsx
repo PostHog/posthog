@@ -386,19 +386,17 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         <div className="mt-2">
                                             <FeatureFlagReleaseConditions excludeTitle={true} />
                                         </div>
-                                        {id === 'new' && (
-                                            <LemonButton
-                                                type="secondary"
-                                                status="danger"
-                                                className="w-max"
-                                                onClick={() => {
-                                                    setSurveyValue('targeting_flag_filters', undefined)
-                                                    setSurveyValue('targeting_flag', null)
-                                                }}
-                                            >
-                                                Remove all user properties
-                                            </LemonButton>
-                                        )}
+                                        <LemonButton
+                                            type="secondary"
+                                            status="danger"
+                                            className="w-max"
+                                            onClick={() => {
+                                                setSurveyValue('targeting_flag_filters', undefined)
+                                                setSurveyValue('targeting_flag', null)
+                                            }}
+                                        >
+                                            Remove all user properties
+                                        </LemonButton>
                                     </>
                                 )}
                             </BindLogic>
