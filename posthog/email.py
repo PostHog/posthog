@@ -1,5 +1,5 @@
-from datetime import timedelta
 import sys
+from datetime import timedelta
 from typing import Dict, List, Optional
 
 import lxml
@@ -71,7 +71,11 @@ def _send_email(
             if existing_record and not resend_frequency_days:
                 continue
 
-            if existing_record and not existing_record.can_be_resent(timedelta(days=resend_frequency_days)):
+            if (
+                existing_record
+                and resend_frequency_days
+                and not existing_record.can_be_resent(timedelta(days=resend_frequency_days))
+            ):
                 continue
 
             campaign_count = existing_record.next_campaign_count() if existing_record else None
