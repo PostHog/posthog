@@ -82,6 +82,7 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
 def on_worker_start(**kwargs) -> None:
     from posthog.settings import sentry_init
     from prometheus_client import start_http_server
+
     sentry_init()
     start_http_server(8001)
 
