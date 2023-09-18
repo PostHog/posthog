@@ -69,5 +69,5 @@ class QueryRunnerTest(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
-        cache_key = runner.cache_key()
+        cache_key = runner._cache_key()
         self.assertEqual(cache_key, "cache_1369df4664cabf82e3357fd4e70705ba")

@@ -68,14 +68,14 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def run(self, refresh_requested: bool) -> CachedQueryResponse:
-        cache_key = self.cache_key()
+        cache_key = self._cache_key()
         tag_queries(cache_key=cache_key)
 
         if not refresh_requested:
             cached_response = get_safe_cache(cache_key)
 
             if cached_response and cached_response.result:
-                if not self.is_stale(cached_response):
+                if not self._is_stale(cached_response):
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                     cached_response.is_cached = True
                     return cached_response
@@ -111,9 +111,9 @@ class QueryRunner(ABC):
     def toJSON(self) -> str:
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
-    def cache_key(self):
+    def _cache_key(self):
         return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}")
 
     @abstractmethod
-    def is_stale(self, cached_result_package):
+    def _is_stale(self, cached_result_package):
         raise NotImplementedError()
