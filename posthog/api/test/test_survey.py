@@ -77,6 +77,48 @@ class TestSurvey(APIBaseTest):
             {"type": "open", "question": "What would you want to improve from notebooks?"}
         ]
 
+    def test_can_create_survey_with_targeting_with_remove_parameter(self):
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks power users survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "remove_targeting_flag": False,
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).exists()
+        assert response_data["targeting_flag"]["filters"] == {
+            "groups": [
+                {
+                    "variant": None,
+                    "properties": [{"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}],
+                    "rollout_percentage": None,
+                }
+            ]
+        }
+        assert response_data["conditions"] == {"url": "https://app.posthog.com/notebooks"}
+        assert response_data["questions"] == [
+            {"type": "open", "question": "What would you want to improve from notebooks?"}
+        ]
+
     def test_used_in_survey_is_populated_correctly_for_feature_flag_list(self) -> None:
         self.maxDiff = None
 

@@ -123,6 +123,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return data
 
     def create(self, validated_data):
+        if "remove_targeting_flag" in validated_data:
+            validated_data.pop("remove_targeting_flag")
+
         validated_data["team_id"] = self.context["team_id"]
         if validated_data.get("targeting_flag_filters"):
             targeting_feature_flag = self._create_new_targeting_flag(
