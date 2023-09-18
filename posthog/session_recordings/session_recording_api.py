@@ -1,16 +1,11 @@
-import base64
-import gzip
 import json
-from datetime import datetime, timedelta
-from io import BytesIO
 from typing import Any, List, Type, cast
 
 import posthoganalytics
-import requests
 from dateutil import parser
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Prefetch
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
@@ -41,8 +36,12 @@ from posthog.session_recordings.queries.session_recording_list_from_replay_summa
     SessionIdEventsQuery,
 )
 from posthog.session_recordings.queries.session_recording_properties import SessionRecordingProperties
-from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
-from posthog.storage import object_storage
+from posthog.session_recordings.snapshots.load_snapshots import (
+    gather_snapshot_sources,
+    SnapshotLoadingContext,
+    load_snapshots_for,
+)
+from posthog.session_recordings.snapshots.serializer import SessionRecordingSnapshotsSerializer
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
@@ -135,18 +134,6 @@ class SessionRecordingPropertiesSerializer(serializers.Serializer):
             "id": instance["session_id"],
             "properties": instance["properties"],
         }
-
-
-class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
-    source = serializers.CharField()  # type: ignore
-    start_timestamp = serializers.DateTimeField(allow_null=True)
-    end_timestamp = serializers.DateTimeField(allow_null=True)
-    blob_key = serializers.CharField(allow_null=True)
-
-
-class SessionRecordingSnapshotsSerializer(serializers.Serializer):
-    sources = serializers.ListField(child=SessionRecordingSnapshotsSourceSerializer(), required=False)
-    snapshots = serializers.ListField(required=False)
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
@@ -253,7 +240,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         """
 
         recording = self.get_object()
-        response_data = {}
         source = request.GET.get("source")
 
         event_properties = {
@@ -273,121 +259,20 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
         if not source:
-            sources: List[dict] = []
-            might_have_realtime = True
-            newest_timestamp = None
-            blob_keys: List[str] = []
-
-            if recording.object_storage_path:
-                blob_prefix = recording.object_storage_path
-                if recording.storage_version == "2023-08-01":
-                    blob_keys = object_storage.list_objects(cast(str, recording.object_storage_path))
-                else:
-                    sources.append(
-                        {
-                            "source": "blob",
-                            "start_timestamp": recording.start_time,
-                            "end_timestamp": recording.end_time,
-                            "blob_key": recording.object_storage_path,
-                        }
-                    )
-                    might_have_realtime = False
-
-            else:
-                blob_prefix = recording.build_blob_ingestion_storage_path()
-                blob_keys = object_storage.list_objects(blob_prefix)
-
-            if blob_keys:
-                for full_key in blob_keys:
-                    # Keys are like 1619712000-1619712060
-                    blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                    time_range = [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
-
-                    sources.append(
-                        {
-                            "source": "blob",
-                            "start_timestamp": time_range[0],
-                            "end_timestamp": time_range.pop(),
-                            "blob_key": blob_key,
-                        }
-                    )
-
-            if sources:
-                sources = sorted(sources, key=lambda x: x["start_timestamp"])
-                oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-                newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
-
-                if might_have_realtime:
-                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
-
-            if might_have_realtime:
-                sources.append(
-                    {
-                        "source": "realtime",
-                        "start_timestamp": newest_timestamp,
-                        "end_timestamp": None,
-                    }
-                )
-
-            response_data["sources"] = sources
-
-        elif source == "realtime":
-            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id) or []
-
-            event_properties["source"] = "realtime"
-            event_properties["snapshots_length"] = len(snapshots)
-            posthoganalytics.capture(
-                self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
-            )
-
-            response_data["snapshots"] = snapshots
-
-        elif source == "blob":
-            blob_key = request.GET.get("blob_key", "")
-            if not blob_key:
-                raise exceptions.ValidationError("Must provide a snapshot file blob key")
-
-            # very short-lived pre-signed URL
-
-            if recording.object_storage_path == blob_key:
-                # This is the case when a legacy lts recording is loaded (single file)
-                file_key = recording.object_storage_path
-            else:
-                file_key = (
-                    f"{recording.object_storage_path}/{blob_key}"
-                    if recording.object_storage_path
-                    else f"{recording.build_blob_ingestion_storage_path()}/{blob_key}"
-                )
-            url = object_storage.get_presigned_url(file_key, expiration=60)
-            if not url:
-                raise exceptions.NotFound("Snapshot file not found")
-
-            event_properties["source"] = "blob"
-            event_properties["blob_key"] = blob_key
-            posthoganalytics.capture(
-                self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
-            )
-
-            # if recording.object_storage_path == blob_key:
-            #     # This is the case when a legacy lts recording is loaded (single file)
-            #     return HttpResponse(content=requests.get(url=url).content, content_type="application/json")
-
-            with requests.get(url=url, stream=True) as r:
-                r.raise_for_status()
-                # if the encoding is not utf-8 then this is likely "legacy" base64 encoded gzipped data
-                # so, we need to decode it before returning it
-                if r.apparent_encoding != "utf-8":
-                    return self._handle_original_version_lts_recording(r, recording, url)
-                else:
-                    response = HttpResponse(content=r.raw, content_type="application/json")
-                    response["Content-Disposition"] = "inline"
-                    return response
+            response_data = gather_snapshot_sources(recording)
+            serializer = SessionRecordingSnapshotsSerializer(response_data)
+            return Response(serializer.data)
         else:
-            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
+            loader_context = SnapshotLoadingContext(
+                team_id=self.team.pk,
+                blob_key=request.GET.get("blob_key"),
+                recording=recording,
+                distinct_id=self._distinct_id_from_request(request),
+                event_properties=event_properties,
+                source=source,
+            )
 
-        serializer = SessionRecordingSnapshotsSerializer(response_data)
-
-        return Response(serializer.data)
+            return load_snapshots_for(loader_context)
 
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
@@ -496,33 +381,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_serializer.is_valid(raise_exception=True)
 
         return Response({"results": session_recording_serializer.data})
-
-    def _handle_original_version_lts_recording(self, r, recording, url):
-        # the original version of the LTS recording was a single file
-        # its contents were gzipped and then base64 encoded.
-        # we can't simply stream it back to the requester
-
-        # first base64 decode the contents
-        try:
-            decoded_content = base64.b64decode(r.content)
-        except base64.binascii.Error:
-            raise exceptions.ValidationError("Snapshot file is not valid base64")
-
-        # then we have to unzip it
-        buffer = BytesIO(decoded_content)
-        with gzip.GzipFile(fileobj=buffer, mode="rb") as f:
-            uncompressed_content = f.read()
-
-        # its contents aren't usable as is, so we need to convert it to JSON
-        try:
-            json_content = json.loads(uncompressed_content)
-        except json.JSONDecodeError:
-            return HttpResponse(content="The content is not valid JSON.", status=400)
-
-        # and frustratingly then dump it back to bytes
-        byte_content = json.dumps(json_content).encode("utf-8")
-
-        return HttpResponse(content=byte_content, content_type="application/json")
 
 
 def list_recordings(filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]) -> dict:
