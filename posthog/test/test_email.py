@@ -86,7 +86,17 @@ class TestEmail(BaseTest):
             self.assertEqual(len(mail.outbox), 1)
 
             record.refresh_from_db()
-            self.assertEqual(record.sent_at, sent_at)
+            assert record.sent_at == sent_at
+
+            records = (
+                MessagingRecord.objects.filter(raw_email="test0@posthog.com", campaign_key="campaign_2")
+                .order_by("-campaign_count")
+                .all()
+            )
+
+            assert len(records) == 2
+            assert records[0].campaign_count == None
+            assert records[1].campaign_count == 1
 
     @freeze_time("2020-09-21")
     def test_cant_send_same_campaign_twice_less_than_resend_frequency(self) -> None:
@@ -110,6 +120,9 @@ class TestEmail(BaseTest):
 
             record.refresh_from_db()
             self.assertEqual(record.sent_at, sent_at)
+
+            records = MessagingRecord.objects.filter(raw_email="test0@posthog.com", campaign_key="campaign_2").all()
+            assert len(records) == 1
 
     def test_applies_default_utm_tags(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):

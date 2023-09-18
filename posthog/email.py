@@ -1,3 +1,4 @@
+from datetime import timedelta
 import sys
 from typing import Dict, List, Optional
 
@@ -41,26 +42,6 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     )
 
 
-def _should_send_email(record: MessagingRecord) -> bool:
-    """
-    Returns whether an email should be sent to a given user.
-    """
-    return not record.sent_at
-
-
-def _is_past_resend_frequency_date(record: MessagingRecord, resend_frequency_days: int) -> bool:
-    """
-    Returns whether an email should be sent based on the sent_at and the resend frequency.
-    """
-    print("record.sent_at", record.sent_at)
-    print("timezone.now()", timezone.now())
-    print(
-        "record.sent_at and (timezone.now() - record.sent_at).days",
-        record.sent_at and (timezone.now() - record.sent_at).days,
-    )
-    return record.sent_at and (timezone.now() - record.sent_at).days >= resend_frequency_days
-
-
 @app.task(ignore_result=True, max_retries=3)
 def _send_email(
     campaign_key: str,
@@ -81,26 +62,26 @@ def _send_email(
 
     with transaction.atomic():
         for dest in to:
-            campaign_records = MessagingRecord.objects.filter(
-                raw_email=dest["raw_email"], campaign_key=campaign_key
-            ).order_by("-created_at")
-            if not campaign_records or (
-                campaign_records
-                and resend_frequency_days
-                and _is_past_resend_frequency_date(campaign_records[0], resend_frequency_days)
-            ):
-                record: MessagingRecord = MessagingRecord.objects.create(
-                    raw_email=dest["raw_email"], campaign_key=campaign_key
-                )
-            else:
-                record = campaign_records[0]
+            existing_record = (
+                MessagingRecord.objects.filter(raw_email=dest["raw_email"], campaign_key=campaign_key)
+                .order_by("-campaign_count")
+                .first()
+            )
+
+            if existing_record and not resend_frequency_days:
+                continue
+
+            if existing_record and not existing_record.can_be_resent(timedelta(days=resend_frequency_days)):
+                continue
+
+            campaign_count = existing_record.next_campaign_count() if existing_record else None
+
+            record: MessagingRecord = MessagingRecord.objects.create(
+                raw_email=dest["raw_email"], campaign_key=campaign_key, campaign_count=campaign_count
+            )
 
             # Lock object (database-level) while the message is sent
             record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
-
-            if _should_send_email(record) is False:
-                record.save()
-                continue
 
             records.append(record)
             reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")

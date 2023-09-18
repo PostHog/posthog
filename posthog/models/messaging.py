@@ -1,3 +1,5 @@
+from datetime import timedelta
+from django.utils import timezone
 import hashlib
 
 from django.conf import settings
@@ -41,5 +43,19 @@ class MessagingRecord(UUIDModel):
 
     email_hash: models.CharField = models.CharField(max_length=1024)
     campaign_key: models.CharField = models.CharField(max_length=128)
+    # Numeric indicator for repearts emails of the same campaign key
+    campaign_count: models.IntegerField = models.IntegerField(null=True)
     sent_at: models.DateTimeField = models.DateTimeField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("email_hash", "campaign_key", "campaign_count")  # can only send campaign once to each email
+
+    def can_be_resent(self, resend_interval: timedelta) -> bool:
+        """
+        Returns whether an email should be sent based on the sent_at and the resend frequency.
+        """
+        return self.sent_at and (timezone.now() - self.sent_at) >= resend_interval
+
+    def next_campaign_count(self) -> int:
+        return 1 if self.campaign_count is None else self.campaign_count + 1
