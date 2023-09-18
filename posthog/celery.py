@@ -898,7 +898,7 @@ def check_flags_to_rollback():
 @app.task(ignore_result=True)
 def ee_persist_single_recording(id: str, team_id: int):
     try:
-        from ee.tasks.session_recording.persistence import persist_single_recording
+        from ee.session_recordings.persistence_tasks import persist_single_recording
 
         persist_single_recording(id, team_id)
     except ImportError:
@@ -908,7 +908,7 @@ def ee_persist_single_recording(id: str, team_id: int):
 @app.task(ignore_result=True)
 def ee_persist_finished_recordings():
     try:
-        from ee.tasks.session_recording.persistence import persist_finished_recordings
+        from ee.session_recordings.persistence_tasks import persist_finished_recordings
     except ImportError:
         pass
     else:

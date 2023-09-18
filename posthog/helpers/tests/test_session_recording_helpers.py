@@ -42,7 +42,7 @@ def mock_capture_flow(events: List[dict], max_size_bytes=512 * 1024) -> Tuple[Li
     )
     new_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events, max_size_bytes=max_size_bytes)
 
-    return (legacy_replay_events + other_events, new_replay_events + other_events)
+    return legacy_replay_events + other_events, new_replay_events + other_events
 
 
 def test_preprocess_with_no_recordings():
@@ -320,7 +320,7 @@ def test_decompress_data_returning_only_activity_info(chunked_and_compressed_sna
 def test_get_events_summary_from_snapshot_data():
     timestamp = round(datetime.now().timestamp() * 1000)
 
-    snapshot_events = [
+    snapshot_events: List[SnapshotData | None] = [
         # ignore malformed events
         {"type": 2, "foo": "bar"},
         # ignore other props

@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 from posthog.client import sync_execute
 from posthog.models import Team
-from posthog.models.session_recording.metadata import (
+from posthog.session_recordings.models.metadata import (
     DecompressedRecordingData,
     SessionRecordingEvent,
     SnapshotDataTaggedWithWindowId,

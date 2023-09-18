@@ -12,7 +12,7 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem
-from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.settings import (
@@ -209,8 +209,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert {x["id"] for x in result["results"]} == {session_one, session_two}
         assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
-    @patch("ee.models.session_recording_extensions.object_storage.list_objects")
-    @patch("ee.models.session_recording_extensions.object_storage.copy_objects")
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.list_objects")
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
     def test_fetch_playlist_recordings(self, mock_copy_objects: MagicMock, mock_list_objects: MagicMock) -> None:
         # all sessions have been blob ingested and had data to copy into the LTS storage location
         mock_copy_objects.return_value = 1

@@ -4,7 +4,7 @@ from freezegun.api import freeze_time
 
 from posthog.models import Person
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
+from posthog.session_recordings.queries.session_recording_properties import SessionRecordingProperties
 from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 

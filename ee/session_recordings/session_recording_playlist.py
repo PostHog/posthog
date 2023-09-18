@@ -12,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.session_recording import list_recordings
+from posthog.session_recordings.session_recording_api import list_recordings
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS, AvailableFeature
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User

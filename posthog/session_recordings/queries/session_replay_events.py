@@ -3,7 +3,7 @@ from typing import Optional, Tuple, List
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
-from posthog.models.session_recording.metadata import (
+from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
 )
 

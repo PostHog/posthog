@@ -12,14 +12,13 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.api.test.test_team import create_team
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
-from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
@@ -170,7 +169,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             (session_id_one, "user", base_time, base_time + relativedelta(seconds=30), 30, False, user.pk),
         ]
 
-    @patch("posthog.api.session_recording.SessionRecordingListFromReplaySummary")
+    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromReplaySummary")
     def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):
         mock_summary_lister.return_value.run.return_value = ([], False)
 
@@ -371,6 +370,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     def test_get_default_limit_of_chunks(self):
+        # TODO import causes circular reference... but we're going to delete this soon so...
+        from posthog.session_recordings.session_recording_api import DEFAULT_RECORDING_CHUNK_LIMIT
+
         base_time = now()
         num_snapshots = DEFAULT_RECORDING_CHUNK_LIMIT + 10
 
@@ -401,6 +403,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.headers.get("Content-Encoding", None), "gzip")
 
     def test_get_snapshots_for_chunked_session_recording(self):
+        # TODO import causes circular reference... but we're going to delete this soon so...
+        from posthog.session_recordings.session_recording_api import DEFAULT_RECORDING_CHUNK_LIMIT
+
         chunked_session_id = "chunk_id"
         expected_num_requests = 3
         num_chunks = 60
@@ -561,7 +566,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     # New snapshot loading method
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.api.session_recording.object_storage.list_objects")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_v2_default_response(self, mock_list_objects) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
@@ -597,7 +602,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data")
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.api.session_recording.object_storage.list_objects")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_upgrade_to_v2_if_stored_recording_requires_it(self, mock_list_objects: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
@@ -622,7 +627,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.assert_not_called()
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.api.session_recording.object_storage.list_objects")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
@@ -679,7 +684,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.api.session_recording.object_storage.list_objects")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_v2_default_response_no_realtime_if_old(self, mock_list_objects) -> None:
         session_id = str(uuid.uuid4())
         old_timestamp = round((now() - timedelta(hours=26)).timestamp() * 1000)
@@ -701,9 +706,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ]
         }
 
-    @patch("posthog.api.session_recording.SessionRecording.get_or_build")
-    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
-    @patch("posthog.api.session_recording.requests")
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.requests")
     def test_can_get_session_recording_blob(
         self, _mock_requests, mock_presigned_url, mock_get_session_recording
     ) -> None:
@@ -726,9 +731,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
 
-    @patch("posthog.api.session_recording.SessionRecording.get_or_build")
-    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
-    @patch("posthog.api.session_recording.requests")
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.requests")
     def test_cannot_get_session_recording_blob_for_made_up_sessions(
         self, _mock_requests, mock_presigned_url, mock_get_session_recording
     ) -> None:
@@ -744,7 +749,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert mock_presigned_url.call_count == 0
 
-    @patch("posthog.api.session_recording.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
         session_id = str(uuid.uuid4())
         blob_key = f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/1682608337071"
