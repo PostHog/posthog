@@ -22,7 +22,7 @@ class LifecycleQueryRunner(QueryRunner):
     def __init__(self, query: LifecycleQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
         super().__init__(query, team, timings)
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "events_query": self.events_query,
@@ -69,7 +69,7 @@ class LifecycleQueryRunner(QueryRunner):
             )
         return lifecycle_query
 
-    def to_persons_query(self) -> str:
+    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add support for selecting and filtering by breakdowns
         with self.timings.measure("persons_query"):
             return parse_select(

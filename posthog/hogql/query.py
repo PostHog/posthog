@@ -18,7 +18,7 @@ from posthog.schema import HogQLQueryResponse, HogQLFilters
 
 
 def execute_hogql_query(
-    query: Union[str, ast.SelectQuery],
+    query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
     team: Team,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
@@ -32,7 +32,7 @@ def execute_hogql_query(
         timings = HogQLTimings()
 
     with timings.measure("query"):
-        if isinstance(query, ast.SelectQuery):
+        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
             select_query = query
             query = None
         else:
