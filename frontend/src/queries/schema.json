@@ -2078,6 +2078,7 @@
                     "type": "string"
                 },
                 "results": {
+                    "description": "Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ]",
                     "items": {
                         "items": {},
                         "type": "array"

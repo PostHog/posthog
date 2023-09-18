@@ -432,7 +432,9 @@ class SourcedPersonsQueryResponse(BaseModel):
         extra = Extra.forbid
 
     hogql: str
-    results: List[List]
+    results: List[List] = Field(
+        ..., description="Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ]"
+    )
     timings: Optional[List[QueryTiming]] = None
 
 

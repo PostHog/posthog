@@ -461,7 +461,8 @@ export interface LifecycleQuery extends InsightsQueryBase {
 }
 
 export interface SourcedPersonsQueryResponse {
-    results: any[][]
+    /** Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ] */
+    results: any[][] // typed as any[], not [str, ...any] because python
     hogql: string
     timings?: QueryTiming[]
 }
