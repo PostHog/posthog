@@ -1446,7 +1446,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
             query = "SELECT event, distinct_id from events WHERE distinct_id={distinct_id} and {filters}"
             filters = HogQLFilters(
-                properties=[EventPropertyFilter(key="index", operator="exact", value=4, type="event")]
+                properties=[EventPropertyFilter(key="index", operator="exact", value="4", type="event")]
             )
             placeholders = {"distinct_id": ast.Constant(value=random_uuid)}
             response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
