@@ -55,7 +55,7 @@ export type NotebookNodeWidget = {
     Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
 }
 
-export type NotebookNodeTitleGenerator = {
+export type NotebookNodeTitleConfig = {
     recompute: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     value: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
 }

@@ -26,11 +26,11 @@ import {
     NotebookNodeViewProps,
     NotebookNodeWidget,
     CustomNotebookNodeAttributes,
-    NotebookNodeTitleGenerator,
+    NotebookNodeTitleConfig,
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
-    title: NotebookNodeTitleGenerator['value'] | NotebookNodeTitleGenerator
+    title: NotebookNodeTitleConfig | NotebookNodeTitleConfig['value']
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string)
@@ -48,17 +48,15 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     widgets?: NotebookNodeWidget[]
 }
 
-function titleAsGenerator(
-    title: NotebookNodeTitleGenerator['value'] | NotebookNodeTitleGenerator
-): NotebookNodeTitleGenerator {
+function getTitleConfig(title: NotebookNodeTitleConfig | NotebookNodeTitleConfig['value']): NotebookNodeTitleConfig {
     if (title instanceof Object) {
-        return title as NotebookNodeTitleGenerator
+        return title as NotebookNodeTitleConfig
     }
     return { value: title, recompute: false }
 }
 
 export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
-    title: titleOrGenerator,
+    title: titleOrConfig,
     nodeType,
     children,
     selected,
@@ -90,7 +88,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
-        titleGenerator: titleAsGenerator(titleOrGenerator),
+        titleConfig: getTitleConfig(titleOrConfig),
         resizeable: resizeableOrGenerator,
         widgets,
         startExpanded,

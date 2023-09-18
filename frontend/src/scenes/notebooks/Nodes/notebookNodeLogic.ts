@@ -22,7 +22,7 @@ import {
     NotebookNode,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
-    NotebookNodeTitleGenerator,
+    NotebookNodeTitleConfig,
     NotebookNodeWidget,
 } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
@@ -34,14 +34,14 @@ export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
-    titleGenerator: NotebookNodeTitleGenerator
+    titleConfig: NotebookNodeTitleConfig
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     widgets: NotebookNodeWidget[]
     startExpanded: boolean
 } & NotebookNodeAttributeProperties<any>
 
 async function renderTitle(
-    generatorOrTitle: NotebookNodeLogicProps['titleGenerator'],
+    generatorOrTitle: NotebookNodeLogicProps['titleConfig'],
     attrs: NotebookNodeLogicProps['attributes']
 ): Promise<string> {
     const shouldRecompute =
@@ -176,7 +176,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     afterMount(async (logic) => {
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
-        const renderedTitle = await renderTitle(logic.props.titleGenerator, logic.props.attributes)
+        const renderedTitle = await renderTitle(logic.props.titleConfig, logic.props.attributes)
         logic.actions.setTitle(renderedTitle)
         const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
         logic.actions.setResizeable(resizeable)
