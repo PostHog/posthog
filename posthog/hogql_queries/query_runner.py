@@ -92,12 +92,8 @@ class QueryRunner(ABC):
     def toJSON(self) -> str:
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
-    def cache_key(self, cache_invalidation_key: Optional[str] = None):
-        payload = f"query_{self.toJSON()}_{self.team.pk}"
-        if cache_invalidation_key:
-            payload += f"_{cache_invalidation_key}"
-
-        return generate_cache_key(payload)
+    def cache_key(self):
+        return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}")
 
     @abstractmethod
     def is_stale(self, cached_result_package):
