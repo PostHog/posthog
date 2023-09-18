@@ -11,7 +11,7 @@ describe('entityFilterLogic', () => {
     let logic: ReturnType<typeof entityFilterLogic.build>
 
     beforeEach(() => {
-        ;(libUtils as any).uuid = jest.fn().mockReturnValue('uuid-first')
+        ;(libUtils as any).uuid = jest.fn().mockReturnValue('generated-uuid')
         useMocks({
             get: {
                 '/api/projects/:team/actions/': {
