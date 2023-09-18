@@ -5,7 +5,8 @@ import { format } from 'util'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import fetch from '../../utils/fetch'
+import { isCloud } from '../../utils/env-utils'
+import { safeTrackedFetch, trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
@@ -256,6 +257,7 @@ export class HookCommander {
     organizationManager: OrganizationManager
     statsd: StatsD | undefined
     siteUrl: string
+    fetchHostnameGuardTeams: Set<number>
 
     /** Hook request timeout in ms. */
     EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
@@ -264,11 +266,13 @@ export class HookCommander {
         postgres: PostgresRouter,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
+        fetchHostnameGuardTeams?: Set<number>,
         statsd?: StatsD
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
         this.organizationManager = organizationManager
+        this.fetchHostnameGuardTeams = fetchHostnameGuardTeams || new Set()
         if (process.env.SITE_URL) {
             this.siteUrl = process.env.SITE_URL
         } else {
@@ -358,9 +362,10 @@ export class HookCommander {
                 `⌛⌛⌛ Posting Webhook slow. Timeout warning after 5 sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
             )
         }, 5000)
+        const relevantFetch = isCloud() && this.fetchHostnameGuardTeams.has(team.id) ? safeTrackedFetch : trackedFetch
         try {
             await instrumentWebhookStep('fetch', async () => {
-                const request = await fetch(webhookUrl, {
+                const request = await relevantFetch(webhookUrl, {
                     method: 'POST',
                     body: JSON.stringify(message, undefined, 4),
                     headers: { 'Content-Type': 'application/json' },
@@ -399,8 +404,10 @@ export class HookCommander {
                 `⌛⌛⌛ Posting RestHook slow. Timeout warning after 5 sec! url=${hook.target} team_id=${event.teamId} event_id=${event.eventUuid}`
             )
         }, 5000)
+        const relevantFetch =
+            isCloud() && this.fetchHostnameGuardTeams.has(hook.team_id) ? safeTrackedFetch : trackedFetch
         try {
-            const request = await fetch(hook.target, {
+            const request = await relevantFetch(hook.target, {
                 method: 'POST',
                 body: JSON.stringify(payload, undefined, 4),
                 headers: { 'Content-Type': 'application/json' },

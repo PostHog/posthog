@@ -70,6 +70,9 @@ export async function createHub(
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
+    const fetchHostnameGuardTeams = new Set(
+        serverConfig.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)
+    )
 
     const statsd: StatsD | undefined = createStatsdClient(serverConfig, threadId)
 
@@ -181,6 +184,7 @@ export async function createHub(
         rootAccessManager,
         promiseManager,
         conversionBufferEnabledTeams,
+        fetchHostnameGuardTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
     }
 

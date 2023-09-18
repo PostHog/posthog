@@ -111,6 +111,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
         CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
         BUFFER_CONVERSION_SECONDS: isDevEnv() ? 2 : 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
+        FETCH_HOSTNAME_GUARD_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -129,7 +130,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
-        CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
+        CLOUD_DEPLOYMENT: null,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,
