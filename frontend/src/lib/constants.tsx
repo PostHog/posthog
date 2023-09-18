@@ -164,6 +164,7 @@ export const FEATURE_FLAGS = {
     SURVEY_NPS_RESULTS: 'survey-nps-results', // owner: @liyiy
     // owner: #team-monitoring
     SESSION_RECORDING_ALLOW_V1_SNAPSHOTS: 'session-recording-allow-v1-snapshots',
+    SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
     HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
 } as const

@@ -8,10 +8,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _expr(self, query: str) -> HogQLMetadataResponse:
-        return get_hogql_metadata(query=HogQLMetadata(expr=query), team=self.team)
+        return get_hogql_metadata(query=HogQLMetadata(kind="HogQLMetadata", expr=query, response=None), team=self.team)
 
     def _select(self, query: str) -> HogQLMetadataResponse:
-        return get_hogql_metadata(query=HogQLMetadata(select=query), team=self.team)
+        return get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", select=query, response=None), team=self.team
+        )
 
     def test_metadata_valid_expr_select(self):
         metadata = self._expr("select 1")

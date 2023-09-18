@@ -22,7 +22,7 @@ class LifecycleQueryRunner(QueryRunner):
         if isinstance(query, LifecycleQuery):
             self.query = query
         else:
-            self.query = LifecycleQuery.parse_obj(query)
+            self.query = LifecycleQuery.model_validate(query)
 
     def to_query(self) -> ast.SelectQuery:
         placeholders = {

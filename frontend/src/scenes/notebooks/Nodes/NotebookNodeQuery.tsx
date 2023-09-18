@@ -1,17 +1,19 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { useMountedLogic, useValues } from 'kea'
-import { InsightShortId, NotebookNodeType } from '~/types'
 import { useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
-import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 
 import './NotebookNodeQuery.scss'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -30,7 +32,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const { expanded } = useValues(nodeLogic)
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...query, full: false }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -75,7 +77,7 @@ export const Settings = ({
     const { query } = attributes
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...query, full: false }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
@@ -84,6 +86,7 @@ export const Settings = ({
             modifiedQuery.showResultsTable = false
             modifiedQuery.showReload = false
             modifiedQuery.showElapsedTime = false
+            modifiedQuery.embedded = true
         }
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
@@ -95,7 +98,47 @@ export const Settings = ({
         return modifiedQuery
     }, [query])
 
-    return (
+    const detachSavedInsight = (): void => {
+        if (attributes.query.kind === NodeKind.SavedInsightNode) {
+            const insightProps: InsightLogicProps = { dashboardItemId: attributes.query.shortId }
+            const dataLogic = insightDataLogic.findMounted(insightProps)
+
+            if (dataLogic) {
+                updateAttributes({ query: dataLogic.values.query as QuerySchema })
+            }
+        }
+    }
+
+    return attributes.query.kind === NodeKind.SavedInsightNode ? (
+        <div className="p-3 space-y-2">
+            <div className="text-lg font-semibold">Insight created outside of this notebook</div>
+            <div>
+                Changes made to the original insight will be reflected in the notebook. Or you can detach from the
+                insight to make changes independently in the notebook.
+            </div>
+
+            <div className="space-y-2">
+                <LemonButton
+                    center={true}
+                    type="secondary"
+                    fullWidth
+                    className="flex flex-1"
+                    to={urls.insightEdit(attributes.query.shortId)}
+                >
+                    Edit the insight
+                </LemonButton>
+                <LemonButton
+                    center={true}
+                    fullWidth
+                    type="secondary"
+                    className="flex flex-1"
+                    onClick={detachSavedInsight}
+                >
+                    Detach from insight
+                </LemonButton>
+            </div>
+        </div>
+    ) : (
         <div className="p-3">
             <Query
                 query={modifiedQuery}
@@ -149,6 +192,8 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
     },
+    href: (attrs) =>
+        attrs.query.kind === NodeKind.SavedInsightNode ? urls.insightView(attrs.query.shortId) : undefined,
     widgets: [
         {
             key: 'settings',
