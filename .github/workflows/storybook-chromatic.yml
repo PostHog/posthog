@@ -165,8 +165,24 @@ jobs:
                   if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                     echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
                     apt update && apt install -y optipng
-                    git add frontend/__snapshots__/ playwright/
-                    pnpm lint-staged
+                    optipng -clobber -o4 -strip all
+                    
+                    # we don't want to _always_ run OptiPNG
+                    # so, we run it after checking for a diff
+                    # but, the files we diffed might then be changed by OptiPNG
+                    # and as a result they might no longer be different...
+                    
+                    # we check again
+                    git diff --name-status frontend/__snapshots__/ # For debugging
+                    ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
+                    MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
+                    DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
+                    TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
+
+                    if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
+                        echo "Snapshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
+                        git add frontend/__snapshots__/ playwright/
+                    fi
                   fi
 
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT

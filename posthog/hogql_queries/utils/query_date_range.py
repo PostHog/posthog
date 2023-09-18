@@ -1,7 +1,7 @@
 import re
 from functools import cached_property
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
@@ -113,3 +113,12 @@ class QueryDateRange:
 
     def interval_period_string_as_hogql_constant(self) -> ast.Expr:
         return ast.Constant(value=self.interval_name)
+
+    def to_placeholders(self) -> Dict[str, ast.Expr]:
+        return {
+            "interval": self.interval_period_string_as_hogql_constant(),
+            "one_interval_period": self.one_interval_period(),
+            "number_interval_period": self.number_interval_periods(),
+            "date_from": self.date_from_as_hogql(),
+            "date_to": self.date_to_as_hogql(),
+        }
