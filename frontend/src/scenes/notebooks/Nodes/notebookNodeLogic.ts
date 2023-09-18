@@ -22,6 +22,7 @@ import {
     NotebookNode,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
+    NotebookNodeTitleGenerator,
     NotebookNodeWidget,
 } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
@@ -33,27 +34,26 @@ export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
-    title:
-        | string
-        | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
-        | {
-              recompute: (attributes: CustomNotebookNodeAttributes) => boolean
-              value: (attributes: CustomNotebookNodeAttributes) => Promise<string>
-          }
+    titleGenerator: NotebookNodeTitleGenerator
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     widgets: NotebookNodeWidget[]
     startExpanded: boolean
 } & NotebookNodeAttributeProperties<any>
 
 async function renderTitle(
-    title: NotebookNodeLogicProps['title'],
+    generatorOrTitle: NotebookNodeLogicProps['titleGenerator'],
     attrs: NotebookNodeLogicProps['attributes']
 ): Promise<string> {
-    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
+    const shouldRecompute =
+        generatorOrTitle.recompute instanceof Function
+            ? await generatorOrTitle.recompute(attrs)
+            : generatorOrTitle.recompute
+
+    if (typeof attrs.title === 'string' && attrs.title.length > 0 && !shouldRecompute) {
         return attrs.title
     }
 
-    return title instanceof Function ? await title(attrs) : title
+    return generatorOrTitle.value instanceof Function ? await generatorOrTitle.value(attrs) : generatorOrTitle.value
 }
 
 const computeResizeable = (
@@ -176,7 +176,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     afterMount(async (logic) => {
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
-        const renderedTitle = await renderTitle(logic.props.title, logic.props.attributes)
+        const renderedTitle = await renderTitle(logic.props.titleGenerator, logic.props.attributes)
         logic.actions.setTitle(renderedTitle)
         const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
         logic.actions.setResizeable(resizeable)
