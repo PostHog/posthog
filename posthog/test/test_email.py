@@ -95,7 +95,7 @@ class TestEmail(BaseTest):
             )
 
             assert len(records) == 2
-            assert records[0].campaign_count == None
+            assert records[0].campaign_count is None
             assert records[1].campaign_count == 1
 
     @freeze_time("2020-09-21")
