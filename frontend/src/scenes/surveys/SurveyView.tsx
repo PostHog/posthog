@@ -103,6 +103,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <EditableField
                                         multiline
                                         name="description"
+                                        markdown
                                         value={survey.description || ''}
                                         placeholder="Description (optional)"
                                         onSave={(value) => updateSurvey({ id: id, description: value })}
