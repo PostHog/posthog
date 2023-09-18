@@ -84,6 +84,7 @@ export const Settings = ({
             modifiedQuery.showResultsTable = false
             modifiedQuery.showReload = false
             modifiedQuery.showElapsedTime = false
+            modifiedQuery.embedded = true
         }
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {

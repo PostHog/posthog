@@ -13,10 +13,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import clsx from 'clsx'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
     setQuery?: (query: HogQLQuery) => void
+    embedded?: boolean
 }
 
 let uniqueNode = 0
@@ -45,7 +47,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="space-y-2">
             <div
                 data-attr="hogql-query-editor"
-                className={'flex flex-col p-2 border rounded bg-bg-light space-y-2 resize-y w-full overflow-hidden'}
+                className={clsx(
+                    'flex flex-col rounded bg-bg-light space-y-2 resize-y w-full overflow-hidden',
+                    !props.embedded && 'p-2 border'
+                )}
                 style={{ height: 318 }}
             >
                 <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
