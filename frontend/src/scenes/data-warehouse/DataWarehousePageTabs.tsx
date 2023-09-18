@@ -13,8 +13,8 @@ export enum DataWarehouseTab {
 }
 
 const tabUrls = {
-    [DataWarehouseTab.Posthog]: urls.dataWarehousePosthog(),
     [DataWarehouseTab.External]: urls.dataWarehouseExternal(),
+    [DataWarehouseTab.Posthog]: urls.dataWarehousePosthog(),
     [DataWarehouseTab.Views]: urls.dataWarehouseSavedQueries(),
 }
 
@@ -25,7 +25,7 @@ const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>({
     },
     reducers: {
         tab: [
-            DataWarehouseTab.Posthog as DataWarehouseTab,
+            DataWarehouseTab.External as DataWarehouseTab,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -59,12 +59,12 @@ export function DataWarehousePageTabs({ tab }: { tab: DataWarehouseTab }): JSX.E
                 onChange={(t) => setTab(t)}
                 tabs={[
                     {
-                        key: DataWarehouseTab.Posthog,
-                        label: <span data-attr="data-warehouse-Posthog-tab">Posthog</span>,
-                    },
-                    {
                         key: DataWarehouseTab.External,
                         label: <span data-attr="data-warehouse-external-tab">External</span>,
+                    },
+                    {
+                        key: DataWarehouseTab.Posthog,
+                        label: <span data-attr="data-warehouse-Posthog-tab">Posthog</span>,
                     },
                     ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS]
                         ? [

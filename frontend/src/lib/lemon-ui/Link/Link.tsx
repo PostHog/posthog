@@ -25,6 +25,11 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
+    /**
+     * Whether an "open in new" icon should be shown if target is `_blank`.
+     * This is true by default if `children` is a string.
+     */
+    targetBlankIcon?: boolean
 }
 
 // Some URLs we want to enforce a full reload such as billing which is redirected by Django
@@ -56,6 +61,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             children,
             disabled,
             disabledReason,
+            targetBlankIcon = typeof children === 'string',
             ...props
         },
         ref
@@ -101,7 +107,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {...draggableProps}
             >
                 {children}
-                {typeof children === 'string' && target === '_blank' ? <IconOpenInNew /> : null}
+                {targetBlankIcon && target === '_blank' ? <IconOpenInNew /> : null}
             </a>
         ) : (
             <Tooltip
