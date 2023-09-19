@@ -11,6 +11,7 @@ tables = [
     "kafka_session_recording_events_partition_statistics",
     "kafka_session_recording_events",
     "session_recording_events_partition_statistics_mv",
+    "session_recording_events_mv",
     "writable_session_recording_events",
     "sharded_session_recording_events",
     "session_recording_events",
