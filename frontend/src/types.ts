@@ -3171,6 +3171,7 @@ export type BatchExportRun = {
     data_interval_start: Dayjs
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
+    latest_error: string | null
 }
 
 export type GroupedBatchExportRuns = {
@@ -3178,6 +3179,8 @@ export type GroupedBatchExportRuns = {
     data_interval_start: Dayjs
     data_interval_end: Dayjs
     runs: BatchExportRun[]
+    latest_error: string | null
+    status: string
 }
 
 export type SDK = {
