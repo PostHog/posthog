@@ -97,7 +97,7 @@
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 },
                 {
-                    "$ref": "#/definitions/SourcedPersonsQuery"
+                    "$ref": "#/definitions/PersonsQuery"
                 }
             ]
         },
@@ -388,7 +388,7 @@
                             "$ref": "#/definitions/PersonsNode"
                         },
                         {
-                            "$ref": "#/definitions/SourcedPersonsQuery"
+                            "$ref": "#/definitions/PersonsQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -1671,6 +1671,70 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PersonsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "type": "string"
+                },
+                "group": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "PersonsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/PersonsQueryResponse",
+                    "description": "Cached query response"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "PersonsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "results": {
+                    "description": "Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ]",
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results", "hogql"],
+            "type": "object"
+        },
         "PropertyFilterValue": {
             "anyOf": [
                 {
@@ -2058,70 +2122,6 @@
         "ShownAsValue": {
             "enum": ["Volume", "Stickiness", "Lifecycle"],
             "type": "string"
-        },
-        "SourcedPersonsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "day": {
-                    "type": "string"
-                },
-                "group": {
-                    "type": "string"
-                },
-                "kind": {
-                    "const": "SourcedPersonsQuery",
-                    "type": "string"
-                },
-                "properties": {
-                    "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/PersonPropertyFilter"
-                            },
-                            {
-                                "$ref": "#/definitions/HogQLPropertyFilter"
-                            }
-                        ]
-                    },
-                    "type": "array"
-                },
-                "response": {
-                    "$ref": "#/definitions/SourcedPersonsQueryResponse",
-                    "description": "Cached query response"
-                },
-                "search": {
-                    "type": "string"
-                },
-                "source": {
-                    "$ref": "#/definitions/InsightQueryNode"
-                }
-            },
-            "required": ["kind", "source"],
-            "type": "object"
-        },
-        "SourcedPersonsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "hogql": {
-                    "type": "string"
-                },
-                "results": {
-                    "description": "Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ]",
-                    "items": {
-                        "items": {},
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
-                "timings": {
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results", "hogql"],
-            "type": "object"
         },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],

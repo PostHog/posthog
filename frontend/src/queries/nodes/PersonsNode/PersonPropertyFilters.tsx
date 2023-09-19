@@ -1,13 +1,13 @@
-import { PersonsNode, SourcedPersonsQuery } from '~/queries/schema'
+import { PersonsNode, PersonsQuery } from '~/queries/schema'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { AnyPropertyFilter } from '~/types'
 import { useState } from 'react'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { isPersonsNode, isSourcedPersonsQuery } from '~/queries/utils'
+import { isPersonsNode, isPersonsQuery } from '~/queries/utils'
 
 interface PersonPropertyFiltersProps {
-    query: PersonsNode | SourcedPersonsQuery
-    setQuery?: (query: PersonsNode | SourcedPersonsQuery) => void
+    query: PersonsNode | PersonsQuery
+    setQuery?: (query: PersonsNode | PersonsQuery) => void
 }
 
 let uniqueNode = 0
@@ -22,11 +22,11 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
                         ...query,
                         properties: value,
                     } as PersonsNode)
-                } else if (isSourcedPersonsQuery(query)) {
+                } else if (isPersonsQuery(query)) {
                     setQuery?.({
                         ...query,
                         properties: value,
-                    } as SourcedPersonsQuery)
+                    } as PersonsQuery)
                 }
             }}
             pageKey={`PersonPropertyFilters.${id}`}

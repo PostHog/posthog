@@ -9,7 +9,7 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { trendsDataLogic } from '../trendsDataLogic'
-import { DataTableNode, NodeKind, SourcedPersonsQuery } from '~/queries/schema'
+import { DataTableNode, NodeKind, PersonsQuery } from '~/queries/schema'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isInsightVizNode } from '~/queries/utils'
 
@@ -83,8 +83,8 @@ export function ActionsLineGraph({
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
                           if (isLifecycle && query && isInsightVizNode(query)) {
-                              const personsQuery: SourcedPersonsQuery = {
-                                  kind: NodeKind.SourcedPersonsQuery,
+                              const personsQuery: PersonsQuery = {
+                                  kind: NodeKind.PersonsQuery,
                                   source: query.source,
                               }
                               const dataTable: DataTableNode = {

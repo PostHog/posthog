@@ -6,27 +6,27 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Team
-from posthog.schema import SourcedPersonsQuery, SourcedPersonsQueryResponse, LifecycleQuery
+from posthog.schema import PersonsQuery, PersonsQueryResponse, LifecycleQuery
 
 
-class SourcedPersonsQueryRunner(QueryRunner):
-    query: SourcedPersonsQuery
+class PersonsQueryRunner(QueryRunner):
+    query: PersonsQuery
 
-    def __init__(self, query: SourcedPersonsQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
+    def __init__(self, query: PersonsQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
         super().__init__(team, timings)
-        if isinstance(query, SourcedPersonsQuery):
+        if isinstance(query, PersonsQuery):
             self.query = query
         else:
-            self.query = SourcedPersonsQuery.parse_obj(query)
+            self.query = PersonsQuery.parse_obj(query)
 
-    def run(self) -> SourcedPersonsQueryResponse:
+    def run(self) -> PersonsQueryResponse:
         response = execute_hogql_query(
-            query_type="SourcedPersonsQuery",
+            query_type="PersonsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
         )
-        return SourcedPersonsQueryResponse(results=response.results, timings=response.timings, hogql=response.hogql)
+        return PersonsQueryResponse(results=response.results, timings=response.timings, hogql=response.hogql)
 
     def to_query(self) -> ast.SelectQuery:
         source = self.query.source

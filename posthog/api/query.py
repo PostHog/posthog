@@ -203,7 +203,7 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
 
     tag_queries(query=query_json)
 
-    if query_kind == "LifecycleQuery" or query_kind == "SourcedPersonsQuery":
+    if query_kind == "LifecycleQuery" or query_kind == "PersonsQuery":
         query_runner = get_query_runner(query_json, team)
         return _unwrap_pydantic_dict(query_runner.run())
     elif query_kind == "EventsQuery":

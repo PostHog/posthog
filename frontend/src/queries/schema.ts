@@ -45,7 +45,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
-    SourcedPersonsQuery = 'SourcedPersonsQuery',
+    PersonsQuery = 'PersonsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -78,7 +78,7 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | TimeToSeeDataSessionsQuery
-    | SourcedPersonsQuery
+    | PersonsQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -280,7 +280,7 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node, DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode | SourcedPersonsQuery | HogQLQuery | TimeToSeeDataSessionsQuery
+    source: EventsNode | EventsQuery | PersonsNode | PersonsQuery | HogQLQuery | TimeToSeeDataSessionsQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -463,21 +463,21 @@ export interface LifecycleQuery extends InsightsQueryBase {
     response?: LifecycleQueryResponse
 }
 
-export interface SourcedPersonsQueryResponse {
+export interface PersonsQueryResponse {
     /** Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ] */
     results: any[][] // typed as any[], not [str, ...any] because python
     hogql: string
     timings?: QueryTiming[]
 }
 
-export interface SourcedPersonsQuery extends DataNode {
-    kind: NodeKind.SourcedPersonsQuery
+export interface PersonsQuery extends DataNode {
+    kind: NodeKind.PersonsQuery
     source: InsightQueryNode
     day?: string
     group?: string
     search?: string
     properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
-    response?: SourcedPersonsQueryResponse
+    response?: PersonsQueryResponse
 }
 
 export type InsightQueryNode =

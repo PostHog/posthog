@@ -241,9 +241,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightSQLIcon,
         inMenu: true,
     },
-    [NodeKind.SourcedPersonsQuery]: {
-        name: 'Sourced Persons',
-        description: 'List of persons derived from a complex query',
+    [NodeKind.PersonsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions',
         icon: IconPerson,
         inMenu: false,
     },

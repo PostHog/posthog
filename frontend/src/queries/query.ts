@@ -11,7 +11,7 @@ import {
     isHogQLQuery,
     isInsightVizNode,
     isLifecycleQuery,
-    isSourcedPersonsQuery,
+    isPersonsQuery,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -44,7 +44,7 @@ export function queryExportContext<N extends DataNode = DataNode>(
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isDataTableNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isEventsQuery(query) || isSourcedPersonsQuery(query)) {
+    } else if (isEventsQuery(query) || isPersonsQuery(query)) {
         return {
             source: query,
             max_limit: EXPORT_MAX_LIMIT,

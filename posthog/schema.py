@@ -424,17 +424,6 @@ class ShownAsValue(str, Enum):
     Lifecycle = "Lifecycle"
 
 
-class SourcedPersonsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    hogql: str
-    results: List[List] = Field(
-        ..., description="Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ]"
-    )
-    timings: Optional[List[QueryTiming]] = None
-
-
 class StepOrderValue(str, Enum):
     strict = "strict"
     unordered = "unordered"
@@ -648,6 +637,17 @@ class PersonPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
+
+
+class PersonsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: str
+    results: List[List] = Field(
+        ..., description="Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ]"
+    )
+    timings: Optional[List[QueryTiming]] = None
 
 
 class RetentionFilter(BaseModel):
@@ -1209,15 +1209,15 @@ class InsightVizNode(BaseModel):
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
 
-class SourcedPersonsQuery(BaseModel):
+class PersonsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     day: Optional[str] = None
     group: Optional[str] = None
-    kind: Literal["SourcedPersonsQuery"] = "SourcedPersonsQuery"
+    kind: Literal["PersonsQuery"] = "PersonsQuery"
     properties: Optional[List[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = None
-    response: Optional[SourcedPersonsQueryResponse] = Field(default=None, description="Cached query response")
+    response: Optional[PersonsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
@@ -1265,9 +1265,9 @@ class DataTableNode(BaseModel):
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
-    source: Union[
-        EventsNode, EventsQuery, PersonsNode, SourcedPersonsQuery, HogQLQuery, TimeToSeeDataSessionsQuery
-    ] = Field(..., description="Source of the events")
+    source: Union[EventsNode, EventsQuery, PersonsNode, PersonsQuery, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
+        ..., description="Source of the events"
+    )
 
 
 class Model(RootModel):
@@ -1291,7 +1291,7 @@ class Model(RootModel):
             HogQLQuery,
             HogQLMetadata,
             TimeToSeeDataSessionsQuery,
-            SourcedPersonsQuery,
+            PersonsQuery,
         ],
     ]
 

@@ -9,7 +9,7 @@ import {
     NodeKind,
     PersonsNode,
     QueryContext,
-    SourcedPersonsQuery,
+    PersonsQuery,
 } from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
@@ -36,7 +36,7 @@ import {
     isHogQlAggregation,
     isHogQLQuery,
     isPersonsNode,
-    isSourcedPersonsQuery,
+    isPersonsQuery,
     taxonomicFilterToHogQl,
 } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
@@ -333,16 +333,16 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | SourcedPersonsQuery) =>
+        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | PersonsQuery) =>
             setQuery?.({ ...query, source }),
         [setQuery]
     )
 
     const firstRowLeft = [
-        isSourcedPersonsQuery(query.source) ? (
+        isPersonsQuery(query.source) ? (
             <LemonButton
                 onClick={() =>
-                    isSourcedPersonsQuery(query.source)
+                    isPersonsQuery(query.source)
                         ? setQuery?.({ kind: NodeKind.InsightVizNode, source: query.source.source, full: true })
                         : null
                 }
@@ -356,13 +356,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showEventFilter && isEventsQuery(query.source) ? (
             <EventName query={query.source} setQuery={setQuerySource} />
         ) : null,
-        showSearch && (isPersonsNode(query.source) || isSourcedPersonsQuery(query.source)) ? (
+        showSearch && (isPersonsNode(query.source) || isPersonsQuery(query.source)) ? (
             <PersonsSearch query={query.source} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
             <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
         ) : null,
-        showPropertyFilter && (isPersonsNode(query.source) || isSourcedPersonsQuery(query.source)) ? (
+        showPropertyFilter && (isPersonsNode(query.source) || isPersonsQuery(query.source)) ? (
             <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
         ) : null,
     ].filter((x) => !!x)

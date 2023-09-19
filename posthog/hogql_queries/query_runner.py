@@ -22,10 +22,10 @@ def get_query_runner(
         from .lifecycle_query_runner import LifecycleQueryRunner
 
         return LifecycleQueryRunner(query=query, team=team, timings=timings)
-    if kind == "SourcedPersonsQuery":
-        from .sourced_persons_query_runner import SourcedPersonsQueryRunner
+    if kind == "PersonsQuery":
+        from .persons_query_runner import PersonsQueryRunner
 
-        return SourcedPersonsQueryRunner(query=query, team=team, timings=timings)
+        return PersonsQueryRunner(query=query, team=team, timings=timings)
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 

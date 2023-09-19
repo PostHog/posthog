@@ -11,7 +11,7 @@ import {
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
-    isSourcedPersonsQuery,
+    isPersonsQuery,
     isTimeToSeeDataSessionsQuery,
     trimQuotes,
 } from '~/queries/utils'
@@ -217,7 +217,7 @@ export function renderColumn(
                 <PersonDisplay noLink withIcon person={personRecord} noPopover />
             </Link>
         )
-    } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isSourcedPersonsQuery(query.source))) {
+    } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
@@ -236,7 +236,7 @@ export function renderColumn(
     } else if (key.startsWith('user.') && isTimeToSeeDataSessionsQuery(query.source)) {
         const [parent, child] = key.split('.')
         return typeof record === 'object' ? record[parent][child] : 'unknown'
-    } else if (isSourcedPersonsQuery(query.source)) {
+    } else if (isPersonsQuery(query.source)) {
         if (key === 'id') {
             return <div>{String(record[0])}</div>
         } else if (key === 'created_at') {
