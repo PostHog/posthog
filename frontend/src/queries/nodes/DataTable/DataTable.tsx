@@ -5,11 +5,12 @@ import {
     EventsNode,
     EventsQuery,
     HogQLQuery,
-    InsightVizNode,
+    Node,
     NodeKind,
     PersonsNode,
     QueryContext,
     PersonsQuery,
+    InsightVizNode,
 } from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
@@ -52,11 +53,12 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { IconChevronLeft } from 'lib/lemon-ui/icons'
 
 interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
-    setQuery?: (query: DataTableNode | InsightVizNode) => void
+    setQuery?: (query: Node) => void
     /** Custom table columns */
     context?: QueryContext
     /* Cached Results are provided when shared or exported,
@@ -167,11 +169,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
-                                if (hogQl && isEventsQuery(query.source)) {
+                                if (hogQl && isEventsQuery(query.source) && setQuery) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const isOrderBy = query.source?.orderBy?.[0] === key
                                     const isDescOrderBy = query.source?.orderBy?.[0] === `${key} DESC`
-                                    setQuery?.({
+                                    const newQuery: DataTableNode = {
                                         ...query,
                                         source: {
                                             ...query.source,
@@ -183,7 +185,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                                     ? [isDescOrderBy ? `${hogQl} DESC` : hogQl]
                                                     : query.source?.orderBy,
                                         },
-                                    })
+                                    }
+                                    setQuery(newQuery)
                                 }
                             }}
                             groupTypes={groupTypes}
@@ -202,7 +205,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                                 ...query.source,
                                                 orderBy: [key],
                                             } as EventsQuery,
-                                        })
+                                        } as DataTableNode)
                                     }}
                                 >
                                     Sort ascending
@@ -218,7 +221,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                                 ...query.source,
                                                 orderBy: [`${key} DESC`],
                                             } as EventsQuery,
-                                        })
+                                        } as DataTableNode)
                                     }}
                                 >
                                     Sort descending
@@ -247,7 +250,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                                 ...(query.source.select || []).slice(index),
                                             ].filter((c) => (isAggregation ? c !== '*' : true)),
                                         } as EventsQuery,
-                                    })
+                                    } as DataTableNode)
                                 }
                             }}
                             groupTypes={groupTypes}
@@ -273,7 +276,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                                 ...(query.source.select || []).slice(index + 1),
                                             ].filter((c) => (isAggregation ? c !== '*' : true)),
                                         } as EventsQuery,
-                                    })
+                                    } as DataTableNode)
                                 }
                             }}
                             groupTypes={groupTypes}
@@ -302,7 +305,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                         setQuery?.({
                                             ...query,
                                             source: newSource,
-                                        })
+                                        } as DataTableNode)
                                     }}
                                 >
                                     Remove column
@@ -334,7 +337,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
 
     const setQuerySource = useCallback(
         (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | PersonsQuery) =>
-            setQuery?.({ ...query, source }),
+            setQuery?.({ ...query, source } as DataTableNode),
         [setQuery]
     )
 
@@ -343,11 +346,15 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             <LemonButton
                 onClick={() =>
                     isPersonsQuery(query.source)
-                        ? setQuery?.({ kind: NodeKind.InsightVizNode, source: query.source.source, full: true })
+                        ? setQuery?.({
+                              kind: NodeKind.InsightVizNode,
+                              source: query.source.source,
+                              full: true,
+                          } as InsightVizNode)
                         : null
                 }
             >
-                Back
+                <IconChevronLeft /> Back
             </LemonButton>
         ) : null,
         showDateRange && (isEventsQuery(query.source) || isHogQLQuery(query.source)) ? (
