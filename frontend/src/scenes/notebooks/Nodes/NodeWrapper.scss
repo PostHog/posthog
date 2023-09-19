@@ -7,6 +7,7 @@
     margin: 0px 0px 1rem 0px;
 
     .NotebookNode__box {
+        transform: translate3d(0, 0, 0);
         border: 1px solid var(--border-color);
         border-radius: var(--radius);
         background-color: var(--bg-light);

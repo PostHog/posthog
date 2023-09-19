@@ -18,7 +18,12 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import {
+    JSONContent,
+    NotebookNodeViewProps,
+    NotebookNodeAttributeProperties,
+    NotebookNodeAction,
+} from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
 
@@ -48,9 +53,9 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
     // TODO Only load data when in view...
 
     useEffect(() => {
-        if (sessionPlayerMetaData?.person?.id) {
-            const person = sessionPlayerMetaData?.person
-            setActions([
+        const person = sessionPlayerMetaData?.person
+        setActions(
+            [
                 {
                     text: 'Comment',
                     icon: <IconComment />,
@@ -60,22 +65,22 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
                         insertReplayCommentByTimestamp(time, id)
                     },
                 },
-                {
-                    text: `View ${asDisplay(person)}`,
-                    icon: <IconPerson />,
-                    onClick: () => {
-                        insertAfter({
-                            type: NotebookNodeType.Person,
-                            attrs: {
-                                id: String(person.distinct_ids[0]),
-                            },
-                        })
-                    },
-                },
-            ])
-        } else {
-            setActions([])
-        }
+                person
+                    ? {
+                          text: `View ${asDisplay(person)}`,
+                          icon: <IconPerson />,
+                          onClick: () => {
+                              insertAfter({
+                                  type: NotebookNodeType.Person,
+                                  attrs: {
+                                      id: String(person.distinct_ids[0]),
+                                  },
+                              })
+                          },
+                      }
+                    : undefined,
+            ].filter(Boolean) as NotebookNodeAction[]
+        )
     }, [sessionPlayerMetaData?.person?.id])
 
     return !expanded ? (
