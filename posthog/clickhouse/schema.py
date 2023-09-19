@@ -27,8 +27,8 @@ from posthog.models.person_overrides.sql import (
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
-from posthog.models.session_recording_event.sql import *
-from posthog.models.session_replay_event.sql import (
+from posthog.session_recordings.sql.session_recording_event_sql import *
+from posthog.session_recordings.sql.session_replay_event_sql import (
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,

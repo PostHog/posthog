@@ -127,13 +127,22 @@
         width: 0px;
         transition: width var(--notebook-popover-transition-properties);
 
+        .NotebookSidebar__padding {
+            height: 3.5rem;
+        }
+
         .NotebookSidebar__content {
             position: sticky;
             align-self: flex-start;
-            top: 65px;
+            top: 0px;
             width: var(--notebook-sidebar-width);
             transform: translateX(-100%);
             transition: transform var(--notebook-popover-transition-properties);
+
+            .NotebookScene & {
+                // Account for sticky header
+                top: 4rem;
+            }
         }
 
         &--showing {

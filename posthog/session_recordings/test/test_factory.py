@@ -8,8 +8,8 @@ import structlog
 from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS
-from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
-from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.sql.session_recording_event_sql import INSERT_SESSION_RECORDING_EVENT_SQL
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_helpers import (
     RRWEB_MAP_EVENT_TYPE,
     legacy_preprocess_session_recording_events_for_clickhouse,

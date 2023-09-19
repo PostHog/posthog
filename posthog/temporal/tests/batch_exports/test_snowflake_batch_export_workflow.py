@@ -21,6 +21,7 @@ from posthog.api.test.test_team import acreate_team
 from posthog.temporal.tests.batch_exports.base import (
     EventValues,
     insert_events,
+    to_isoformat,
 )
 from posthog.temporal.tests.batch_exports.fixtures import (
     acreate_batch_export,
@@ -369,14 +370,16 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 ]
                 json_data.sort(key=lambda x: x["timestamp"])
                 # Drop _timestamp and team_id from events
-                expected_events = [
-                    {
+                expected_events = []
+                for event in events:
+                    expected_event = {
                         key: value
                         for key, value in event.items()
                         if key in ("uuid", "event", "timestamp", "properties", "person_id")
                     }
-                    for event in events
-                ]
+                    expected_event["timestamp"] = to_isoformat(event["timestamp"])
+                    expected_events.append(expected_event)
+
                 assert json_data[0] == expected_events[0]
                 assert json_data == expected_events
 
