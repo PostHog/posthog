@@ -65,6 +65,8 @@ export class RealtimeManager extends EventEmitter {
         await this.pubsubRedis?.unsubscribe(
             Keys.realtimeSubscriptions(this.serverConfig.SESSION_RECORDING_REDIS_PREFIX)
         )
+
+        await this.pubsubRedis?.quit()
     }
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
