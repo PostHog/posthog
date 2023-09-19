@@ -63,6 +63,7 @@ export class RealtimeManager extends EventEmitter {
 
     public async unsubscribe(): Promise<void> {
         await this.pubsubRedis?.unsubscribe(Keys.realtimeSubscriptions())
+        await this.pubsubRedis?.quit()
     }
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {

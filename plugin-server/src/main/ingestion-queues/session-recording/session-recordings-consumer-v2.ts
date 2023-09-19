@@ -546,7 +546,10 @@ export class SessionRecordingIngesterV2 {
         if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
             status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
             await Promise.allSettled(
-                sessionsToDrop.map(([_, sessionManager]) => sessionManager.flush('partition_shutdown'))
+                sessionsToDrop
+                    .map(([_, x]) => x)
+                    .sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
+                    .map((x) => x.flush('partition_shutdown'))
             )
         }
 
