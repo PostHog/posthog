@@ -80,6 +80,10 @@
                 }
             }
         }
+
+        &:hover {
+            --border-color: var(--border);
+        }
     }
 }
 
