@@ -2062,13 +2062,35 @@
         "SourcedPersonsQuery": {
             "additionalProperties": false,
             "properties": {
+                "day": {
+                    "type": "string"
+                },
+                "group": {
+                    "type": "string"
+                },
                 "kind": {
                     "const": "SourcedPersonsQuery",
                     "type": "string"
                 },
+                "properties": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
                 "response": {
                     "$ref": "#/definitions/SourcedPersonsQueryResponse",
                     "description": "Cached query response"
+                },
+                "search": {
+                    "type": "string"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
