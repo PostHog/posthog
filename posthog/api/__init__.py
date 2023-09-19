@@ -3,7 +3,7 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import saved_query, table, view_link
+from posthog.warehouse.api import airbyte_source, saved_query, table, view_link
 from . import (
     activity_log,
     annotation,
@@ -191,6 +191,11 @@ projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "projec
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["team_id"])
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
+
+# Airbyte
+projects_router.register(
+    r"airbyte_sources", airbyte_source.AirbyteSourceViewSet, "project_airbyte_sources", ["team_id"]
+)
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
