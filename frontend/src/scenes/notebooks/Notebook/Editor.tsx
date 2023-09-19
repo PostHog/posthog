@@ -191,7 +191,6 @@ export function Editor({
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 destroy: () => editor.destroy(),
-                isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
