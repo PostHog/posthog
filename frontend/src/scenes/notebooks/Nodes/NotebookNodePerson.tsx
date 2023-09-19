@@ -71,7 +71,7 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
         id: {},
     },
     pasteOptions: {
-        find: urls.person('(.+)'),
+        find: urls.person('(.+)', false),
         getAttributes: async (match) => {
             return { id: match[1] }
         },
