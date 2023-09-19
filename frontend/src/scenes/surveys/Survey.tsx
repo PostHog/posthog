@@ -60,7 +60,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, setSurveyValue } = useActions(surveyLogic)
+    const { loadSurvey, editingSurvey, setSurveyValue, setDefaultForQuestionType } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
@@ -119,6 +119,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             <Group name={`questions.${index}`} key={index}>
                                 <Field name="type" label="Question type" className="max-w-60">
                                     <LemonSelect
+                                        onSelect={(newValue) => setDefaultForQuestionType(newValue)}
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
                                             { label: 'Link', value: SurveyQuestionType.Link },

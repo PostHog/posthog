@@ -108,6 +108,7 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
+        setDefaultForQuestionType: (type: SurveyQuestionType) => ({ type }),
         launchSurvey: true,
         stopSurvey: true,
         archiveSurvey: true,
@@ -176,6 +177,20 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
+            },
+        ],
+        survey: [
+            { ...NEW_SURVEY } as NewSurvey | Survey,
+            {
+                setDefaultForQuestionType: (state, { type }) => {
+                    if (type === 'rating') {
+                        return {
+                            ...state,
+                            questions: [{ ...state.questions[0], display: 'number', scale: 10 }],
+                        }
+                    }
+                    return state
+                },
             },
         ],
     }),
