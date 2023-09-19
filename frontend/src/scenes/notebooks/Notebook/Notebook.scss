@@ -8,11 +8,11 @@
         width: 100%;
         overflow: hidden;
 
-        > .ProseMirror-focused {
-            outline: none;
-        }
-
         .ProseMirror {
+            &-focused {
+                outline: none;
+            }
+
             > h1,
             > h2,
             > h3,
