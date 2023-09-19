@@ -76,6 +76,8 @@ class QueryRunnerTest(BaseTest):
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         team = Team.objects.create(pk=42, organization=self.organization)
+        team.timezone = "Europe/Vienna"
+        team.save()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 

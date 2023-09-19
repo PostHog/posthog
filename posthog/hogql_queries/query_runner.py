@@ -60,7 +60,7 @@ class QueryRunner(ABC):
         self.team = team
         self.timings = timings or HogQLTimings()
         if isinstance(query, self.query_type):
-            self.query = query
+            self.query = query  # type: ignore
         else:
             self.query = self.query_type.model_validate(query)
 
