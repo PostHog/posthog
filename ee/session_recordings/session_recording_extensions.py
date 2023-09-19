@@ -1,8 +1,8 @@
 # EE extended functions for SessionRecording model
 
 import json
-from datetime import timedelta
-from typing import Optional
+from datetime import timedelta, datetime
+from typing import Optional, cast
 
 import structlog
 from django.utils import timezone
@@ -25,6 +25,27 @@ SNAPSHOT_PERSIST_TIME_HISTOGRAM = Histogram(
 )
 
 MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
+
+
+def save_recording_with_new_content(recording: SessionRecording, content: str) -> None:
+    logger.info("Resaving recording: init", recording_id=recording.session_id, team_id=recording.team_id)
+
+    if not settings.OBJECT_STORAGE_ENABLED:
+        return
+
+    target_prefix = recording.build_object_storage_path("2023-08-01")
+
+    # save the existing content into the data folder
+    start = cast(datetime, recording.start_time).timestamp()
+    end = cast(datetime, recording.end_time).timestamp()
+    new_path = f"{target_prefix}/{start}-{end}"
+    object_storage.write(
+        new_path, content.encode("utf-8"), extras={"ContentType": "application/json", "ContentEncoding": "gzip"}
+    )
+    # update the recording
+    recording.storage_version = "2023-08-01"
+    recording.object_storage_path = target_prefix
+    recording.save()
 
 
 def persist_recording(recording_id: str, team_id: int) -> None:

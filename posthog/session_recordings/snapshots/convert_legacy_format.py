@@ -3,6 +3,8 @@ import gzip
 import json
 from io import BytesIO
 from typing import Dict
+
+from prometheus_client import Histogram
 from requests import Response
 from django.http import HttpResponse
 from rest_framework import exceptions
@@ -10,9 +12,25 @@ from sentry_sdk import capture_exception
 
 from posthog.session_recordings.models.session_recording import SessionRecording
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+RECORDING_CONVERSION_TIME_HISTOGRAM = Histogram(
+    "recording_conversion_time_seconds",
+    "We convert legacy recordings from LTS format to the latest format, how long does that take?",
+)
+
 
 def _save_converted_content_back_to_storage(converted_content: str, recording: SessionRecording) -> None:
-    pass
+    try:
+        from ee.session_recordings.session_recording_extensions import save_recording_with_new_content
+
+        save_recording_with_new_content(recording, converted_content)
+    except ImportError:
+        # not running in EE context... shouldn't get here
+        logger.error("attempted_to_save_converted_content_back_to_storage_in_non_ee_context", recording_id=recording.id)
+        return
 
 
 def convert_original_version_lts_recording(r: Response, recording: SessionRecording, url: str) -> HttpResponse:
@@ -20,14 +38,15 @@ def convert_original_version_lts_recording(r: Response, recording: SessionRecord
     # its contents were gzipped and then base64 encoded.
     # we can't simply stream it back to the requester
 
-    decoded_content = _base_64_decode_the_contents(r)
-    uncompressed_content = _unzip_the_contents(decoded_content)
-    json_content = _json_convert_the_contents(uncompressed_content)
-    converted_content = _convert_legacy_format_from_lts_storage(json_content)
+    with RECORDING_CONVERSION_TIME_HISTOGRAM.time():
+        decoded_content = _base_64_decode_the_contents(r)
+        uncompressed_content = _unzip_the_contents(decoded_content)
+        json_content = _json_convert_the_contents(uncompressed_content)
+        converted_content = _convert_legacy_format_from_lts_storage(json_content)
 
-    _save_converted_content_back_to_storage(converted_content, recording)
+        _save_converted_content_back_to_storage(converted_content, recording)
 
-    return HttpResponse(content=(converted_content.encode("utf-8")), content_type="application/json")
+        return HttpResponse(content=(converted_content.encode("utf-8")), content_type="application/json")
 
 
 def _json_convert_the_contents(uncompressed_content: bytes) -> Dict:
