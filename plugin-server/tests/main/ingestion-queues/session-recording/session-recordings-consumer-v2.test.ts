@@ -10,7 +10,7 @@ import { createHub } from '../../../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
-const SESSION_RECORDING_REDIS_PREFIX = '@posthog-tests/replay'
+const SESSION_RECORDING_REDIS_PREFIX = '@posthog-tests/replay/'
 
 const config: PluginsServerConfig = {
     ...defaultConfig,

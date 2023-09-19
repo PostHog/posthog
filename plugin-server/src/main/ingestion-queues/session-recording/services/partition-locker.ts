@@ -62,6 +62,8 @@ export class PartitionLocker {
                         keys.map(async (key) => {
                             const existingClaim = await client.get(key)
 
+                            status.info('🔒', `PartitionLocker claim: ${key}:${existingClaim}`)
+
                             if (existingClaim && existingClaim !== this.consumerID) {
                                 // Still claimed by someone else!
                                 blockingConsumers.add(existingClaim)

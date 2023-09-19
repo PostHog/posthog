@@ -116,11 +116,14 @@ export class SessionRecordingIngesterV2 {
     ) {
         this.recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
         this.realtimeManager = new RealtimeManager(this.redisPool, this.recordingConsumerConfig)
-        this.partitionLocker = new PartitionLocker(this.redisPool)
+        this.partitionLocker = new PartitionLocker(
+            this.redisPool,
+            this.recordingConsumerConfig.SESSION_RECORDING_REDIS_PREFIX
+        )
 
         this.offsetHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
-            serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
+            serverConfig.SESSION_RECORDING_REDIS_PREFIX
         )
 
         this.replayEventsIngester = new ReplayEventsIngester(this.serverConfig, this.offsetHighWaterMarker)
