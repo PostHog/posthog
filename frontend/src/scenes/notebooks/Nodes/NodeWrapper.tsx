@@ -29,9 +29,11 @@ import {
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
-    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
+
+    // Meta properties - these should never be too advanced - more advanced should be done via updateAttributes in the component
+    defaultTitle: string
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
 
     // Sizing
@@ -48,7 +50,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
 }
 
 export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
-    title: titleOrGenerator,
+    defaultTitle,
     nodeType,
     children,
     selected,
@@ -80,13 +82,12 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
-        title: titleOrGenerator,
         resizeable: resizeableOrGenerator,
         widgets,
         startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { title, resizeable, expanded } = useValues(nodeLogic)
+    const { resizeable, expanded } = useValues(nodeLogic)
     const { setExpanded, deleteNode } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
@@ -115,6 +116,8 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     }, [resizeable, updateAttributes])
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
+    // If a title is set on the attrs we use it. Otherwise we use the base component title.
+    const title = attributes.title ? attributes.title : defaultTitle
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
