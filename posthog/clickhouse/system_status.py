@@ -11,7 +11,7 @@ from posthog.cache_utils import cache_for
 from posthog.client import query_with_columns, sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.models.event.util import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
-from posthog.models.session_recording_event.util import (
+from posthog.session_recordings.models.system_status_queries import (
     get_recording_count_month_to_date,
     get_recording_events_count_month_to_date,
 )

@@ -1,6 +1,8 @@
 import { LifecycleQuery } from '~/queries/schema'
 import { LifecycleToggle } from '~/types'
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = [
     {
@@ -29,21 +31,22 @@ const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = 
 
 type LifecycleTogglesProps = {
     query: LifecycleQuery
-    setQuery: (node: LifecycleQuery) => void
 }
 
 const DEFAULT_LIFECYCLE_TOGGLES: LifecycleToggle[] = ['new', 'returning', 'resurrecting', 'dormant']
 
-export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JSX.Element {
+export function LifecycleToggles({ query }: LifecycleTogglesProps): JSX.Element {
     const toggledLifecycles = query.lifecycleFilter?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
+    const { updateQuerySource } = useActions(insightVizDataLogic)
+
     const setToggledLifecycles = (lifecycles: LifecycleToggle[]): void => {
-        setQuery({
+        updateQuerySource({
             ...query,
             lifecycleFilter: {
                 ...query.lifecycleFilter,
                 toggledLifecycles: lifecycles,
             },
-        })
+        } as LifecycleQuery)
     }
 
     const toggleLifecycle = (name: LifecycleToggle): void => {

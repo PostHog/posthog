@@ -79,6 +79,10 @@ export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttrib
     nodeType: NotebookNodeType.Image,
     title: 'Image',
     Component,
+    serializedText: (attrs) => {
+        // TODO file is null when this runs... should it be?
+        return attrs?.file?.name || ''
+    },
     heightEstimate: 400,
     minHeight: 100,
     resizeable: true,

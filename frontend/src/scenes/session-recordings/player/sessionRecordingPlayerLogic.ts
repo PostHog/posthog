@@ -31,7 +31,12 @@ import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionReco
 import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
+import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
 import { now } from 'lib/dayjs'
+import { ReplayPlugin } from 'rrweb/typings/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -102,6 +107,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['speed', 'skipInactivitySetting'],
             userLogic,
             ['hasAvailableFeature'],
+            preflightLogic,
+            ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             sessionRecordingDataLogic(props),
@@ -471,16 +480,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
+            const plugins: ReplayPlugin[] = []
+
+            // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
+            if (
+                values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CORS_PROXY] &&
+                (values.preflight?.cloud || window.location.hostname === 'localhost')
+            ) {
+                plugins.push(CorsPlugin)
+            }
+
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
                 root: values.rootFrame,
-                triggerFocus: false,
-                insertStyleRules: [
-                    `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
-                ],
+                ...COMMON_REPLAYER_CONFIG,
                 // these two settings are attempts to improve performance of running two Replayers at once
                 // the main player and a preview player
                 mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
+                plugins,
             })
 
             actions.setPlayer({ replayer, windowId })

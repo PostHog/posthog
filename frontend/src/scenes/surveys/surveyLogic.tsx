@@ -55,7 +55,7 @@ export const defaultSurveyAppearance = {
     thankYouMessageHeader: 'Thank you for your feedback!',
 }
 
-const NEW_SURVEY: NewSurvey = {
+export const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
@@ -254,17 +254,29 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (surveyId === 'new') {
                     return null
                 }
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
-                const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
-                const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
+                const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}' and timestamp >= '${startDate}' and timestamp <= '${endDate}' `
+                const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}' and timestamp >= '${startDate}' and timestamp <= '${endDate}'`
                 return {
                     surveysShown: {
                         kind: NodeKind.DataTableNode,
-                        source: { kind: NodeKind.HogQLQuery, query: surveysShownHogqlQuery },
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query: surveysShownHogqlQuery,
+                        },
+                        showTimings: false,
                     },
                     surveysDismissed: {
                         kind: NodeKind.DataTableNode,
-                        source: { kind: NodeKind.HogQLQuery, query: surveysDismissedHogqlQuery },
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query: surveysDismissedHogqlQuery,
+                        },
+                        showTimings: false,
                     },
                 }
             },
@@ -275,15 +287,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (survey.id === 'new') {
                     return null
                 }
-                const createdAt = (survey as Survey).created_at
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
                 return {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
                         dateRange: {
-                            date_from: dayjs(createdAt).format('YYYY-MM-DD'),
-                            date_to: dayjs().format('YYYY-MM-DD'),
+                            date_from: startDate,
+                            date_to: endDate,
                         },
                         properties: [
                             {
@@ -304,8 +319,17 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyMultipleChoiceQuery: [
             (s) => [s.survey],
             (survey): DataTableNode | null => {
-                const singleChoiceQuery = `select count(), properties.$survey_response as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`
-                const multipleChoiceQuery = `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' group by choice order by count() desc`
+                if (survey.id === 'new') {
+                    return null
+                }
+
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+
+                const singleChoiceQuery = `select count(), properties.$survey_response as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}' group by choice order by count() desc`
+                const multipleChoiceQuery = `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}'  group by choice order by count() desc`
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -315,13 +339,14 @@ export const surveyLogic = kea<surveyLogicType>([
                                 ? singleChoiceQuery
                                 : multipleChoiceQuery,
                     },
+                    showTimings: false,
                 }
             },
         ],
         hasTargetingFlag: [
             (s) => [s.survey],
             (survey): boolean => {
-                return !!survey.targeting_flag || !!(survey.id === 'new' && survey.targeting_flag_filters)
+                return !!survey.targeting_flag || !!survey.targeting_flag_filters
             },
         ],
     }),

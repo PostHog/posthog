@@ -7,6 +7,8 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './kafka-topics'
 
+export const DEFAULT_HTTP_SERVER_PORT = 6738
+
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
 export function getDefaultConfig(): PluginsServerConfig {
@@ -44,6 +46,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_PASSWORD: undefined,
         KAFKA_CLIENT_RACK: undefined,
         KAFKA_CONSUMPTION_USE_RDKAFKA: false, // Transitional setting, ignored for consumers that only support one library
+        KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE: true, // If true, use the cooperative rebalance strategy, otherwise uses the default ('range,roundrobin')
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
         KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
@@ -74,6 +77,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
         SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
+        HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         STATSD_HOST: null,
         STATSD_PORT: 8125,
         STATSD_PREFIX: 'plugin-server.',
@@ -107,6 +111,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
         CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
         BUFFER_CONVERSION_SECONDS: isDevEnv() ? 2 : 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
+        FETCH_HOSTNAME_GUARD_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -125,7 +130,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
-        CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
+        CLOUD_DEPLOYMENT: null,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,

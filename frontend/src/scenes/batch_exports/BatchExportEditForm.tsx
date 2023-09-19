@@ -180,24 +180,40 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                                 ]}
                                             />
                                         </Field>
-                                        <Field name="compression" label="Compression" className="flex-1">
-                                            <LemonSelect
-                                                options={[
-                                                    { value: 'gzip', label: 'gzip' },
-                                                    { value: null, label: 'No compression' },
-                                                ]}
-                                            />
-                                        </Field>
                                     </div>
                                     <Field name="prefix" label="Key prefix">
                                         <LemonInput placeholder="e.g. posthog-events/" />
                                     </Field>
+
+                                    <div className="flex gap-4">
+                                        <Field name="compression" label="Compression" className="flex-1">
+                                            <LemonSelect
+                                                options={[
+                                                    { value: 'gzip', label: 'gzip' },
+                                                    { value: 'brotli', label: 'brotli' },
+                                                    { value: null, label: 'No compression' },
+                                                ]}
+                                            />
+                                        </Field>
+
+                                        <Field name="encryption" label="Encryption" className="flex-1">
+                                            <LemonSelect
+                                                options={[
+                                                    { value: 'AES256', label: 'AES256' },
+                                                    { value: 'aws:kms', label: 'aws:kms' },
+                                                    { value: null, label: 'No encryption' },
+                                                ]}
+                                            />
+                                        </Field>
+                                    </div>
+
                                     <div className="flex gap-4">
                                         <Field name="aws_access_key_id" label="AWS Access Key ID" className="flex-1">
                                             <LemonInput
                                                 placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'leave unchanged'}
                                             />
                                         </Field>
+
                                         <Field
                                             name="aws_secret_access_key"
                                             label="AWS Secret Access Key"
@@ -208,7 +224,20 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                                 type="password"
                                             />
                                         </Field>
+
+                                        {batchExportConfigForm.encryption == 'aws:kms' && (
+                                            <Field name="kms_key_id" label="AWS KMS Key ID" className="flex-1">
+                                                <LemonInput
+                                                    placeholder={
+                                                        isNew
+                                                            ? 'e.g. 1234abcd-12ab-34cd-56ef-1234567890ab'
+                                                            : 'leave unchanged'
+                                                    }
+                                                />
+                                            </Field>
+                                        )}
                                     </div>
+
                                     <Field name="exclude_events" label="Events to exclude" className="flex-1">
                                         <LemonSelectMultiple
                                             mode="multiple-custom"

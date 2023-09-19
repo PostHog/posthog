@@ -129,6 +129,7 @@ export interface PluginsServerConfig {
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
+    KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -150,6 +151,7 @@ export interface PluginsServerConfig {
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
     SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
+    HTTP_SERVER_PORT: number
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
@@ -179,6 +181,7 @@ export interface PluginsServerConfig {
     CONVERSION_BUFFER_ENABLED_TEAMS: string
     CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
+    FETCH_HOSTNAME_GUARD_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
@@ -199,7 +202,8 @@ export interface PluginsServerConfig {
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
-    CLOUD_DEPLOYMENT: string
+    /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
+    CLOUD_DEPLOYMENT: string | null
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -265,6 +269,7 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+    fetchHostnameGuardTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features

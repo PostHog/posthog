@@ -6,7 +6,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { defaultSurveyAppearance, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { StatusTag } from 'scenes/surveys/Surveys'
@@ -140,3 +140,10 @@ export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttr
         },
     },
 })
+
+export function buildSurveyContent(id: string): JSONContent {
+    return {
+        type: NotebookNodeType.Survey,
+        attrs: { id },
+    }
+}

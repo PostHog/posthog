@@ -168,7 +168,9 @@ export function Login(): JSX.Element {
                         </Link>
                     </div>
                 )}
-                <SocialLoginButtons caption="Or log in with" topDivider />
+                {!precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                    <SocialLoginButtons caption="Or log in with" topDivider />
+                )}
             </div>
         </BridgePage>
     )

@@ -17,10 +17,10 @@ import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 require('@sentry/tracing')
 
 // exporting only for testing
-export function groupIntoBatchesWebhooks(
+export function groupIntoBatchesByUsage(
     array: KafkaMessage[],
     batchSize: number,
-    actionMatcher: ActionMatcher
+    shouldProcess: (teamId: number) => boolean
 ): { eventBatch: RawClickHouseEvent[]; lastOffset: string; lastTimestamp: string }[] {
     // Most events will not trigger a webhook call, so we want to filter them out as soon as possible
     // to achieve the highest effective concurrency when executing the actual HTTP calls.
@@ -32,7 +32,7 @@ export function groupIntoBatchesWebhooks(
     let currentCount = 0
     array.forEach((message, index) => {
         const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
-        if (actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
+        if (shouldProcess(clickHouseEvent.team_id)) {
             currentBatch.push(clickHouseEvent)
             currentCount++
         } else {
@@ -59,17 +59,35 @@ export async function eachBatchWebhooksHandlers(
     statsd: StatsD | undefined,
     concurrency: number
 ): Promise<void> {
+    await eachBatchHandlerHelper(
+        payload,
+        (teamId) => actionMatcher.hasWebhooks(teamId),
+        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, statsd),
+        statsd,
+        concurrency,
+        'webhooks'
+    )
+}
+
+export async function eachBatchHandlerHelper(
+    payload: EachBatchPayload,
+    shouldProcess: (teamId: number) => boolean,
+    eachMessageHandler: (event: RawClickHouseEvent) => Promise<void>,
+    statsd: StatsD | undefined,
+    concurrency: number,
+    stats_key: string
+): Promise<void> {
     // similar to eachBatch function in each-batch.ts, but without the dependency on the KafkaJSIngestionConsumer
     // & handling the different batching return type
-    const key = 'async_handlers_webhooks'
+    const key = `async_handlers_${stats_key}`
     const batchStartTimer = new Date()
     const loggingKey = `each_batch_${key}`
     const { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload = payload
 
-    const transaction = Sentry.startTransaction({ name: `eachBatchWebhooks` })
+    const transaction = Sentry.startTransaction({ name: `eachBatch${stats_key}` })
 
     try {
-        const batchesWithOffsets = groupIntoBatchesWebhooks(batch.messages, concurrency, actionMatcher)
+        const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
 
         statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, { key: key })
         statsd?.histogram('ingest_event_batching.batch_count', batchesWithOffsets.length, { key: key })
@@ -88,9 +106,7 @@ export async function eachBatchWebhooksHandlers(
             }
 
             await Promise.all(
-                eventBatch.map((event: RawClickHouseEvent) =>
-                    eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, statsd).finally(() => heartbeat())
-                )
+                eventBatch.map((event: RawClickHouseEvent) => eachMessageHandler(event).finally(() => heartbeat()))
             )
 
             resolveOffset(lastOffset)

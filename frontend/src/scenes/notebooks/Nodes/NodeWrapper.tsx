@@ -6,6 +6,7 @@ import {
     ExtendedRegExpMatchArray,
     Attribute,
     NodeViewProps,
+    getExtensionField,
 } from '@tiptap/react'
 import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
@@ -31,7 +32,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
-    href?: string | ((attributes: NotebookNodeAttributes<T>) => string)
+    href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
 
     // Sizing
     expandable?: boolean
@@ -66,7 +67,8 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     widgets = [],
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable } = useValues(mountedNotebookLogic)
+    const { isEditable, isShowingSidebar } = useValues(mountedNotebookLogic)
+    const { setIsShowingSidebar } = useActions(mountedNotebookLogic)
 
     // nodeId can start null, but should then immediately be generated
     const nodeId = attributes.nodeId
@@ -85,7 +87,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { title, resizeable, expanded } = useValues(nodeLogic)
-    const { setExpanded, deleteNode, setWidgetsVisible } = useActions(nodeLogic)
+    const { setExpanded, deleteNode } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -154,32 +156,35 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                         <span className="flex-1 cursor-pointer">{title}</span>
                                     </LemonButton>
 
-                                    {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
+                                    <div className="flex space-x-1">
+                                        {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
 
-                                    {expandable && (
-                                        <LemonButton
-                                            onClick={() => setExpanded(!expanded)}
-                                            size="small"
-                                            icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                        />
-                                    )}
+                                        {expandable && (
+                                            <LemonButton
+                                                onClick={() => setExpanded(!expanded)}
+                                                size="small"
+                                                icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                            />
+                                        )}
 
-                                    {!!widgets.length && isEditable ? (
-                                        <LemonButton
-                                            onClick={() => setWidgetsVisible(true)}
-                                            size="small"
-                                            icon={<IconFilter />}
-                                        />
-                                    ) : null}
+                                        {widgets.length > 0 ? (
+                                            <LemonButton
+                                                onClick={() => setIsShowingSidebar(!isShowingSidebar)}
+                                                size="small"
+                                                icon={<IconFilter />}
+                                                active={isShowingSidebar && selected}
+                                            />
+                                        ) : null}
 
-                                    {isEditable && (
-                                        <LemonButton
-                                            onClick={() => deleteNode()}
-                                            size="small"
-                                            status="danger"
-                                            icon={<IconClose />}
-                                        />
-                                    )}
+                                        {isEditable && (
+                                            <LemonButton
+                                                onClick={() => deleteNode()}
+                                                size="small"
+                                                status="danger"
+                                                icon={<IconClose />}
+                                            />
+                                        )}
+                                    </div>
                                 </div>
                                 <div
                                     ref={contentRef}
@@ -212,12 +217,14 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     }
     attributes: Record<keyof T, Partial<Attribute>>
     widgets?: NotebookNodeWidget[]
+    serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>({
     Component,
     pasteOptions,
     attributes,
+    serializedText,
     ...wrapperProps
 }: CreatePostHogWidgetNodeOptions<T>): Node {
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeViewProps
@@ -251,6 +258,19 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         group: 'block',
         atom: true,
         draggable: true,
+
+        serializedText: serializedText,
+
+        extendNodeSchema(extension) {
+            const context = {
+                name: extension.name,
+                options: extension.options,
+                storage: extension.storage,
+            }
+            return {
+                serializedText: getExtensionField(extension, 'serializedText', context),
+            }
+        },
 
         addAttributes() {
             return {

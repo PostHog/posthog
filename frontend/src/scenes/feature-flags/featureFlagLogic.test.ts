@@ -37,6 +37,7 @@ function generateFeatureFlag(
         usage_dashboard: 1234,
         tags: [],
         has_enriched_analytics,
+        surveys: [],
     }
 }
 

@@ -3,11 +3,13 @@ import functools
 import gzip
 import itertools
 import json
+import os
 from random import randint
 from unittest import mock
 from uuid import uuid4
 
 import boto3
+import botocore.exceptions
 import brotli
 import pytest
 from django.conf import settings
@@ -23,6 +25,7 @@ from posthog.temporal.tests.batch_exports.base import (
     EventValues,
     amaterialize,
     insert_events,
+    to_isoformat,
 )
 from posthog.temporal.tests.batch_exports.fixtures import (
     acreate_batch_export,
@@ -39,6 +42,18 @@ from posthog.temporal.workflows.s3_batch_export import (
 )
 
 TEST_ROOT_BUCKET = "test-batch-exports"
+
+
+def check_valid_credentials() -> bool:
+    """Check if there are valid AWS credentials in the environment."""
+    sts = boto3.client("sts")
+    try:
+        sts.get_caller_identity()
+    except botocore.exceptions.ClientError:
+        return False
+    else:
+        return True
+
 
 create_test_client = functools.partial(boto3.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
@@ -110,12 +125,19 @@ def assert_events_in_s3(
     if exclude_events is None:
         exclude_events = []
 
-    expected_events = [
-        {k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]}
-        for event in events
-        if event["event"] not in exclude_events
-    ]
-    expected_events.sort(key=lambda x: x["timestamp"])
+    def to_expected_event(event):
+        mapping_functions = {
+            "timestamp": to_isoformat,
+            "inserted_at": to_isoformat,
+            "created_at": to_isoformat,
+        }
+        return {
+            k: mapping_functions.get(k, lambda x: x)(v) for k, v in event.items() if k not in ["team_id", "_timestamp"]
+        }
+
+    expected_events = list(map(to_expected_event, (event for event in events if event["event"] not in exclude_events)))
+
+    expected_events.sort(key=lambda x: x["timestamp"] if x["timestamp"] is not None else 0)
 
     # First check one event, the first one, so that we can get a nice diff if
     # the included data is different.
@@ -404,6 +426,165 @@ async def test_s3_export_workflow_with_minio_bucket(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+                await activity_environment.client.execute_workflow(
+                    S3BatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+
+    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
+
+
+@pytest.mark.skipif(
+    "S3_TEST_BUCKET" not in os.environ or not check_valid_credentials(),
+    reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
+)
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "interval,compression,encryption,exclude_events",
+    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, "AES256", "aws:kms"], [None, ["test-exclude"]]),
+)
+async def test_s3_export_workflow_with_s3_bucket(interval, compression, encryption, exclude_events):
+    """Test S3 Export Workflow end-to-end by using an S3 bucket.
+
+    The S3_TEST_BUCKET environment variable is used to set the name of the bucket for this test.
+    This test will be skipped if no valid AWS credentials exist, or if the S3_TEST_BUCKET environment
+    variable is not set.
+
+    The workflow should update the batch export run status to completed and produce the expected
+    records to the S3 bucket.
+    """
+    bucket_name = os.getenv("S3_TEST_BUCKET")
+    kms_key_id = os.getenv("S3_TEST_KMS_KEY_ID")
+    prefix = f"posthog-events-{str(uuid4())}"
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": bucket_name,
+            "region": "us-east-1",
+            "prefix": prefix,
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+            "compression": compression,
+            "exclude_events": exclude_events,
+            "encryption": encryption,
+            "kms_key_id": kms_key_id if encryption == "aws:kms" else None,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": interval,
+    }
+
+    organization = await acreate_organization("test")
+    team = await acreate_team(organization=organization)
+    batch_export = await acreate_batch_export(
+        team_id=team.pk,
+        name=batch_export_data["name"],
+        destination_data=batch_export_data["destination"],
+        interval=batch_export_data["interval"],
+    )
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "timestamp": "2023-04-25 13:30:00.000000",
+            "created_at": "2023-04-25 13:30:00.000000",
+            "inserted_at": "2023-04-25 13:30:00.000000",
+            "_timestamp": "2023-04-25 13:30:00",
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team.pk,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "distinct_id": str(uuid4()),
+            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+        },
+        {
+            "uuid": str(uuid4()),
+            "event": "test-exclude",
+            "timestamp": "2023-04-25 14:29:00.000000",
+            "created_at": "2023-04-25 14:29:00.000000",
+            "inserted_at": "2023-04-25 14:29:00.000000",
+            "_timestamp": "2023-04-25 14:29:00",
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team.pk,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "distinct_id": str(uuid4()),
+            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+        },
+    ]
+
+    if interval == "day":
+        # Add an event outside the hour range but within the day range to ensure it's exported too.
+        events_outside_hour: list[EventValues] = [
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-25 00:30:00.000000",
+                "created_at": "2023-04-25 00:30:00.000000",
+                "inserted_at": "2023-04-25 00:30:00.000000",
+                "_timestamp": "2023-04-25 00:30:00",
+                "person_id": str(uuid4()),
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "team_id": team.pk,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "distinct_id": str(uuid4()),
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            }
+        ]
+        events += events_outside_hour
+
+    ch_client = ClickHouseClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    # Insert some data into the `sharded_events` table.
+    await insert_events(
+        client=ch_client,
+        events=events,
+    )
+
+    workflow_id = str(uuid4())
+    inputs = S3BatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=str(batch_export.id),
+        data_interval_end="2023-04-25 14:30:00.000000",
+        interval=interval,
+        **batch_export.destination.config,
+    )
+
+    s3_client = boto3.client("s3")
+
+    def create_s3_client(*args, **kwargs):
+        """Mock function to return an already initialized S3 client."""
+        return s3_client
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[S3BatchExportWorkflow],
+            activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_s3_client):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,

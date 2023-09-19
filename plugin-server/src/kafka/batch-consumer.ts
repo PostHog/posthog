@@ -33,6 +33,7 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs,
     eachBatch,
     autoCommit = true,
+    cooperativeRebalance = true,
     queuedMinMessages = 100000,
 }: {
     connectionConfig: GlobalConfig
@@ -48,6 +49,7 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     autoCommit?: boolean
+    cooperativeRebalance?: boolean
     queuedMinMessages?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
@@ -113,12 +115,12 @@ export const startBatchConsumer = async ({
         // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
         // for details on the advantages of this rebalancing strategy as well as
         // how it works.
-        'partition.assignment.strategy': 'cooperative-sticky',
+        'partition.assignment.strategy': cooperativeRebalance ? 'cooperative-sticky' : 'range,roundrobin',
         rebalance_cb: true,
         offset_commit_cb: true,
     })
 
-    instrumentConsumerMetrics(consumer, groupId)
+    instrumentConsumerMetrics(consumer, groupId, cooperativeRebalance)
 
     let isShuttingDown = false
     let lastLoopTime = Date.now()

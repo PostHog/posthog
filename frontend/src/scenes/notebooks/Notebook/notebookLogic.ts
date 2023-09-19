@@ -77,6 +77,7 @@ export const notebookLogic = kea<notebookLogicType>([
         exportJSON: true,
         showConflictWarning: true,
         onUpdateEditor: true,
+        setIsShowingSidebar: (showing: boolean) => ({ showing }),
         registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
@@ -166,6 +167,13 @@ export const notebookLogic = kea<notebookLogicType>([
                 setEditable: (_, { editable }) => editable,
             },
         ],
+        isShowingSidebar: [
+            false,
+            {
+                setSelectedNodeId: (showing, { selectedNodeId }) => (selectedNodeId ? showing : false),
+                setIsShowingSidebar: (_, { showing }) => showing,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         notebook: [
@@ -178,6 +186,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         response = {
                             ...values.scratchpadNotebook,
                             content: {},
+                            text_content: null,
                             version: 0,
                         }
                     } else if (props.shortId.startsWith('template-')) {
@@ -210,6 +219,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
                             content: notebook.content,
+                            text_content: values.editor?.getText() || '',
                             title: notebook.title,
                         })
 
@@ -242,6 +252,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
                     const response = await api.notebooks.create({
                         content: values.content || values.notebook.content,
+                        text_content: values.editor?.getText() || '',
                         title: values.title || values.notebook.title,
                     })
 
@@ -330,10 +341,6 @@ export const notebookLogic = kea<notebookLogicType>([
                     )
                 }
             },
-        ],
-        isShowingSidebar: [
-            (s) => [s.selectedNodeLogic],
-            (selectedNodeLogic) => selectedNodeLogic?.values.isShowingWidgets,
         ],
     }),
     sharedListeners(({ values, actions }) => ({
@@ -430,6 +437,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
             const jsonContent = values.editor.getJSON()
+
             actions.setLocalContent(jsonContent)
             actions.onUpdateEditor()
         },

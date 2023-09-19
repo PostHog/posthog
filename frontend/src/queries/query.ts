@@ -10,6 +10,7 @@ import {
     isTimeToSeeDataSessionsNode,
     isHogQLQuery,
     isInsightVizNode,
+    isLifecycleQuery,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -27,6 +28,8 @@ import { toParams } from 'lib/utils'
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const EXPORT_MAX_LIMIT = 10000
 
@@ -104,10 +107,14 @@ export async function query<N extends DataNode = DataNode>(
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
 
+    const hogQLInsightsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS]
+    )
+
     try {
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
-        } else if (isInsightQueryNode(queryNode)) {
+        } else if (isInsightQueryNode(queryNode) && !(hogQLInsightsFlagEnabled && isLifecycleQuery(queryNode))) {
             const filters = queryNodeToFilter(queryNode)
             const params = {
                 ...filters,

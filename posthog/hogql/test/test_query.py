@@ -13,7 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
-from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
@@ -1446,7 +1446,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
             query = "SELECT event, distinct_id from events WHERE distinct_id={distinct_id} and {filters}"
             filters = HogQLFilters(
-                properties=[EventPropertyFilter(key="index", operator="exact", value=4, type="event")]
+                properties=[EventPropertyFilter(key="index", operator="exact", value="4", type="event")]
             )
             placeholders = {"distinct_id": ast.Constant(value=random_uuid)}
             response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)

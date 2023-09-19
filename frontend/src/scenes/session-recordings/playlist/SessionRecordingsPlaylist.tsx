@@ -257,11 +257,11 @@ export function RecordingsLists({
                                             data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
                                             onClick={() => {
                                                 setFilters({
-                                                    date_from: '-21d',
+                                                    date_from: '-30d',
                                                 })
                                             }}
                                         >
-                                            Search over the last 21 days
+                                            Search over the last 30 days
                                         </LemonButton>
                                     </>
                                 ) : (

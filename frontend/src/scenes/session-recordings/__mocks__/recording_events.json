@@ -1,6 +1,6 @@
 [
     {
-        "id": "$pageview",
+        "id": "$pageview1",
         "event": "$pageview",
         "name": "$event_before_recording_starts",
         "type": "events",
@@ -14,7 +14,7 @@
         "elements_hash": ""
     },
     {
-        "id": "$pageview",
+        "id": "$pageview2",
         "name": "$pageview",
         "event": "$pageview",
         "type": "events",

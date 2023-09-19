@@ -70,6 +70,8 @@ const formFields = (
                   aws_access_key_id: isNew ? (!config.aws_access_key_id ? 'This field is required' : '') : '',
                   aws_secret_access_key: isNew ? (!config.aws_secret_access_key ? 'This field is required' : '') : '',
                   compression: '',
+                  encryption: '',
+                  kms_key_id: !config.kms_key_id && config.encryption == 'aws:kms' ? 'This field is required' : '',
                   exclude_events: '',
               }
             : destination === 'BigQuery'

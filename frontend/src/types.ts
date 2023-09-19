@@ -1793,7 +1793,6 @@ export enum RecordingWindowFilter {
 
 export interface EditorFilterProps {
     query: InsightQueryNode
-    setQuery: (node: InsightQueryNode) => void
     insightProps: InsightLogicProps
 }
 
@@ -2055,6 +2054,7 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
     /** query when used as ad-hoc insight */
     query?: InsightVizNode
+    setQuery?: (node: InsightVizNode) => void
 }
 
 export interface SetInsightOptions {
@@ -2074,7 +2074,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
-    conditions: { url: string; selector: string; is_headless?: boolean } | null
+    conditions: { url: string; selector: string; is_headless?: boolean; seenSurveyWaitPeriodInDays?: number } | null
     appearance: SurveyAppearance
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
@@ -2082,6 +2082,7 @@ export interface Survey {
     start_date: string | null
     end_date: string | null
     archived: boolean
+    remove_targeting_flag?: boolean
 }
 
 export enum SurveyType {
@@ -2113,7 +2114,7 @@ interface SurveyQuestionBase {
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
-    type: SurveyQuestionType.Open | SurveyQuestionType.NPS
+    type: SurveyQuestionType.Open
 }
 
 export interface LinkSurveyQuestion extends SurveyQuestionBase {
@@ -2140,7 +2141,6 @@ export enum SurveyQuestionType {
     Open = 'open',
     MultipleChoice = 'multiple_choice',
     SingleChoice = 'single_choice',
-    NPS = 'nps',
     Rating = 'rating',
     Link = 'link',
 }
@@ -2191,6 +2191,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     rollout_percentage: number | null
     experiment_set: string[] | null
     features: EarlyAccessFeatureType[] | null
+    surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -3019,6 +3020,8 @@ export type NotebookListItemType = {
 export type NotebookType = NotebookListItemType & {
     content: JSONContent // TODO: Type this better
     version: number
+    // used to power text-based search
+    text_content?: string | null
 }
 
 export enum NotebookNodeType {
@@ -3094,6 +3097,8 @@ export type BatchExportDestinationS3 = {
         aws_secret_access_key: string
         exclude_events: string[]
         compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
     }
 }
 
