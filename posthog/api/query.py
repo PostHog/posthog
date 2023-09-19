@@ -93,10 +93,9 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def list(self, request: Request, **kw) -> HttpResponse:
         self._tag_client_query_id(request.GET.get("client_query_id"))
         query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
-        refresh_requested = refresh_requested_by_client(request)
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json, refresh_requested=refresh_requested), safe=False)
+            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -106,10 +105,9 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         request_json = request.data
         query_json = request_json.get("query")
         self._tag_client_query_id(request_json.get("client_query_id"))
-        refresh_requested = refresh_requested_by_client(request)
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json, refresh_requested=refresh_requested), safe=False)
+            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -199,7 +197,7 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 
 
 def process_query(
-    team: Team, query_json: Dict, default_limit: Optional[int] = None, refresh_requested: bool = False
+    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
@@ -226,6 +224,7 @@ def process_query(
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)
         return _unwrap_pydantic_dict(metadata_response)
     elif query_kind == "LifecycleQuery":
+        refresh_requested = refresh_requested_by_client(request) if request else False
         lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
         return _unwrap_pydantic_dict(lifecycle_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "DatabaseSchemaQuery":
