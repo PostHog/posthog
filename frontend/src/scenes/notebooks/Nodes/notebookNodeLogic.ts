@@ -138,6 +138,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         deleteNode: () => {
             const logic = values.notebookLogic
             logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
+            if (values.notebookLogic.values.editingNodeId === props.nodeId) {
+                values.notebookLogic.actions.setEditingNodeId(null)
+            }
         },
 
         insertAfterLastNodeOfType: ({ nodeType, content }) => {

@@ -5,7 +5,7 @@ import { notebookLogic } from './notebookLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 
 export const NotebookSidebar = (): JSX.Element | null => {
-    const { selectedNodeLogic, isShowingSidebar, isEditable } = useValues(notebookLogic)
+    const { editingNodeLogic, isShowingSidebar, isEditable } = useValues(notebookLogic)
     const { setIsShowingSidebar } = useActions(notebookLogic)
 
     if (!isEditable) {
@@ -19,8 +19,8 @@ export const NotebookSidebar = (): JSX.Element | null => {
             })}
         >
             <div className="NotebookSidebar__content">
-                {selectedNodeLogic && isShowingSidebar && (
-                    <Widgets logic={selectedNodeLogic} onClose={() => setIsShowingSidebar(false)} />
+                {editingNodeLogic && isShowingSidebar && (
+                    <Widgets logic={editingNodeLogic} onClose={() => setIsShowingSidebar(false)} />
                 )}
             </div>
         </div>
