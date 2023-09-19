@@ -36,8 +36,8 @@
         display: flex;
         gap: 0.25rem;
         overflow: hidden;
-        transition: all 150ms linear;
 
+        transition: all 150ms linear 1000ms;
         opacity: 0;
         height: 0;
         margin-top: 0.5rem;
@@ -49,6 +49,7 @@
             opacity: 1;
             height: 2rem;
             margin-top: 0.5rem;
+            transition: all 150ms linear;
         }
     }
 

@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 import { IconFlag, IconRecording, IconRocketLaunch, IconSurveys } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -68,10 +68,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
             {
                 icon: <IconRecording />,
                 text: 'View Replays',
-                onClick: (e) => {
-                    // prevent expanding the node if it isn't expanded
-                    e.stopPropagation()
-
+                onClick: () => {
                     if (nextNode?.type.name !== NotebookNodeType.RecordingPlaylist) {
                         insertAfter(buildPlaylistContent(recordingFilterForFlag))
                     }

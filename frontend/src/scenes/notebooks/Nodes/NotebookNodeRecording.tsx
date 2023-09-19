@@ -52,8 +52,8 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
                     onClick: () => {
                         insertAfter({
                             type: NotebookNodeType.Person,
-                            attributes: {
-                                id: person.id,
+                            attrs: {
+                                id: String(person.distinct_ids[0]),
                             },
                         })
                     },
