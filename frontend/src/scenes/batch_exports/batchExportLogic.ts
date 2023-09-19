@@ -201,12 +201,16 @@ export const batchExportLogic = kea<batchExportLogicType>([
                             data_interval_end: run.data_interval_end,
                             runs: [],
                             last_run_at: run.created_at,
+                            latest_error: run.latest_error,
+                            status: run.status,
                         }
                     }
 
                     groupedRuns[key].runs.push(run)
                     groupedRuns[key].runs.sort((a, b) => b.created_at.diff(a.created_at))
                     groupedRuns[key].last_run_at = groupedRuns[key].runs[0].created_at
+                    groupedRuns[key].latest_error = groupedRuns[key].runs[0].latest_error
+                    groupedRuns[key].status = groupedRuns[key].runs[0].status
                 })
 
                 return Object.values(groupedRuns).sort((a, b) => b.data_interval_end.diff(a.data_interval_end))

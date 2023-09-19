@@ -262,6 +262,13 @@ export function BatchExportScene(): JSX.Element {
                                                     tooltip: 'Date and time when this BatchExport run started',
                                                     render: (_, run) => <TZLabel time={run.created_at} />,
                                                 },
+
+                                                {
+                                                    title: 'Error message',
+                                                    tooltip: 'Error message if this run failed',
+                                                    key: 'message',
+                                                    dataIndex: 'latest_error',
+                                                },
                                             ]}
                                         />
                                     )
@@ -312,6 +319,7 @@ export function BatchExportScene(): JSX.Element {
                                         return <TZLabel time={groupedRun.last_run_at} />
                                     },
                                 },
+
                                 {
                                     // title: 'Actions',
                                     key: 'actions',
