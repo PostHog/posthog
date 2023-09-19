@@ -3,7 +3,7 @@ import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { PersonDisplay } from '@posthog/apps-common'
+import { PersonDisplay, TZLabel } from '@posthog/apps-common'
 import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -46,7 +46,16 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
                 {personLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (
-                    <PersonDisplay withIcon person={person} noLink noPopover />
+                    <>
+                        <PersonDisplay withIcon person={person} noLink noPopover />
+
+                        {person ? (
+                            <div>
+                                <span className="text-muted">First seen:</span>{' '}
+                                {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
+                            </div>
+                        ) : null}
+                    </>
                 )}
             </div>
 

@@ -25,7 +25,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
         featureFlagLoading,
         recordingFilterForFlag,
         hasEarlyAccessFeatures,
-        newEarlyAccessFeatureLoading,
+        newEarlyAccessFetureLoading,
         canCreateEarlyAccessFeature,
         hasSurveys,
         newSurveyLoading,
@@ -45,14 +45,13 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
                 text: `${hasSurveys ? 'View' : 'Create'} survey`,
                 onClick: () => {
                     if (!hasSurveys) {
-                        createSurvey()
-                    } else {
-                        if ((featureFlag?.surveys?.length || 0) <= 0) {
-                            return
-                        }
-                        if (!shouldDisableInsertSurvey(nextNode) && featureFlag.surveys) {
-                            insertAfter(buildSurveyContent(featureFlag.surveys[0].id))
-                        }
+                        return createSurvey()
+                    }
+                    if ((featureFlag?.surveys?.length || 0) <= 0) {
+                        return
+                    }
+                    if (!shouldDisableInsertSurvey(nextNode) && featureFlag.surveys) {
+                        insertAfter(buildSurveyContent(featureFlag.surveys[0].id))
                     }
                 },
             },
