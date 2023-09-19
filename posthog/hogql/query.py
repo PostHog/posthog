@@ -2,7 +2,7 @@ from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLSettings, DEFAULT_RETURNED_ROWS
+from posthog.hogql.constants import HogQLSettings
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
@@ -58,6 +58,8 @@ def execute_hogql_query(
             select_query = replace_placeholders(select_query, placeholders)
 
     with timings.measure("max_limit"):
+        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
         select_queries = (
             select_query.select_queries if isinstance(select_query, ast.SelectUnionQuery) else [select_query]
         )
