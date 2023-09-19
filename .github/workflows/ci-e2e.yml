@@ -142,7 +142,7 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --prod
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
