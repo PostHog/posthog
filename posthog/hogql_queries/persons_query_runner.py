@@ -53,6 +53,29 @@ class PersonsQueryRunner(QueryRunner):
             else:
                 raise ValueError(f"Queries of type '{source.kind}' are not supported as a PersonsQuery sources.")
 
+        if self.query.search is not None and self.query.search != "":
+            where_exprs.append(
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["properties", "email"]),
+                            right=ast.Constant(value=f"%{self.query.search}%"),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["properties", "name"]),
+                            right=ast.Constant(value=f"%{self.query.search}%"),
+                        ),
+                        # ast.CompareOperation(
+                        #     op=ast.CompareOperationOp.Like,
+                        #     left=ast.Field(chain=["distinct_id"]),
+                        #     right=ast.Constant(value=f"%{self.query.search}%"),
+                        # ),
+                    ]
+                )
+            )
+
         if len(where_exprs) == 0:
             where = ast.Constant(value=True)
         elif len(where_exprs) == 1:

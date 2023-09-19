@@ -12,7 +12,12 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         random_uuid = str(UUIDT())
         for index in range(10):
             _create_person(
-                properties={"sneaky_mail": f"tim{index}@posthog.com", "random_uuid": random_uuid, "index": index},
+                properties={
+                    "email": f"tim{index}@posthog.com",
+                    "name": "The Tim",
+                    "random_uuid": random_uuid,
+                    "index": index,
+                },
                 team=self.team,
                 distinct_ids=[f"id-{index}"],
                 is_identified=True,
@@ -64,3 +69,8 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
         self.assertEqual(len(runner.run().results), 2)
+
+    def test_persons_query_search(self):
+        self._create_random_persons()
+        runner = self._create_runner(PersonsQuery(search="tim4"))
+        self.assertEqual(len(runner.run().results), 1)
