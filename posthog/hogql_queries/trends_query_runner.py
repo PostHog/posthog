@@ -1,11 +1,15 @@
 from typing import List, Optional, Any, Dict, Union
 
+from django.utils.timezone import datetime
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import ActionsNode, EventsNode, TrendsQuery, TrendsQueryResponse
 
 
@@ -38,27 +42,30 @@ class TrendsQueryRunner(QueryRunner):
                                 (
                                     SELECT
                                         0 AS total,
-                                        toStartOfDay(toDateTime('2023-09-18 23:59:59')) - toIntervalDay(number) AS day_start
+                                        dateTrunc({interval}, {date_to}) - {number_interval_period} AS day_start
                                     FROM numbers(
-                                            coalesce(dateDiff('day', toStartOfDay(toDateTime('2023-09-11 00:00:00')), toDateTime('2023-09-18 23:59:59')), 0)
+                                            coalesce(dateDiff({interval}, {date_from}, {date_to}), 0)
                                         )
                                     UNION ALL
                                     SELECT
                                         0 AS total,
-                                        toStartOfDay(toDateTime('2023-09-11 00:00:00'))
+                                        {date_from}
                                     UNION ALL
                                     SELECT
                                         count(*) AS total,
-                                        toStartOfDay(toTimeZone(toDateTime(timestamp), 'UTC')) AS date
+                                        dateTrunc({interval}, toTimeZone(toDateTime(timestamp), 'UTC')) AS date
                                     FROM events AS e
-                                    WHERE (team_id = 1) AND ({event}) AND (toTimeZone(timestamp, 'UTC') >= toStartOfDay(toDateTime('2023-09-11 00:00:00'))) AND (toTimeZone(timestamp, 'UTC') <= toDateTime('2023-09-18 23:59:59'))
+                                    WHERE (team_id = 1) AND ({event}) AND (toTimeZone(timestamp, 'UTC') >= {date_from}) AND (toTimeZone(timestamp, 'UTC') <= {date_to})
                                     GROUP BY date
                                 )
                                 GROUP BY day_start
                                 ORDER BY day_start ASC
                             )
                         """,
-                        placeholders=self.series_placeholder(series),
+                        placeholders={
+                            **self.series_placeholder(series),
+                            **self.query_date_range.to_placeholders(),
+                        },
                         timings=self.timings,
                     )
                 )
@@ -102,6 +109,12 @@ class TrendsQueryRunner(QueryRunner):
 
     def series_placeholder(self, series: EventsNode | ActionsNode) -> Dict[str, Any]:
         if series.event is not None:
-            return {"event": parse_expr("event = '{event}'".format(event=series.event))}
+            return {"event": parse_expr(f"event = '{series.event}'")}
 
         return {"event": parse_expr("1 = 1")}
+
+    @cached_property
+    def query_date_range(self):
+        return QueryDateRange(
+            date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
+        )
