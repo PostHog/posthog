@@ -86,7 +86,10 @@ export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     const selection = editor.state.selection
     const { $anchor, empty } = selection
     const isEmptyTextBlock =
-        $anchor.parent.isTextblock && !$anchor.parent.type.spec.code && !textContent($anchor.parent)
+        $anchor.parent.isTextblock &&
+        !$anchor.parent.type.spec.code &&
+        $anchor.depth <= 1 &&
+        !textContent($anchor.parent)
 
     if (empty && isEmptyTextBlock) {
         return true

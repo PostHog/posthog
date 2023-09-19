@@ -233,3 +233,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "errors": [],
             },
         )
+
+    def test_union_all_does_not_crash(self):
+        metadata = self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "errors": [],
+            },
+        )
