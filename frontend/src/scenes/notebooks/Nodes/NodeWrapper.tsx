@@ -26,11 +26,11 @@ import {
     NotebookNodeViewProps,
     NotebookNodeWidget,
     CustomNotebookNodeAttributes,
-    NotebookNodeTitleConfig,
+    NotebookNodeTitle,
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
-    title: NotebookNodeTitleConfig | NotebookNodeTitleConfig['value']
+    title: NotebookNodeTitle
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
@@ -48,15 +48,8 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     widgets?: NotebookNodeWidget[]
 }
 
-function getTitleConfig(title: NotebookNodeTitleConfig | NotebookNodeTitleConfig['value']): NotebookNodeTitleConfig {
-    if (title instanceof Object) {
-        return title as NotebookNodeTitleConfig
-    }
-    return { value: title, recompute: false }
-}
-
 export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
-    title: titleOrConfig,
+    title: titleOrGenerator,
     nodeType,
     children,
     selected,
@@ -88,7 +81,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
-        titleConfig: getTitleConfig(titleOrConfig),
+        title: titleOrGenerator,
         resizeable: resizeableOrGenerator,
         widgets,
         startExpanded,

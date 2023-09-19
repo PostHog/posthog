@@ -22,7 +22,7 @@ import {
     NotebookNode,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
-    NotebookNodeTitleConfig,
+    NotebookNodeTitle,
     NotebookNodeWidget,
 } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
@@ -34,26 +34,21 @@ export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
-    titleConfig: NotebookNodeTitleConfig
+    title: NotebookNodeTitle
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     widgets: NotebookNodeWidget[]
     startExpanded: boolean
 } & NotebookNodeAttributeProperties<any>
 
 async function renderTitle(
-    generatorOrTitle: NotebookNodeLogicProps['titleConfig'],
+    title: NotebookNodeLogicProps['title'],
     attrs: NotebookNodeLogicProps['attributes']
 ): Promise<string> {
-    const shouldRecompute =
-        generatorOrTitle.recompute instanceof Function
-            ? await generatorOrTitle.recompute(attrs)
-            : generatorOrTitle.recompute
-
-    if (typeof attrs.title === 'string' && attrs.title.length > 0 && !shouldRecompute) {
+    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
         return attrs.title
     }
 
-    return generatorOrTitle.value instanceof Function ? await generatorOrTitle.value(attrs) : generatorOrTitle.value
+    return title instanceof Function ? await title(attrs) : title
 }
 
 const computeResizeable = (
@@ -176,7 +171,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     afterMount(async (logic) => {
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
-        const renderedTitle = await renderTitle(logic.props.titleConfig, logic.props.attributes)
+        const renderedTitle = await renderTitle(logic.props.title, logic.props.attributes)
         logic.actions.setTitle(renderedTitle)
         const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
         logic.actions.setResizeable(resizeable)

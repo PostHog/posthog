@@ -3,17 +3,17 @@ import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { urls } from 'scenes/urls'
-import api from 'lib/api'
 
 import './NotebookNodeQuery.scss'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -30,6 +30,17 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const { query } = props.attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
+
+    useEffect(() => {
+        if (NodeKind.SavedInsightNode === query.kind) {
+            const logic = insightLogic.findMounted({ dashboardItemId: query.shortId })
+            const title = logic?.values.insight.name || logic?.values.insight.derived_name
+
+            if (!!title && props.attributes.title != title) {
+                props.updateAttributes({ title: title })
+            }
+        }
+    }, [])
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }
@@ -158,31 +169,22 @@ export const Settings = ({
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: {
-        recompute: (attributes) => attributes.query.kind === NodeKind.SavedInsightNode,
-        value: async (attributes) => {
-            const query = attributes.query
-            let title = 'HogQL'
-            if (NodeKind.SavedInsightNode === query.kind) {
-                const response = await api.insights.loadInsight(query.shortId)
-                title = response.results[0].name?.length
-                    ? response.results[0].name
-                    : response.results[0].derived_name || 'Saved insight'
-            } else if (NodeKind.DataTableNode === query.kind) {
-                if (query.source.kind) {
-                    title = query.source.kind.replace('Node', '').replace('Query', '')
-                } else {
-                    title = 'Data exploration'
-                }
-            } else if (NodeKind.InsightVizNode === query.kind) {
-                if (query.source.kind) {
-                    title = query.source.kind.replace('Node', '').replace('Query', '')
-                } else {
-                    title = 'Insight'
-                }
+    title: async ({ query }) => {
+        if (NodeKind.SavedInsightNode === query.kind) {
+            return 'Saved insight'
+        } else if (NodeKind.DataTableNode === query.kind) {
+            if (query.source.kind) {
+                return query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                return 'Data exploration'
             }
-            return Promise.resolve(title)
-        },
+        } else if (NodeKind.InsightVizNode === query.kind) {
+            if (query.source.kind) {
+                return query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                return 'Insight'
+            }
+        }
     },
     Component,
     heightEstimate: 500,

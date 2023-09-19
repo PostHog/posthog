@@ -52,10 +52,7 @@ export type NotebookNodeWidget = {
     Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
 }
 
-export type NotebookNodeTitleConfig = {
-    recompute: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
-    value: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
-}
+export type NotebookNodeTitle = string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
 
 export interface NotebookEditor {
     getJSON: () => JSONContent
