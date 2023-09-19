@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Optional, Union, cast, Literal
+from typing import List, Optional, Union, cast, Literal
 
 from pydantic import BaseModel
 
@@ -99,10 +99,10 @@ def property_to_expr(
 
     if property.type == "hogql":
         return parse_expr(property.key)
-    elif property.type == "event" or cast(Any, property.type) == "feature" or property.type == "person":
+    elif property.type == "event" or property.type == "feature" or property.type == "person":
         if scope == "person" and property.type != "person":
             raise NotImplementedException(
-                f"property_to_expr for scope {scope} not implemented for type '{property.type}'"
+                f"The '{property.type}' property filter only works in 'event' scope, not in '{scope}' scope"
             )
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
