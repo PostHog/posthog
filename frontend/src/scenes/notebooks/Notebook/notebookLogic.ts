@@ -73,7 +73,7 @@ export const notebookLogic = kea<notebookLogicType>([
         clearLocalContent: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
-        setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
+        setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
         exportJSON: true,
         showConflictWarning: true,
         onUpdateEditor: true,
@@ -133,10 +133,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 loadNotebookSuccess: () => false,
             },
         ],
-        selectedNodeId: [
+        editingNodeId: [
             null as string | null,
             {
-                setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
+                setEditingNodeId: (_, { editingNodeId }) => editingNodeId,
             },
         ],
         nodeLogics: [
@@ -170,7 +170,7 @@ export const notebookLogic = kea<notebookLogicType>([
         isShowingSidebar: [
             false,
             {
-                setSelectedNodeId: (showing, { selectedNodeId }) => (selectedNodeId ? showing : false),
+                setEditingNodeId: (_, { editingNodeId }) => (editingNodeId ? true : false),
                 setIsShowingSidebar: (_, { showing }) => showing,
             },
         ],
@@ -319,10 +319,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 return 'unsaved'
             },
         ],
-        selectedNodeLogic: [
-            (s) => [s.selectedNodeId, s.nodeLogics],
-            (selectedNodeId, nodeLogics) =>
-                Object.values(nodeLogics).find((nodeLogic) => nodeLogic.props.nodeId === selectedNodeId),
+        editingNodeLogic: [
+            (s) => [s.editingNodeId, s.nodeLogics],
+            (editingNodeId, nodeLogics) =>
+                Object.values(nodeLogics).find((nodeLogic) => nodeLogic.props.nodeId === editingNodeId),
         ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
@@ -467,7 +467,6 @@ export const notebookLogic = kea<notebookLogicType>([
         onEditorSelectionUpdate: () => {
             if (values.editor) {
                 const node = values.editor.getSelectedNode()
-                actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
 
                 if (node?.attrs.nodeId) {
                     actions.scrollToSelection()
