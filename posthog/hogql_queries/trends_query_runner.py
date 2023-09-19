@@ -3,6 +3,8 @@ from typing import List, Optional, Any, Dict, Union
 from django.utils.timezone import datetime
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -53,7 +55,7 @@ class TrendsQueryRunner(QueryRunner):
                                         {date_from}
                                     UNION ALL
                                     SELECT
-                                        count(*) AS total,
+                                        {aggregation_operation} AS total,
                                         dateTrunc({interval}, toTimeZone(toDateTime(timestamp), 'UTC')) AS date
                                     FROM events AS e
                                     WHERE {events_filter}
@@ -66,6 +68,7 @@ class TrendsQueryRunner(QueryRunner):
                         placeholders={
                             **self.query_date_range.to_placeholders(),
                             "events_filter": self.events_filter(series),
+                            "aggregation_operation": self.aggregation_operation(series),
                         },
                         timings=self.timings,
                     )
@@ -113,6 +116,12 @@ class TrendsQueryRunner(QueryRunner):
         return QueryDateRange(
             date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
         )
+
+    def aggregation_operation(self, series: EventsNode | ActionsNode) -> ast.Expr:
+        if series.math == "hogql":
+            return parse_expr(translate_hogql(series.math_hogql, HogQLContext(team_id=self.team.pk)))
+
+        return parse_expr("count(*)")
 
     def events_filter(self, series: EventsNode | ActionsNode) -> ast.Expr:
         filters: List[ast.Expr] = []
