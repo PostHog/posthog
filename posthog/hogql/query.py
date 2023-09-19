@@ -18,7 +18,7 @@ from posthog.schema import HogQLQueryResponse, HogQLFilters
 
 
 def execute_hogql_query(
-    query: Union[str, ast.SelectQuery],
+    query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
     team: Team,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
