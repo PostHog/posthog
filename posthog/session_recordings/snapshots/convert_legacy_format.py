@@ -1,18 +1,13 @@
-import base64
-import gzip
 import json
-from io import BytesIO
 from typing import Dict
 
+import structlog
+from django.http import HttpResponse
 from prometheus_client import Histogram
 from requests import Response
-from django.http import HttpResponse
-from rest_framework import exceptions
-from sentry_sdk import capture_exception
 
 from posthog.session_recordings.models.session_recording import SessionRecording
-
-import structlog
+from posthog.session_recordings.session_recording_helpers import decompress
 
 logger = structlog.get_logger(__name__)
 
@@ -39,37 +34,16 @@ def convert_original_version_lts_recording(r: Response, recording: SessionRecord
     # we can't simply stream it back to the requester
 
     with RECORDING_CONVERSION_TIME_HISTOGRAM.time():
-        decoded_content = _base_64_decode_the_contents(r)
-        uncompressed_content = _unzip_the_contents(decoded_content)
-        json_content = _json_convert_the_contents(uncompressed_content)
-        converted_content = _convert_legacy_format_from_lts_storage(json_content)
+        # historically we stored the recording as a single file with a base64 encoded gzipped json string
+        # using utf-16 encoding, this `decompress` method unwinds that back to a json string
+        decoded_content = decompress(r.text)
+        json_content = json.loads(decoded_content)
 
+        converted_content = _convert_legacy_format_from_lts_storage(json_content)
+        # TODO we should delete the old recording from storage here, but might not have permissions
         _save_converted_content_back_to_storage(converted_content, recording)
 
         return HttpResponse(content=(converted_content.encode("utf-8")), content_type="application/json")
-
-
-def _json_convert_the_contents(uncompressed_content: bytes) -> Dict:
-    try:
-        return json.loads(uncompressed_content)
-    except json.JSONDecodeError:
-        raise exceptions.ValidationError("The content is not valid JSON.")
-
-
-def _unzip_the_contents(decoded_content: bytes) -> bytes:
-    buffer = BytesIO(decoded_content)
-    with gzip.GzipFile(fileobj=buffer, mode="rb") as f:
-        uncompressed_content = f.read()
-    return uncompressed_content
-
-
-def _base_64_decode_the_contents(r: Response) -> bytes:
-    try:
-        decoded_content = base64.b64decode(r.content)
-    except Exception:
-        capture_exception()
-        raise exceptions.ValidationError("Snapshot file is not valid base64")
-    return decoded_content
 
 
 def _convert_legacy_format_from_lts_storage(lts_formatted_data: Dict) -> str:
