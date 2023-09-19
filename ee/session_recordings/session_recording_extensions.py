@@ -1,5 +1,5 @@
 # EE extended functions for SessionRecording model
-
+import gzip
 import json
 from datetime import timedelta, datetime
 from typing import Optional, cast
@@ -35,14 +35,15 @@ def save_recording_with_new_content(recording: SessionRecording, content: str) -
 
     target_prefix = recording.build_object_storage_path("2023-08-01")
 
-    # save the existing content into the data folder
-    start = cast(datetime, recording.start_time).timestamp()
-    end = cast(datetime, recording.end_time).timestamp()
+    start = int(cast(datetime, recording.start_time).timestamp() * 1000)
+    end = int(cast(datetime, recording.end_time).timestamp() * 1000)
     new_path = f"{target_prefix}/{start}-{end}"
+
+    zipped_content = gzip.compress(content.encode("utf-8"))
     object_storage.write(
-        new_path, content.encode("utf-8"), extras={"ContentType": "application/json", "ContentEncoding": "gzip"}
+        new_path, zipped_content, extras={"ContentType": "application/json", "ContentEncoding": "gzip"}
     )
-    # update the recording
+
     recording.storage_version = "2023-08-01"
     recording.object_storage_path = target_prefix
     recording.save()
