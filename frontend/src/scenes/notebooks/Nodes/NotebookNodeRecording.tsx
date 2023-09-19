@@ -16,6 +16,7 @@ import {
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
@@ -35,11 +36,33 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
     const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
     const { expanded } = useValues(notebookNodeLogic)
+    const { setActions, insertAfter } = useActions(notebookNodeLogic)
 
     useEffect(() => {
         loadRecordingMeta()
     }, [])
     // TODO Only load data when in view...
+
+    useEffect(() => {
+        if (sessionPlayerMetaData?.person?.id) {
+            const person = sessionPlayerMetaData?.person
+            setActions([
+                {
+                    text: `View ${asDisplay(person)}`,
+                    onClick: () => {
+                        insertAfter({
+                            type: NotebookNodeType.Person,
+                            attributes: {
+                                id: person.id,
+                            },
+                        })
+                    },
+                },
+            ])
+        } else {
+            setActions([])
+        }
+    }, [sessionPlayerMetaData?.person?.id])
 
     return !expanded ? (
         <div>

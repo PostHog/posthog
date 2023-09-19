@@ -1,4 +1,5 @@
 // Helpers for Kea issue with double importing
+import { LemonButtonProps } from '@posthog/lemon-ui'
 import {
     ChainedCommands as EditorCommands,
     Editor as TTEditor,
@@ -50,6 +51,11 @@ export type NotebookNodeWidget = {
     label?: string
     // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
     Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
+}
+
+export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
+    text: string
+    onClick: () => void
 }
 
 export interface NotebookEditor {
