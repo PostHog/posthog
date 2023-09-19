@@ -44,7 +44,11 @@ const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): Re
                 ...d,
             }))
         } catch (e) {
-            captureException(e)
+            if (typeof l === 'string' && l.trim().length) {
+                // we don't care about the empty string in Sentry
+                captureException(e, { extra: { line: l } })
+            }
+            // return the empty array so that bad lines don't stop us processing good ones
             return []
         }
     })

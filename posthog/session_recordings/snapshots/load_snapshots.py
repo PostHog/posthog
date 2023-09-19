@@ -1,9 +1,5 @@
-import base64
 import dataclasses
-import gzip
-import json
 from datetime import datetime, timedelta
-from io import BytesIO
 from typing import List, cast, Dict, Literal
 
 import posthoganalytics
@@ -11,10 +7,12 @@ import requests
 from django.http import HttpResponse
 from rest_framework import exceptions
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
 
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
+from posthog.session_recordings.snapshots.convert_legacy_format import (
+    convert_original_version_lts_recording,
+)
 from posthog.session_recordings.snapshots.serializer import SessionRecordingSnapshotsSerializer
 from posthog.storage import object_storage
 
@@ -55,35 +53,6 @@ def _load_realtime_snapshots(loader_context: SnapshotLoadingContext) -> Dict:
     )
 
     return {"snapshots": snapshots}
-
-
-def _handle_original_version_lts_recording(r, recording, url):
-    # the original version of the LTS recording was a single file
-    # its contents were gzipped and then base64 encoded.
-    # we can't simply stream it back to the requester
-
-    # first base64 decode the contents
-    try:
-        decoded_content = base64.b64decode(r.content)
-    except Exception:
-        capture_exception()
-        raise exceptions.ValidationError("Snapshot file is not valid base64")
-
-    # then we have to unzip it
-    buffer = BytesIO(decoded_content)
-    with gzip.GzipFile(fileobj=buffer, mode="rb") as f:
-        uncompressed_content = f.read()
-
-    # its contents aren't usable as is, so we need to convert it to JSON
-    try:
-        json_content = json.loads(uncompressed_content)
-    except json.JSONDecodeError:
-        return HttpResponse(content="The content is not valid JSON.", status=400)
-
-    # and frustratingly then dump it back to bytes
-    byte_content = json.dumps(json_content).encode("utf-8")
-
-    return HttpResponse(content=byte_content, content_type="application/json")
 
 
 def gather_snapshot_sources(recording: SessionRecording) -> Dict:
@@ -175,7 +144,7 @@ def _load_blob_snapshots(loader_context: SnapshotLoadingContext) -> HttpResponse
         if is_single_file_legacy_recording:
             # this is likely "legacy" base64 encoded gzipped data
             # so, we need to decode it before returning it
-            return _handle_original_version_lts_recording(r, loader_context.recording, url)
+            return convert_original_version_lts_recording(r, loader_context.recording, url)
         else:
             # this is a newer format we can stream directly to the client
             response = HttpResponse(content=r.raw, content_type="application/json")
