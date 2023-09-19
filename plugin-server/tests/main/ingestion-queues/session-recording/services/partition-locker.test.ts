@@ -74,7 +74,7 @@ describe('PartitionLocker', () => {
             expect(await getValuesFromRedis(tp(1))).toBe(otherPartitionLocker.consumerID)
             expect(await getValuesFromRedis(tp(2))).toBe(null)
 
-            const cb = jest.fn(() => console.log('what!'))
+            const cb = jest.fn()
             void partitionLocker.claim([tp(1), tp(2)]).then(cb)
 
             await delay(100)

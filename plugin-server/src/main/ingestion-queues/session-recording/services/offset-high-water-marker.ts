@@ -7,7 +7,7 @@ import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
 export const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
-    return `${prefix}/${tp.topic}/${tp.partition}`
+    return `${prefix}high-water-marks/${tp.topic}/${tp.partition}`
 }
 
 export type OffsetHighWaterMarks = Record<string, number | undefined>
@@ -27,7 +27,7 @@ export class OffsetHighWaterMarker {
     // We don't need to load them more than once per TP as this consumer is the only thing writing to it
     private topicPartitionWaterMarks: Record<string, Promise<OffsetHighWaterMarks> | undefined> = {}
 
-    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/high-water-marks') {}
+    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
         const client = await this.redisPool.acquire()

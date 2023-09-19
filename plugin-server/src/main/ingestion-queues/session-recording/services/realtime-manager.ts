@@ -11,10 +11,10 @@ import { IncomingRecordingMessage } from '../types'
 import { convertToPersistedMessage } from '../utils'
 
 const Keys = {
-    snapshots(teamId: number, suffix: string): string {
-        return `@posthog/replay/snapshots/team-${teamId}/${suffix}`
+    snapshots(prefix: string, teamId: number, suffix: string): string {
+        return `${prefix}snapshots/team-${teamId}/${suffix}`
     },
-    realtimeSubscriptions: (): string => `@posthog/replay/realtime-subscriptions`,
+    realtimeSubscriptions: (prefix: string): string => `${prefix}realtime-subscriptions`,
 }
 
 /**
@@ -48,7 +48,7 @@ export class RealtimeManager extends EventEmitter {
 
     public async subscribe(): Promise<void> {
         this.pubsubRedis = await createRedis(this.serverConfig)
-        await this.pubsubRedis.subscribe(Keys.realtimeSubscriptions())
+        await this.pubsubRedis.subscribe(Keys.realtimeSubscriptions(this.serverConfig.SESSION_RECORDING_REDIS_PREFIX))
 
         this.pubsubRedis.on('message', (channel, message) => {
             try {
@@ -62,7 +62,9 @@ export class RealtimeManager extends EventEmitter {
     }
 
     public async unsubscribe(): Promise<void> {
-        await this.pubsubRedis?.unsubscribe(Keys.realtimeSubscriptions())
+        await this.pubsubRedis?.unsubscribe(
+            Keys.realtimeSubscriptions(this.serverConfig.SESSION_RECORDING_REDIS_PREFIX)
+        )
     }
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
@@ -84,7 +86,11 @@ export class RealtimeManager extends EventEmitter {
     }
 
     public async addMessage(message: IncomingRecordingMessage): Promise<void> {
-        const key = Keys.snapshots(message.team_id, message.session_id)
+        const key = Keys.snapshots(
+            this.serverConfig.SESSION_RECORDING_REDIS_PREFIX,
+            message.team_id,
+            message.session_id
+        )
 
         try {
             await this.run(`addMessage ${key} `, async (client) => {
@@ -107,7 +113,7 @@ export class RealtimeManager extends EventEmitter {
         messages: string,
         timestamp: number
     ): Promise<void> {
-        const key = Keys.snapshots(teamId, sesssionId)
+        const key = Keys.snapshots(this.serverConfig.SESSION_RECORDING_REDIS_PREFIX, teamId, sesssionId)
 
         try {
             await this.run(`addMessage ${key} `, async (client) => {
@@ -125,7 +131,7 @@ export class RealtimeManager extends EventEmitter {
     }
 
     public async clearMessages(teamId: number, sessionId: string, timestamp: number): Promise<void> {
-        const key = Keys.snapshots(teamId, sessionId)
+        const key = Keys.snapshots(this.serverConfig.SESSION_RECORDING_REDIS_PREFIX, teamId, sessionId)
 
         try {
             await this.run(`clearMessages ${key} `, async (client) => {
@@ -140,7 +146,7 @@ export class RealtimeManager extends EventEmitter {
     }
 
     public async clearAllMessages(teamId: number, sessionId: string): Promise<void> {
-        const key = Keys.snapshots(teamId, sessionId)
+        const key = Keys.snapshots(this.serverConfig.SESSION_RECORDING_REDIS_PREFIX, teamId, sessionId)
 
         try {
             await this.run(`clearAllMessages ${key} `, async (client) => {

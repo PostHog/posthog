@@ -10,9 +10,17 @@ import { createHub } from '../../../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
+const SESSION_RECORDING_REDIS_PREFIX = '@posthog-tests/replay'
+
+const config: PluginsServerConfig = {
+    ...defaultConfig,
+    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: true,
+    SESSION_RECORDING_REDIS_PREFIX,
+}
+
 async function deleteKeysWithPrefix(hub: Hub) {
     const redisClient = await hub.redisPool.acquire()
-    const keys = await redisClient.keys(`@posthog/replay/*`)
+    const keys = await redisClient.keys(`${SESSION_RECORDING_REDIS_PREFIX}*`)
     const pipeline = redisClient.pipeline()
     keys.forEach(function (key) {
         pipeline.del(key)
@@ -48,11 +56,6 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
 jest.setTimeout(1000)
 
 describe('ingester', () => {
-    const config: PluginsServerConfig = {
-        ...defaultConfig,
-        SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/test-session-recordings',
-    }
-
     let ingester: SessionRecordingIngesterV2
 
     let hub: Hub
@@ -85,15 +88,7 @@ describe('ingester', () => {
 
     // these tests assume that a flush won't run while they run
     beforeEach(async () => {
-        ingester = new SessionRecordingIngesterV2(
-            {
-                ...defaultConfig,
-                SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: true,
-            },
-            hub.postgres,
-            hub.objectStorage,
-            hub.redisPool
-        )
+        ingester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
         await ingester.start()
     })
 
@@ -344,15 +339,7 @@ describe('ingester', () => {
         jest.setTimeout(5000) // Increased to cover lock delay
 
         beforeEach(async () => {
-            otherIngester = new SessionRecordingIngesterV2(
-                {
-                    ...defaultConfig,
-                    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: true,
-                },
-                hub.postgres,
-                hub.objectStorage,
-                hub.redisPool
-            )
+            otherIngester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
             await otherIngester.start()
         })
 

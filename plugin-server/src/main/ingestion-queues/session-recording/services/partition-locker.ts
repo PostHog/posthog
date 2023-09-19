@@ -8,8 +8,10 @@ import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
 export const topicPartitionKey = (prefix: string, tp: TopicPartition) => {
-    return `${prefix}/${tp.topic}/${tp.partition}`
+    return `${prefix}locks/${tp.topic}/${tp.partition}`
 }
+
+const FLAG_EXPIRE_MS = 'PX'
 
 /**
  * Due to the nature of batching, we can't rely solely on Kafka for consumer locking.
@@ -22,7 +24,7 @@ export class PartitionLocker {
     delay = 1000
     ttl = 30000
 
-    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/locks') {}
+    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
         const client = await this.redisPool.acquire()
@@ -67,7 +69,7 @@ export class PartitionLocker {
                             }
 
                             // Set the key so it is claimed by us
-                            const res = await client.set(key, this.consumerID, 'PX', this.ttl)
+                            const res = await client.set(key, this.consumerID, FLAG_EXPIRE_MS, this.ttl)
                             if (!res) {
                                 blockingConsumers.add(this.consumerID)
                             }
