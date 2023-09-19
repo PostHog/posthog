@@ -8,62 +8,64 @@
         width: 100%;
         overflow: hidden;
 
-        > h1,
-        > h2,
-        > h3,
-        > h4,
-        > h5 {
-            margin-top: 0.5rem;
-        }
-
-        > p {
-            margin-bottom: 0.2rem;
-        }
-
         > .ProseMirror-focused {
             outline: none;
         }
 
-        > .is-empty::before {
-            content: attr(data-placeholder);
-            float: left;
-            color: rgba(0, 0, 0, 0.2);
-            pointer-events: none;
-            height: 0;
-        }
+        .ProseMirror {
+            > h1,
+            > h2,
+            > h3,
+            > h4,
+            > h5 {
+                margin-top: 0.5rem;
+            }
 
-        > ul {
-            list-style-type: disc;
-        }
+            > p {
+                margin-bottom: 0.2rem;
+            }
 
-        > ol {
-            list-style-type: decimal;
-        }
+            > .is-empty::before {
+                content: attr(data-placeholder);
+                float: left;
+                color: rgba(0, 0, 0, 0.2);
+                pointer-events: none;
+                height: 0;
+            }
 
-        > ul,
-        > ol {
-            padding-left: 1rem;
+            > ul {
+                list-style-type: disc;
+            }
 
-            li {
-                p {
-                    margin-bottom: 0.2rem;
+            > ol {
+                list-style-type: decimal;
+            }
+
+            > ul,
+            > ol {
+                padding-left: 1rem;
+
+                li {
+                    p {
+                        margin-bottom: 0.2rem;
+                    }
                 }
             }
-        }
 
-        > pre {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            overflow-x: auto;
-            margin-bottom: 0.5rem;
-            padding: 0.5rem;
-        }
+            > pre {
+                background-color: rgba(0, 0, 0, 0.05);
+                border-radius: var(--radius);
+                overflow-x: auto;
+                margin-bottom: 0.5rem;
+                padding: 0.5rem;
+            }
 
-        > code,
-        > p code {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            padding: 0.2rem;
+            > code,
+            > p code {
+                background-color: rgba(0, 0, 0, 0.05);
+                border-radius: var(--radius);
+                padding: 0.2rem;
+            }
         }
 
         .Backlink {
