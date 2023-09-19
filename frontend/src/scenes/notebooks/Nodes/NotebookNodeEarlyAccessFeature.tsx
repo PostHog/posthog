@@ -2,7 +2,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { IconFlag, IconRocketLaunch } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -14,12 +14,29 @@ import {
 } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
 import { buildFlagContent } from './NotebookNodeFlag'
+import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = props.attributes
     const { earlyAccessFeature, earlyAccessFeatureLoading } = useValues(earlyAccessFeatureLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
-    const { insertAfter } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        const flagId = (earlyAccessFeature as EarlyAccessFeatureType).feature_flag?.id
+
+        setActions(
+            flagId
+                ? [
+                      {
+                          text: 'View feature flag',
+                          icon: <IconFlag />,
+                          onClick: () => insertAfter(buildFlagContent(flagId)),
+                      },
+                  ]
+                : []
+        )
+    }, [earlyAccessFeature])
 
     return (
         <div>
@@ -80,24 +97,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeEarlyAccessAttribute
                         )}
                     </>
                 ) : null}
-
-                <LemonDivider className="my-0" />
-                <div className="p-2 mr-1 flex justify-end gap-2">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconFlag />}
-                        onClick={() => {
-                            insertAfter(
-                                buildFlagContent(
-                                    (earlyAccessFeature as EarlyAccessFeatureType).feature_flag?.id || 'new'
-                                )
-                            )
-                        }}
-                    >
-                        View Feature Flag
-                    </LemonButton>
-                </div>
             </BindLogic>
         </div>
     )
