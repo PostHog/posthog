@@ -34,7 +34,7 @@ class PersonsQueryRunner(QueryRunner):
             types=[],
         )
 
-    def to_query(self) -> ast.SelectQuery:
+    def filter_conditions(self) -> ast.Expr:
         where_exprs: List[ast.Expr] = []
 
         if self.query.properties:
@@ -77,12 +77,13 @@ class PersonsQueryRunner(QueryRunner):
             )
 
         if len(where_exprs) == 0:
-            where = ast.Constant(value=True)
+            return ast.Constant(value=True)
         elif len(where_exprs) == 1:
-            where = where_exprs[0]
+            return where_exprs[0]
         else:
-            where = ast.And(exprs=where_exprs)
+            return ast.And(exprs=where_exprs)
 
+    def to_query(self) -> ast.SelectQuery:
         # adding +1 to the limit to check if there's a "next page" after the requested results
         from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 
@@ -95,7 +96,7 @@ class PersonsQueryRunner(QueryRunner):
             stmt = ast.SelectQuery(
                 select=[],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-                where=where,
+                where=self.get_where(),
                 # having=having,
                 # group_by=group_by if has_any_aggregation else None,
                 # order_by=order_by,
