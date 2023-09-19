@@ -38,6 +38,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+        pass
+
+    @abc.abstractmethod
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
         pass
 
@@ -63,6 +67,9 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+        pass
+
+    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
@@ -125,6 +132,18 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("read failed") from e
 
+    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+        try:
+            self.aws_client.put_object_tagging(
+                Bucket=bucket,
+                Key=key,
+                Tagging={"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]},
+            )
+        except Exception as e:
+            logger.error("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("tag failed") from e
+
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
         s3_response = {}
         try:
@@ -179,6 +198,10 @@ def write(file_name: str, content: Union[str, bytes], extras: Dict | None) -> No
     return object_storage_client().write(
         bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content, extras=extras
     )
+
+
+def tag(file_name: str, tags: Dict[str, str]) -> None:
+    return object_storage_client().tag(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, tags=tags)
 
 
 def read(file_name: str) -> Optional[str]:

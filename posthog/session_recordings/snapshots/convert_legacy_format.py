@@ -8,6 +8,7 @@ from requests import Response
 
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_helpers import decompress
+from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
 
@@ -34,16 +35,22 @@ def convert_original_version_lts_recording(r: Response, recording: SessionRecord
     # we can't simply stream it back to the requester
 
     with RECORDING_CONVERSION_TIME_HISTOGRAM.time():
-        # historically we stored the recording as a single file with a base64 encoded gzipped json string
-        # using utf-16 encoding, this `decompress` method unwinds that back to a json string
-        decoded_content = decompress(r.text)
-        json_content = json.loads(decoded_content)
+        converted_content = _prepare_legacy_content(r.text)
 
-        converted_content = _convert_legacy_format_from_lts_storage(json_content)
-        # TODO we should delete the old recording from storage here, but might not have permissions
+        original_path = recording.object_storage_path
         _save_converted_content_back_to_storage(converted_content, recording)
+        # TODO we should delete the old recording from storage here, but might not have permissions
+        object_storage.tag(str(original_path), {"converted": "true"})
 
         return HttpResponse(content=(converted_content.encode("utf-8")), content_type="application/json")
+
+
+def _prepare_legacy_content(content: str) -> str:
+    # historically we stored the recording as a single file with a base64 encoded gzipped json string
+    # using utf-16 encoding, this `decompress` method unwinds that back to a json string
+    decoded_content = decompress(content)
+    json_content = json.loads(decoded_content)
+    return _convert_legacy_format_from_lts_storage(json_content)
 
 
 def _convert_legacy_format_from_lts_storage(lts_formatted_data: Dict) -> str:

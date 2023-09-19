@@ -28,10 +28,15 @@ MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
 
 
 def save_recording_with_new_content(recording: SessionRecording, content: str) -> None:
-    logger.info("Resaving recording: init", recording_id=recording.session_id, team_id=recording.team_id)
 
     if not settings.OBJECT_STORAGE_ENABLED:
         return
+
+    logger.info(
+        "re-saving recording file into 2023-08-01 LTS storage format",
+        recording_id=recording.session_id,
+        team_id=recording.team_id,
+    )
 
     target_prefix = recording.build_object_storage_path("2023-08-01")
 
