@@ -26,13 +26,14 @@ import {
     NotebookNodeViewProps,
     NotebookNodeWidget,
     CustomNotebookNodeAttributes,
-    NotebookNodeTitle,
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
-    title: NotebookNodeTitle
     nodeType: NotebookNodeType
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
+
+    // Meta properties - these should never be too advanced - more advanced should be done via updateAttributes in the component
+    defaultTitle: string | ((attributes: NotebookNodeAttributes<T>) => string)
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
 
     // Sizing
@@ -49,7 +50,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
 }
 
 export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
-    title: titleOrGenerator,
+    defaultTitle,
     nodeType,
     children,
     selected,
@@ -81,13 +82,12 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
-        title: titleOrGenerator,
         resizeable: resizeableOrGenerator,
         widgets,
         startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { title, resizeable, expanded } = useValues(nodeLogic)
+    const { resizeable, expanded } = useValues(nodeLogic)
     const { setExpanded, deleteNode } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
@@ -116,6 +116,13 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     }, [resizeable, updateAttributes])
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
+    // If a title is set on the attrs we use it. Otherwise we use the base component title.
+    const titleViaAttrs = attributes.title
+    const parsedTitle = titleViaAttrs
+        ? titleViaAttrs
+        : typeof defaultTitle === 'function'
+        ? defaultTitle(attributes)
+        : defaultTitle
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
@@ -154,7 +161,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                             ) : undefined
                                         }
                                     >
-                                        <span className="flex-1 cursor-pointer">{title}</span>
+                                        <span className="flex-1 cursor-pointer">{parsedTitle}</span>
                                     </LemonButton>
 
                                     <div className="flex space-x-1">

@@ -129,8 +129,7 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
                 }),
                 {}
             )
-
-            props.updateAttributes(stringifiedAttrs)
+            queueMicrotask(() => props.updateAttributes(stringifiedAttrs))
         },
         [props.updateAttributes]
     )

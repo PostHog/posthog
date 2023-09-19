@@ -32,14 +32,28 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const { expanded } = useValues(nodeLogic)
 
     useEffect(() => {
-        if (NodeKind.SavedInsightNode === query.kind) {
-            const logic = insightLogic.findMounted({ dashboardItemId: query.shortId })
-            const title = logic?.values.insight.name || logic?.values.insight.derived_name
+        let title = 'Query'
 
-            if (!!title && props.attributes.title != title) {
-                props.updateAttributes({ title: title })
+        if (query.kind === NodeKind.DataTableNode) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Data exploration'
             }
         }
+        if (query.kind === NodeKind.InsightVizNode) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Insight'
+            }
+        }
+        if (query.kind === NodeKind.SavedInsightNode) {
+            const logic = insightLogic.findMounted({ dashboardItemId: query.shortId })
+            title = (logic?.values.insight.name || logic?.values.insight.derived_name) ?? 'Saved Insight'
+        }
+
+        props.updateAttributes({ title: title })
     }, [])
 
     const modifiedQuery = useMemo(() => {
@@ -169,23 +183,7 @@ export const Settings = ({
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: async ({ query }) => {
-        if (NodeKind.SavedInsightNode === query.kind) {
-            return 'Saved insight'
-        } else if (NodeKind.DataTableNode === query.kind) {
-            if (query.source.kind) {
-                return query.source.kind.replace('Node', '').replace('Query', '')
-            } else {
-                return 'Data exploration'
-            }
-        } else if (NodeKind.InsightVizNode === query.kind) {
-            if (query.source.kind) {
-                return query.source.kind.replace('Node', '').replace('Query', '')
-            } else {
-                return 'Insight'
-            }
-        }
-    },
+    defaultTitle: 'Query',
     Component,
     heightEstimate: 500,
     minHeight: 200,

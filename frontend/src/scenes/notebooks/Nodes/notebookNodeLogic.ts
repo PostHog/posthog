@@ -22,7 +22,6 @@ import {
     NotebookNode,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
-    NotebookNodeTitle,
     NotebookNodeWidget,
 } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
@@ -34,22 +33,10 @@ export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
-    title: NotebookNodeTitle
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     widgets: NotebookNodeWidget[]
     startExpanded: boolean
 } & NotebookNodeAttributeProperties<any>
-
-async function renderTitle(
-    title: NotebookNodeLogicProps['title'],
-    attrs: NotebookNodeLogicProps['attributes']
-): Promise<string> {
-    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
-        return attrs.title
-    }
-
-    return title instanceof Function ? await title(attrs) : title
-}
 
 const computeResizeable = (
     resizeable: NotebookNodeLogicProps['resizeable'],
@@ -62,7 +49,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     key(({ nodeId }) => nodeId || 'no-node-id-set'),
     actions({
         setExpanded: (expanded: boolean) => ({ expanded }),
-        setTitle: (title: string) => ({ title }),
         setResizeable: (resizeable: boolean) => ({ resizeable }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
@@ -86,12 +72,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.startExpanded,
             {
                 setExpanded: (_, { expanded }) => expanded,
-            },
-        ],
-        title: [
-            '',
-            {
-                setTitle: (_, { title }) => title,
             },
         ],
         resizeable: [
@@ -171,11 +151,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     afterMount(async (logic) => {
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
-        const renderedTitle = await renderTitle(logic.props.title, logic.props.attributes)
-        logic.actions.setTitle(renderedTitle)
         const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
         logic.actions.setResizeable(resizeable)
-        logic.actions.updateAttributes({ title: renderedTitle })
     }),
 
     beforeUnmount((logic) => {
