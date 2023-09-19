@@ -4,6 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Cannot create index concurrently atomically
 
     dependencies = [
         ("posthog", "0350_add_notebook_text_content"),
@@ -20,8 +21,13 @@ class Migration(migrations.Migration):
             name="never_drop_data",
             field=models.BooleanField(blank=True, default=False, null=True),
         ),
-        migrations.AlterUniqueTogether(
-            name="messagingrecord",
-            unique_together={("email_hash", "campaign_key", "campaign_count")},
+        migrations.RunSQL(
+            sql="""
+            CREATE UNIQUE INDEX CONCURRENTLY idx_messagingrecord_unique_on_email_hash_campaign_key_campaign_count
+            ON posthog_messagingrecord (email_hash, campaign_key, campaign_count);
+            """,
+            reverse_sql="""
+            DROP INDEX CONCURRENTLY "idx_messagingrecord_unique_on_email_hash_campaign_key_campaign_count";
+            """,
         ),
     ]
