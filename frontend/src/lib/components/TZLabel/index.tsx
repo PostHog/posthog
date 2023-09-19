@@ -7,9 +7,8 @@ import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
-import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import clsx from 'clsx'
-import React from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { styles } from '../../../styles/vars'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
@@ -37,6 +36,60 @@ interface TZLabelRawProps {
     className?: string
 }
 
+const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
+    showSeconds,
+    time,
+}: Pick<TZLabelRawProps, 'showSeconds'> & { time: dayjs.Dayjs }): JSX.Element {
+    const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : `${BASE_OUTPUT_FORMAT}:ss`
+    const timeStyle = showSeconds ? { minWidth: 192 } : undefined
+    const { currentTeam } = useValues(teamLogic)
+    const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
+
+    useEffect(() => {
+        reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
+    }, [])
+
+    return (
+        <div className="tz-label-popover">
+            <TZConversionHeader />
+            <div className="divider" />
+            <div className="timezones">
+                <Row className="timezone">
+                    <Col className="name">
+                        <LaptopOutlined /> {shortTimeZone(undefined, time.toDate())}
+                    </Col>
+                    <Col className="scope">Your device</Col>
+                    <Col className="time" style={timeStyle}>
+                        {time.format(DATE_OUTPUT_FORMAT)}
+                    </Col>
+                </Row>
+                {currentTeam && (
+                    <Row className="timezone">
+                        <Col className="name">
+                            <ProjectOutlined /> {shortTimeZone(currentTeam.timezone, time.toDate())}
+                        </Col>
+                        <Col className="scope">Project</Col>
+                        <Col className="time" style={timeStyle}>
+                            {time.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
+                        </Col>
+                    </Row>
+                )}
+                {currentTeam?.timezone !== 'UTC' && (
+                    <Row className="timezone">
+                        <Col className="name">
+                            <GlobalOutlined /> UTC
+                        </Col>
+                        <Col className="scope" />
+                        <Col className="time" style={timeStyle}>
+                            {time.tz('UTC').format(DATE_OUTPUT_FORMAT)}
+                        </Col>
+                    </Row>
+                )}
+            </div>
+        </div>
+    )
+})
+
 /** Return a simple label component with timezone conversion UI. */
 function TZLabelRaw({
     time,
@@ -47,73 +100,39 @@ function TZLabelRaw({
     noStyles = false,
     className,
 }: TZLabelRawProps): JSX.Element {
-    usePeriodicRerender(1000)
+    // usePeriodicRerender(1000)
 
-    const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
-    const { currentTeam } = useValues(teamLogic)
+    const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
 
-    const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : `${BASE_OUTPUT_FORMAT}:ss`
-    const timeStyle = showSeconds ? { minWidth: 192 } : undefined
+    const format = useCallback(() => {
+        return formatDate || formatTime
+            ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
+            : parsedTime.fromNow()
+    }, [formatDate, formatTime, parsedTime])
 
-    const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
+    const [formattedContent, setFormattedContent] = useState(format())
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (format() !== formattedContent) {
+                setFormattedContent(format())
+            }
+        }, 1000)
+        return () => clearInterval(interval)
+    }, [parsedTime])
 
     const innerContent = (
         <span className={!noStyles ? clsx('tz-label', showPopover && 'tz-label--hoverable', className) : className}>
-            {formatDate || formatTime
-                ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
-                : parsedTime.fromNow()}
+            {formattedContent}
         </span>
     )
 
     if (showPopover) {
-        const handleVisibleChange = (visible: boolean): void => {
-            if (visible) {
-                reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
-            }
-        }
-
-        const PopoverContent = (
-            <div className="tz-label-popover">
-                <TZConversionHeader />
-                <div className="divider" />
-                <div className="timezones">
-                    <Row className="timezone">
-                        <Col className="name">
-                            <LaptopOutlined /> {shortTimeZone(undefined, parsedTime.toDate())}
-                        </Col>
-                        <Col className="scope">Your device</Col>
-                        <Col className="time" style={timeStyle}>
-                            {parsedTime.format(DATE_OUTPUT_FORMAT)}
-                        </Col>
-                    </Row>
-                    {currentTeam && (
-                        <Row className="timezone">
-                            <Col className="name">
-                                <ProjectOutlined /> {shortTimeZone(currentTeam.timezone, parsedTime.toDate())}
-                            </Col>
-                            <Col className="scope">Project</Col>
-                            <Col className="time" style={timeStyle}>
-                                {parsedTime.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
-                            </Col>
-                        </Row>
-                    )}
-                    {currentTeam?.timezone !== 'UTC' && (
-                        <Row className="timezone">
-                            <Col className="name">
-                                <GlobalOutlined /> UTC
-                            </Col>
-                            <Col className="scope" />
-                            <Col className="time" style={timeStyle}>
-                                {parsedTime.tz('UTC').format(DATE_OUTPUT_FORMAT)}
-                            </Col>
-                        </Row>
-                    )}
-                </div>
-            </div>
-        )
-
         return (
-            <Popover content={PopoverContent} onVisibleChange={handleVisibleChange} zIndex={styles.zPopover}>
+            <Popover
+                content={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} />}
+                zIndex={styles.zPopover}
+            >
                 {innerContent}
             </Popover>
         )
