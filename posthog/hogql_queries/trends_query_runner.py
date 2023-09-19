@@ -4,6 +4,7 @@ from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -55,7 +56,7 @@ class TrendsQueryRunner(QueryRunner):
                                         count(*) AS total,
                                         dateTrunc({interval}, toTimeZone(toDateTime(timestamp), 'UTC')) AS date
                                     FROM events AS e
-                                    WHERE (team_id = 1) AND ({event}) AND (toTimeZone(timestamp, 'UTC') >= {date_from}) AND (toTimeZone(timestamp, 'UTC') <= {date_to})
+                                    WHERE {events_filter}
                                     GROUP BY date
                                 )
                                 GROUP BY day_start
@@ -63,8 +64,8 @@ class TrendsQueryRunner(QueryRunner):
                             )
                         """,
                         placeholders={
-                            **self.series_placeholder(series),
                             **self.query_date_range.to_placeholders(),
+                            "events_filter": self.events_filter(series),
                         },
                         timings=self.timings,
                     )
@@ -107,14 +108,52 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsQueryResponse(result=res, timings=timings)
 
-    def series_placeholder(self, series: EventsNode | ActionsNode) -> Dict[str, Any]:
-        if series.event is not None:
-            return {"event": parse_expr(f"event = '{series.event}'")}
-
-        return {"event": parse_expr("1 = 1")}
-
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
             date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
         )
+
+    def events_filter(self, series: EventsNode | ActionsNode) -> ast.Expr:
+        filters: List[ast.Expr] = []
+
+        # Team ID
+        filters.append(parse_expr("team_id = {team_id}", placeholders={"team_id": ast.Constant(value=self.team.pk)}))
+
+        # Date From
+        filters.append(
+            parse_expr(
+                "(toTimeZone(timestamp, 'UTC') >= {date_from})", placeholders=self.query_date_range.to_placeholders()
+            )
+        )
+
+        # Date To
+        filters.append(
+            parse_expr(
+                "(toTimeZone(timestamp, 'UTC') <= {date_to})", placeholders=self.query_date_range.to_placeholders()
+            )
+        )
+
+        # Series
+        if series.event is not None:
+            filters.append(parse_expr("event = {event}", placeholders={"event": ast.Constant(value=series.event)}))
+
+        # Filter Test Accounts
+        if (
+            self.query.filterTestAccounts
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
+            for property in self.team.test_account_filters:
+                filters.append(property_to_expr(property, self.team))
+
+        # Properties
+        if self.query.properties is not None and self.query.properties != []:
+            filters.append(property_to_expr(self.query.properties, self.team))
+
+        if len(filters) == 0:
+            return ast.Constant(value=True)
+        elif len(filters) == 1:
+            return filters[0]
+        else:
+            return ast.And(exprs=filters)
