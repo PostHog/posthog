@@ -63,7 +63,6 @@ export interface NotebookEditor {
     setSelection: (position: number) => void
     focus: (position: EditorFocusPosition) => void
     destroy: () => void
-    isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
