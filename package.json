@@ -306,7 +306,7 @@
             "last 2 edge versions"
         ],
         "production": [
-            "defaults"
+            "defaults and not not op_mini all"
         ]
     },
     "browser": {
