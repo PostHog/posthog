@@ -33,7 +33,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
 
     // Meta properties - these should never be too advanced - more advanced should be done via updateAttributes in the component
-    defaultTitle: string | ((attributes: NotebookNodeAttributes<T>) => string)
+    defaultTitle: string
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
 
     // Sizing
@@ -117,13 +117,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
     // If a title is set on the attrs we use it. Otherwise we use the base component title.
-    const title = useMemo(() => {
-        return attributes.title
-            ? attributes.title
-            : typeof defaultTitle === 'function'
-            ? defaultTitle(attributes)
-            : defaultTitle
-    }, [attributes.title, defaultTitle])
+    const title = attributes.title ? attributes.title : defaultTitle
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
