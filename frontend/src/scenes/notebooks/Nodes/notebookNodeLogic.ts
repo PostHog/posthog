@@ -73,6 +73,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setPreviousNode: (node: Node | null) => ({ node }),
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
+        selectNode: true,
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -140,6 +141,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
             if (values.notebookLogic.values.editingNodeId === props.nodeId) {
                 values.notebookLogic.actions.setEditingNodeId(null)
+            }
+        },
+
+        selectNode: () => {
+            const editor = values.notebookLogic.values.editor
+
+            if (editor) {
+                editor.setSelection(props.getPos())
+                editor.scrollToSelection()
             }
         },
 
