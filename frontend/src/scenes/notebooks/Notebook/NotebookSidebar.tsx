@@ -19,6 +19,7 @@ export const NotebookSidebar = (): JSX.Element | null => {
                 'NotebookSidebar--showing': isShowingSidebar,
             })}
         >
+            <div className="NotebookSidebar__padding" />
             <div className="NotebookSidebar__content">
                 {editingNodeLogic && isShowingSidebar && <Widgets logic={editingNodeLogic} />}
             </div>
