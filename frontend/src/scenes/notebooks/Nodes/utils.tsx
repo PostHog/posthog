@@ -129,6 +129,7 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
                 }),
                 {}
             )
+            // NOTE: queueMicrotask protects us from TipTap's flushSync calls, ensuring we never modify the state whilst the flush is happening
             queueMicrotask(() => props.updateAttributes(stringifiedAttrs))
         },
         [props.updateAttributes]
