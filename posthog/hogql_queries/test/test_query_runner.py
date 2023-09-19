@@ -1,6 +1,10 @@
+from datetime import datetime, timedelta
+from dateutil.parser import isoparse
+from zoneinfo import ZoneInfo
 from typing import Any, List, Literal, Optional, Type
+from freezegun import freeze_time
 from pydantic import BaseModel
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import QueryResponse, QueryRunner
 from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
 from posthog.types import InsightQueryNode
@@ -18,6 +22,17 @@ class QueryRunnerTest(BaseTest):
 
         class TestQueryRunner(QueryRunner):
             query_type = query_class
+
+            def calculate(self) -> QueryResponse:
+                return QueryResponse(result=list())
+
+            def _refresh_frequency(self) -> timedelta:
+                return timedelta(minutes=4)
+
+            def _is_stale(self, cached_result_package) -> bool:
+                return isoparse(cached_result_package.last_refresh) + timedelta(minutes=10) <= datetime.now(
+                    tz=ZoneInfo("UTC")
+                )
 
         TestQueryRunner.__abstractmethods__ = frozenset()
 
@@ -83,3 +98,28 @@ class QueryRunnerTest(BaseTest):
 
         cache_key = runner._cache_key()
         self.assertEqual(cache_key, "cache_0fa2172980705adb41741351f40189b7")
+
+    def test_cache_response(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)  # type: ignore
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            # returns fresh response if uncached
+            response = runner.run(refresh_requested=False)
+            self.assertEqual(response.is_cached, False)
+            self.assertEqual(response.last_refresh, "2023-02-04T13:37:42Z")
+            self.assertEqual(response.next_allowed_client_refresh, "2023-02-04T13:41:42Z")
+
+            # returns cached response afterwards
+            response = runner.run(refresh_requested=False)
+            self.assertEqual(response.is_cached, True)
+
+            # return fresh response if refresh requested
+            response = runner.run(refresh_requested=True)
+            self.assertEqual(response.is_cached, False)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
+            # returns fresh response if stale
+            response = runner.run(refresh_requested=False)
+            self.assertEqual(response.is_cached, False)
