@@ -1,7 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql_queries.persons_query_runner import PersonsQueryRunner
 from posthog.models.utils import UUIDT
-from posthog.schema import PersonsQuery
+from posthog.schema import PersonsQuery, PersonPropertyFilter, HogQLPropertyFilter, PropertyOperator
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 
 
@@ -33,11 +33,34 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ast.SelectQuery(
                 select=[],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-                where=None,
+                where=ast.Constant(value=True),
                 limit=ast.Constant(value=101),
                 offset=ast.Constant(value=0),
             ),
         )
-
         response = runner.run()
         self.assertEqual(len(response.results), 10)
+
+    def test_persons_query_properties(self):
+        random_uuid = self._create_random_persons()
+        runner = self._create_runner(
+            PersonsQuery(
+                properties=[
+                    PersonPropertyFilter(key="random_uuid", value=random_uuid, operator=PropertyOperator.exact),
+                    HogQLPropertyFilter(key="toInt(properties.index) > 5"),
+                ]
+            )
+        )
+        self.assertEqual(len(runner.run().results), 4)
+
+    def test_persons_query_fixed_properties(self):
+        random_uuid = self._create_random_persons()
+        runner = self._create_runner(
+            PersonsQuery(
+                fixedProperties=[
+                    PersonPropertyFilter(key="random_uuid", value=random_uuid, operator=PropertyOperator.exact),
+                    HogQLPropertyFilter(key="toInt(properties.index) < 2"),
+                ]
+            )
+        )
+        self.assertEqual(len(runner.run().results), 2)

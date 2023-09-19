@@ -35,23 +35,30 @@ class PersonsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        where: List[ast.Expr] = []
+        where_exprs: List[ast.Expr] = []
 
         if self.query.properties:
-            where.append(property_to_expr(self.query.properties, self.team))
+            where_exprs.append(property_to_expr(self.query.properties, self.team, scope="person"))
 
         if self.query.fixedProperties:
-            where.append(property_to_expr(self.query.fixedProperties, self.team))
+            where_exprs.append(property_to_expr(self.query.fixedProperties, self.team, scope="person"))
 
         if self.query.source:
             source = self.query.source
             if isinstance(source, LifecycleQuery):
                 source_query = get_query_runner(source, self.team, self.timings).to_persons_query()
-                where.append(
+                where_exprs.append(
                     ast.CompareOperation(op=ast.CompareOperationOp.In, left=ast.Field(chain=["id"]), right=source_query)
                 )
             else:
                 raise ValueError(f"Queries of type '{source.kind}' are not supported as a PersonsQuery sources.")
+
+        if len(where_exprs) == 0:
+            where = ast.Constant(value=True)
+        elif len(where_exprs) == 1:
+            where = where_exprs[0]
+        else:
+            where = ast.And(exprs=where_exprs)
 
         # adding +1 to the limit to check if there's a "next page" after the requested results
         from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
@@ -65,7 +72,7 @@ class PersonsQueryRunner(QueryRunner):
             stmt = ast.SelectQuery(
                 select=[],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-                where=ast.And(exprs=where) if len(where) > 0 else None,
+                where=where,
                 # having=having,
                 # group_by=group_by if has_any_aggregation else None,
                 # order_by=order_by,
