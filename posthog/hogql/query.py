@@ -32,7 +32,7 @@ def execute_hogql_query(
         timings = HogQLTimings()
 
     with timings.measure("query"):
-        if isinstance(query, ast.SelectQuery):
+        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
             select_query = query
             query = None
         else:
@@ -57,12 +57,16 @@ def execute_hogql_query(
                 )
             select_query = replace_placeholders(select_query, placeholders)
 
-    if select_query.limit is None:
-        with timings.measure("max_limit"):
-            # One more "max" of MAX_SELECT_RETURNED_ROWS (100k) in applied in the query printer, overriding this if higher.
-            from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+    with timings.measure("max_limit"):
+        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 
-            select_query.limit = ast.Constant(value=default_limit or DEFAULT_RETURNED_ROWS)
+        select_queries = (
+            select_query.select_queries if isinstance(select_query, ast.SelectUnionQuery) else [select_query]
+        )
+        for one_query in select_queries:
+            if one_query.limit is None:
+                # One more "max" of MAX_SELECT_RETURNED_ROWS (100k) in applied in the query printer.
+                one_query.limit = ast.Constant(value=default_limit or DEFAULT_RETURNED_ROWS)
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
@@ -83,7 +87,12 @@ def execute_hogql_query(
         with timings.measure("print_ast"):
             hogql = print_prepared_ast(select_query_hogql, hogql_query_context, "hogql")
             print_columns = []
-            for node in select_query_hogql.select:
+            columns_query = (
+                select_query_hogql.select_queries[0]
+                if isinstance(select_query_hogql, ast.SelectUnionQuery)
+                else select_query_hogql
+            )
+            for node in columns_query.select:
                 if isinstance(node, ast.Alias):
                     print_columns.append(node.alias)
                 else:

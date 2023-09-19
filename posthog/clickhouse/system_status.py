@@ -9,11 +9,9 @@ from django.utils import timezone
 from posthog.api.dead_letter_queue import get_dead_letter_queue_events_last_24h, get_dead_letter_queue_size
 from posthog.cache_utils import cache_for
 from posthog.client import query_with_columns, sync_execute
-from posthog.cloud_utils import is_cloud
 from posthog.models.event.util import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
 from posthog.session_recordings.models.system_status_queries import (
-    get_recording_count_month_to_date,
-    get_recording_events_count_month_to_date,
+    get_recording_status_month_to_date,
 )
 
 SLOW_THRESHOLD_MS = 10000
@@ -44,19 +42,24 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": get_event_count_month_to_date(),
     }
 
-    if not is_cloud():
-        # NOTE: These metrics can be quite expensive to calculate and are only really interesting to self-hosted customers
-        yield {
-            "key": "clickhouse_session_recordings_count_month_to_date",
-            "metric": "Session recordings month to date",
-            "value": get_recording_count_month_to_date(),
-        }
+    recordings_status = get_recording_status_month_to_date()
+    yield {
+        "key": "clickhouse_session_recordings_count_month_to_date",
+        "metric": "Session recordings month to date",
+        "value": recordings_status.count,
+    }
 
-        yield {
-            "key": "clickhouse_session_recordings_events_count_month_to_date",
-            "metric": "Session recordings events month to date",
-            "value": get_recording_events_count_month_to_date(),
-        }
+    yield {
+        "key": "clickhouse_session_recordings_events_count_month_to_date",
+        "metric": "Session recordings events month to date",
+        "value": recordings_status.events,
+    }
+
+    yield {
+        "key": "clickhouse_session_recordings_events_size_ingested",
+        "metric": "Session recordings events data ingested month to date",
+        "value": recordings_status.size,
+    }
 
     disk_status = sync_execute(
         "SELECT formatReadableSize(total_space), formatReadableSize(free_space) FROM system.disks"

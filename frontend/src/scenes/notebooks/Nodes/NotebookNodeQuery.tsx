@@ -197,7 +197,6 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     widgets: [
         {
             key: 'settings',
-            label: 'Settings',
             Component: Settings,
         },
     ],
