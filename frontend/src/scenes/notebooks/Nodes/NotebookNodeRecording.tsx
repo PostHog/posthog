@@ -5,7 +5,11 @@ import {
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
-import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    SessionRecordingPlayerMode,
+    getCurrentPlayerTime,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { useEffect } from 'react'
@@ -17,6 +21,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
@@ -36,7 +41,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
     const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, insertReplayCommentByTimestamp } = useActions(notebookNodeLogic)
 
     useEffect(() => {
         loadRecordingMeta()
@@ -48,7 +53,17 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
             const person = sessionPlayerMetaData?.person
             setActions([
                 {
+                    text: 'Comment',
+                    icon: <IconComment />,
+                    onClick: () => {
+                        const time = getCurrentPlayerTime(recordingLogicProps) * 1000
+
+                        insertReplayCommentByTimestamp(time, id)
+                    },
+                },
+                {
                     text: `View ${asDisplay(person)}`,
+                    icon: <IconPerson />,
                     onClick: () => {
                         insertAfter({
                             type: NotebookNodeType.Person,
