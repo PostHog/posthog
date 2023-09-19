@@ -442,9 +442,16 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
 
-export interface LifecycleQueryResponse {
-    result: Record<string, any>[]
+export interface QueryResponse {
+    result: unknown
     timings?: QueryTiming[]
+    is_cached?: boolean
+    last_refresh?: string
+    next_allowed_client_refresh?: string
+}
+
+export interface LifecycleQueryResponse extends QueryResponse {
+    result: Record<string, any>[]
 }
 
 export interface LifecycleQuery extends InsightsQueryBase {
