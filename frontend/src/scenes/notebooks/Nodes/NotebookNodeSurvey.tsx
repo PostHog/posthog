@@ -14,12 +14,31 @@ import { SurveyResult } from 'scenes/surveys/SurveyView'
 import { SurveyAppearance } from 'scenes/surveys/SurveyAppearance'
 import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
 import api from 'lib/api'
+import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = props.attributes
     const { survey, surveyLoading, hasTargetingFlag } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        if (survey.linked_flag) {
+            const actions = [
+                {
+                    text: 'View linked flag',
+                    onClick: () => {
+                        if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
+                            insertAfter(buildFlagContent((survey.linked_flag as FeatureFlagBasicType).id))
+                        }
+                    },
+                },
+            ]
+            setActions(actions)
+        } else {
+            setActions([])
+        }
+    }, [survey])
 
     return (
         <div>
@@ -80,7 +99,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
                         )}
                     </>
                 ) : null}
-
+{/* 
                 <LemonDivider className="my-0" />
                 <div className="p-2 mr-1 flex justify-end gap-2">
                     {survey.linked_flag && (
@@ -102,7 +121,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
                         >
                             View Linked Flag
                         </LemonButton>
-                    )}
+                    )} */}
                 </div>
             </BindLogic>
         </div>
