@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 import {
     SessionRecordingPlayerMode,
     getCurrentPlayerTime,
-    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
