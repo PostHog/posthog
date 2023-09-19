@@ -9,10 +9,11 @@ DROP TABLE IF EXISTS {table} ON CLUSTER '{cluster}';
 
 tables = [
     "kafka_session_recording_events_partition_statistics",
-    "session_recording_events",
+    "kafka_session_recording_events",
     "session_recording_events_partition_statistics_mv",
-    "sharded_session_recording_events",
     "writable_session_recording_events",
+    "sharded_session_recording_events",
+    "session_recording_events",
 ]
 
 
