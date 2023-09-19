@@ -13,7 +13,6 @@ import { StatusTag } from 'scenes/surveys/Surveys'
 import { SurveyResult } from 'scenes/surveys/SurveyView'
 import { SurveyAppearance } from 'scenes/surveys/SurveyAppearance'
 import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
-import api from 'lib/api'
 import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): JSX.Element => {
@@ -39,6 +38,10 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
             setActions([])
         }
     }, [survey])
+
+    useEffect(() => {
+        props.updateAttributes({ title: survey.name ? `Survey: ${survey.name}` : 'Survey' })
+    }, [survey.name])
 
     return (
         <div>
@@ -134,17 +137,7 @@ type NotebookNodeSurveyAttributes = {
 
 export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttributes>({
     nodeType: NotebookNodeType.Survey,
-    title: async (attributes) => {
-        const mountedLogic = surveyLogic.findMounted({ id: attributes.id })
-        let title = mountedLogic?.values.survey.name || null
-        if (title === null) {
-            const retrievedSurvey: Survey = await api.surveys.get(attributes.id)
-            if (retrievedSurvey) {
-                title = retrievedSurvey.name
-            }
-        }
-        return title ? `Survey: ${title}` : 'Survey'
-    },
+    defaultTitle: 'Survey',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.survey(attrs.id),

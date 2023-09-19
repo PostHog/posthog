@@ -40,6 +40,12 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
     //     ])
     // }, [person])
 
+    useEffect(() => {
+        props.updateAttributes({
+            title: person ? `Person: ${asDisplay(person)}` : 'Person',
+        })
+    }, [person])
+
     return (
         <div className="flex flex-col overflow-hidden">
             <div className="p-4 flex-0 font-semibold">
@@ -82,7 +88,7 @@ type NotebookNodePersonAttributes = {
 
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
     nodeType: NotebookNodeType.Person,
-    title: 'Person',
+    defaultTitle: 'Person',
     Component,
     heightEstimate: 300,
     minHeight: 100,
@@ -92,7 +98,7 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
         id: {},
     },
     pasteOptions: {
-        find: urls.person('(.+)'),
+        find: urls.person('(.+)', false),
         getAttributes: async (match) => {
             return { id: match[1] }
         },
