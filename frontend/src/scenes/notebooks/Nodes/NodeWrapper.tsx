@@ -8,7 +8,7 @@ import {
     NodeViewProps,
     getExtensionField,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useRef } from 'react'
+import { ReactNode, useCallback, useMemo, useRef } from 'react'
 import clsx from 'clsx'
 import { IconClose, IconDragHandle, IconFilter, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -117,12 +117,13 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
     // If a title is set on the attrs we use it. Otherwise we use the base component title.
-    const titleViaAttrs = attributes.title
-    const parsedTitle = titleViaAttrs
-        ? titleViaAttrs
-        : typeof defaultTitle === 'function'
-        ? defaultTitle(attributes)
-        : defaultTitle
+    const title = useMemo(() => {
+        return attributes.title
+            ? attributes.title
+            : typeof defaultTitle === 'function'
+            ? defaultTitle(attributes)
+            : defaultTitle
+    }, [attributes.title, defaultTitle])
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
@@ -161,7 +162,7 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                             ) : undefined
                                         }
                                     >
-                                        <span className="flex-1 cursor-pointer">{parsedTitle}</span>
+                                        <span className="flex-1 cursor-pointer">{title}</span>
                                     </LemonButton>
 
                                     <div className="flex space-x-1">
