@@ -48,12 +48,14 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className="p-4 flex-0 font-semibold">
+            <div className="p-4 flex-0 flex gap-2 justify-between">
                 {personLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (
                     <>
-                        <PersonDisplay withIcon person={person} noLink noPopover />
+                        <span className="font-semibold">
+                            <PersonDisplay withIcon person={person} noLink noPopover />
+                        </span>
 
                         {person ? (
                             <div>
