@@ -257,6 +257,7 @@ export class HookCommander {
     organizationManager: OrganizationManager
     statsd: StatsD | undefined
     siteUrl: string
+    /** null means that the hostname guard is enabled for everyone */
     fetchHostnameGuardTeams: Set<number> | null
 
     /** Hook request timeout in ms. */
