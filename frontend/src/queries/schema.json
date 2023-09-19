@@ -1445,6 +1445,9 @@
                 "last_refresh": {
                     "type": "string"
                 },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
                 "result": {
                     "items": {
                         "type": "object"

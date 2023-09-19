@@ -625,6 +625,7 @@ class LifecycleQueryResponse(BaseModel):
     )
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
     result: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
 

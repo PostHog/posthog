@@ -445,8 +445,9 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
 export interface QueryResponse {
     result: unknown
     timings?: QueryTiming[]
-    last_refresh?: string
     is_cached?: boolean
+    last_refresh?: string
+    next_allowed_client_refresh?: string
 }
 
 export interface LifecycleQueryResponse extends QueryResponse {
