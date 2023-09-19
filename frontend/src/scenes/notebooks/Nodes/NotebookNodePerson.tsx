@@ -18,6 +18,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
     const { expanded } = useValues(notebookNodeLogic)
+    // const { setActions, insertAfter } = useActions(notebookNodeLogic)
 
     const title = person ? `Person: ${asDisplay(person)}` : 'Person'
 
@@ -26,6 +27,18 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
             props.updateAttributes({ title })
         }, 0)
     }, [title])
+
+    // useEffect(() => {
+    //     setActions([
+    //         {
+    //             text: "Events",
+    //             onClick: () => {
+    //                 insertAfter({
+    //                     type: NotebookNodeType.Events,
+    //                 })
+    //         }
+    //     ])
+    // }, [person])
 
     return (
         <div className="flex flex-col overflow-hidden">
