@@ -74,8 +74,7 @@ class QueryRunner(ABC):
 
         if not refresh_requested:
             cached_response = get_safe_cache(cache_key)
-
-            if cached_response and cached_response.result:
+            if cached_response:
                 if not self._is_stale(cached_response):
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                     cached_response.is_cached = True
