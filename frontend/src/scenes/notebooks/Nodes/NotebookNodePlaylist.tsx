@@ -25,17 +25,20 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     const { filters, nodeId } = props.attributes
     const playerKey = `notebook-${nodeId}`
 
-    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = {
-        logicKey: playerKey,
-        filters,
-        updateSearchParams: false,
-        autoPlay: false,
-        onFiltersChange: (newFilters) => {
-            props.updateAttributes({
-                filters: newFilters,
-            })
-        },
-    }
+    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = useMemo(
+        () => ({
+            logicKey: playerKey,
+            filters,
+            updateSearchParams: false,
+            autoPlay: false,
+            onFiltersChange: (newFilters: RecordingFilters) => {
+                props.updateAttributes({
+                    filters: newFilters,
+                })
+            },
+        }),
+        [playerKey, filters]
+    )
 
     const { expanded } = useValues(notebookNodeLogic)
     const { setActions, insertAfter } = useActions(notebookNodeLogic)

@@ -57,7 +57,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     widgets?: NotebookNodeWidget[]
 }
 
-export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
+function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     defaultTitle,
     nodeType,
     children,
@@ -77,8 +77,8 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     widgets = [],
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId } = useValues(mountedNotebookLogic)
-    const { setEditingNodeId } = useActions(mountedNotebookLogic)
+    const { isEditable, editingNodeId } = useValues(notebookLogic)
+    const { setEditingNodeId } = useActions(notebookLogic)
 
     // nodeId can start null, but should then immediately be generated
     const nodeId = attributes.nodeId
@@ -244,6 +244,8 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         </NotebookNodeContext.Provider>
     )
 }
+
+// const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 
 export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
