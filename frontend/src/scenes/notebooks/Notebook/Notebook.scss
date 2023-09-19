@@ -119,6 +119,10 @@
             // Add some padding to help clicking below the last element
             padding-bottom: 10rem;
             flex: 1;
+
+            & p {
+                min-width: 1px;
+            }
         }
     }
 
