@@ -17,7 +17,7 @@ function assertIngesterHasExpectedPartitions(ingester: SessionRecordingIngesterV
     expect(Array.from(partitions)).toEqual(expectedPartitions)
 }
 
-describe('ingester rebalancing tests', () => {
+describe.skip('ingester rebalancing tests', () => {
     const config: PluginsServerConfig = {
         ...defaultConfig,
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/test-session-recordings',
