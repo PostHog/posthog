@@ -54,7 +54,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         }
 
         props.updateAttributes({ title: title })
-    }, [])
+    }, [query])
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }
