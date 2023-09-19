@@ -371,7 +371,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <div className="relative w-full flex flex-col gap-4 flex-1">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
-                        <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
+                        <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
                     {showFirstRow && (
                         <div className="flex gap-4 items-center flex-wrap">

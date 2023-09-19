@@ -86,6 +86,7 @@ export const Settings = ({
             modifiedQuery.showResultsTable = false
             modifiedQuery.showReload = false
             modifiedQuery.showElapsedTime = false
+            modifiedQuery.embedded = true
         }
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
@@ -196,7 +197,6 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     widgets: [
         {
             key: 'settings',
-            label: 'Settings',
             Component: Settings,
         },
     ],
