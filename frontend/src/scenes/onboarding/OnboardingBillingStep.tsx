@@ -6,12 +6,11 @@ import { onboardingLogic } from './onboardingLogic'
 import { BillingProductV2Type } from '~/types'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { BillingHero } from 'scenes/billing/BillingHero'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
-import { BillingProductAddon } from 'scenes/billing/BillingProduct'
 import { StarHog } from 'lib/components/hedgehogs'
 
 export const OnboardingBillingStep = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
@@ -29,7 +28,7 @@ export const OnboardingBillingStep = ({ product }: { product: BillingProductV2Ty
                 product?.subscribed ? undefined : (
                     <LemonButton
                         // TODO: redirect path won't work properly until navigation is properly set up
-                        to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, false)}
+                        to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
                         type="primary"
                         center
                         disableClientSideRouting
@@ -58,24 +57,11 @@ export const OnboardingBillingStep = ({ product }: { product: BillingProductV2Ty
                                     <StarHog className="h-full w-full" />
                                 </div>
                             </div>
-                            {product.addons?.length ? (
-                                <div>
-                                    <LemonDivider dashed className="mb-8" />
-                                    <h3 className="text-lg font-bold">Need additional features?</h3>
-                                    <p className="ml-0 mb-6">
-                                        Addons extend PostHog's core functionality for users who need extra features.
-                                        Add or remove addons at any time.
-                                    </p>
-                                    {product.addons?.map((addon) => (
-                                        <BillingProductAddon addon={addon} key={'onboarding-addon-' + addon.type} />
-                                    ))}
-                                </div>
-                            ) : null}
                         </div>
                     ) : (
                         <>
                             <BillingHero />
-                            <PlanComparison product={product} />
+                            <PlanComparison product={product} includeAddons />
                         </>
                     )}
                 </div>
