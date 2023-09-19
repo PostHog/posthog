@@ -242,11 +242,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         setQuery: ({ query }) => {
-            if (props.setQuery) {
-                props.setQuery(query as InsightVizNode)
-            }
-
             if (isInsightVizNode(query)) {
+                if (props.setQuery) {
+                    props.setQuery(query as InsightVizNode)
+                }
+
                 const querySource = query.source
                 const filters = queryNodeToFilter(querySource)
                 actions.setFilters(filters)

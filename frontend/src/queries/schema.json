@@ -1448,6 +1448,15 @@
                 "hogql": {
                     "type": "string"
                 },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
                 "result": {
                     "items": {
                         "type": "object"
@@ -1461,7 +1470,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result", "hogql"],
+            "required": ["hogql", "result"],
             "type": "object"
         },
         "LifecycleToggle": {

@@ -10,7 +10,7 @@ import {
     isTimeToSeeDataSessionsNode,
     isHogQLQuery,
     isInsightVizNode,
-    isLifecycleQuery,
+    isQueryWithHogQLSupport,
     isPersonsQuery,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
@@ -115,7 +115,7 @@ export async function query<N extends DataNode = DataNode>(
     try {
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
-        } else if (isInsightQueryNode(queryNode) && !(hogQLInsightsFlagEnabled && isLifecycleQuery(queryNode))) {
+        } else if (isInsightQueryNode(queryNode) && !(hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(queryNode))) {
             const filters = queryNodeToFilter(queryNode)
             const params = {
                 ...filters,
@@ -142,7 +142,7 @@ export async function query<N extends DataNode = DataNode>(
                 methodOptions
             )
         } else {
-            response = await api.query(queryNode, methodOptions, queryId)
+            response = await api.query(queryNode, methodOptions, queryId, refresh)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }

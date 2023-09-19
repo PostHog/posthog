@@ -1583,7 +1583,8 @@ const api = {
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         options?: ApiMethodOptions,
-        queryId?: string
+        queryId?: string,
+        refresh?: boolean
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1591,7 +1592,9 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({ ...options, data: { query, client_query_id: queryId } })
+        return await new ApiRequest()
+            .query()
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

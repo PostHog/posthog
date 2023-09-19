@@ -35,6 +35,7 @@ from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySeria
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
+from posthog.utils import refresh_requested_by_client
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -92,10 +93,9 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def list(self, request: Request, **kw) -> HttpResponse:
         self._tag_client_query_id(request.GET.get("client_query_id"))
         query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
-
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json), safe=False)
+            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -107,7 +107,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         self._tag_client_query_id(request_json.get("client_query_id"))
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json), safe=False)
+            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -196,7 +196,9 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
     return cast(dict, _unwrap_pydantic(response))
 
 
-def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:
+def process_query(
+    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
+) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
@@ -204,8 +206,9 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     tag_queries(query=query_json)
 
     if query_kind == "LifecycleQuery" or query_kind == "PersonsQuery":
+        refresh_requested = refresh_requested_by_client(request) if request else False
         query_runner = get_query_runner(query_json, team)
-        return _unwrap_pydantic_dict(query_runner.run())
+        return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "EventsQuery":
         events_query = EventsQuery.model_validate(query_json)
         events_response = run_events_query(query=events_query, team=team, default_limit=default_limit)
