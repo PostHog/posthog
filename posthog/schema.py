@@ -643,11 +643,14 @@ class PersonsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: List
+    hasMore: Optional[bool] = None
     hogql: str
     results: List[List] = Field(
         ..., description="Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ]"
     )
     timings: Optional[List[QueryTiming]] = None
+    types: List[str]
 
 
 class RetentionFilter(BaseModel):
@@ -1213,13 +1216,18 @@ class PersonsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    day: Optional[str] = None
-    group: Optional[str] = None
+    fixedProperties: Optional[List[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = None
     kind: Literal["PersonsQuery"] = "PersonsQuery"
+    limit: Optional[float] = None
+    offset: Optional[float] = None
     properties: Optional[List[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = None
     response: Optional[PersonsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    source: Optional[
+        Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    ] = None
+    sourceDay: Optional[str] = None
+    sourceGroup: Optional[str] = None
 
 
 class DataTableNode(BaseModel):

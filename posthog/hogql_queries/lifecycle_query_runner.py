@@ -72,7 +72,7 @@ class LifecycleQueryRunner(QueryRunner):
             )
         return lifecycle_query
 
-    def to_persons_query(self) -> str:
+    def to_persons_query(self) -> ast.SelectQuery:
         # TODO: add support for selecting and filtering by breakdowns
         with self.timings.measure("persons_query"):
             return parse_select(

@@ -1674,15 +1674,28 @@
         "PersonsQuery": {
             "additionalProperties": false,
             "properties": {
-                "day": {
-                    "type": "string"
-                },
-                "group": {
-                    "type": "string"
+                "fixedProperties": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "PersonsQuery",
                     "type": "string"
+                },
+                "limit": {
+                    "type": "number"
+                },
+                "offset": {
+                    "type": "number"
                 },
                 "properties": {
                     "items": {
@@ -1706,14 +1719,27 @@
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
+                },
+                "sourceDay": {
+                    "type": "string"
+                },
+                "sourceGroup": {
+                    "type": "string"
                 }
             },
-            "required": ["kind", "source"],
+            "required": ["kind"],
             "type": "object"
         },
         "PersonsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -1730,9 +1756,15 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["results", "hogql"],
+            "required": ["results", "columns", "types", "hogql"],
             "type": "object"
         },
         "PropertyFilterValue": {

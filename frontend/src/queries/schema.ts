@@ -466,17 +466,23 @@ export interface LifecycleQuery extends InsightsQueryBase {
 export interface PersonsQueryResponse {
     /** Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ] */
     results: any[][] // typed as any[], not [str, ...any] because python
+    columns: any[]
+    types: string[]
     hogql: string
     timings?: QueryTiming[]
+    hasMore?: boolean
 }
 
 export interface PersonsQuery extends DataNode {
     kind: NodeKind.PersonsQuery
-    source: InsightQueryNode
-    day?: string
-    group?: string
+    source?: InsightQueryNode
+    sourceDay?: string
+    sourceGroup?: string
     search?: string
     properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    fixedProperties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    limit?: number
+    offset?: number
     response?: PersonsQueryResponse
 }
 

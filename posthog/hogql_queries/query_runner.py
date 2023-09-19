@@ -44,7 +44,7 @@ class QueryRunner:
     def to_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def to_persons_query(self) -> str:
+    def to_persons_query(self) -> ast.SelectQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
