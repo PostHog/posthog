@@ -1,7 +1,6 @@
-import { Mark, mergeAttributes } from '@tiptap/core'
+import { Mark, getMarkRange, mergeAttributes } from '@tiptap/core'
 import { linkPasteRule } from '../Nodes/utils'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { router } from 'kea-router'
 
 export const NotebookMarkLink = Mark.create({
     name: 'link',
@@ -30,28 +29,16 @@ export const NotebookMarkLink = Mark.create({
     },
 
     addProseMirrorPlugins() {
+        const { editor, type: markType } = this
         return [
             new Plugin({
                 key: new PluginKey('handleLinkClick'),
                 props: {
                     handleDOMEvents: {
-                        click(view, event) {
-                            if (event.button !== 0) {
-                                return false
-                            }
-
-                            const link = event.target as HTMLAnchorElement
-
-                            const href = link.href
-
-                            if (link && href && !view.editable) {
-                                event.preventDefault()
-
-                                if (isPostHogLink(href)) {
-                                    router.actions.push(link.pathname)
-                                } else {
-                                    window.open(href, link.target)
-                                }
+                        click() {
+                            const range = getMarkRange(editor.state.selection.$anchor, markType)
+                            if (range) {
+                                editor.commands.setTextSelection(range)
                             }
                         },
                     },

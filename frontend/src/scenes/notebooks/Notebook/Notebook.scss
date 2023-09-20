@@ -152,6 +152,32 @@
         }
     }
 
+    .NotebookInlineMenu {
+        margin-bottom: -0.5rem;
+
+        .LemonInput {
+            border: 0px;
+            min-height: 0px;
+        }
+
+        .NotebookInlineMenu__button {
+            border-radius: 2px;
+            background: var(--white);
+            font-size: 1rem;
+            cursor: pointer;
+
+            &--default:hover,
+            &--primary,
+            &--active {
+                color: var(--primary);
+            }
+
+            &--destructive {
+                color: var(--danger);
+            }
+        }
+    }
+
     .NotebookNodeSettings__widgets {
         &__content {
             max-height: calc(100vh - 220px);
