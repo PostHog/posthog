@@ -10,7 +10,6 @@ import {
     InsightType,
     Optional,
 } from '~/types'
-import { SortableActionFilterContainer, SortableActionFilterRow } from './ActionFilterRow/SortableActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -18,6 +17,10 @@ import { teamLogic } from '../../../teamLogic'
 import clsx from 'clsx'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { DndContext } from '@dnd-kit/core'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { verticalSortableListCollisionDetection } from 'lib/sortable'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -159,6 +162,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
+    const sortedItemIds = localFilters.map((i) => i.uuid)
 
     return (
         <div
@@ -173,36 +177,40 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                 </BindLogic>
             )}
             {localFilters ? (
-                sortable ? (
-                    <SortableActionFilterContainer onSortEnd={onSortEnd} lockAxis="y" distance={5} useDragHandle>
-                        {localFilters.map((filter, index) => (
-                            <SortableActionFilterRow
-                                key={index}
-                                typeKey={typeKey}
-                                filter={filter as ActionFilterType}
-                                index={index}
-                                filterIndex={index}
-                                filterCount={localFilters.length}
-                                showNestedArrow={showNestedArrow}
-                                {...commonProps}
-                            />
-                        ))}
-                    </SortableActionFilterContainer>
-                ) : (
-                    localFilters.map((filter, index) => (
-                        <ActionFilterRow
-                            filter={filter as ActionFilterType}
-                            index={index}
-                            key={index}
-                            typeKey={typeKey}
-                            singleFilter={singleFilter}
-                            hideFilter={hideFilter || readOnly}
-                            filterCount={localFilters.length}
-                            showNestedArrow={showNestedArrow}
-                            {...commonProps}
-                        />
-                    ))
-                )
+                <ul>
+                    <DndContext
+                        onDragEnd={({ active, over }) => {
+                            if (over && active.id !== over.id) {
+                                onSortEnd({
+                                    oldIndex: sortedItemIds.indexOf(active.id.toString()),
+                                    newIndex: sortedItemIds.indexOf(over.id.toString()),
+                                })
+                            }
+                        }}
+                        modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                        collisionDetection={verticalSortableListCollisionDetection}
+                    >
+                        <SortableContext
+                            disabled={!sortable}
+                            items={sortedItemIds}
+                            strategy={verticalListSortingStrategy}
+                        >
+                            {localFilters.map((filter, index) => (
+                                <ActionFilterRow
+                                    key={filter.uuid}
+                                    typeKey={typeKey}
+                                    filter={filter}
+                                    index={index}
+                                    filterCount={localFilters.length}
+                                    showNestedArrow={showNestedArrow}
+                                    singleFilter={singleFilter}
+                                    hideFilter={hideFilter || readOnly}
+                                    {...commonProps}
+                                />
+                            ))}
+                        </SortableContext>
+                    </DndContext>
+                </ul>
             ) : null}
             {!singleFilter && (
                 <div className="ActionFilter-footer">
