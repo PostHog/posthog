@@ -340,7 +340,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
                 const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}' and timestamp >= '${startDate}' and timestamp <= '${endDate}' `
@@ -373,7 +373,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
                 return {
@@ -409,7 +409,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
                 const singleChoiceQuery = `select count(), properties.$survey_response as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}' group by choice order by count() desc`
@@ -430,7 +430,7 @@ export const surveyLogic = kea<surveyLogicType>([
         hasTargetingFlag: [
             (s) => [s.survey],
             (survey): boolean => {
-                return !!survey.targeting_flag || !!(survey.id === 'new' && survey.targeting_flag_filters)
+                return !!survey.targeting_flag || !!survey.targeting_flag_filters
             },
         ],
     }),

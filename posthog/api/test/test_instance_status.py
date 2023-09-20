@@ -60,7 +60,8 @@ class TestInstanceStatus(APIBaseTest):
     @patch("posthog.api.instance_status.is_postgres_alive")
     @patch("posthog.api.instance_status.is_redis_alive")
     @patch("posthog.api.instance_status.is_plugin_server_alive")
-    @patch("posthog.api.instance_status.dead_letter_queue_ratio_ok_cached")
+    # patched at the module level because it is locally imported in the target code
+    @patch("posthog.clickhouse.system_status.dead_letter_queue_ratio_ok_cached")
     @patch("posthog.api.instance_status.async_migrations_ok")
     def test_navigation_ok(self, *mocks):
         for mock in mocks:
@@ -78,7 +79,8 @@ class TestInstanceStatus(APIBaseTest):
     @patch("posthog.api.instance_status.is_postgres_alive")
     @patch("posthog.api.instance_status.is_redis_alive")
     @patch("posthog.api.instance_status.is_plugin_server_alive")
-    @patch("posthog.api.instance_status.dead_letter_queue_ratio_ok_cached")
+    # patched at the module level because it is locally imported in the target code
+    @patch("posthog.clickhouse.system_status.dead_letter_queue_ratio_ok_cached")
     @patch("posthog.api.instance_status.async_migrations_ok")
     def test_navigation_not_ok(self, *mocks):
         for mock in mocks:
@@ -97,7 +99,8 @@ class TestInstanceStatus(APIBaseTest):
     @patch("posthog.api.instance_status.is_postgres_alive")
     @patch("posthog.api.instance_status.is_redis_alive")
     @patch("posthog.api.instance_status.is_plugin_server_alive")
-    @patch("posthog.api.instance_status.dead_letter_queue_ratio_ok_cached")
+    # patched at the module level because it is locally imported in the target code
+    @patch("posthog.clickhouse.system_status.dead_letter_queue_ratio_ok_cached")
     def test_navigation_on_cloud(self, *mocks):
         self.user.is_staff = True
         self.user.save()

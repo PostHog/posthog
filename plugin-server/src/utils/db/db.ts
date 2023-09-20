@@ -1348,8 +1348,7 @@ export class DB {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
         version: number,
-        tx?: TransactionClient,
-        options: { cache?: boolean } = { cache: true }
+        tx?: TransactionClient
     ): Promise<void> {
         const result = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
@@ -1374,13 +1373,6 @@ export class DB {
 
         if (result.rows.length === 0) {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
-        }
-
-        if (options?.cache) {
-            await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
-                properties: groupProperties,
-                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
-            })
         }
     }
 
@@ -1418,11 +1410,6 @@ export class DB {
             ],
             'upsertGroup'
         )
-
-        await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
-            properties: groupProperties,
-            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
-        })
     }
 
     public async upsertGroupClickhouse(

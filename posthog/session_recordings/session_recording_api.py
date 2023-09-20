@@ -273,12 +273,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         if not source:
             sources: List[dict] = []
-            blob_prefix = recording.build_blob_ingestion_storage_path()
-            blob_keys = object_storage.list_objects(blob_prefix)
 
-            if not blob_keys and recording.storage_version == "2023-08-01":
+            if recording.object_storage_path and recording.storage_version == "2023-08-01":
                 blob_prefix = recording.object_storage_path
                 blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+            else:
+                blob_prefix = recording.build_blob_ingestion_storage_path()
+                blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
                 for full_key in blob_keys:
@@ -333,7 +334,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 raise exceptions.ValidationError("Must provide a snapshot file blob key")
 
             # very short-lived pre-signed URL
-            file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+            if recording.object_storage_path:
+                if recording.storage_version == "2023-08-01":
+                    file_key = f"{recording.object_storage_path}/{blob_key}"
+                else:
+                    file_key = recording.object_storage_path
+            else:
+                file_key = (
+                    f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+                )
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")

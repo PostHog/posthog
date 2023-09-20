@@ -268,7 +268,8 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    fetchHostnameGuardTeams: Set<number>
+    /** null means that the hostname guard is enabled for everyone */
+    fetchHostnameGuardTeams: Set<number> | null
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features

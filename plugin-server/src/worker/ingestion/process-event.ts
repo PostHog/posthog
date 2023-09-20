@@ -140,6 +140,7 @@ export class EventsProcessor {
                 err,
             })
         }
+        // Adds group_0 etc values to properties
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         if (event === '$groupidentify') {

@@ -35,7 +35,10 @@ export function determineImports(hub: Hub, teamId: number) {
         'aws-sdk': AWS,
         ethers: ethers,
         'generic-pool': genericPool,
-        'node-fetch': isCloud() && hub.fetchHostnameGuardTeams.has(teamId) ? safeTrackedFetch : trackedFetch,
+        'node-fetch':
+            isCloud() && (!hub.fetchHostnameGuardTeams || hub.fetchHostnameGuardTeams.has(teamId))
+                ? safeTrackedFetch
+                : trackedFetch,
         'snowflake-sdk': snowflake,
         crypto: crypto,
         jsonwebtoken: jsonwebtoken,
