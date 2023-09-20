@@ -33,22 +33,10 @@ export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
-    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     widgets: NotebookNodeWidget[]
     startExpanded: boolean
 } & NotebookNodeAttributeProperties<any>
-
-async function renderTitle(
-    title: NotebookNodeLogicProps['title'],
-    attrs: NotebookNodeLogicProps['attributes']
-): Promise<string> {
-    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
-        return attrs.title
-    }
-
-    return title instanceof Function ? await title(attrs) : title
-}
 
 const computeResizeable = (
     resizeable: NotebookNodeLogicProps['resizeable'],
@@ -61,7 +49,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     key(({ nodeId }) => nodeId || 'no-node-id-set'),
     actions({
         setExpanded: (expanded: boolean) => ({ expanded }),
-        setTitle: (title: string) => ({ title }),
         setResizeable: (resizeable: boolean) => ({ resizeable }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
@@ -70,10 +57,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             timestamp,
             sessionRecordingId,
         }),
-        setWidgetsVisible: (visible: boolean) => ({ visible }),
         setPreviousNode: (node: Node | null) => ({ node }),
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
+        selectNode: true,
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -86,12 +73,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.startExpanded,
             {
                 setExpanded: (_, { expanded }) => expanded,
-            },
-        ],
-        title: [
-            '',
-            {
-                setTitle: (_, { title }) => title,
             },
         ],
         resizeable: [
@@ -112,22 +93,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setNextNode: (_, { node }) => node,
             },
         ],
-        widgetsVisible: [
-            false,
-            {
-                setWidgetsVisible: (_, { visible }) => visible,
-            },
-        ],
     })),
 
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
         widgets: [(_, p) => [p.widgets], (widgets) => widgets],
-        isShowingWidgets: [
-            (s, p) => [s.widgetsVisible, p.widgets],
-            (widgetsVisible, widgets) => !!widgets.length && widgetsVisible,
-        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -149,6 +120,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         deleteNode: () => {
             const logic = values.notebookLogic
             logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
+            if (values.notebookLogic.values.editingNodeId === props.nodeId) {
+                values.notebookLogic.actions.setEditingNodeId(null)
+            }
+        },
+
+        selectNode: () => {
+            const editor = values.notebookLogic.values.editor
+
+            if (editor) {
+                editor.setSelection(props.getPos())
+                editor.scrollToSelection()
+            }
         },
 
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
@@ -181,11 +164,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     afterMount(async (logic) => {
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
-        const renderedTitle = await renderTitle(logic.props.title, logic.props.attributes)
-        logic.actions.setTitle(renderedTitle)
         const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
         logic.actions.setResizeable(resizeable)
-        logic.actions.updateAttributes({ title: renderedTitle })
     }),
 
     beforeUnmount((logic) => {

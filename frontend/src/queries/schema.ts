@@ -273,7 +273,7 @@ export interface PersonsNode extends DataNode {
 
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 
-export interface DataTableNode extends Node {
+export interface DataTableNode extends Node, DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
     source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
@@ -282,8 +282,10 @@ export interface DataTableNode extends Node {
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
     hiddenColumns?: HogQLExpression[]
-    /** Show with most visual options enabled. Used in scenes. */
-    full?: boolean
+}
+
+interface DataTableNodeViewProps {
+    /** Show with most visual options enabled. Used in scenes. */ full?: boolean
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
     /** Include a free text search field (PersonsNode only) */
@@ -326,7 +328,7 @@ export interface DataTableNode extends Node {
 
 // Saved insight node
 
-export interface SavedInsightNode extends Node, InsightVizNodeViewProps {
+export interface SavedInsightNode extends Node, InsightVizNodeViewProps, DataTableNodeViewProps {
     kind: NodeKind.SavedInsightNode
     shortId: InsightShortId
 }
@@ -440,9 +442,16 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
 
-export interface LifecycleQueryResponse {
-    result: Record<string, any>[]
+export interface QueryResponse {
+    result: unknown
     timings?: QueryTiming[]
+    is_cached?: boolean
+    last_refresh?: string
+    next_allowed_client_refresh?: string
+}
+
+export interface LifecycleQueryResponse extends QueryResponse {
+    result: Record<string, any>[]
 }
 
 export interface LifecycleQuery extends InsightsQueryBase {

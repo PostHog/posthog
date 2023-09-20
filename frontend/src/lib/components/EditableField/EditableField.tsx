@@ -1,13 +1,14 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './EditableField.scss'
-import { IconEdit } from 'lib/lemon-ui/icons'
+import { IconEdit, IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import TextareaAutosize from 'react-textarea-autosize'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-interface EditableFieldProps {
+export interface EditableFieldProps {
     /** What this field stands for. */
     name: string
     value: string
@@ -19,6 +20,8 @@ interface EditableFieldProps {
     maxLength?: number
     autoFocus?: boolean
     multiline?: boolean
+    /** Whether to render the content as Markdown in view mode. */
+    markdown?: boolean
     compactButtons?: boolean
     /** Whether this field should be gated behind a "paywall". */
     paywall?: boolean
@@ -46,6 +49,7 @@ export function EditableField({
     maxLength,
     autoFocus = true,
     multiline = false,
+    markdown = false,
     compactButtons = false,
     paywall = false,
     mode,
@@ -116,7 +120,7 @@ export function EditableField({
                         : undefined
                 }
             >
-                <div className="EditableField--highlight">
+                <div className="EditableField__highlight">
                     {isEditing ? (
                         <>
                             {multiline ? (
@@ -151,7 +155,12 @@ export function EditableField({
                                 />
                             )}
                             {!mode && (
-                                <>
+                                <div className="EditableField__actions">
+                                    {markdown && (
+                                        <Tooltip title="Markdown formatting support">
+                                            <IconMarkdown className="text-muted text-2xl" />
+                                        </Tooltip>
+                                    )}
                                     <LemonButton
                                         title="Cancel editing"
                                         size="small"
@@ -178,22 +187,28 @@ export function EditableField({
                                     >
                                         {saveButtonText}
                                     </LemonButton>
-                                </>
+                                </div>
                             )}
                         </>
                     ) : (
                         <>
-                            {tentativeValue || <i>{placeholder}</i>}
+                            {tentativeValue && markdown ? (
+                                <LemonMarkdown lowKeyHeadings>{tentativeValue}</LemonMarkdown>
+                            ) : (
+                                tentativeValue || <i>{placeholder}</i>
+                            )}
                             {!mode && (
-                                <LemonButton
-                                    title="Edit"
-                                    icon={<IconEdit />}
-                                    size={compactButtons ? 'small' : undefined}
-                                    onClick={() => setLocalIsEditing(true)}
-                                    data-attr={`edit-prop-${name}`}
-                                    disabled={paywall}
-                                    noPadding
-                                />
+                                <div className="EditableField__actions">
+                                    <LemonButton
+                                        title="Edit"
+                                        icon={<IconEdit />}
+                                        size={compactButtons ? 'small' : undefined}
+                                        onClick={() => setLocalIsEditing(true)}
+                                        data-attr={`edit-prop-${name}`}
+                                        disabled={paywall}
+                                        noPadding
+                                    />
+                                </div>
                             )}
                         </>
                     )}

@@ -103,6 +103,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <EditableField
                                         multiline
                                         name="description"
+                                        markdown
                                         value={survey.description || ''}
                                         placeholder="Description (optional)"
                                         onSave={(value) => updateSurvey({ id: id, description: value })}
@@ -321,7 +322,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                         date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
                         date_to: survey.end_date
                             ? dayjs(survey.end_date).format('YYYY-MM-DD')
-                            : dayjs().format('YYYY-MM-DD'),
+                            : dayjs().add(1, 'day').format('YYYY-MM-DD'),
                     },
                     series: [
                         {

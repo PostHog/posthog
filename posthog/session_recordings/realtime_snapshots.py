@@ -72,8 +72,8 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
     except Exception as e:
         # very broad capture to see if there are any unexpected errors
         capture_exception(
-            "get_realtime_snapshots_failed",
-            extras={"attempt_count": attempt_count},
+            e,
+            extras={"attempt_count": attempt_count, "operation": "get_realtime_snapshots"},
             tags={"team_id": team_id, "session_id": session_id},
         )
         raise e

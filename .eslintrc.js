@@ -26,6 +26,7 @@ module.exports = {
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
         'prettier',
+        'plugin:compat/recommended',
     ],
     globals,
     parser: '@typescript-eslint/parser',
@@ -36,7 +37,7 @@ module.exports = {
         ecmaVersion: 2018,
         sourceType: 'module',
     },
-    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests', 'jest'],
+    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests', 'jest', 'compat'],
     rules: {
         'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
@@ -147,6 +148,10 @@ module.exports = {
                         element: 'a',
                         message: 'use <Link> instead',
                     },
+                    {
+                        element: 'ReactMarkdown',
+                        message: 'use <LemonMarkdown> instead',
+                    },
                 ],
             },
         ],
@@ -175,9 +180,9 @@ module.exports = {
                         message: 'use <LemonCollapse> instead',
                     },
                     {
-                        element:'MonacoEditor',
+                        element: 'MonacoEditor',
                         message: 'use <CodeEditor> instead',
-                    }
+                    },
                 ],
             },
         ],

@@ -17,7 +17,7 @@ import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode, QueryTiming } from '~/queries/schema'
 import { query } from '~/queries/query'
-import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { isInsightQueryNode, isEventsQuery, isPersonsNode, isQueryWithHogQLSupport } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import clsx from 'clsx'
@@ -29,6 +29,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import equal from 'fast-deep-equal'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface DataNodeLogicProps {
     key: string
@@ -52,7 +54,7 @@ const queryEqual = (a: DataNode, b: DataNode): boolean => {
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     connect({
-        values: [userLogic, ['user'], teamLogic, ['currentTeamId']],
+        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     }),
     props({ query: {} } as DataNodeLogicProps),
     key((props) => props.key),
@@ -96,6 +98,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     if (
                         isInsightQueryNode(props.query) &&
+                        !(values.hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(props.query)) &&
                         props.cachedResults &&
                         props.cachedResults['id'] &&
                         props.cachedResults['filters'] &&
@@ -308,6 +311,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
+        ],
+        hogQLInsightsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [

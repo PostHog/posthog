@@ -362,10 +362,12 @@ def get_event_count_for_team(team_id: Union[str, int]) -> int:
 
 
 def get_event_count() -> int:
+    """
+    ```SELECT count(1) as count FROM events``` is too slow on cloud
+    """
     result = sync_execute(
         """
-        SELECT count(1) as count
-        FROM events
+        SELECT sum(rows) FROM system.parts WHERE (active = 1) AND (table = 'sharded_events')
     """
     )[0][0]
     return result

@@ -394,7 +394,7 @@ export function FeatureFlagReleaseConditions({
     return (
         <>
             <div className={`feature-flag-form-row ${excludeTitle && 'mb-2'}`}>
-                <div data-attr="feature-flag-release-conditions">
+                <div data-attr="feature-flag-release-conditions" className="w-full">
                     {readOnly ? (
                         excludeTitle ? null : (
                             <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>

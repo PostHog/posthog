@@ -8,10 +8,11 @@ export interface LemonWidgetProps {
     title: string
     collapsible?: boolean
     onClose?: () => void
+    actions?: React.ReactNode
     children: React.ReactChild
 }
 
-export function LemonWidget({ title, collapsible = true, onClose, children }: LemonWidgetProps): JSX.Element {
+export function LemonWidget({ title, collapsible = true, onClose, actions, children }: LemonWidgetProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState<boolean>(true)
 
     return (
@@ -34,8 +35,10 @@ export function LemonWidget({ title, collapsible = true, onClose, children }: Le
                         />
                     </>
                 ) : (
-                    <span className="flex-1">{title}</span>
+                    <span className="flex-1 text-primary-alt px-2">{title}</span>
                 )}
+                {actions}
+
                 {onClose && <LemonButton status="danger" onClick={onClose} size="small" icon={<IconClose />} />}
             </Header>
             {isExpanded && <Content>{children}</Content>}

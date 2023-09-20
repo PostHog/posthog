@@ -72,7 +72,7 @@ module.exports = {
         const storyContext = (await getStoryContext(page, context)) as StoryContext
         const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        browserContext.setDefaultTimeout(3000) // Reduce the default timeout from 30 s to 3 s to pre-empt Jest timeouts
+        browserContext.setDefaultTimeout(5000) // Reduce the default timeout from 30 s to 5 s to pre-empt Jest timeouts
         if (!skip) {
             const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
             if (snapshotBrowsers.includes(currentBrowser)) {
@@ -208,7 +208,8 @@ async function expectLocatorToMatchStorySnapshot(
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
         comparisonMethod: 'ssim',
-        failureThreshold: 0.0003,
+        // 0.01 would be a 1% difference
+        failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
 }

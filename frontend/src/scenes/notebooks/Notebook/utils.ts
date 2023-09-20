@@ -25,8 +25,8 @@ export type CustomNotebookNodeAttributes = Record<string, any>
 
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
-    title: string | ((attributes: T) => Promise<string>)
     height?: string | number
+    title: string
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead
@@ -47,8 +47,7 @@ export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit
 
 export type NotebookNodeWidget = {
     key: string
-    label: string
-    icon: JSX.Element
+    label?: string
     // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
     Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
 }
@@ -64,7 +63,6 @@ export interface NotebookEditor {
     setSelection: (position: number) => void
     focus: (position: EditorFocusPosition) => void
     destroy: () => void
-    isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
@@ -81,7 +79,10 @@ export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     const selection = editor.state.selection
     const { $anchor, empty } = selection
     const isEmptyTextBlock =
-        $anchor.parent.isTextblock && !$anchor.parent.type.spec.code && !textContent($anchor.parent)
+        $anchor.parent.isTextblock &&
+        !$anchor.parent.type.spec.code &&
+        $anchor.depth <= 1 &&
+        !textContent($anchor.parent)
 
     if (empty && isEmptyTextBlock) {
         return true

@@ -55,9 +55,9 @@ pickleshare==0.7.5
 Pillow==9.2.0
 posthoganalytics==3.0.1
 prance==0.22.2.22.0
-psycopg2-binary==2.8.6
+psycopg2-binary==2.9.7
 pyarrow==12.0.1
-pydantic==1.10.4
+pydantic==2.3.0
 pyjwt==2.4.0
 python-dateutil>=2.8.2
 python3-saml==1.12.0
