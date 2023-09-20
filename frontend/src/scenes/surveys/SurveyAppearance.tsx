@@ -132,7 +132,10 @@ export function SurveyAppearance({
                             )}
                         </>
                     )}
-                    {(type === SurveyQuestionType.Open || type === SurveyQuestionType.Link) && (
+                    {(type === SurveyQuestionType.Open ||
+                        type === SurveyQuestionType.Link ||
+                        type === SurveyQuestionType.SingleChoice ||
+                        type === SurveyQuestionType.MultipleChoice) && (
                         <>
                             <div className="mt-2">Button color</div>
                             <LemonInput
