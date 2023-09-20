@@ -56,14 +56,19 @@ const PlayerFrameOverlayContent = ({
             <div className="SessionRecordingPlayer--buffering text-3xl italic font-medium text-white">Buffering…</div>
         )
     }
-    if (currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY) {
+    if (currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.INIT) {
         content = <IconPlay className="text-6xl text-white" />
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
     return content ? (
-        <div className="PlayerFrameOverlay__content" aria-busy={currentPlayerState === SessionPlayerState.BUFFER}>
+        <div
+            className="PlayerFrameOverlay__content"
+            aria-busy={
+                currentPlayerState === SessionPlayerState.BUFFER || currentPlayerState === SessionPlayerState.INIT
+            }
+        >
             {content}
         </div>
     ) : null

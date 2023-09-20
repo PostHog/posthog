@@ -357,7 +357,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
 
                 if (!snapshotsLoaded && !snapshotsLoading) {
-                    return SessionPlayerState.READY
+                    return SessionPlayerState.INIT
                 }
                 if (isErrored) {
                     return SessionPlayerState.ERROR
@@ -754,7 +754,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // If paused, start playing
             if (
                 values.currentPlayerState === SessionPlayerState.PAUSE ||
-                values.currentPlayerState === SessionPlayerState.READY
+                values.currentPlayerState === SessionPlayerState.INIT
             ) {
                 actions.setPlay()
             }

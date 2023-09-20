@@ -713,7 +713,7 @@ export enum SessionRecordingPlayerTab {
 }
 
 export enum SessionPlayerState {
-    READY = 'ready',
+    INIT = 'init',
     BUFFER = 'buffer',
     PLAY = 'play',
     PAUSE = 'pause',
