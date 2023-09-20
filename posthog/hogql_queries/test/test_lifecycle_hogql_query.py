@@ -384,12 +384,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_equivalence_to_non_hogql(self):
-        date_from = "2020-01-01"
-        date_to = "2020-01-30"
-        self._create_prng_events(num_people=50, num_events_per_person=50, start_date=date_from, end_date=date_to)
-        hogql_response = self._strip_to_lcd(self._run_lifecycle_query(date_from, date_to, IntervalType.day).result)
-        non_hogql_response = self._strip_to_lcd(
-            self._run_lifecycle_query_non_hogql(date_from, date_to, IntervalType.day)
-        )
+        now = isoparse("2023-09-19T19:43:50+07:00")
+        event_start = "2023-08-19"
+        event_end = "2023-09-19"
+        date_to = None
+        date_from = None
+        interval = IntervalType.day
+        self.team.timezone = "Pacific/Tahiti"
+        self.team.save()
+        self._create_prng_events(num_people=100, num_events_per_person=100, start_date=event_start, end_date=event_end)
+        with freeze_time(now):
+            hogql_response = self._strip_to_lcd(self._run_lifecycle_query(date_from, date_to, interval).result)
+            non_hogql_response = self._strip_to_lcd(self._run_lifecycle_query_non_hogql(date_from, date_to, interval))
 
         self.assertEqual(hogql_response, non_hogql_response)
