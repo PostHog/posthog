@@ -127,7 +127,7 @@ class S3MultiPartUpload:
         optional_kwargs = {}
         if self.encryption:
             optional_kwargs["ServerSideEncryption"] = self.encryption
-        if self.kms_key_id:
+        if self.kms_key_id and self.encryption == "aws:kms":
             optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
 
         multipart_response = self.s3_client.create_multipart_upload(

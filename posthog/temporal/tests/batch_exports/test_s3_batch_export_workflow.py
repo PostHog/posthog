@@ -1,13 +1,13 @@
 import asyncio
+import collections
 import datetime as dt
 import functools
 import gzip
 import itertools
 import json
 import os
-from random import randint
+import uuid
 from unittest import mock
-from uuid import uuid4
 
 import boto3
 import botocore.exceptions
@@ -16,7 +16,6 @@ import pytest
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.test import Client as HttpClient
 from django.test import override_settings
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -24,22 +23,15 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.api.test.test_organization import acreate_organization
-from posthog.api.test.test_team import acreate_team
-from posthog.temporal.client import connect
 from posthog.temporal.tests.batch_exports.base import (
-    EventValues,
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
     amaterialize,
     insert_events,
     to_isoformat,
 )
-from posthog.temporal.tests.batch_exports.fixtures import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
-from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportInputs,
     S3BatchExportWorkflow,
@@ -68,7 +60,58 @@ create_test_client = functools.partial(boto3.client, endpoint_url=settings.OBJEC
 @pytest.fixture
 def bucket_name() -> str:
     """Name for a test S3 bucket."""
-    return f"{TEST_ROOT_BUCKET}-{str(uuid4())}"
+    return f"{TEST_ROOT_BUCKET}-{str(uuid.uuid4())}"
+
+
+S3BatchExportTestParameters = collections.namedtuple(
+    "S3BatchExportTestParameters", ("interval", "compression", "encryption", "exclude_events")
+)
+
+ALL_S3_TEST_PARAMETERS = [
+    S3BatchExportTestParameters(
+        interval=interval, compression=compression, encryption=encryption, exclude_events=exclude_events
+    )
+    for (interval, compression, encryption, exclude_events) in itertools.product(
+        ["hour", "day"], [None, "gzip", "brotli"], [None, "AES256", "aws:kms"], [None, ["test-1", "test-2"]]
+    )
+]
+
+
+@pytest_asyncio.fixture(params=ALL_S3_TEST_PARAMETERS)
+async def s3_batch_export(request, ateam, temporal_client, bucket_name):
+    batch_export_test_params = request.param
+    prefix = f"posthog-events-{str(uuid.uuid4())}"
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": bucket_name,
+            "region": "us-east-1",
+            "prefix": prefix,
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+            "compression": batch_export_test_params.compression,
+            "encryption": batch_export_test_params.encryption,
+            "exclude_events": batch_export_test_params.exclude_events,
+            "kms_key_id": os.getenv("S3_TEST_KMS_KEY_ID", None),
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-export",
+        "destination": destination_data,
+        "interval": batch_export_test_params.interval,
+    }
+
+    batch_export = await acreate_batch_export(
+        team_id=ateam.pk,
+        name=batch_export_data["name"],
+        destination_data=batch_export_data["destination"],
+        interval=batch_export_data["interval"],
+    )
+
+    yield batch_export
+
+    await adelete_batch_export(batch_export, temporal_client)
 
 
 @pytest.fixture
@@ -126,7 +169,7 @@ def assert_events_in_s3(
     json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
     # Pull out the fields we inserted only
 
-    json_data.sort(key=lambda x: x["timestamp"])
+    json_data.sort(key=lambda x: x["event"])
 
     # Remove team_id, _timestamp from events
     if exclude_events is None:
@@ -143,154 +186,50 @@ def assert_events_in_s3(
         }
 
     expected_events = list(map(to_expected_event, (event for event in events if event["event"] not in exclude_events)))
-
-    expected_events.sort(key=lambda x: x["timestamp"] if x["timestamp"] is not None else 0)
+    expected_events.sort(key=lambda x: x["event"])
 
     # First check one event, the first one, so that we can get a nice diff if
     # the included data is different.
     assert json_data[0] == expected_events[0]
-    assert json_data == expected_events
+    assert len(json_data) == len(expected_events)
+    for event_1, event_2 in zip(json_data, expected_events):
+        assert event_1 == event_2
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("truncate_events")
 @pytest.mark.parametrize(
     "compression,exclude_events",
-    itertools.product([None, "gzip", "brotli"], [None, ["test-exclude"]]),
+    itertools.product([None, "gzip", "brotli"], [None, ["test-1", "test-2"]]),
 )
 async def test_insert_into_s3_activity_puts_data_into_s3(
-    bucket_name, s3_client, activity_environment, compression, exclude_events
+    bucket_name, s3_client, activity_environment, compression, exclude_events, ch_client, ateam
 ):
     """Test that the insert_into_s3_activity function puts data into S3."""
-
     data_interval_start = "2023-04-20 14:00:00"
-    data_interval_end = "2023-04-25 15:00:00"
+    data_interval_end = "2023-04-21 15:00:00"
 
-    # Generate a random team id integer. There's still a chance of a collision,
-    # but it's very small.
-    team_id = randint(1, 1000000)
-
-    client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
+    events, _, _ = await insert_events(
+        client=ch_client,
+        team=ateam,
+        start_time=dt.datetime.fromisoformat(data_interval_start),
+        end_time=dt.datetime.fromisoformat(data_interval_end),
+        n=1000,
     )
-
     # Add a materialized column such that we can verify that it is NOT included
     # in the export.
     await amaterialize("events", "$browser")
 
-    # Create enough events to ensure we span more than 5MB, the smallest
-    # multipart chunk size for multipart uploads to S3.
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "elements_chain": "this that and the other",
-        }
-        # NOTE: we have to do a lot here, otherwise we do not trigger a
-        # multipart upload, and the minimum part chunk size is 5MB.
-        for i in range(10000)
-    ]
-
-    events += [
-        # Insert an events with an empty string in `properties` and
-        # `person_properties` to ensure that we handle empty strings correctly.
-        EventValues(
-            {
-                "uuid": str(uuid4()),
-                "event": "test-exclude",
-                "_timestamp": "2023-04-20 14:29:00",
-                "timestamp": "2023-04-20 14:29:00.000000",
-                "inserted_at": "2023-04-20 14:30:00.000000",
-                "created_at": "2023-04-20 14:29:00.000000",
-                "distinct_id": str(uuid4()),
-                "person_id": str(uuid4()),
-                "person_properties": None,
-                "team_id": team_id,
-                "properties": None,
-                "elements_chain": "",
-            }
-        )
-    ]
-
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
-        client=client,
-        events=events,
-    )
-
-    # Insert some events before the hour and after the hour, as well as some
-    # events from another team to ensure that we only export the events from
-    # the team that the batch export is for.
-    other_team_id = team_id + 1
-    await insert_events(
-        client=client,
-        events=[
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 13:30:00",
-                "_timestamp": "2023-04-20 13:30:00",
-                "inserted_at": "2023-04-20 13:30:00.000000",
-                "created_at": "2023-04-20 13:30:00.000000",
-                "person_id": str(uuid4()),
-                "distinct_id": str(uuid4()),
-                "team_id": team_id,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-            },
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 15:30:00",
-                "_timestamp": "2023-04-20 13:30:00",
-                "inserted_at": "2023-04-20 13:30:00.000000",
-                "created_at": "2023-04-20 13:30:00.000000",
-                "person_id": str(uuid4()),
-                "distinct_id": str(uuid4()),
-                "team_id": team_id,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-            },
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 14:30:00",
-                "_timestamp": "2023-04-20 14:30:00",
-                "inserted_at": "2023-04-20 14:30:00.000000",
-                "created_at": "2023-04-20 14:30:00.000000",
-                "person_id": str(uuid4()),
-                "distinct_id": str(uuid4()),
-                "team_id": other_team_id,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-            },
-        ],
-    )
-
     # Make a random string to prefix the S3 keys with. This allows us to ensure
     # isolation of the test, and also to check that the data is being written.
-    prefix = str(uuid4())
+    prefix = str(uuid.uuid4())
 
     insert_inputs = S3InsertInputs(
         bucket_name=bucket_name,
         region="us-east-1",
         prefix=prefix,
-        team_id=team_id,
+        team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         aws_access_key_id="object_storage_root_user",
@@ -310,118 +249,35 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "interval,compression,exclude_events",
-    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, ["test-exclude"]]),
-)
-async def test_s3_export_workflow_with_minio_bucket(
-    client: HttpClient, s3_client, bucket_name, interval, compression, exclude_events
-):
+@pytest.mark.usefixtures("truncate_events")
+async def test_s3_export_workflow_with_minio_bucket(s3_client, s3_batch_export, ch_client):
     """Test S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     The workflow should update the batch export run status to completed and produce the expected
     records to the MinIO bucket.
     """
-    prefix = f"posthog-events-{str(uuid4())}"
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": bucket_name,
-            "region": "us-east-1",
-            "prefix": prefix,
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "compression": compression,
-            "exclude_events": exclude_events,
-        },
-    }
+    if s3_batch_export.destination.config.get("encryption", None) is not None:
+        pytest.skip("Encryption is not supported in MinIO")
 
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": interval,
-    }
+    if s3_batch_export.interval == "hour":
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 20, 1, 0, 0)
+    else:
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 21, 0, 0, 0)
 
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
-    )
-
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": "2023-04-25 13:30:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test-exclude",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": "2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-    ]
-
-    if interval == "day":
-        # Add an event outside the hour range but within the day range to ensure it's exported too.
-        events_outside_hour: list[EventValues] = [
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-25 00:30:00.000000",
-                "created_at": "2023-04-25 00:30:00.000000",
-                "inserted_at": "2023-04-25 00:30:00.000000",
-                "_timestamp": "2023-04-25 00:30:00",
-                "person_id": str(uuid4()),
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "team_id": team.pk,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "distinct_id": str(uuid4()),
-                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-            }
-        ]
-        events += events_outside_hour
-
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
-
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
+    events, _, _ = await insert_events(
         client=ch_client,
-        events=events,
+        team=s3_batch_export.team,
+        start_time=start_time,
+        end_time=end_time,
     )
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
-        interval=interval,
-        **batch_export.destination.config,
+        team_id=s3_batch_export.team.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=end_time.isoformat(),
+        interval=s3_batch_export.interval,
+        **s3_batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -442,13 +298,20 @@ async def test_s3_export_workflow_with_minio_bucket(
                     execution_timeout=dt.timedelta(seconds=10),
                 )
 
-    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
     assert len(runs) == 1
 
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
+    assert_events_in_s3(
+        s3_client,
+        s3_batch_export.destination.config["bucket_name"],
+        s3_batch_export.destination.config["prefix"],
+        events,
+        s3_batch_export.destination.config["compression"],
+        s3_batch_export.destination.config["exclude_events"],
+    )
 
 
 @pytest.mark.skipif(
@@ -457,11 +320,8 @@ async def test_s3_export_workflow_with_minio_bucket(
 )
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "interval,compression,encryption,exclude_events",
-    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, "AES256", "aws:kms"], [None, ["test-exclude"]]),
-)
-async def test_s3_export_workflow_with_s3_bucket(interval, compression, encryption, exclude_events):
+@pytest.mark.usefixtures("truncate_events")
+async def test_s3_export_workflow_with_s3_bucket(s3_batch_export, ch_client):
     """Test S3 Export Workflow end-to-end by using an S3 bucket.
 
     The S3_TEST_BUCKET environment variable is used to set the name of the bucket for this test.
@@ -471,110 +331,29 @@ async def test_s3_export_workflow_with_s3_bucket(interval, compression, encrypti
     The workflow should update the batch export run status to completed and produce the expected
     records to the S3 bucket.
     """
-    bucket_name = os.getenv("S3_TEST_BUCKET")
-    kms_key_id = os.getenv("S3_TEST_KMS_KEY_ID")
-    prefix = f"posthog-events-{str(uuid4())}"
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": bucket_name,
-            "region": "us-east-1",
-            "prefix": prefix,
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "compression": compression,
-            "exclude_events": exclude_events,
-            "encryption": encryption,
-            "kms_key_id": kms_key_id if encryption == "aws:kms" else None,
-        },
-    }
+    s3_batch_export.destination.config["bucket_name"] = os.environ["S3_TEST_BUCKET"]
+    # Update to use real bucket
+    await sync_to_async(s3_batch_export.save)()  # type: ignore
 
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": interval,
-    }
+    if s3_batch_export.interval == "hour":
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 20, 1, 0, 0)
+    else:
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 21, 0, 0, 0)
 
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
-    )
-
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": "2023-04-25 13:30:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test-exclude",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": "2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-    ]
-
-    if interval == "day":
-        # Add an event outside the hour range but within the day range to ensure it's exported too.
-        events_outside_hour: list[EventValues] = [
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-25 00:30:00.000000",
-                "created_at": "2023-04-25 00:30:00.000000",
-                "inserted_at": "2023-04-25 00:30:00.000000",
-                "_timestamp": "2023-04-25 00:30:00",
-                "person_id": str(uuid4()),
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "team_id": team.pk,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "distinct_id": str(uuid4()),
-                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-            }
-        ]
-        events += events_outside_hour
-
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
-
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
+    events, _, _ = await insert_events(
         client=ch_client,
-        events=events,
+        team=s3_batch_export.team,
+        start_time=start_time,
+        end_time=end_time,
     )
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
-        interval=interval,
-        **batch_export.destination.config,
+        team_id=s3_batch_export.team.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=end_time.isoformat(),
+        interval=s3_batch_export.interval,
+        **s3_batch_export.destination.config,
     )
 
     s3_client = boto3.client("s3")
@@ -598,94 +377,64 @@ async def test_s3_export_workflow_with_s3_bucket(interval, compression, encrypti
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(seconds=20),
                 )
 
-    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
     assert len(runs) == 1
 
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
+    assert_events_in_s3(
+        s3_client,
+        s3_batch_export.destination.config["bucket_name"],
+        s3_batch_export.destination.config["prefix"],
+        events,
+        s3_batch_export.destination.config["compression"],
+        s3_batch_export.destination.config["exclude_events"],
+    )
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip"])
-async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
-    client: HttpClient, s3_client, bucket_name, compression
-):
+@pytest.mark.usefixtures("truncate_events")
+async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(s3_client, s3_batch_export, ch_client):
     """Test the full S3 workflow targetting a MinIO bucket.
 
     The workflow should update the batch export run status to completed and produce the expected
     records to the MinIO bucket.
     """
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
+    if s3_batch_export.destination.config.get("encryption", None) is not None:
+        pytest.skip("Encryption is not supported in MinIO")
+    if s3_batch_export.destination.config.get("compression", "") == "brotli":
+        pytest.skip("Brotli performs badly with a lot of data")
 
-    prefix = f"posthog-events-{str(uuid4())}-{{year}}-{{month}}-{{day}}"
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": bucket_name,
-            "region": "us-east-1",
-            "prefix": prefix,
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "compression": compression,
-        },
-    }
+    if s3_batch_export.interval == "hour":
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 20, 1, 0, 0)
+    else:
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 21, 0, 0, 0)
 
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
-    )
-
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": f"test-{i}",
-            "timestamp": f"2023-04-25 13:30:00.{i:06}",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": f"2023-04-25 13:30:00.{i:06}",
-            "_timestamp": "2023-04-25 13:30:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        }
-        for i in range(1000000)
-    ]
-
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
+    events, _, _ = await insert_events(
         client=ch_client,
-        events=events,
+        team=s3_batch_export.team,
+        start_time=start_time,
+        end_time=end_time,
+        n=1000000,
     )
 
-    workflow_id = str(uuid4())
+    prefix = f"posthog-events-{str(uuid.uuid4())}-{{year}}-{{month}}-{{day}}"
+    s3_batch_export.destination.config["prefix"] = prefix
+    # Update to use new prefix
+    await sync_to_async(s3_batch_export.save)()  # type: ignore
+
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        team_id=s3_batch_export.team.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=end_time.isoformat(),
+        interval=s3_batch_export.interval,
+        **s3_batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -706,104 +455,61 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
                     execution_timeout=dt.timedelta(seconds=360),
                 )
 
-    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
     assert len(runs) == 1
 
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix.format(year=2023, month="04", day="25"), events, compression)
+    parametrized_prefix = prefix.format(
+        table="events",
+        year=end_time.year,
+        month=end_time.strftime("%m"),
+        day=end_time.strftime("%d"),
+    )
+
+    assert_events_in_s3(
+        s3_client,
+        s3_batch_export.destination.config["bucket_name"],
+        parametrized_prefix,
+        events,
+        s3_batch_export.destination.config["compression"],
+        s3_batch_export.destination.config["exclude_events"],
+    )
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
-async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
-    client: HttpClient, s3_client, bucket_name, compression
-):
+@pytest.mark.usefixtures("truncate_events")
+async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(s3_client, s3_batch_export, ch_client):
     """Test the full S3 workflow targetting a MinIO bucket.
 
     In this scenario we assert that when inserted_at is NULL, we default to _timestamp.
-    This scenario is relevant values inserted before the migration happened.
+    This scenario is relevant for rows inserted before the migration happened.
     """
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
+    if s3_batch_export.destination.config.get("encryption", None) is not None:
+        pytest.skip("Encryption is not supported in MinIO")
 
-    prefix = f"posthog-events-{str(uuid4())}"
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": bucket_name,
-            "region": "us-east-1",
-            "prefix": prefix,
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "compression": compression,
-        },
-    }
+    if s3_batch_export.interval == "hour":
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 20, 1, 0, 0)
+    else:
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 21, 0, 0, 0)
 
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
-    )
-
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": None,
-            "_timestamp": "2023-04-25 13:30:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": None,
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-    ]
-
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
+    events, _, _ = await insert_events(
         client=ch_client,
-        events=events,
+        team=s3_batch_export.team,
+        start_time=start_time,
+        end_time=end_time,
+        override_values={"inserted_at": None},
     )
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        team_id=s3_batch_export.team.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=end_time.isoformat(),
+        interval=s3_batch_export.interval,
+        **s3_batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -824,89 +530,57 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
                     execution_timeout=dt.timedelta(seconds=10),
                 )
 
-    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
     assert len(runs) == 1
 
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
+    assert_events_in_s3(
+        s3_client,
+        s3_batch_export.destination.config["bucket_name"],
+        s3_batch_export.destination.config["prefix"],
+        events,
+        s3_batch_export.destination.config["compression"],
+        s3_batch_export.destination.config["exclude_events"],
+    )
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
-async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
-    client: HttpClient, s3_client, bucket_name, compression
-):
+@pytest.mark.usefixtures("truncate_events")
+async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(s3_client, s3_batch_export, ch_client):
     """Test the S3BatchExport Workflow utilizing a custom key prefix.
 
     We will be asserting that exported events land in the appropiate S3 key according to the prefix.
     """
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
+    if s3_batch_export.destination.config.get("encryption", None) is not None:
+        pytest.skip("Encryption is not supported in MinIO")
 
     prefix = "posthog-{table}/{year}-{month}-{day}/{hour}:{minute}:{second}"
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": bucket_name,
-            "region": "us-east-1",
-            "prefix": prefix,
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "compression": compression,
-        },
-    }
+    s3_batch_export.destination.config["prefix"] = prefix
+    # Update to use new prefix
+    await sync_to_async(s3_batch_export.save)()  # type: ignore
 
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
+    if s3_batch_export.interval == "hour":
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 20, 1, 0, 0)
+    else:
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 21, 0, 0, 0)
 
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
-    )
-
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": "2023-04-25 13:31:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-    ]
-
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
+    events, _, _ = await insert_events(
         client=ch_client,
-        events=events,
+        team=s3_batch_export.team,
+        start_time=start_time,
+        end_time=end_time,
     )
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        team_id=s3_batch_export.team.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=end_time.isoformat(),
+        interval=s3_batch_export.interval,
+        **s3_batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -927,130 +601,63 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
                     execution_timeout=dt.timedelta(seconds=10),
                 )
 
-    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
     assert len(runs) == 1
 
     run = runs[0]
     assert run.status == "Completed"
 
-    expected_key_prefix = prefix.format(
-        table="events", year="2023", month="04", day="25", hour="14", minute="30", second="00"
+    parametrized_prefix = prefix.format(
+        table="events",
+        year=end_time.year,
+        month=end_time.strftime("%m"),
+        day=end_time.strftime("%d"),
+        hour=end_time.strftime("%H"),
+        minute=end_time.strftime("%M"),
+        second=end_time.strftime("%S"),
     )
-    objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
-    key = objects["Contents"][0].get("Key")
-    assert len(objects.get("Contents", [])) == 1
-    assert key.startswith(expected_key_prefix)
 
-    assert_events_in_s3(s3_client, bucket_name, expected_key_prefix, events, compression)
+    assert_events_in_s3(
+        s3_client,
+        s3_batch_export.destination.config["bucket_name"],
+        parametrized_prefix,
+        events,
+        s3_batch_export.destination.config["compression"],
+        s3_batch_export.destination.config["exclude_events"],
+    )
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
-async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(
-    client: HttpClient, s3_client, bucket_name, compression
-):
+@pytest.mark.usefixtures("truncate_events")
+async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(s3_client, s3_batch_export, ch_client):
     """Test that S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     In this particular instance of the test, we assert no duplicates are exported to S3.
     """
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
+    if s3_batch_export.destination.config.get("encryption", None) is not None:
+        pytest.skip("Encryption is not supported in MinIO")
 
-    prefix = f"posthog-events-{str(uuid4())}"
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": bucket_name,
-            "region": "us-east-1",
-            "prefix": prefix,
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "compression": compression,
-        },
-    }
+    if s3_batch_export.interval == "hour":
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 20, 1, 0, 0)
+    else:
+        start_time, end_time = dt.datetime(2023, 9, 20, 0, 0, 0), dt.datetime(2023, 9, 21, 0, 0, 0)
 
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
-    )
-
-    duplicate_id = str(uuid4())
-    duplicate_distinct_id = str(uuid4())
-    duplicate_person_id = str(uuid4())
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": f"2023-04-25 13:30:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-        {
-            "uuid": duplicate_id,
-            "event": "test",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": f"2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": duplicate_person_id,
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": duplicate_distinct_id,
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-    ]
-    events_with_duplicates = events + [
-        {
-            "uuid": duplicate_id,
-            "event": "test",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": f"2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": duplicate_person_id,
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": duplicate_distinct_id,
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        }
-    ]
-
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
+    events, _, _ = await insert_events(
         client=ch_client,
-        events=events_with_duplicates,
+        team=s3_batch_export.team,
+        start_time=start_time,
+        end_time=end_time,
+        duplicate=True,
     )
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        team_id=s3_batch_export.team.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=end_time.isoformat(),
+        interval=s3_batch_export.interval,
+        **s3_batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -1070,80 +677,32 @@ async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
-        assert len(runs) == 1
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    assert len(runs) == 1
 
-        run = runs[0]
-        assert run.status == "Completed"
+    run = runs[0]
+    assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
-
-
-@pytest_asyncio.fixture
-async def organization():
-    organization = await acreate_organization("test")
-    yield organization
-    await sync_to_async(organization.delete)()  # type: ignore
-
-
-@pytest_asyncio.fixture
-async def team(organization):
-    team = await acreate_team(organization=organization)
-    yield team
-    await sync_to_async(team.delete)()  # type: ignore
-
-
-@pytest_asyncio.fixture
-async def batch_export(team):
-    prefix = f"posthog-events-{str(uuid4())}"
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": "test-bucket",
-            "region": "us-east-1",
-            "prefix": prefix,
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "compression": "gzip",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
+    assert_events_in_s3(
+        s3_client,
+        s3_batch_export.destination.config["bucket_name"],
+        s3_batch_export.destination.config["prefix"],
+        events,
+        s3_batch_export.destination.config["compression"],
+        s3_batch_export.destination.config["exclude_events"],
     )
-
-    yield batch_export
-
-    client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
-        settings.TEMPORAL_CLIENT_CERT,
-        settings.TEMPORAL_CLIENT_KEY,
-    )
-    await adelete_batch_export(batch_export, client)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_handles_insert_activity_errors(team, batch_export):
+async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch_export):
     """Test that S3 Export Workflow can gracefully handle errors when inserting S3 data."""
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
+        team_id=ateam.pk,
+        batch_export_id=str(s3_batch_export.id),
         data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        **s3_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_s3_activity")
@@ -1167,7 +726,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(team, batch_exp
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+        runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
         assert len(runs) == 1
 
         run = runs[0]
@@ -1177,14 +736,14 @@ async def test_s3_export_workflow_handles_insert_activity_errors(team, batch_exp
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_s3_export_workflow_handles_cancellation(team, batch_export):
+async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export):
     """Test that S3 Export Workflow can gracefully handle cancellations when inserting S3 data."""
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
+        team_id=ateam.pk,
+        batch_export_id=str(s3_batch_export.id),
         data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        **s3_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_s3_activity")
@@ -1214,7 +773,7 @@ async def test_s3_export_workflow_handles_cancellation(team, batch_export):
             with pytest.raises(WorkflowFailureError):
                 await handle.result()
 
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+        runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
         assert len(runs) == 1
 
         run = runs[0]
