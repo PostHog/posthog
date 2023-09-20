@@ -253,11 +253,13 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
                 storage_version="None",
             )
 
-            save_recording_with_new_content(recording, "the new content")
+            new_key = save_recording_with_new_content(recording, "the new content")
 
             recording.refresh_from_db()
 
             expected_path = f"session_recordings_lts/team_id/{self.team.pk}/session_id/{recording.session_id}/data"
+            assert new_key == expected_path
+
             assert recording.object_storage_path == expected_path
             assert recording.storage_version == "2023-08-01"
 

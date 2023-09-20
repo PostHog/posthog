@@ -27,9 +27,9 @@ SNAPSHOT_PERSIST_TIME_HISTOGRAM = Histogram(
 MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
 
 # TODO rename this...
-def save_recording_with_new_content(recording: SessionRecording, content: str) -> None:
+def save_recording_with_new_content(recording: SessionRecording, content: str) -> str:
     if not settings.OBJECT_STORAGE_ENABLED:
-        return
+        return ""
 
     logger.info(
         "re-saving recording file into 2023-08-01 LTS storage format",
@@ -51,6 +51,8 @@ def save_recording_with_new_content(recording: SessionRecording, content: str) -
     recording.storage_version = "2023-08-01"
     recording.object_storage_path = target_prefix
     recording.save()
+
+    return new_path
 
 
 def persist_recording(recording_id: str, team_id: int) -> None:
