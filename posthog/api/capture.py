@@ -428,7 +428,8 @@ def get_event(request):
         start_time = time.monotonic()
         for future in futures:
             try:
-                future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
+                if future is not None:
+                    future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
             except KafkaError as exc:
                 # TODO: distinguish between retriable errors and non-retriable
                 # errors, and set Retry-After header accordingly.
