@@ -43,6 +43,9 @@ DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
     "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
 )
 
+
+DECIDE_ALLOW_SESSION_REPLAY = get_from_env("DECIDE_ALLOW_SESSION_REPLAY", True, type_cast=str_to_bool)
+
 # Application definition
 
 INSTALLED_APPS = [

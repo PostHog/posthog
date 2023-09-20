@@ -215,8 +215,10 @@ def get_decide(request: HttpRequest):
                 else False
             )
 
-            if team.session_recording_opt_in and (
-                on_permitted_recording_domain(team, request) or not team.recording_domains
+            if (
+                settings.DECIDE_ALLOW_SESSION_REPLAY
+                and team.session_recording_opt_in
+                and (on_permitted_recording_domain(team, request) or not team.recording_domains)
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
                 response["sessionRecording"] = {
