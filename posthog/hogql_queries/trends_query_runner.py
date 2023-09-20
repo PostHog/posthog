@@ -3,8 +3,6 @@ from typing import List, Optional, Any, Dict, Union
 from django.utils.timezone import datetime
 
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -119,7 +117,7 @@ class TrendsQueryRunner(QueryRunner):
 
     def aggregation_operation(self, series: EventsNode | ActionsNode) -> ast.Expr:
         if series.math == "hogql":
-            return parse_expr(translate_hogql(series.math_hogql, HogQLContext(team_id=self.team.pk)))
+            return parse_expr(series.math_hogql)
 
         return parse_expr("count(*)")
 
