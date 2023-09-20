@@ -3,17 +3,17 @@ import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { urls } from 'scenes/urls'
-import api from 'lib/api'
 
 import './NotebookNodeQuery.scss'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -30,6 +30,31 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
     const { query } = props.attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
+
+    useEffect(() => {
+        let title = 'Query'
+
+        if (query.kind === NodeKind.DataTableNode) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Data exploration'
+            }
+        }
+        if (query.kind === NodeKind.InsightVizNode) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Insight'
+            }
+        }
+        if (query.kind === NodeKind.SavedInsightNode) {
+            const logic = insightLogic.findMounted({ dashboardItemId: query.shortId })
+            title = (logic?.values.insight.name || logic?.values.insight.derived_name) ?? 'Saved Insight'
+        }
+
+        props.updateAttributes({ title: title })
+    }, [query])
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }
@@ -159,29 +184,7 @@ export const Settings = ({
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: async (attributes) => {
-        const query = attributes.query
-        let title = 'HogQL'
-        if (NodeKind.SavedInsightNode === query.kind) {
-            const response = await api.insights.loadInsight(query.shortId)
-            title = response.results[0].name?.length
-                ? response.results[0].name
-                : response.results[0].derived_name || 'Saved insight'
-        } else if (NodeKind.DataTableNode === query.kind) {
-            if (query.source.kind) {
-                title = query.source.kind.replace('Node', '').replace('Query', '')
-            } else {
-                title = 'Data exploration'
-            }
-        } else if (NodeKind.InsightVizNode === query.kind) {
-            if (query.source.kind) {
-                title = query.source.kind.replace('Node', '').replace('Query', '')
-            } else {
-                title = 'Insight'
-            }
-        }
-        return Promise.resolve(title)
-    },
+    defaultTitle: 'Query',
     Component,
     heightEstimate: 500,
     minHeight: 200,
@@ -197,7 +200,6 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     widgets: [
         {
             key: 'settings',
-            label: 'Settings',
             Component: Settings,
         },
     ],

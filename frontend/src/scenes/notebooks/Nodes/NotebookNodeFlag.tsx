@@ -1,5 +1,5 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FeatureFlagType, NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 import { IconFlag, IconRecording, IconRocketLaunch, IconSurveys } from 'lib/lemon-ui/icons'
@@ -12,10 +12,10 @@ import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import api from 'lib/api'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
 import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 import { buildSurveyContent } from './NotebookNodeSurvey'
+import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = props.attributes
@@ -36,6 +36,10 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
     const { shouldDisableInsertEarlyAccessFeature, shouldDisableInsertSurvey } = useValues(
         notebookNodeFlagLogic({ id, insertAfter })
     )
+
+    useEffect(() => {
+        props.updateAttributes({ title: featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag' })
+    }, [featureFlag.key])
 
     return (
         <div>
@@ -173,18 +177,7 @@ type NotebookNodeFlagAttributes = {
 
 export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
-    title: async (attributes) => {
-        const mountedFlagLogic = featureFlagLogic.findMounted({ id: attributes.id })
-        let title = mountedFlagLogic?.values.featureFlag.key || null
-        if (title === null) {
-            const retrievedFlag: FeatureFlagType = await api.featureFlags.get(Number(attributes.id))
-            if (retrievedFlag) {
-                title = retrievedFlag.key
-            }
-        }
-
-        return title ? `Feature flag: ${title}` : 'Feature flag'
-    },
+    defaultTitle: 'Feature flag',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.featureFlag(attrs.id),
