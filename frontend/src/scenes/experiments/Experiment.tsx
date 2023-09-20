@@ -615,6 +615,7 @@ export function Experiment(): JSX.Element {
                                 {isExperimentRunning ? (
                                     <EditableField
                                         multiline
+                                        markdown
                                         name="description"
                                         value={experiment.description || ''}
                                         placeholder="Description (optional)"

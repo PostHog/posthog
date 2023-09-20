@@ -57,6 +57,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
+    remove_targeting_flag = serializers.BooleanField(required=False, write_only=True, allow_null=True)
 
     class Meta:
         model = Survey
@@ -70,6 +71,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "targeting_flag_id",
             "targeting_flag",
             "targeting_flag_filters",
+            "remove_targeting_flag",
             "questions",
             "conditions",
             "appearance",
@@ -121,6 +123,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return data
 
     def create(self, validated_data):
+        if "remove_targeting_flag" in validated_data:
+            validated_data.pop("remove_targeting_flag")
+
         validated_data["team_id"] = self.context["team_id"]
         if validated_data.get("targeting_flag_filters"):
             targeting_feature_flag = self._create_new_targeting_flag(
@@ -133,13 +138,21 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return super().create(validated_data)
 
     def update(self, instance: Survey, validated_data):
+
+        if validated_data.get("remove_targeting_flag"):
+            if instance.targeting_flag:
+                instance.targeting_flag.delete()
+                validated_data["targeting_flag_id"] = None
+            validated_data.pop("remove_targeting_flag")
+
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
+            new_filters = validated_data["targeting_flag_filters"]
             if instance.targeting_flag:
                 existing_targeting_flag = instance.targeting_flag
                 serialized_data_filters = {
                     **existing_targeting_flag.filters,
-                    **validated_data["targeting_flag_filters"],
+                    **new_filters,
                 }
                 existing_flag_serializer = FeatureFlagSerializer(
                     existing_targeting_flag,
@@ -150,13 +163,10 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
             else:
-                new_flag = self._create_new_targeting_flag(instance.name, validated_data["targeting_flag_filters"])
+                new_flag = self._create_new_targeting_flag(instance.name, new_filters)
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
-        else:
-            if instance.targeting_flag:
-                instance.targeting_flag.delete()
-                validated_data["targeting_flag_id"] = None
+
         return super().update(instance, validated_data)
 
     def _create_new_targeting_flag(self, name, filters):

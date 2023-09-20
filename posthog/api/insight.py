@@ -138,7 +138,7 @@ class QuerySchemaParser(JSONParser):
         try:
             query = data.get("query", None)
             if query:
-                schema.Model.parse_obj(query)
+                schema.Model.model_validate(query)
         except Exception as error:
             raise ParseError(detail=str(error))
         else:

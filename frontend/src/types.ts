@@ -2082,6 +2082,7 @@ export interface Survey {
     start_date: string | null
     end_date: string | null
     archived: boolean
+    remove_targeting_flag?: boolean
 }
 
 export enum SurveyType {

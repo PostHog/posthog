@@ -191,6 +191,7 @@ const testCases: Record<string, NotebookType> = {
             },
         },
     ]),
+    'api/projects/:team_id/notebooks/empty': notebookTestTemplate('empty', []),
 }
 
 const meta: Meta = {
@@ -392,6 +393,13 @@ export function RecordingsPlaylist(): JSX.Element {
 export function TextOnlyNotebook(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.notebook('12345'))
+    }, [])
+    return <App />
+}
+
+export function EmptyNotebook(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.notebook('empty'))
     }, [])
     return <App />
 }
