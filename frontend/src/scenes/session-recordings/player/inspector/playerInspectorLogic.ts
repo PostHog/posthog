@@ -15,7 +15,7 @@ import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getKeyMapping } from 'lib/taxonomy'
 import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
-import { eventWithTime } from '@rrweb/types'
+import { EventType } from '@rrweb/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { loaders } from 'kea-loaders'
@@ -142,7 +142,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             [
-                'sessionPlayerData',
+                'pluginSnapshots',
                 'sessionPlayerMetaDataLoading',
                 'sessionPlayerSnapshotDataLoading',
                 'sessionEventsData',
@@ -228,43 +228,40 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         consoleLogs: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): RecordingConsoleLogV2[] => {
+            (s) => [s.pluginSnapshots],
+            (pluginSnapshots): RecordingConsoleLogV2[] => {
                 const logs: RecordingConsoleLogV2[] = []
                 const seenCache = new Set<string>()
 
-                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
-                    snapshots.forEach((snapshot: eventWithTime) => {
-                        if (
-                            snapshot.type === 6 && // RRWeb plugin event type
-                            snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
-                        ) {
-                            const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload
-                            const { level, payload, trace } = data
-                            const lines = (Array.isArray(payload) ? payload : [payload]).filter((x) => !!x) as string[]
-                            const content = lines.join('\n')
-                            const cacheKey = `${snapshot.timestamp}::${content}`
+                pluginSnapshots.forEach((snapshot) => {
+                    if (snapshot.type !== EventType.Plugin || snapshot.data.plugin !== CONSOLE_LOG_PLUGIN_NAME) {
+                        return
+                    }
 
-                            if (seenCache.has(cacheKey)) {
-                                return
-                            }
-                            seenCache.add(cacheKey)
+                    const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload
+                    const { level, payload, trace } = data
+                    const lines = (Array.isArray(payload) ? payload : [payload]).filter((x) => !!x) as string[]
+                    const content = lines.join('\n')
+                    const cacheKey = `${snapshot.timestamp}::${content}`
 
-                            if (logs[logs.length - 1]?.content === content) {
-                                logs[logs.length - 1].count += 1
-                                return
-                            }
+                    if (seenCache.has(cacheKey)) {
+                        return
+                    }
+                    seenCache.add(cacheKey)
 
-                            logs.push({
-                                timestamp: snapshot.timestamp,
-                                windowId: windowId,
-                                content,
-                                lines,
-                                level,
-                                trace,
-                                count: 1,
-                            })
-                        }
+                    if (logs[logs.length - 1]?.content === content) {
+                        logs[logs.length - 1].count += 1
+                        return
+                    }
+
+                    logs.push({
+                        timestamp: snapshot.timestamp,
+                        windowId: snapshot.windowId,
+                        content,
+                        lines,
+                        level,
+                        trace,
+                        count: 1,
                     })
                 })
 
@@ -273,34 +270,36 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allPerformanceEvents: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): PerformanceEvent[] => {
+            (s) => [s.pluginSnapshots],
+            (pluginSnapshots): PerformanceEvent[] => {
                 // performanceEvents used to come from the API,
                 // but we decided to instead store them in the recording data
                 const events: PerformanceEvent[] = []
 
-                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
-                    snapshots.forEach((snapshot: eventWithTime) => {
-                        if (
-                            snapshot.type === 6 && // RRWeb plugin event type
-                            snapshot.data.plugin === NETWORK_PLUGIN_NAME
-                        ) {
-                            const properties = snapshot.data.payload as any
+                pluginSnapshots.forEach((snapshot) => {
+                    if (snapshot.type !== EventType.Plugin || snapshot.data.plugin !== NETWORK_PLUGIN_NAME) {
+                        return
+                    }
 
-                            const data: Partial<PerformanceEvent> = {
-                                timestamp: snapshot.timestamp,
-                                window_id: windowId,
-                            }
+                    if (
+                        snapshot.type === 6 && // RRWeb plugin event type
+                        snapshot.data.plugin === NETWORK_PLUGIN_NAME
+                    ) {
+                        const properties = snapshot.data.payload as any
 
-                            Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
-                                if (key in properties) {
-                                    data[value] = properties[key]
-                                }
-                            })
-
-                            events.push(data as PerformanceEvent)
+                        const data: Partial<PerformanceEvent> = {
+                            timestamp: snapshot.timestamp,
+                            window_id: snapshot.windowId,
                         }
-                    })
+
+                        Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
+                            if (key in properties) {
+                                data[value] = properties[key]
+                            }
+                        })
+
+                        events.push(data as PerformanceEvent)
+                    }
                 })
 
                 return events

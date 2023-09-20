@@ -18,7 +18,7 @@ import {
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { eventWithTime } from '@rrweb/types'
+import { EventType, eventWithTime } from '@rrweb/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
@@ -627,20 +627,43 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
 
-        start: [
-            (s) => [s.sessionPlayerMetaData],
-            (meta): Dayjs | undefined => {
-                return meta?.start_time ? dayjs(meta.start_time) : undefined
+        // We want only the snapshots that are relevant to playback typically
+        snapshots: [
+            (s) => [s.sessionPlayerSnapshotData],
+            (sessionPlayerSnapshotData): RecordingSnapshot[] => {
+                return (sessionPlayerSnapshotData?.snapshots ?? []).filter(
+                    (snapshot) => snapshot.type !== EventType.Plugin
+                )
             },
         ],
 
+        // And then separately we want all plugin based snapshots
+        pluginSnapshots: [
+            (s) => [s.sessionPlayerSnapshotData],
+            (sessionPlayerSnapshotData): RecordingSnapshot[] => {
+                return (sessionPlayerSnapshotData?.snapshots ?? []).filter(
+                    (snapshot) => snapshot.type === EventType.Plugin
+                )
+            },
+        ],
+
+        start: [
+            (s) => [s.sessionPlayerMetaData, s.snapshots],
+            (meta, snapshots): Dayjs | undefined => {
+                if (snapshots?.length) {
+                    return dayjs(snapshots[0].timestamp)
+                }
+
+                return meta?.start_time ? dayjs(meta.start_time) : undefined
+            },
+        ],
         end: [
-            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
-            (meta, sessionPlayerSnapshotData): Dayjs | undefined => {
+            (s) => [s.sessionPlayerMetaData, s.snapshots],
+            (meta, snapshots): Dayjs | undefined => {
                 // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
                 // either use the metadata end point or the last snapshot, whichever is later.
                 const end = meta?.end_time ? dayjs(meta.end_time) : undefined
-                const lastEvent = sessionPlayerSnapshotData?.snapshots?.slice(-1)[0]
+                const lastEvent = snapshots?.slice(-1)[0]
 
                 return lastEvent?.timestamp && lastEvent.timestamp > +(end ?? 0) ? dayjs(lastEvent.timestamp) : end
             },
@@ -654,32 +677,30 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         segments: [
-            (s) => [s.sessionPlayerSnapshotData, s.start, s.end],
-            (sessionPlayerSnapshotData, start, end): RecordingSegment[] => {
-                return createSegments(sessionPlayerSnapshotData?.snapshots || [], start, end)
+            (s) => [s.snapshots, s.start, s.end],
+            (snapshots, start, end): RecordingSegment[] => {
+                return createSegments(snapshots || [], start, end)
             },
         ],
 
         urls: [
-            (s) => [s.sessionPlayerSnapshotData],
-            (sessionPlayerSnapshotData): { url: string; timestamp: number }[] => {
-                return (
-                    sessionPlayerSnapshotData?.snapshots
-                        ?.filter((snapshot) => getHrefFromSnapshot(snapshot))
-                        .map((snapshot) => {
-                            return {
-                                url: getHrefFromSnapshot(snapshot) as string,
-                                timestamp: snapshot.timestamp,
-                            }
-                        }) ?? []
-                )
+            (s) => [s.snapshots],
+            (snapshots): { url: string; timestamp: number }[] => {
+                return snapshots
+                    .filter((snapshot) => getHrefFromSnapshot(snapshot))
+                    .map((snapshot) => {
+                        return {
+                            url: getHrefFromSnapshot(snapshot) as string,
+                            timestamp: snapshot.timestamp,
+                        }
+                    })
             },
         ],
 
         snapshotsByWindowId: [
-            (s) => [s.sessionPlayerSnapshotData],
-            (sessionPlayerSnapshotData): Record<string, eventWithTime[]> => {
-                return mapSnapshotsToWindowId(sessionPlayerSnapshotData?.snapshots || [])
+            (s) => [s.snapshots],
+            (snapshots): Record<string, eventWithTime[]> => {
+                return mapSnapshotsToWindowId(snapshots)
             },
         ],
 
