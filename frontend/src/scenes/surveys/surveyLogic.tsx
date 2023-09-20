@@ -192,6 +192,10 @@ export const surveyLogic = kea<surveyLogicType>([
                                     question: 'Give us feedback on our product!',
                                 },
                             ],
+                            appearance: {
+                                ...state.appearance,
+                                submitButtonText: 'Submit',
+                            },
                         }
                     } else if (type === SurveyQuestionType.Link) {
                         return {
@@ -232,6 +236,10 @@ export const surveyLogic = kea<surveyLogicType>([
                                     choices: ['Yes', 'No'],
                                 },
                             ],
+                            appearance: {
+                                ...state.appearance,
+                                submitButtonText: 'Submit',
+                            },
                         }
                     } else if (type === SurveyQuestionType.MultipleChoice) {
                         return {
@@ -243,6 +251,10 @@ export const surveyLogic = kea<surveyLogicType>([
                                     choices: ['Tutorials', 'Customer case studies', 'Product announcements'],
                                 },
                             ],
+                            appearance: {
+                                ...state.appearance,
+                                submitButtonText: 'Submit',
+                            },
                         }
                     }
                     return state
