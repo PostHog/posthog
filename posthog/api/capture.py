@@ -29,6 +29,7 @@ from posthog.kafka_client.client import (
 )
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+    KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 )
 from posthog.logging.timing import timed
@@ -141,6 +142,8 @@ def _kafka_topic(event_name: str, data: Dict) -> str:
     # and other events, we push to a different topic.
 
     match event_name:
+        case "$snapshot":
+            return KAFKA_SESSION_RECORDING_EVENTS
         case "$snapshot_items":
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         case _:
@@ -152,11 +155,6 @@ def _kafka_topic(event_name: str, data: Dict) -> str:
 
 
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
-    if event_name == "$snapshot":
-        # This is deprecated and we should no longer spend any time producing
-        # these events to kafka.
-        return
-
     kafka_topic = _kafka_topic(event_name, data)
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
