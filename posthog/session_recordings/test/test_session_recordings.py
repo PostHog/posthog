@@ -679,7 +679,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ]
         }
         assert mock_list_objects.call_args_list == [
-            call(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data"),
             call("an lts stored object path"),
         ]
 
