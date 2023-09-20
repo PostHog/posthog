@@ -64,7 +64,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.kind, "StickinessQuery")
 
     def test_base_stickiness_query_from_stickiness_filter(self):
-        filter = StickinessFilter(data={})
+        filter = StickinessFilter(data={}, team=self.team)
 
         query = filter_to_query(filter)
 

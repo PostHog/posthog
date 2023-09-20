@@ -25,13 +25,13 @@ def _date_range(filter: AnyInsightFilter):
 
 
 def _interval(filter: AnyInsightFilter):
-    if filter.insight == "RETENTION":
+    if filter.insight == "RETENTION" or filter.insight == "PATHS":
         return {}
     return {"interval": filter.interval}
 
 
 def _series(filter: AnyInsightFilter):
-    if filter.insight == "RETENTION":
+    if filter.insight == "RETENTION" or filter.insight == "PATHS":
         return {}
     return {"series": []}  # TODO: implement
 
