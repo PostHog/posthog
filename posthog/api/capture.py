@@ -153,6 +153,8 @@ def _kafka_topic(event_name: str, data: Dict) -> str:
 
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     if event_name == "$snapshot":
+        # This is deprecated and we should no longer spend any time producing
+        # these events to kafka.
         return
 
     kafka_topic = _kafka_topic(event_name, data)
