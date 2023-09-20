@@ -46,9 +46,10 @@ export interface NewSurvey
 
 export const defaultSurveyAppearance = {
     backgroundColor: 'white',
-    submitButtonColor: '#2C2C2C',
     textColor: 'black',
     submitButtonText: 'Submit',
+    submitButtonColor: '#2c2c2c',
+    ratingButtonColor: '#e0e2e8',
     descriptionTextColor: '#4b4b52',
     whiteLabel: false,
     displayThankYouMessage: true,
