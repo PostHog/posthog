@@ -59,7 +59,7 @@ export const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
-    questions: [{ type: SurveyQuestionType.Open, question: '' }],
+    questions: [{ type: SurveyQuestionType.Open, question: 'What features would you like to see added to our app?' }],
     type: SurveyType.Popover,
     linked_flag_id: undefined,
     targeting_flag_filters: undefined,
@@ -183,10 +183,66 @@ export const surveyLogic = kea<surveyLogicType>([
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
                 setDefaultForQuestionType: (state, { type }) => {
-                    if (type === 'rating') {
+                    if (type === SurveyQuestionType.Open) {
                         return {
                             ...state,
-                            questions: [{ ...state.questions[0], display: 'number', scale: 10 }],
+                            questions: [
+                                {
+                                    ...state.questions[0],
+                                    question: 'Give us feedback on our product!',
+                                },
+                            ],
+                        }
+                    } else if (type === SurveyQuestionType.Link) {
+                        return {
+                            ...state,
+                            questions: [
+                                {
+                                    ...state.questions[0],
+                                    question: 'Do you want to join our upcoming webinar?',
+                                },
+                            ],
+                            appearance: {
+                                ...state.appearance,
+                                submitButtonText: 'Register',
+                                thankYouMessageHeader: 'Redirecting ...',
+                            },
+                        }
+                    } else if (type === SurveyQuestionType.Rating) {
+                        return {
+                            ...state,
+                            questions: [
+                                {
+                                    ...state.questions[0],
+                                    question: 'How likely are you to recommend us to a friend?',
+                                    display: 'number',
+                                    scale: 10,
+                                    lowerBoundLabel: 'Unlikely',
+                                    upperBoundLabel: 'Very likely',
+                                },
+                            ],
+                        }
+                    } else if (type === SurveyQuestionType.SingleChoice) {
+                        return {
+                            ...state,
+                            questions: [
+                                {
+                                    ...state.questions[0],
+                                    question: 'Have you found this tutorial useful?',
+                                    choices: ['Yes', 'No'],
+                                },
+                            ],
+                        }
+                    } else if (type === SurveyQuestionType.MultipleChoice) {
+                        return {
+                            ...state,
+                            questions: [
+                                {
+                                    ...state.questions[0],
+                                    question: 'Which types of content would you like to see more of?',
+                                    choices: ['Tutorials', 'Customer case studies', 'Product announcements'],
+                                },
+                            ],
                         }
                     }
                     return state
