@@ -303,7 +303,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
 
     const logicProps: SessionRecordingListLogicProps = {
         ...props,
-        autoPlay: props.autoPlay ?? true,
     }
     const logic = sessionRecordingsListLogic(logicProps)
     const {
@@ -312,6 +311,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         shouldShowEmptyState,
         sessionRecordingsResponseLoading,
         matchingEventsMatchType,
+        autoPlaySelectedRecording,
     } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
@@ -382,6 +382,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                             matchingEventsMatchType={matchingEventsMatchType}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                             nextSessionRecording={nextSessionRecording}
+                            autoPlay={autoPlaySelectedRecording}
                         />
                     ) : (
                         <div className="mt-20">

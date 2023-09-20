@@ -403,6 +403,14 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 loadPrev: () => false,
             },
         ],
+
+        // We want to start in a paused state but once selected, they should auto play
+        autoPlaySelectedRecording: [
+            props.autoPlay ?? false,
+            {
+                setSelectedRecordingId: () => true,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -527,15 +535,13 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             },
         ],
         activeSessionRecording: [
-            (s) => [s.selectedRecordingId, s.sessionRecordings, (_, props) => props.autoPlay],
-            (selectedRecordingId, sessionRecordings, autoPlay): Partial<SessionRecordingType> | undefined => {
+            (s) => [s.selectedRecordingId, s.sessionRecordings],
+            (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {
                 return selectedRecordingId
                     ? sessionRecordings.find((sessionRecording) => sessionRecording.id === selectedRecordingId) || {
                           id: selectedRecordingId,
                       }
-                    : autoPlay
-                    ? sessionRecordings[0]
-                    : undefined
+                    : sessionRecordings[0]
             },
         ],
         nextSessionRecording: [
