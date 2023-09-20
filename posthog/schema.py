@@ -471,7 +471,7 @@ class TrendsFilter(BaseModel):
 
 class TrendsQueryResponse(BaseModel):
     class Config:
-        extra = Extra.forbid
+        extra = "forbid"
 
     result: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None

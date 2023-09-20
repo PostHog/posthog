@@ -229,8 +229,9 @@ def process_query(
         lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
         return _unwrap_pydantic_dict(lifecycle_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "TrendsQuery":
+        refresh_requested = refresh_requested_by_client(request) if request else False
         trends_query_runner = TrendsQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(trends_query_runner.run())
+        return _unwrap_pydantic_dict(trends_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)

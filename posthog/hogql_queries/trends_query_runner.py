@@ -1,6 +1,10 @@
-from typing import List, Optional, Any, Dict, Union
+from datetime import timedelta
+from math import ceil
+from typing import List, Optional, Any, Dict
 
 from django.utils.timezone import datetime
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -16,15 +20,12 @@ from posthog.schema import ActionsNode, EventsNode, TrendsQuery, TrendsQueryResp
 
 class TrendsQueryRunner(QueryRunner):
     query: TrendsQuery
+    query_type = TrendsQuery
 
     def __init__(self, query: TrendsQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
-        super().__init__(team, timings)
-        if isinstance(query, TrendsQuery):
-            self.query = query
-        else:
-            self.query = TrendsQuery.parse_obj(query)
+        super().__init__(query, team, timings)
 
-    def to_query(self) -> Union[List[ast.SelectQuery], ast.SelectQuery]:
+    def to_query(self) -> List[ast.SelectQuery]:
         queries = []
         with self.timings.measure("trends_query"):
             for series in self.query.series:
@@ -77,9 +78,8 @@ class TrendsQueryRunner(QueryRunner):
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
-    def run(self) -> TrendsQueryResponse:
-        to_query = self.to_query()
-        queries = to_query if isinstance(to_query, list) else [to_query]
+    def calculate(self):
+        queries = self.to_query()
 
         res = []
         timings = []
@@ -164,3 +164,25 @@ class TrendsQueryRunner(QueryRunner):
             return filters[0]
         else:
             return ast.And(exprs=filters)
+
+    def _is_stale(self, cached_result_package):
+        date_to = self.query_date_range.date_to()
+        interval = self.query_date_range.interval_name
+        return is_stale(self.team, date_to, interval, cached_result_package)
+
+    def _refresh_frequency(self):
+        date_to = self.query_date_range.date_to()
+        date_from = self.query_date_range.date_from()
+        interval = self.query_date_range.interval_name
+
+        delta_days: Optional[int] = None
+        if date_from and date_to:
+            delta = date_to - date_from
+            delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
+
+        refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+        if interval == "hour" or (delta_days is not None and delta_days <= 7):
+            # The interval is shorter for short-term insights
+            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+
+        return refresh_frequency
