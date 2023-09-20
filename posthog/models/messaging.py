@@ -1,9 +1,9 @@
-from datetime import timedelta
-from django.utils import timezone
 import hashlib
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from .utils import UUIDModel
 
@@ -43,7 +43,7 @@ class MessagingRecord(UUIDModel):
 
     email_hash: models.CharField = models.CharField(max_length=1024)
     campaign_key: models.CharField = models.CharField(max_length=128)
-    # Numeric indicator for repearts emails of the same campaign key
+    # Numeric indicator for repeat emails of the same campaign key
     campaign_count: models.IntegerField = models.IntegerField(null=True)
     sent_at: models.DateTimeField = models.DateTimeField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
