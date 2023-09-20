@@ -8,6 +8,23 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
 }
+
+export enum OnboardingStepKey {
+    PRODUCT_INTRO = 'product_intro',
+    SDKS = 'sdks',
+    BILLING = 'billing',
+    PAIRS_WITH = 'pairs_with',
+}
+
+export type OnboardingStepMap = Record<OnboardingStepKey, string>
+
+const onboardingStepMap: OnboardingStepMap = {
+    [OnboardingStepKey.PRODUCT_INTRO]: 'OnboardingProductIntro',
+    [OnboardingStepKey.SDKS]: 'SDKs',
+    [OnboardingStepKey.BILLING]: 'OnboardingBillingStep',
+    [OnboardingStepKey.PAIRS_WITH]: 'OnboardingPairsWithStep',
+}
+
 export type AllOnboardingSteps = JSX.Element[]
 
 export const onboardingLogic = kea<onboardingLogicType>({
@@ -49,6 +66,12 @@ export const onboardingLogic = kea<onboardingLogicType>({
             [] as AllOnboardingSteps,
             {
                 setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps as AllOnboardingSteps,
+            },
+        ],
+        stepKey: [
+            '' as string,
+            {
+                setStepKey: (_, { stepKey }) => stepKey,
             },
         ],
         onCompleteOnbardingRedirectUrl: [
@@ -110,9 +133,45 @@ export const onboardingLogic = kea<onboardingLogicType>({
         completeOnboarding: () => {
             window.location.href = values.onCompleteOnbardingRedirectUrl
         },
+        setAllOnboardingSteps: ({ allOnboardingSteps }) => {
+            // once we have the onboarding steps we need to make sure the step key is valid,
+            // and if so use it to set the step number. if not valid, remove it from the state
+            if (values.stepKey && values.stepKey in onboardingStepMap) {
+                const stepIndex = allOnboardingSteps
+                    .map((step) => step.type.name)
+                    .indexOf(onboardingStepMap[values.stepKey as OnboardingStepKey])
+                if (stepIndex > -1) {
+                    actions.setCurrentOnboardingStepNumber(stepIndex + 1)
+                } else {
+                    actions.setStepKey('')
+                }
+            }
+        },
+        setStepKey: ({ stepKey }) => {
+            if (
+                stepKey &&
+                values.allOnboardingSteps.length > 0 &&
+                !values.allOnboardingSteps.find(
+                    (step) => step.type.name === onboardingStepMap[stepKey as OnboardingStepKey]
+                )
+            ) {
+                actions.setStepKey('')
+            }
+        },
     }),
-    urlToAction: ({ actions }) => ({
-        '/onboarding/:productKey': ({ productKey }, { success, upgraded }) => {
+    actionToUrl: ({ values }) => ({
+        setCurrentOnboardingStepNumber: () => {
+            const stepName = values.allOnboardingSteps[values.currentOnboardingStepNumber - 1]?.type?.name
+            const stepKey = Object.keys(onboardingStepMap).find((key) => onboardingStepMap[key] === stepName)
+            if (stepKey && values.allOnboardingSteps.find((step) => step.type.name === stepName)) {
+                return [`/onboarding/${values.productKey}`, { step: stepKey }]
+            } else {
+                return [`/onboarding/${values.productKey}`]
+            }
+        },
+    }),
+    urlToAction: ({ actions, values }) => ({
+        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
@@ -120,8 +179,14 @@ export const onboardingLogic = kea<onboardingLogicType>({
             if (success || upgraded) {
                 actions.setSubscribedDuringOnboarding(true)
             }
-            actions.setProductKey(productKey)
-            actions.setCurrentOnboardingStepNumber(1)
+            if (productKey !== values.productKey) {
+                actions.setProductKey(productKey)
+            }
+            if (step && step in onboardingStepMap) {
+                actions.setStepKey(step)
+            } else {
+                actions.setCurrentOnboardingStepNumber(1)
+            }
         },
     }),
 })
