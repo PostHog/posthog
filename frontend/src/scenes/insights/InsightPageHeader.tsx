@@ -255,7 +255,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 Cancel
                             </LemonButton>
                         )}
-
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <>
                                 <NotebookSelectButton
