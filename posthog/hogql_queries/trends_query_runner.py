@@ -160,6 +160,10 @@ class TrendsQueryRunner(QueryRunner):
         if self.query.properties is not None and self.query.properties != []:
             filters.append(property_to_expr(self.query.properties, self.team))
 
+        # Series Filters
+        if series.properties is not None and series.properties != []:
+            filters.append(property_to_expr(series.properties, self.team))
+
         if len(filters) == 0:
             return ast.Constant(value=True)
         elif len(filters) == 1:
