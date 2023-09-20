@@ -162,8 +162,10 @@ export const onboardingLogic = kea<onboardingLogicType>({
     actionToUrl: ({ values }) => ({
         setCurrentOnboardingStepNumber: () => {
             const stepName = values.allOnboardingSteps[values.currentOnboardingStepNumber - 1]?.type?.name
-            const stepKey = Object.keys(onboardingStepMap).find((key) => onboardingStepMap[key] === stepName)
-            if (stepKey && values.allOnboardingSteps.find((step) => step.type.name === stepName)) {
+            const stepKey =
+                Object.keys(onboardingStepMap).find((key) => onboardingStepMap[key] === stepName) ||
+                values.currentOnboardingStepNumber.toString()
+            if (stepKey) {
                 return [`/onboarding/${values.productKey}`, { step: stepKey }]
             } else {
                 return [`/onboarding/${values.productKey}`]
@@ -182,7 +184,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
             if (productKey !== values.productKey) {
                 actions.setProductKey(productKey)
             }
-            if (step && step in onboardingStepMap) {
+            if (step && (step in onboardingStepMap || parseInt(step) > 1)) {
                 actions.setStepKey(step)
             } else {
                 actions.setCurrentOnboardingStepNumber(1)
