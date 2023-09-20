@@ -7,19 +7,22 @@ import { urls } from 'scenes/urls'
 import { onboardingLogic } from './onboardingLogic'
 import { SDKs } from './sdks/SDKs'
 import { OnboardingProductIntro } from './OnboardingProductIntro'
-import { OnboardingStep } from './OnboardingStep'
 import { ProductKey } from '~/types'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
+import { OnboardingBillingStep } from './OnboardingBillingStep'
 
 export const scene: SceneExport = {
     component: Onboarding,
     logic: onboardingLogic,
 }
 
+/**
+ * Wrapper for custom onboarding content. This automatically includes the product intro and billing step.
+ */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { onboardingStep } = useValues(onboardingLogic)
-    const { setTotalOnboardingSteps } = useActions(onboardingLogic)
+    const { currentOnboardingStepNumber, shouldShowBillingStep } = useValues(onboardingLogic)
+    const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
@@ -28,7 +31,10 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     }, [children])
 
     useEffect(() => {
-        setTotalOnboardingSteps(allSteps.length)
+        if (!allSteps.length) {
+            return
+        }
+        setAllOnboardingSteps(allSteps)
     }, [allSteps])
 
     if (!product || !children) {
@@ -37,24 +43,26 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 
     const createAllSteps = (): void => {
         const ProductIntro = <OnboardingProductIntro product={product} />
+        let steps = []
         if (Array.isArray(children)) {
-            setAllSteps([ProductIntro, ...children])
+            steps = [ProductIntro, ...children]
         } else {
-            setAllSteps([ProductIntro, children as JSX.Element])
+            steps = [ProductIntro, children as JSX.Element]
         }
-        setTotalOnboardingSteps(Array.isArray(children) ? children.length : 1)
+        if (shouldShowBillingStep) {
+            const BillingStep = <OnboardingBillingStep product={product} />
+            steps = [...steps, BillingStep]
+        }
+        setAllSteps(steps)
     }
 
-    return (allSteps[onboardingStep - 1] as JSX.Element) || <></>
+    return (allSteps[currentOnboardingStepNumber - 1] as JSX.Element) || <></>
 }
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <SDKs usersAction="collecting events" sdkInstructionMap={ProductAnalyticsSDKInstructions} />
-            <OnboardingStep title="my onboarding step" subtitle="my onboarding subtitle">
-                <div>my onboarding content</div>
-            </OnboardingStep>
         </OnboardingWrapper>
     )
 }
