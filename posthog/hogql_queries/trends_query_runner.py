@@ -103,7 +103,7 @@ class TrendsQueryRunner(QueryRunner):
                         "labels": [item.strftime("%-d-%b-%Y") for item in val[0]],  # Add back in hour formatting
                         "days": [item.strftime("%Y-%m-%d") for item in val[0]],  # Add back in hour formatting
                         "count": float(sum(val[1])),
-                        "label": "All events" if series.event is None else series.event,
+                        "label": "All events" if self.series_event(series) is None else self.series_event(series),
                     }
                 )
 
@@ -142,8 +142,10 @@ class TrendsQueryRunner(QueryRunner):
         )
 
         # Series
-        if series.event is not None:
-            filters.append(parse_expr("event = {event}", placeholders={"event": ast.Constant(value=series.event)}))
+        if self.series_event(series) is not None:
+            filters.append(
+                parse_expr("event = {event}", placeholders={"event": ast.Constant(value=self.series_event(series))})
+            )
 
         # Filter Test Accounts
         if (
@@ -186,3 +188,8 @@ class TrendsQueryRunner(QueryRunner):
             refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
         return refresh_frequency
+
+    def series_event(self, series: EventsNode | ActionsNode) -> str | None:
+        if isinstance(series, EventsNode):
+            return series.event
+        return None
