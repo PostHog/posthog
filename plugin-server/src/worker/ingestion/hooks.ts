@@ -257,7 +257,8 @@ export class HookCommander {
     organizationManager: OrganizationManager
     statsd: StatsD | undefined
     siteUrl: string
-    fetchHostnameGuardTeams: Set<number>
+    /** null means that the hostname guard is enabled for everyone */
+    fetchHostnameGuardTeams: Set<number> | null
 
     /** Hook request timeout in ms. */
     EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
@@ -266,13 +267,13 @@ export class HookCommander {
         postgres: PostgresRouter,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
-        fetchHostnameGuardTeams?: Set<number>,
+        fetchHostnameGuardTeams: Set<number> | null = new Set(),
         statsd?: StatsD
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
         this.organizationManager = organizationManager
-        this.fetchHostnameGuardTeams = fetchHostnameGuardTeams || new Set()
+        this.fetchHostnameGuardTeams = fetchHostnameGuardTeams
         if (process.env.SITE_URL) {
             this.siteUrl = process.env.SITE_URL
         } else {
@@ -362,7 +363,10 @@ export class HookCommander {
                 `⌛⌛⌛ Posting Webhook slow. Timeout warning after 5 sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
             )
         }, 5000)
-        const relevantFetch = isCloud() && this.fetchHostnameGuardTeams.has(team.id) ? safeTrackedFetch : trackedFetch
+        const relevantFetch =
+            isCloud() && (!this.fetchHostnameGuardTeams || this.fetchHostnameGuardTeams.has(team.id))
+                ? safeTrackedFetch
+                : trackedFetch
         try {
             await instrumentWebhookStep('fetch', async () => {
                 const request = await relevantFetch(webhookUrl, {
@@ -405,7 +409,9 @@ export class HookCommander {
             )
         }, 5000)
         const relevantFetch =
-            isCloud() && this.fetchHostnameGuardTeams.has(hook.team_id) ? safeTrackedFetch : trackedFetch
+            isCloud() && (!this.fetchHostnameGuardTeams || this.fetchHostnameGuardTeams.has(hook.team_id))
+                ? safeTrackedFetch
+                : trackedFetch
         try {
             const request = await relevantFetch(hook.target, {
                 method: 'POST',
