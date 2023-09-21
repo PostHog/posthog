@@ -3,7 +3,13 @@ from posthog.hogql_queries.filter_to_query import filter_to_query
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.schema import ActionsNode, BaseMathType, CountPerActorMathType, EventsNode, PropertyMathType
+from posthog.schema import (
+    ActionsNode,
+    BaseMathType,
+    CountPerActorMathType,
+    EventsNode,
+    PropertyMathType,
+)
 from posthog.test.base import BaseTest
 from posthog.models.filters.filter import Filter
 
@@ -287,6 +293,85 @@ test_insights = [
 @pytest.mark.parametrize("insight", test_insights)
 def test_base_insights(insight):
     filter = Filter(data=insight)
+    filter_to_query(filter)
+
+
+test_properties = [
+    [],
+    [{"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"}],
+    [
+        {"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"},
+        {"key": "$current_url", "type": "event", "value": "/path", "operator": "not_icontains"},
+    ],
+    {},
+    {"type": "AND", "values": []},
+    {"type": "AND", "values": [{"type": "AND", "values": []}]},
+    {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "$current_url", "type": "event", "value": "?", "operator": "not_icontains"},
+                    {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
+                ],
+            }
+        ],
+    },
+    {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"type": "AND", "values": []}, {"type": "AND", "values": []}]},
+            {
+                "type": "AND",
+                "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
+            },
+        ],
+    },
+    {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
+            },
+            {
+                "type": "AND",
+                "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
+            },
+        ],
+    },
+    {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event"},
+                    {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "person"},
+                    {"key": "$feature/hogql-insights", "value": ["true"], "operator": "exact", "type": "event"},
+                    {
+                        "key": "site_url",
+                        "value": ["http://localhost:8000"],
+                        "operator": "exact",
+                        "type": "group",
+                        "group_type_index": 1,
+                    },
+                    {"key": "id", "value": 2, "type": "cohort"},
+                    {"key": "tag_name", "value": ["elem"], "operator": "exact", "type": "element"},
+                    {"key": "$session_duration", "value": None, "operator": "gt", "type": "session"},
+                    {"type": "hogql", "key": "properties.name", "value": None},
+                ],
+            },
+            {"type": "OR", "values": [{}]},
+        ],
+    },
+]
+
+
+@pytest.mark.parametrize("properties", test_properties)
+def test_base_properties(properties):
+    filter = Filter(data={"properties": properties})
     filter_to_query(filter)
 
 

@@ -7,6 +7,7 @@ from posthog.schema import (
     FunnelsQuery,
     LifecycleQuery,
     PathsQuery,
+    PropertyGroupFilter,
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
@@ -65,6 +66,17 @@ def _filter_test_accounts(filter: AnyInsightFilter):
     return {"filterTestAccounts": filter.filter_test_accounts}
 
 
+def _properties(filter: AnyInsightFilter):
+    raw_properties = filter._data.get("properties", None)
+    if raw_properties is None or len(raw_properties) == 0:
+        return {}
+    elif isinstance(raw_properties, list):
+        raw_properties = {"type": "AND", "values": [{"type": "AND", "values": raw_properties}]}
+        return {"properties": PropertyGroupFilter(**raw_properties)}
+    else:
+        return {"properties": PropertyGroupFilter(**raw_properties)}
+
+
 def filter_to_query(filter: AnyInsightFilter) -> InsightQueryNode:
     Query = insight_to_query_type[filter.insight]
 
@@ -74,6 +86,7 @@ def filter_to_query(filter: AnyInsightFilter) -> InsightQueryNode:
         **_series(filter),
         **_sampling_factor(filter),
         **_filter_test_accounts(filter),
+        **_properties(filter),
     }
 
     return Query(**data)
