@@ -1,3 +1,4 @@
+import fetch from 'node-fetch'
 import { v4 as uuidv4 } from 'uuid'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
