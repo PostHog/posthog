@@ -103,7 +103,12 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     # This timestamp is a naive timestamp (does not include a timezone)
     # ClickHouse always stores timezone agnostic unix timestamp
     # See https://clickhouse.com/docs/en/sql-reference/data-types/datetime#usage-remarks
-    last_event_ingested_timestamp = sync_execute("SELECT max(_timestamp) FROM events")[0][0]
+    last_event_ingested_timestamp = sync_execute(
+        """
+    SELECT max(_timestamp) FROM events
+    WHERE timestamp >= now() - INTERVAL 1 HOUR
+    """
+    )[0][0]
 
     # Therefore we can confidently apply the UTC timezone
     last_event_ingested_timestamp_utc = last_event_ingested_timestamp.replace(tzinfo=ZoneInfo("UTC"))
