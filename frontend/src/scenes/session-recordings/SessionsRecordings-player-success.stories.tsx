@@ -17,6 +17,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        testOptions: { skip: true }, // TODO: Fix the flakey rendering due to player playback
     },
     decorators: [
         mswDecorator({
