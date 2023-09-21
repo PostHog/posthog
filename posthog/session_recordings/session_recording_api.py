@@ -254,6 +254,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         recording = self.get_object()
         response_data = {}
         source = request.GET.get("source")
+        might_have_realtime = True
+        newest_timestamp = None
 
         event_properties = {
             "team_id": self.team.pk,
@@ -274,9 +276,22 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if not source:
             sources: List[dict] = []
 
-            if recording.object_storage_path and recording.storage_version == "2023-08-01":
-                blob_prefix = recording.object_storage_path
-                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+            blob_keys: List[str] | None = None
+            if recording.object_storage_path:
+                if recording.storage_version == "2023-08-01":
+                    blob_prefix = recording.object_storage_path
+                    blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                else:
+                    # originally LTS files were in a single file
+                    sources.append(
+                        {
+                            "source": "blob",
+                            "start_timestamp": recording.start_time,
+                            "end_timestamp": recording.end_time,
+                            "blob_key": recording.object_storage_path,
+                        }
+                    )
+                    might_have_realtime = False
             else:
                 blob_prefix = recording.build_blob_ingestion_storage_path()
                 blob_keys = object_storage.list_objects(blob_prefix)
@@ -296,15 +311,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         }
                     )
 
-            might_have_realtime = True
-            newest_timestamp = None
-
             if sources:
                 sources = sorted(sources, key=lambda x: x["start_timestamp"])
                 oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
                 newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
-                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
+                if might_have_realtime:
+                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
 
             if might_have_realtime:
                 sources.append(
@@ -358,6 +371,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 response = HttpResponse(content=r.raw, content_type="application/json")
                 response["Content-Disposition"] = "inline"
                 return response
+
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
 
