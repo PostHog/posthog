@@ -145,7 +145,7 @@ test.skip(`recording events not ingested to ClickHouse if team is opted out`, as
     expect(events.length).toBe(0)
 })
 
-test.skip(`liveness check endpoint works`, async () => {
+test.concurrent(`liveness check endpoint works`, async () => {
     await waitForExpect(async () => {
         const response = await fetch('http://localhost:6738/_health')
         expect(response.status).toBe(200)
