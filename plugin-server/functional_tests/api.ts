@@ -302,7 +302,7 @@ export const fetchPostgresPersons = async (teamId: number) => {
 
 export const fetchSessionReplayEvents = async (teamId: number, sessionId?: string) => {
     const queryResult = (await clickHouseClient.querying(
-        `SELECT min(min_first_timestamp), any(team_id), any(distinct_id), sessionId, any(window) FROM session_replay_events WHERE team_id = ${teamId} ${
+        `SELECT min(min_first_timestamp), any(team_id), any(distinct_id), sessionId FROM session_replay_events WHERE team_id = ${teamId} ${
             sessionId ? ` AND sessionId = '${sessionId}'` : ''
         } group by sessionId ORDER BY min_first_timestamp ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<RawSessionReplayEvent>
