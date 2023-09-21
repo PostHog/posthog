@@ -258,7 +258,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             recording.refresh_from_db()
 
             expected_path = f"session_recordings_lts/team_id/{self.team.pk}/session_id/{recording.session_id}/data"
-            assert new_key == expected_path
+            assert new_key == f"{expected_path}/12345000-12346000"
 
             assert recording.object_storage_path == expected_path
             assert recording.storage_version == "2023-08-01"
