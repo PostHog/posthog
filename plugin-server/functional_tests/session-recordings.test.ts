@@ -161,7 +161,7 @@ test.concurrent(`liveness check endpoint works`, async () => {
         const body = await response.json()
         expect(body).toEqual(
             expect.objectContaining({
-                checks: expect.objectContaining({ 'session-recordings': 'ok' }),
+                checks: expect.objectContaining({ 'session-recordings-blob': 'ok' }),
             })
         )
     })
