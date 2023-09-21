@@ -182,11 +182,12 @@ export class SessionRecordingIngesterV2 {
             op: 'checkHighWaterMark',
         })
 
-        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, offset)) {
+        // Check that we are not below the high water mark for this partition (another consumer may have flushed further than us when revoking)
+        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, HIGH_WATERMARK_KEY, offset)) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark',
+                    drop_cause: 'high_water_mark_partition',
                 })
                 .inc()
 
@@ -194,12 +195,11 @@ export class SessionRecordingIngesterV2 {
             return
         }
 
-        // Check that we are not below the high water mark for this partition (another consumer may have flushed further than us when revoking)
-        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, HIGH_WATERMARK_KEY, offset)) {
+        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, offset)) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark_partition',
+                    drop_cause: 'high_water_mark',
                 })
                 .inc()
 
