@@ -13,7 +13,7 @@ from temporalio import activity, workflow
 from posthog.clickhouse.batch_exports_log_entries import (
     KAFKA_BATCH_EXPORTS_LOG_ENTRIES,
 )
-from posthog.temporal.workflows.base import (
+from posthog.temporal.workflows.batch_exports import (
     KafkaLoggingHandler,
     get_batch_exports_logger,
 )
