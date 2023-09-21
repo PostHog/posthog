@@ -48,7 +48,7 @@ if SESSION_RECORDING_ALLOW_V1_INGESTION and not DEBUG and not TEST:
         SESSION_RECORDING_ALLOW_V1_INGESTION is set to True!
         Session recordings v1 ingestion is deprecated and will be removed.
         You must setup blob storage.
-        Future versions of PostHog will not support storing recordings in ClickHouse.
+        This is the last version of PostHog that will support storing recordings in ClickHouse.
         """,
     )
 
