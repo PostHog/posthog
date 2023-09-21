@@ -22,6 +22,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
                 '/api/projects/:team_id/persons/properties': samplePersonProperties,
                 '/api/projects/:team_id/groups_types': [],
+                '/api/projects/:team_id/notebooks?contains=query': {},
             },
             post: {
                 '/api/projects/:team_id/cohorts/': { id: 1 },
