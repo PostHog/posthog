@@ -104,7 +104,7 @@ def _breakdown_filter(filter: AnyInsightFilter):
 
 
 def _group_aggregation_filter(filter: AnyInsightFilter):
-    return {}  # TODO: implement
+    return {"aggregation_group_type_index": filter.aggregation_group_type_index}
 
 
 def _insight_filter(filter: AnyInsightFilter):
