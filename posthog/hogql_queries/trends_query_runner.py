@@ -13,22 +13,39 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import ActionsNode, EventsNode, TrendsQuery, TrendsQueryResponse
+from posthog.schema import ActionsNode, EventsNode, HogQLQueryResponse, TrendsQuery, TrendsQueryResponse
+
+
+class SeriesWithExtras:
+    series: EventsNode | ActionsNode
+    is_previous_period_series: Optional[bool]
+
+    def __init__(self, series: EventsNode | ActionsNode, is_previous_period_series: Optional[bool]):
+        self.series = series
+        self.is_previous_period_series = is_previous_period_series
 
 
 class TrendsQueryRunner(QueryRunner):
     query: TrendsQuery
     query_type = TrendsQuery
+    series: List[SeriesWithExtras]
 
     def __init__(self, query: TrendsQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
         super().__init__(query, team, timings)
+        self.series = self.setup_series()
 
     def to_query(self) -> List[ast.SelectQuery]:
         queries = []
         with self.timings.measure("trends_query"):
-            for series in self.query.series:
+            for series in self.series:
+                if not series.is_previous_period_series:
+                    date_placeholders = self.query_date_range.to_placeholders()
+                else:
+                    date_placeholders = self.query_previous_date_range.to_placeholders()
+
                 queries.append(
                     parse_select(
                         """
@@ -65,9 +82,9 @@ class TrendsQueryRunner(QueryRunner):
                             )
                         """,
                         placeholders={
-                            **self.query_date_range.to_placeholders(),
+                            **date_placeholders,
                             "events_filter": self.events_filter(series),
-                            "aggregation_operation": self.aggregation_operation(series),
+                            "aggregation_operation": self.aggregation_operation(series.series),
                         },
                         timings=self.timings,
                     )
@@ -85,7 +102,7 @@ class TrendsQueryRunner(QueryRunner):
         timings = []
 
         for index, query in enumerate(queries):
-            series = self.query.series[index]
+            series_with_extra = self.series[index]
 
             response = execute_hogql_query(
                 query_type="TrendsQuery",
@@ -96,22 +113,44 @@ class TrendsQueryRunner(QueryRunner):
 
             timings.extend(response.timings)
 
-            for val in response.results:
-                res.append(
-                    {
-                        "data": val[1],
-                        "labels": [item.strftime("%-d-%b-%Y") for item in val[0]],  # Add back in hour formatting
-                        "days": [item.strftime("%Y-%m-%d") for item in val[0]],  # Add back in hour formatting
-                        "count": float(sum(val[1])),
-                        "label": "All events" if self.series_event(series) is None else self.series_event(series),
-                    }
-                )
+            res.extend(self.build_series_response(response, series_with_extra))
 
         return TrendsQueryResponse(result=res, timings=timings)
+
+    def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras):
+        res = []
+        for val in response.results:
+            series_object = {
+                "data": val[1],
+                "labels": [item.strftime("%-d-%b-%Y") for item in val[0]],  # Add back in hour formatting
+                "days": [item.strftime("%Y-%m-%d") for item in val[0]],  # Add back in hour formatting
+                "count": float(sum(val[1])),
+                "label": "All events" if self.series_event(series.series) is None else self.series_event(series.series),
+            }
+
+            # Modifications for when comparing to previous period
+            if self.query.trendsFilter.compare:
+                labels = [
+                    "{} {}".format(self.query.interval if self.query.interval is not None else "day", i)
+                    for i in range(len(series_object["labels"]))
+                ]
+
+                series_object["compare"] = True
+                series_object["compare_label"] = "previous" if series.is_previous_period_series else "current"
+                series_object["labels"] = labels
+
+            res.append(series_object)
+        return res
 
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
+            date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
+        )
+
+    @cached_property
+    def query_previous_date_range(self):
+        return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
         )
 
@@ -121,25 +160,41 @@ class TrendsQueryRunner(QueryRunner):
 
         return parse_expr("count(*)")
 
-    def events_filter(self, series: EventsNode | ActionsNode) -> ast.Expr:
+    def events_filter(self, series_with_extra: SeriesWithExtras) -> ast.Expr:
+        series = series_with_extra.series
         filters: List[ast.Expr] = []
 
         # Team ID
         filters.append(parse_expr("team_id = {team_id}", placeholders={"team_id": ast.Constant(value=self.team.pk)}))
 
-        # Date From
-        filters.append(
-            parse_expr(
-                "(toTimeZone(timestamp, 'UTC') >= {date_from})", placeholders=self.query_date_range.to_placeholders()
+        if not series_with_extra.is_previous_period_series:
+            # Dates (current period)
+            filters.extend(
+                [
+                    parse_expr(
+                        "(toTimeZone(timestamp, 'UTC') >= {date_from})",
+                        placeholders=self.query_date_range.to_placeholders(),
+                    ),
+                    parse_expr(
+                        "(toTimeZone(timestamp, 'UTC') <= {date_to})",
+                        placeholders=self.query_date_range.to_placeholders(),
+                    ),
+                ]
             )
-        )
-
-        # Date To
-        filters.append(
-            parse_expr(
-                "(toTimeZone(timestamp, 'UTC') <= {date_to})", placeholders=self.query_date_range.to_placeholders()
+        else:
+            # Date (previous period)
+            filters.extend(
+                [
+                    parse_expr(
+                        "(toTimeZone(timestamp, 'UTC') >= {date_from})",
+                        placeholders=self.query_previous_date_range.to_placeholders(),
+                    ),
+                    parse_expr(
+                        "(toTimeZone(timestamp, 'UTC') <= {date_to})",
+                        placeholders=self.query_previous_date_range.to_placeholders(),
+                    ),
+                ]
             )
-        )
 
         # Series
         if self.series_event(series) is not None:
@@ -197,3 +252,13 @@ class TrendsQueryRunner(QueryRunner):
         if isinstance(series, EventsNode):
             return series.event
         return None
+
+    def setup_series(self) -> List[SeriesWithExtras]:
+        if self.query.trendsFilter.compare:
+            updated_series = []
+            for series in self.query.series:
+                updated_series.append(SeriesWithExtras(series, is_previous_period_series=False))
+                updated_series.append(SeriesWithExtras(series, is_previous_period_series=True))
+            return updated_series
+
+        return [SeriesWithExtras(series, is_previous_period_series=False) for series in self.query.series]
