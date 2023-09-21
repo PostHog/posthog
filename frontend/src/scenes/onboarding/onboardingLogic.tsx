@@ -141,6 +141,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
             let stepKey = values.stepKey
             if (values.stepKey) {
                 if (parseInt(values.stepKey) > 0) {
+                    // try to convert the step number to a step key
                     const stepName = allOnboardingSteps[parseInt(values.stepKey) - 1]?.type?.name
                     const newStepKey = Object.keys(onboardingStepMap).find((key) => onboardingStepMap[key] === stepName)
                     if (stepName && stepKey) {
@@ -158,6 +159,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
                         actions.setStepKey('')
                     }
                 } else if (
+                    // if it's a number, just use that and set the correct onboarding step number
                     parseInt(stepKey) > 1 &&
                     allOnboardingSteps.length > 0 &&
                     allOnboardingSteps[parseInt(stepKey) - 1]
@@ -212,6 +214,3 @@ export const onboardingLogic = kea<onboardingLogicType>({
         },
     }),
 })
-
-//  problems:
-// - after upgrading it redirects to the first step
