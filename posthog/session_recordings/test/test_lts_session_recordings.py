@@ -3,6 +3,7 @@ from typing import List
 from unittest.mock import patch, MagicMock, call, Mock
 
 from posthog.models import Team
+from posthog.models.signals import mute_selected_signals
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
@@ -78,19 +79,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         mock_list_objects.side_effect = list_objects_func
 
-        recording = SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_id,
-            # to avoid auto-persistence kicking in when this is None
-            storage_version="not a know version",
-            object_storage_path=lts_storage_path,
-            start_time="1970-01-01T00:00:00.001000Z",
-            end_time="1970-01-01T00:00:00.002000Z",
-        )
-        # why is this necessary? I don't know...
-        # but without it, the object has the default storage path 🤷️
-        recording.object_storage_path = lts_storage_path
-        recording.save()
+        with mute_selected_signals():
+            SessionRecording.objects.create(
+                team=self.team,
+                session_id=session_id,
+                storage_version=None,
+                object_storage_path=lts_storage_path,
+                start_time="1970-01-01T00:00:00.001000Z",
+                end_time="1970-01-01T00:00:00.002000Z",
+            )
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
         response_data = response.json()
@@ -198,18 +195,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_requests.return_value.__enter__.return_value = mock_response
         mock_requests.return_value.__exit__.return_value = None
 
-        recording = SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_id,
-            # to avoid auto-persistence kicking in when this is None
-            storage_version="not a know version",
-            object_storage_path=lts_storage_path,
-            start_time="1970-01-01T00:00:00.001000Z",
-            end_time="1970-01-01T00:00:00.002000Z",
-        )
-        # something in the setup is triggering a path that saves the recording without the provided path so
-        recording.object_storage_path = lts_storage_path
-        recording.save()
+        with mute_selected_signals():
+            SessionRecording.objects.create(
+                team=self.team,
+                session_id=session_id,
+                # to avoid auto-persistence kicking in when this is None
+                storage_version="not a know version",
+                object_storage_path=lts_storage_path,
+                start_time="1970-01-01T00:00:00.001000Z",
+                end_time="1970-01-01T00:00:00.002000Z",
+            )
 
         query_parameters = [
             "source=blob",

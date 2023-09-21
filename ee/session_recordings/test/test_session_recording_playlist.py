@@ -166,14 +166,16 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert len(results) == 1
         assert results[0]["short_id"] == playlist3.short_id
 
-    def test_get_pinned_recordings_for_playlist(self):
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
+    def test_get_pinned_recordings_for_playlist(self, mock_copy_objects: MagicMock) -> None:
+        mock_copy_objects.return_value = 2
+
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
         three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
 
-        # can't immediately switch playlists to replay table
         create_session_recording_events(
             team_id=self.team.id,
             distinct_id="123",

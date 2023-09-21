@@ -1,21 +1,21 @@
 from typing import Any, List, Optional, Literal
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Count
-from django.dispatch import receiver
 
 from posthog.celery import ee_persist_single_recording
 from posthog.models.person.person import Person
+from posthog.models.signals import mutable_receiver
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDModel
 from posthog.session_recordings.models.metadata import (
     DecompressedRecordingData,
     RecordingMatchingEvents,
     RecordingMetadata,
 )
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from django.conf import settings
 
 
 class SessionRecording(UUIDModel):
@@ -98,19 +98,14 @@ class SessionRecording(UUIDModel):
         return True
 
     def load_snapshots(self, limit=20, offset=0) -> None:
-        from posthog.session_recordings.queries.session_recording_events import SessionRecordingEvents
-
         if self._snapshots:
             return
 
         if self.object_storage_path:
             self.load_object_data()
         else:
-            snapshots = SessionRecordingEvents(
-                team=self.team, session_recording_id=self.session_id, recording_start_time=self.start_time
-            ).get_snapshots(limit, offset)
-
-            self._snapshots = snapshots
+            # TODO this can be removed
+            raise NotImplementedError("Clickhouse backed snapshots are not supported")
 
     def load_object_data(self) -> None:
         """
@@ -245,7 +240,7 @@ class SessionRecording(UUIDModel):
         self.start_url = url.split("?")[0][:512] if url else None
 
 
-@receiver(models.signals.post_save, sender=SessionRecording)
+@mutable_receiver(models.signals.post_save, sender=SessionRecording)
 def attempt_persist_recording(sender, instance: SessionRecording, created: bool, **kwargs):
     if created:
         ee_persist_single_recording.delay(instance.session_id, instance.team_id)
