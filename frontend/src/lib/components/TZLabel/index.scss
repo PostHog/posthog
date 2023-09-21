@@ -1,7 +1,8 @@
 .TZLabelPopover {
     .TZLabelPopover__row {
         display: flex;
-        margin-top: 8px;
+        margin-top: 0.5rem;
+
         > :nth-child(1) {
             font-weight: bold;
             color: var(--primary-alt);
