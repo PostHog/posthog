@@ -11,7 +11,7 @@ interface FunctionInstrumentation<T> {
     timeoutMessage?: string
     timeoutContext?: () => Record<string, any>
     teamId?: number
-    logToConsole?: boolean
+    logExecutionTime?: boolean
 }
 
 const logTime = (startTime: number, statsKey: string, error?: any) => {
@@ -27,7 +27,7 @@ export async function runInstrumentedFunction<T>({
     func,
     statsKey,
     teamId,
-    logToConsole = false,
+    logExecutionTime = false,
 }: FunctionInstrumentation<T>): Promise<T> {
     const t = timeoutGuard(timeoutMessage ?? `Timeout warning for '${statsKey}'!`, timeoutContext, timeout)
     const startTime = performance.now()
@@ -38,14 +38,14 @@ export async function runInstrumentedFunction<T>({
     try {
         const result = await func()
         end({ success: 'true' })
-        if (logToConsole) {
+        if (logExecutionTime) {
             logTime(startTime, statsKey)
         }
         return result
     } catch (error) {
         end({ success: 'false' })
         status.info('🔔', error)
-        if (logToConsole) {
+        if (logExecutionTime) {
             logTime(startTime, statsKey, error)
         }
         Sentry.captureException(error, { tags: { team_id: teamId } })

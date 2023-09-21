@@ -310,7 +310,7 @@ export class SessionRecordingIngesterV2 {
     public async handleEachBatch(messages: Message[]): Promise<void> {
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
-            logToConsole: true,
+            logExecutionTime: true,
             func: async () => {
                 const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
                 histogramKafkaBatchSize.observe(messages.length)
@@ -570,7 +570,7 @@ export class SessionRecordingIngesterV2 {
 
             await runInstrumentedFunction({
                 statsKey: `recordingingester.onRevokePartitions.flushSessions`,
-                logToConsole: true,
+                logExecutionTime: true,
                 func: async () => {
                     await Promise.allSettled(
                         sessionsToDrop
