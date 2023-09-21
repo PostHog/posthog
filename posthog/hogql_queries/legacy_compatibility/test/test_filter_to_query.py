@@ -417,18 +417,18 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         self.assertEqual(
-            query.model_dump(),
+            query.model_dump(exclude_defaults=True),
             {
-                "kind": "TrendsQuery",
-                "dateRange": {"date_from": "-7d", "date_to": None},
+                "dateRange": {"date_from": "-7d"},
                 "interval": "day",
                 "series": [],
-                "properties": None,
                 "filterTestAccounts": False,
-                "samplingFactor": None,
-                "breakdown": None,
-                "trendsFilter": None,
-                "aggregation_group_type_index": None,
+                "breakdown": {"breakdown_normalize_url": False},
+                "trendsFilter": {
+                    "compare": False,
+                    "display": ChartDisplayType.ActionsLineGraph,
+                    "smoothing_intervals": 1,
+                },
             },
         )
 

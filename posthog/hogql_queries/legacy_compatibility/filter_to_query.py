@@ -1,12 +1,15 @@
 from posthog.models.entity.entity import Entity
 from posthog.models.filters import AnyInsightFilter
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
     DateRange,
     EventsNode,
+    FunnelsFilter,
     FunnelsQuery,
+    LifecycleFilter,
     LifecycleQuery,
     PathsQuery,
     PropertyGroupFilter,
@@ -106,6 +109,8 @@ def _breakdown_filter(filter: AnyInsightFilter):
 
 
 def _group_aggregation_filter(filter: AnyInsightFilter):
+    if isinstance(filter, StickinessFilter):
+        return {}
     return {"aggregation_group_type_index": filter.aggregation_group_type_index}
 
 
@@ -127,14 +132,45 @@ def _insight_filter(filter: AnyInsightFilter):
                 # show_percent_stack_view=filter.show_percent_stack_view,
             )
         }
-    elif filter.insight == "FUNNELS":
-        return {}  # TODO: implement
+    elif filter.insight == "FUNNELS" and isinstance(filter, Filter):
+        return {
+            "funnelsFilter": FunnelsFilter(
+                funnel_viz_type=filter.funnel_viz_type,
+                funnel_from_step=filter.funnel_from_step,
+                funnel_to_step=filter.funnel_to_step,
+                # funnel_step_reference=filter.funnel_step_reference,
+                funnel_step_breakdown=filter.funnel_step_breakdown,
+                breakdown_attribution_type=filter.breakdown_attribution_type,
+                breakdown_attribution_value=filter.breakdown_attribution_value,
+                bin_count=filter.bin_count,
+                funnel_window_interval_unit=filter.funnel_window_interval_unit,
+                funnel_window_interval=filter.funnel_window_interval,
+                funnel_order_type=filter.funnel_order_type,
+                exclusions=filter.exclusions,
+                # funnel_correlation_person_entity=filter.funnel_correlation_person_entity,
+                # funnel_correlation_person_converted=filter.funnel_correlation_person_converted,
+                funnel_custom_steps=filter.funnel_custom_steps,
+                # funnel_advanced=filter.funnel_advanced,
+                layout=filter.layout,
+                funnel_step=filter.funnel_step,
+                entrance_period_start=filter.entrance_period_start,
+                drop_off=filter.drop_off,
+                # hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
+                funnel_aggregate_by_hogql=filter.funnel_aggregate_by_hogql,
+            ),
+        }
     elif filter.insight == "RETENTION":
         return {}  # TODO: implement
     elif filter.insight == "PATHS":
         return {}  # TODO: implement
     elif filter.insight == "LIFECYCLE":
-        return {}  # TODO: implement
+        return {
+            "lifecycleFilter": LifecycleFilter(
+                shown_as=filter.shown_as,
+                # toggledLifecycles=filter.toggledLifecycles,
+                # show_values_on_series=filter.show_values_on_series,
+            )
+        }
     elif filter.insight == "STICKINESS":
         return {}  # TODO: implement
     else:
