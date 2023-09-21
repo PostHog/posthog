@@ -531,6 +531,7 @@ export class SessionRecordingIngesterV2 {
         await this.realtimeManager.unsubscribe()
         await this.replayEventsIngester.stop()
         await Promise.allSettled(this.promises)
+        status.info('👍', 'blob_ingester_consumer - stopped!')
     }
 
     public isHealthy() {
@@ -689,11 +690,6 @@ export class SessionRecordingIngesterV2 {
         if (this.partitionAssignments[partition]) {
             this.partitionAssignments[partition].lastKnownCommit = highestOffsetToCommit
         }
-
-        status.info('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
-            partition,
-            offsetToCommit: highestOffsetToCommit,
-        })
 
         this.batchConsumer?.consumer.commit({
             ...topicPartition,
