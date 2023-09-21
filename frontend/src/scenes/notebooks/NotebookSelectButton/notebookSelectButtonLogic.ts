@@ -7,7 +7,11 @@ import api from 'lib/api'
 import type { notebookSelectButtonLogicType } from './notebookSelectButtonLogicType'
 
 export interface NotebookSelectButtonLogicProps {
-    resource?: NotebookNodeResource
+    /**
+     * Is a resource is provided it will be checke and added to the notebook when opened
+     * If it is a boolean it simply determines how the popover is rendered
+     *  */
+    resource?: NotebookNodeResource | boolean
     // allows callers (e.g. storybook) to control starting visibility of the popover
     visible?: boolean
 }
@@ -64,7 +68,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                         return []
                     }
                     const response = await api.notebooks.list(
-                        props.resource
+                        props.resource && typeof props.resource !== 'boolean'
                             ? [{ type: props.resource.type, attrs: { id: props.resource.attrs?.id } }]
                             : undefined,
                         undefined,
