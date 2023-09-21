@@ -30,7 +30,10 @@ from posthog.temporal.tests.batch_exports.fixtures import (
     adelete_batch_export,
     afetch_batch_export_runs,
 )
-from posthog.temporal.workflows.base import create_export_run, update_export_run_status
+from posthog.temporal.workflows.batch_exports import (
+    create_export_run,
+    update_export_run_status,
+)
 from posthog.temporal.workflows.bigquery_batch_export import (
     BigQueryBatchExportInputs,
     BigQueryBatchExportWorkflow,
