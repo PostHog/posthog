@@ -62,7 +62,8 @@ class TrendsQueryRunner(QueryRunner):
                                     SELECT
                                         0 AS total,
                                         dateTrunc({interval}, {date_to}) - {number_interval_period} AS day_start
-                                    FROM numbers(
+                                    FROM
+                                        numbers(
                                             coalesce(dateDiff({interval}, {date_from}, {date_to}), 0)
                                         )
                                     UNION ALL
@@ -74,13 +75,15 @@ class TrendsQueryRunner(QueryRunner):
                                         {aggregation_operation} AS total,
                                         dateTrunc({interval}, toTimeZone(toDateTime(timestamp), 'UTC')) AS date
                                     FROM events AS e
+                                    %s
                                     WHERE {events_filter}
                                     GROUP BY date
                                 )
                                 GROUP BY day_start
                                 ORDER BY day_start ASC
                             )
-                        """,
+                        """
+                        % (self.sample_value()),
                         placeholders={
                             **date_placeholders,
                             "events_filter": self.events_filter(series),
@@ -225,6 +228,13 @@ class TrendsQueryRunner(QueryRunner):
             return filters[0]
         else:
             return ast.And(exprs=filters)
+
+    # Using string interpolation for SAMPLE due to HogQL limitations with `UNION ALL` and `SAMPLE` AST nodes
+    def sample_value(self) -> str:
+        if self.query.samplingFactor is None:
+            return ""
+
+        return f"SAMPLE {self.query.samplingFactor}"
 
     def _is_stale(self, cached_result_package):
         date_to = self.query_date_range.date_to()
