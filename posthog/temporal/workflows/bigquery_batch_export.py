@@ -96,7 +96,7 @@ def bigquery_client(inputs: BigQueryInsertInputs):
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
     """Activity streams data from ClickHouse to BigQuery."""
-    logger = get_batch_exports_logger(activity.logger.base_logger.name, inputs=inputs)
+    logger = get_batch_exports_logger(inputs=inputs)
     logger.info(
         "Running BigQuery export batch %s - %s",
         inputs.data_interval_start,
@@ -206,7 +206,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
-        logger = get_batch_exports_logger(workflow.logger.base_logger.name, inputs=inputs)
+        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
         logger.info("Starting BigQuery export batch %s - %s", data_interval_start, data_interval_end)
 

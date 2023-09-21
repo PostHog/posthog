@@ -92,36 +92,12 @@ class TestInfo:
     attempt: int
 
 
-@pytest.mark.parametrize("logger_name", [activity.__name__, workflow.__name__])
-def test_get_batch_exports_logger(logger_name):
-    """Test get_batch_exports_logger returns a proper LoggerAdapter."""
-    team_id = random.randint(1, 10000)
-    inputs = TestInputs(team_id=team_id)
-    logger = get_batch_exports_logger(logger_name, inputs=inputs)
-
-    assert logger.base_logger.name == logger_name
-    assert len(logger.base_logger.handlers) == 1
-    assert isinstance(logger.base_logger.handlers[0], KafkaLoggingHandler)
-    assert logger.base_logger.handlers[0].topic == KAFKA_BATCH_EXPORTS_LOG_ENTRIES
-    assert logger.base_logger.handlers[0].level == logging.DEBUG
-    assert logger.base_logger.level == logging.DEBUG
-
-
-def test_get_batch_exports_logger_raises():
-    """Test get_batch_exports_logger raises an exception on invalid loggers."""
-    team_id = random.randint(1, 10000)
-    inputs = TestInputs(team_id=team_id)
-
-    with pytest.raises(ValueError):
-        get_batch_exports_logger("invalid-logger-name", inputs=inputs)
-
-
-@pytest.mark.parametrize("logger_name", [activity.__name__, workflow.__name__])
-def test_batch_export_logger_adapter(logger_name, caplog):
+@pytest.mark.parametrize("context", [activity.__name__, workflow.__name__])
+def test_batch_export_logger_adapter(context, caplog):
     """Test BatchExportLoggerAdapter sets the appropiate context variables."""
     team_id = random.randint(1, 10000)
     inputs = TestInputs(team_id=team_id)
-    logger = get_batch_exports_logger(logger_name, inputs=inputs)
+    logger = get_batch_exports_logger(inputs=inputs)
 
     batch_export_id = str(uuid.uuid4())
     run_id = str(uuid.uuid4())
@@ -134,7 +110,7 @@ def test_batch_export_logger_adapter(logger_name, caplog):
     )
 
     with patch("posthog.kafka_client.client._KafkaProducer.produce"):
-        with patch(logger_name + ".info", return_value=info):
+        with patch(context + ".info", return_value=info):
             for level in (10, 20, 30, 40, 50):
                 logger.log(level, "test")
 

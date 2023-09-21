@@ -86,7 +86,7 @@ class PostgresInsertInputs:
 @activity.defn
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
     """Activity streams data from ClickHouse to Postgres."""
-    logger = get_batch_exports_logger(activity.logger.base_logger.name, inputs=inputs)
+    logger = get_batch_exports_logger(inputs=inputs)
     logger.info(
         "Running Postgres export batch %s - %s",
         inputs.data_interval_start,
@@ -203,7 +203,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: PostgresBatchExportInputs):
         """Workflow implementation to export data to Postgres."""
-        logger = get_batch_exports_logger(workflow.logger.base_logger.name, inputs=inputs)
+        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
         logger.info("Starting Postgres export batch %s - %s", data_interval_start, data_interval_end)
 
