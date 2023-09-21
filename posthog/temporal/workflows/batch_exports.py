@@ -434,23 +434,25 @@ class BatchExportLoggerAdapter(logging.LoggerAdapter):
 
         super().__init__(logger, extra or {})
 
-    def process(self, msg: str, kwargs) -> tuple:
+    def process(self, msg: str, kwargs) -> tuple[typing.Any, collections.abc.MutableMapping[str, typing.Any]]:
         """Override to add batch exports details."""
         if self.logger.name == "temporalio.activity":
-            info = activity.info()
-            workflow_run_id = info.workflow_run_id
+            activity_info = activity.info()
+            workflow_run_id = activity_info.workflow_run_id
+            workflow_id = activity_info.workflow_id
+            attempt = activity_info.attempt
         elif self.logger.name == "temporalio.workflow":
-            info = workflow.info()
-            workflow_run_id = info.run_id
+            workflow_info = workflow.info()
+            workflow_run_id = workflow_info.run_id
+            workflow_id = workflow_info.workflow_id
+            attempt = workflow_info.attempt
         else:
             raise ValueError(f"Invalid logger '{self.logger.name}'")
 
-        workflow_id = info.workflow_id
         # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
         # Since {data_interval_date} is an iso formatted datetime string, it has two '-' to separate the
         # date. Plus one more leaves us at the end of {batch_export_id}.
         batch_export_id = workflow_id.rsplit("-", maxsplit=3)[0]
-        attempt = info.attempt
 
         extra = kwargs.get("extra", None) or {}
         extra["workflow_id"] = workflow_id
