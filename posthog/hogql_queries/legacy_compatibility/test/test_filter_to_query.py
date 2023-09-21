@@ -5,9 +5,11 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import (
     ActionsNode,
+    AggregationAxisFormat,
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
+    ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
     ElementPropertyFilter,
@@ -20,6 +22,8 @@ from posthog.schema import (
     PropertyMathType,
     PropertyOperator,
     SessionPropertyFilter,
+    ShownAsValue,
+    TrendsFilter,
 )
 from posthog.test.base import BaseTest
 from posthog.models.filters.filter import Filter
@@ -733,4 +737,34 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.breakdown,
             BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="some_prop", breakdown_normalize_url=False),
+        )
+
+    def test_trends_filter(self):
+        filter = Filter(
+            data={
+                "smoothing_intervals": 2,
+                "compare": True,
+                "aggregation_axis_format": "duration_ms",
+                "aggregation_axis_prefix": "pre",
+                "aggregation_axis_postfix": "post",
+                "formula": "A + B",
+                "shown_as": "Volume",
+                "display": "ActionsAreaGraph",
+            }
+        )
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.trendsFilter,
+            TrendsFilter(
+                smoothing_intervals=2,
+                compare=True,
+                aggregation_axis_format=AggregationAxisFormat.duration_ms,
+                aggregation_axis_prefix="pre",
+                aggregation_axis_postfix="post",
+                formula="A + B",
+                shown_as=ShownAsValue.Volume,
+                display=ChartDisplayType.ActionsAreaGraph,
+            ),
         )

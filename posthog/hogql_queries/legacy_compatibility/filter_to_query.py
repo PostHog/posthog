@@ -1,5 +1,6 @@
 from posthog.models.entity.entity import Entity
 from posthog.models.filters import AnyInsightFilter
+from posthog.models.filters.filter import Filter
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
@@ -11,6 +12,7 @@ from posthog.schema import (
     PropertyGroupFilter,
     RetentionQuery,
     StickinessQuery,
+    TrendsFilter,
     TrendsQuery,
 )
 from posthog.types import InsightQueryNode
@@ -108,8 +110,23 @@ def _group_aggregation_filter(filter: AnyInsightFilter):
 
 
 def _insight_filter(filter: AnyInsightFilter):
-    if filter.insight == "TRENDS":
-        return {}  # TODO: implement
+    if filter.insight == "TRENDS" and isinstance(filter, Filter):
+        return {
+            "trendsFilter": TrendsFilter(
+                smoothing_intervals=filter.smoothing_intervals,
+                # show_legend=filter.show_legend,
+                # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.hidden_legend_keys),
+                compare=filter.compare,
+                aggregation_axis_format=filter.aggregation_axis_format,
+                aggregation_axis_prefix=filter.aggregation_axis_prefix,
+                aggregation_axis_postfix=filter.aggregation_axis_postfix,
+                formula=filter.formula,
+                shown_as=filter.shown_as,
+                display=filter.display,
+                # show_values_on_series=filter.show_values_on_series,
+                # show_percent_stack_view=filter.show_percent_stack_view,
+            )
+        }
     elif filter.insight == "FUNNELS":
         return {}  # TODO: implement
     elif filter.insight == "RETENTION":
