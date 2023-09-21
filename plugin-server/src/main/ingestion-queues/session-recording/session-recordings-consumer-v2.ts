@@ -261,6 +261,7 @@ export class SessionRecordingIngesterV2 {
                 .inc()
 
             return statusWarn('team_missing_or_disabled', {
+                token: messagePayload.token,
                 teamId: messagePayload.team_id,
                 payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
             })
