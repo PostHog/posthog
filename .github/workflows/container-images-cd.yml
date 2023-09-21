@@ -72,7 +72,7 @@ jobs:
                   platforms: linux/arm64,linux/amd64
 
             - name: Build and push unit container image
-              id: build
+              id: build-unit
               uses: depot/build-push-action@v1
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail

@@ -37,7 +37,7 @@ runs:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
 
         - name: Build unit image
-          id: build
+          id: build-unit
           uses: depot/build-push-action@v1
           with:
               buildx-fallback: false # buildx is so slow it's better to just fail
