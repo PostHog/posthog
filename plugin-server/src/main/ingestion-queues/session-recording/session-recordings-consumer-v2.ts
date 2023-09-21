@@ -310,7 +310,7 @@ export class SessionRecordingIngesterV2 {
     public async handleEachBatch(messages: Message[]): Promise<void> {
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
-            timeout: 60 * 1000,
+            logToConsole: true,
             func: async () => {
                 const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
                 histogramKafkaBatchSize.observe(messages.length)
@@ -567,12 +567,19 @@ export class SessionRecordingIngesterV2 {
         // - have some sort of timeout so we don't get stuck here forever
         if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
             status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
-            await Promise.allSettled(
-                sessionsToDrop
-                    .map(([_, x]) => x)
-                    .sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
-                    .map((x) => x.flush('partition_shutdown'))
-            )
+
+            await runInstrumentedFunction({
+                statsKey: `recordingingester.onRevokePartitions.flushSessions`,
+                logToConsole: true,
+                func: async () => {
+                    await Promise.allSettled(
+                        sessionsToDrop
+                            .map(([_, x]) => x)
+                            .sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
+                            .map((x) => x.flush('partition_shutdown'))
+                    )
+                },
+            })
         }
 
         topicPartitions.forEach((topicPartition: TopicPartition) => {
