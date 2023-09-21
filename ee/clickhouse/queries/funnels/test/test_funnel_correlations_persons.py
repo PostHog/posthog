@@ -278,7 +278,6 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             datetime(2021, 1, 2, 0, 0, 0),
             "user_1",
             "s2",
-            use_recording_table=False,
             use_replay_table=True,
         )
 
@@ -376,7 +375,6 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             datetime(2021, 1, 2, 0, 0, 0),
             "user_1",
             "s2",
-            use_recording_table=False,
             use_replay_table=True,
         )
 
@@ -449,7 +447,6 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             datetime(2021, 1, 2, 0, 0, 0),
             "user_1",
             "s2",
-            use_recording_table=False,
             use_replay_table=True,
         )
 
@@ -484,7 +481,6 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             datetime(2021, 1, 2, 0, 0, 0),
             "user_2",
             "s3",
-            use_recording_table=False,
             use_replay_table=True,
         )
 

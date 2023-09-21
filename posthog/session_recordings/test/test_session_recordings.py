@@ -70,10 +70,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_id=distinct_id,
             timestamp=timestamp,
             session_id=session_id,
-            window_id=window_id,
-            snapshots=[snapshot],
             use_replay_table=use_replay_table,
-            use_recording_table=use_recording_table,
         )
 
     def create_snapshots(
@@ -120,10 +117,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_id=distinct_id,
             timestamp=timestamp,
             session_id=session_id,
-            window_id=window_id,
-            snapshots=snapshots,
             use_replay_table=use_replay_table,
-            use_recording_table=use_recording_table,
         )
 
     def test_get_session_recordings(self):

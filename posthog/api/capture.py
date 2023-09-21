@@ -35,7 +35,6 @@ from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
-    legacy_preprocess_session_recording_events_for_clickhouse,
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
@@ -371,22 +370,7 @@ def get_event(request):
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
 
-        try:
-            replay_events, other_events = split_replay_events(events)
-            processed_replay_events = []
-
-            if len(replay_events) > 0 and settings.SESSION_RECORDING_ALLOW_V1_INGESTION:
-                # Legacy solution stays in place to allow self-hosted systems a chance to upgrade
-                # or to pin their version so that they can continue to ingest recordings to ClickHouse
-                # while not receiving other fixes and upgrades
-                processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
-
-            events = processed_replay_events + other_events
-
-        except ValueError as e:
-            return cors_response(
-                request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
-            )
+        replay_events, events = split_replay_events(events)
 
         # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
         site_url = request.build_absolute_uri("/")[:-1]

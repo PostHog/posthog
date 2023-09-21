@@ -1,7 +1,6 @@
 import os
 import structlog
 
-from posthog.settings import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list
 from posthog.utils import str_to_bool
 
@@ -33,25 +32,5 @@ PARTITION_KEY_BUCKET_REPLENTISH_RATE = get_from_env(
 
 REPLAY_EVENT_MAX_SIZE = get_from_env("REPLAY_EVENT_MAX_SIZE", type_cast=int, default=1024 * 512)  # 512kb
 
-# Ingestion of session recordings to ClickHouse is deprecated and will be removed.
-# This setting defaults to true so that deployments can opt in to storing recordings in blob storage.
-# At some point this deprecated feature will be removed and _only_ blob storage will be supported.
-SESSION_RECORDING_ALLOW_V1_INGESTION = get_from_env(
-    "SESSION_RECORDING_ALLOW_V1_INGESTION", type_cast=bool, default=True
-)
-if DEBUG or TEST:
-    SESSION_RECORDING_ALLOW_V1_INGESTION = False
-
-if SESSION_RECORDING_ALLOW_V1_INGESTION and not DEBUG and not TEST:
-    logger.warn(
-        """
-        SESSION_RECORDING_ALLOW_V1_INGESTION is set to True!
-        Session recordings v1 ingestion is deprecated and will be removed.
-        You must setup blob storage.
-        This is the last version of PostHog that will support storing recordings in ClickHouse.
-        """,
-    )
-
-
-REPLAY_RETENTION_DAYS_MIN = 30
-REPLAY_RETENTION_DAYS_MAX = 90
+REPLAY_RETENTION_DAYS_MIN = get_from_env("REPLAY_RETENTION_DAYS_MIN", type_cast=int, default=30)
+REPLAY_RETENTION_DAYS_MAX = get_from_env("REPLAY_RETENTION_DAYS_MAX", type_cast=int, default=90)

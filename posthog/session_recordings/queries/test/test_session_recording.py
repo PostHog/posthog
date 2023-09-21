@@ -38,40 +38,28 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
     def test_get_snapshots(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id="user",
                 session_id="1",
                 timestamp=now(),
                 team_id=self.team.id,
-                use_replay_table=False,
-                use_recording_table=True,
             )
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id="user",
                 session_id="1",
                 timestamp=now() + relativedelta(seconds=10),
                 team_id=self.team.id,
-                use_replay_table=False,
-                use_recording_table=True,
             )
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id="user2",
                 session_id="2",
                 timestamp=now() + relativedelta(seconds=20),
                 team_id=self.team.id,
-                use_replay_table=False,
-                use_recording_table=True,
             )
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id="user",
                 session_id="1",
                 timestamp=now() + relativedelta(seconds=30),
                 team_id=self.team.id,
-                use_replay_table=False,
-                use_recording_table=True,
             )
 
             filter = create_recording_filter("1")
@@ -96,24 +84,16 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             another_team = Team.objects.create(organization=self.organization)
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id="user1",
                 session_id="1",
                 timestamp=now() + relativedelta(seconds=10),
                 team_id=another_team.pk,
-                data={"source": "other team"},
-                use_replay_table=False,
-                use_recording_table=True,
             )
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id="user2",
                 session_id="1",
                 timestamp=now(),
                 team_id=self.team.id,
-                data={"source": 0},
-                use_replay_table=False,
-                use_recording_table=True,
             )
 
             filter = create_recording_filter("1")
@@ -142,13 +122,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             limit = 20
             for _ in range(30):
                 create_snapshots(
-                    snapshot_count=snapshots_per_chunk,
                     distinct_id="user",
                     session_id=chunked_session_id,
                     timestamp=now(),
                     team_id=self.team.id,
-                    use_replay_table=False,
-                    use_recording_table=True,
                 )
 
             filter = create_recording_filter(chunked_session_id)
@@ -168,13 +145,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             snapshots_per_chunk = 2
             for index in range(16):
                 create_snapshots(
-                    snapshot_count=snapshots_per_chunk,
                     distinct_id="user",
                     session_id=chunked_session_id,
                     timestamp=now() + relativedelta(minutes=index),
                     team_id=self.team.id,
-                    use_replay_table=False,
-                    use_recording_table=True,
                 )
 
             filter = create_recording_filter(chunked_session_id, limit, offset)
@@ -191,23 +165,17 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             # This snapshot should be filtered out
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id="user",
                 session_id="1",
                 timestamp=now() - relativedelta(days=2),
                 team_id=self.team.id,
-                use_replay_table=False,
-                use_recording_table=True,
             )
             # This snapshot should appear
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id="user",
                 session_id="1",
                 timestamp=now(),
                 team_id=self.team.id,
-                use_replay_table=False,
-                use_recording_table=True,
             )
 
             filter = create_recording_filter(

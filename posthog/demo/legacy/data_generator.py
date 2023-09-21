@@ -77,8 +77,6 @@ class DataGenerator:
                 timestamp=data["timestamp"],
                 distinct_id=data["distinct_id"],
                 session_id=data["session_id"],
-                window_id=data["window_id"],
-                snapshots=[data["snapshot_data"]],
             )
 
     def add_if_not_contained(self, array, value):

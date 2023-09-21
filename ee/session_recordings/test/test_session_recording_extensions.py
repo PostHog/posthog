@@ -44,23 +44,11 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
     def create_snapshot(self, session_id, timestamp):
         team_id = self.team.pk
 
-        snapshot = {
-            "timestamp": timestamp.timestamp() * 1000,
-            "has_full_snapshot": 1,
-            "type": 2,
-            "data": {"source": 0, "href": long_url},
-        }
-
-        # can't immediately switch playlists to replay table
         create_session_recording_events(
             team_id=team_id,
             distinct_id="distinct_id_1",
             timestamp=timestamp,
             session_id=session_id,
-            window_id="window_1",
-            snapshots=[snapshot],
-            use_recording_table=True,
-            use_replay_table=False,
         )
 
     def test_does_not_persist_too_recent_recording(self):

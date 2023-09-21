@@ -3186,8 +3186,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             timezone.now(),
             "p1",
             "s1",
-            window_id="w1",
-            use_recording_table=False,
             use_replay_table=True,
         )
         create_session_recording_events(
@@ -3195,8 +3193,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             timezone.now(),
             "p1",
             "s3",
-            window_id="w3",
-            use_recording_table=False,
             use_replay_table=True,
         )
 
@@ -3333,8 +3329,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             timezone.now(),
             "p1",
             "s1",
-            window_id="w1",
-            use_recording_table=False,
             use_replay_table=True,
         )
 
@@ -3405,8 +3399,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             timezone.now(),
             "p1",
             "s1",
-            window_id="w1",
-            use_recording_table=False,
             use_replay_table=True,
         )
 

@@ -8,7 +8,6 @@ from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional, 
 from dateutil.parser import ParserError, parse
 from sentry_sdk.api import capture_exception
 
-from posthog.models import utils
 from posthog.session_recordings.models.metadata import (
     DecompressedRecordingData,
     SessionRecordingEventSummary,
@@ -86,44 +85,6 @@ EVENT_SUMMARY_DATA_INCLUSIONS = [
 
 
 Event = Dict[str, Any]
-
-
-def legacy_preprocess_session_recording_events_for_clickhouse(
-    events: List[Event], chunk_size=512 * 1024
-) -> List[Event]:
-    return _process_windowed_events(events, lambda x: legacy_compress_and_chunk_snapshots(x, chunk_size=chunk_size))
-
-
-def legacy_compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> Generator[Event, None, None]:
-    data_list = list(flatten([event["properties"]["$snapshot_data"] for event in events], max_depth=1))
-    session_id = events[0]["properties"]["$session_id"]
-    window_id = events[0]["properties"].get("$window_id")
-    has_full_snapshot = any(snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot for snapshot_data in data_list)
-    compressed_data = compress_to_string(json.dumps(data_list))
-
-    id = str(utils.UUIDT())
-    chunks = chunk_string(compressed_data, chunk_size)
-
-    for index, chunk in enumerate(chunks):
-        yield {
-            **events[0],
-            "properties": {
-                **events[0]["properties"],
-                "$session_id": session_id,
-                "$window_id": window_id,
-                # If it is the first chunk we include all events
-                "$snapshot_data": {
-                    "chunk_id": id,
-                    "chunk_index": index,
-                    "chunk_count": len(chunks),
-                    "data": chunk,
-                    "compression": "gzip-base64",
-                    "has_full_snapshot": has_full_snapshot,
-                    # We only store this field on the first chunk as it contains all events, not just this chunk
-                    "events_summary": get_events_summary_from_snapshot_data(data_list) if index == 0 else None,
-                },
-            },
-        }
 
 
 def split_replay_events(events: List[Event]) -> Tuple[List[Event], List[Event]]:

@@ -1,19 +1,11 @@
 import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
 import { isTestEnv } from './utils/env-utils'
-import { status } from './utils/status'
 
 export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
     const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
         ? stringToPluginServerMode[config.PLUGIN_SERVER_MODE]
         : null
     const sharedCapabilities = !isTestEnv() ? { http: true } : {}
-
-    if (config.SESSION_RECORDING_ALLOW_V1_INGESTION) {
-        status.warn(
-            '⚠️',
-            'SESSION_RECORDING_ALLOW_V1_INGESTION is deprecated and will be removed. You must setup blob storage. Future versions of PostHog will not support storing recordings in ClickHouse.'
-        )
-    }
 
     switch (mode) {
         case null:
@@ -26,7 +18,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
-                sessionRecordingIngestion: config.SESSION_RECORDING_ALLOW_V1_INGESTION,
                 sessionRecordingBlobIngestion: true,
                 transpileFrontendApps: true,
                 preflightSchedules: true,
@@ -38,7 +29,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestion: true,
-                sessionRecordingIngestion: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion_overflow:
@@ -57,11 +47,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestion: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.recordings_ingestion:
-            return {
-                sessionRecordingIngestion: config.SESSION_RECORDING_ALLOW_V1_INGESTION,
                 ...sharedCapabilities,
             }
         case PluginServerMode.recordings_blob_ingestion:

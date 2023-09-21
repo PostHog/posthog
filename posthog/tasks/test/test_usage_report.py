@@ -219,7 +219,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             for i in range(1, 6):
                 for _ in range(0, 5):
                     create_snapshot(
-                        has_full_snapshot=True,
                         distinct_id=distinct_id,
                         session_id=str(i),
                         timestamp=now() - relativedelta(hours=12),
@@ -230,7 +229,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             for i in range(1, 11):
                 for _ in range(0, 5):
                     create_snapshot(
-                        has_full_snapshot=True,
                         distinct_id=distinct_id,
                         session_id=str(i + 10),
                         timestamp=now() - relativedelta(hours=48),
@@ -242,21 +240,18 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
             session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
             create_snapshot(
-                has_full_snapshot=True,
                 distinct_id=distinct_id,
                 session_id=session_that_will_not_match,
                 timestamp=start_of_day - relativedelta(hours=1),
                 team_id=self.org_1_team_2.id,
             )
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id=distinct_id,
                 session_id=session_that_will_not_match,
                 timestamp=start_of_day,
                 team_id=self.org_1_team_2.id,
             )
             create_snapshot(
-                has_full_snapshot=False,
                 distinct_id=distinct_id,
                 session_id=session_that_will_not_match,
                 timestamp=start_of_day + relativedelta(hours=1),

@@ -818,7 +818,6 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             datetime(2020, 1, 9, 12),
             "u1",
             "s1",
-            use_recording_table=False,
             use_replay_table=True,
         )
 

@@ -1,6 +1,6 @@
 import json
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from datetime import datetime
+from typing import Optional
 from uuid import uuid4
 
 import structlog
@@ -10,10 +10,6 @@ from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS
 from posthog.session_recordings.sql.session_recording_event_sql import INSERT_SESSION_RECORDING_EVENT_SQL
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.session_recording_helpers import (
-    RRWEB_MAP_EVENT_TYPE,
-    legacy_preprocess_session_recording_events_for_clickhouse,
-)
 from posthog.utils import cast_timestamp_or_now
 
 logger = structlog.get_logger(__name__)
@@ -57,12 +53,7 @@ def create_session_recording_events(
     timestamp: datetime,
     distinct_id: str,
     session_id: str,
-    window_id: Optional[str] = None,
-    # If not given we will create a mock full snapshot
-    snapshots: Optional[List[dict]] = None,
-    chunk_size: Optional[int] = 512 * 1024,
     use_replay_table: bool = True,
-    use_recording_table: bool = False,
 ) -> None:
     if use_replay_table:
         produce_replay_summary(
@@ -72,42 +63,6 @@ def create_session_recording_events(
             first_timestamp=timestamp,
             last_timestamp=timestamp,
         )
-
-    if use_recording_table:
-        if window_id is None:
-            window_id = session_id
-
-        if not snapshots:
-            snapshots = [
-                {
-                    "type": RRWEB_MAP_EVENT_TYPE.FullSnapshot,
-                    "data": {},
-                    "timestamp": round(timestamp.timestamp() * 1000),  # NOTE: rrweb timestamps are milliseconds
-                }
-            ]
-
-        # We use the same code path for chunking events by mocking this as an typical posthog event
-        mock_events = [
-            {
-                "event": "$snapshot",
-                "properties": {
-                    "$session_id": session_id,
-                    "$window_id": window_id,
-                    "$snapshot_data": snapshot,
-                },
-            }
-            for snapshot in snapshots
-        ]
-
-        for event in legacy_preprocess_session_recording_events_for_clickhouse(mock_events, chunk_size=chunk_size):
-            _insert_session_recording_event(
-                team_id=team_id,
-                distinct_id=distinct_id,
-                session_id=session_id,
-                window_id=window_id,
-                timestamp=timestamp,
-                snapshot_data=event["properties"]["$snapshot_data"],
-            )
 
 
 # Pre-compression and events_summary additions which potentially existed for some self-hosted instances
@@ -134,84 +89,24 @@ def create_snapshot(
     timestamp: datetime,
     team_id: int,
     distinct_id: Optional[str] = None,
-    window_id: str = "",
-    has_full_snapshot: bool = True,
-    type: Optional[int] = None,
-    data: Optional[Dict] = None,
-    use_replay_table=True,
-    use_recording_table=False,
 ) -> None:
-    if not data:
-        data = {"source": 0}
-
-    snapshot_data = {
-        "data": {**data},
-        "timestamp": round(timestamp.timestamp() * 1000),  # NOTE: rrweb timestamps are milliseconds
-        "type": type
-        or (RRWEB_MAP_EVENT_TYPE.FullSnapshot if has_full_snapshot else RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot),
-    }
-
     create_session_recording_events(
         team_id=team_id,
         timestamp=timestamp,
         distinct_id=distinct_id if distinct_id else str(uuid4()),
         session_id=session_id,
-        window_id=window_id,
-        snapshots=[snapshot_data],
-        use_recording_table=use_recording_table,
-        use_replay_table=use_replay_table,
     )
 
 
 def create_snapshots(
-    snapshot_count: int,
     distinct_id: str,
     session_id: str,
     timestamp: datetime,
     team_id: int,
-    window_id: str = "",
-    has_full_snapshot: bool = True,
-    source: int = 0,
-    chunk_size: Optional[int] = 512 * 1024,
-    use_replay_table=True,
-    use_recording_table=False,
 ):
-    snapshots = []
-    for index in range(snapshot_count):
-        snapshots.append(
-            {
-                "type": 2 if has_full_snapshot else 3,
-                "data": {
-                    "source": source,
-                    "texts": [],
-                    "attributes": [],
-                    "removes": [],
-                    "adds": [
-                        {
-                            "parentId": 4,
-                            "nextId": 386,
-                            "node": {
-                                "type": 2,
-                                "tagName": "style",
-                                "attributes": {"data-emotion": "css"},
-                                "childNodes": [],
-                                "id": 729,
-                            },
-                        }
-                    ],
-                },
-                "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
-            },
-        )
-
     return create_session_recording_events(
         team_id=team_id,
         timestamp=timestamp,
         distinct_id=distinct_id,
         session_id=session_id,
-        window_id=window_id,
-        snapshots=snapshots,
-        chunk_size=chunk_size,
-        use_recording_table=use_recording_table,
-        use_replay_table=use_replay_table,
     )
