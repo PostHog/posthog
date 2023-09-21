@@ -2,10 +2,11 @@ import { kea, props, key, path, connect, actions, reducers, selectors, listeners
 import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import type { entityFilterLogicType } from './entityFilterLogicType'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
-import { convertPropertyGroupToProperties } from 'lib/utils'
+import { convertPropertyGroupToProperties, uuid } from 'lib/utils'
 
 export type LocalFilter = ActionFilter & {
     order: number
+    uuid: string
 }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
@@ -17,9 +18,10 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
         filter.properties && Array.isArray(filter.properties)
             ? {
                   ...filter,
+                  uuid: uuid(),
                   properties: convertPropertyGroupToProperties(filter.properties),
               }
-            : filter
+            : { ...filter, uuid: uuid() }
     )
 }
 
@@ -197,6 +199,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const order = precedingEntity ? precedingEntity.order + 1 : 0
             const newFilter = {
                 id: null,
+                uuid: uuid(),
                 type: EntityTypes.EVENTS,
                 order: order,
                 ...props.addFilterDefaultOptions,
@@ -218,6 +221,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             }
             newFilters.splice(order, 0, {
                 ...filter,
+                uuid: uuid(),
                 custom_name: undefined,
                 order: order + 1,
             } as LocalFilter)

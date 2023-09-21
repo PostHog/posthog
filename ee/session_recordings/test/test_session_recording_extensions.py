@@ -1,13 +1,18 @@
+import gzip
 from datetime import timedelta, datetime, timezone
 from secrets import token_urlsafe
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from uuid import uuid4
 
 from boto3 import resource
 from botocore.config import Config
 from freezegun import freeze_time
 
-from ee.session_recordings.session_recording_extensions import load_persisted_recording, persist_recording
+from ee.session_recordings.session_recording_extensions import (
+    load_persisted_recording,
+    persist_recording,
+    save_recording_with_new_content,
+)
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
@@ -232,3 +237,37 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             "total_time_ms",
         ]:
             assert mock_capture.call_args_list[0][0][2][x] > 0
+
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.write")
+    def test_can_save_content_to_new_location(self, mock_write: MagicMock):
+        with self.settings(OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET):
+            session_id = f"{uuid4()}"
+
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=session_id,
+                start_time=datetime.fromtimestamp(12345),
+                end_time=datetime.fromtimestamp(12346),
+                object_storage_path="some_starting_value",
+                # None, but that would trigger the persistence behavior, and we don't want that
+                storage_version="None",
+            )
+
+            new_key = save_recording_with_new_content(recording, "the new content")
+
+            recording.refresh_from_db()
+
+            expected_path = f"session_recordings_lts/team_id/{self.team.pk}/session_id/{recording.session_id}/data"
+            assert new_key == f"{expected_path}/12345000-12346000"
+
+            assert recording.object_storage_path == expected_path
+            assert recording.storage_version == "2023-08-01"
+
+            mock_write.assert_called_with(
+                f"{expected_path}/12345000-12346000",
+                gzip.compress("the new content".encode("utf-8")),
+                extras={
+                    "ContentEncoding": "gzip",
+                    "ContentType": "application/json",
+                },
+            )
