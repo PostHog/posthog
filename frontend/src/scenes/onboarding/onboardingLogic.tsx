@@ -219,6 +219,3 @@ export const onboardingLogic = kea<onboardingLogicType>({
         },
     }),
 })
-
-//  problems:
-// - after upgrading it redirects to the first step
