@@ -79,16 +79,28 @@ def _properties(filter: AnyInsightFilter):
 
 
 def _breakdown_filter(filter: AnyInsightFilter):
-    return {
-        "breakdown": BreakdownFilter(
-            breakdown_type=filter.breakdown_type,
-            breakdown=filter.breakdown,
-            breakdown_normalize_url=filter.breakdown_normalize_url,
-            breakdowns=filter.breakdowns,
-            breakdown_group_type_index=filter.breakdown_group_type_index,
-            breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count if filter.insight == "TRENDS" else None,
-        )
+    if filter.insight != "TRENDS" and filter.insight != "FUNNELS":
+        return {}
+
+    breakdownFilter = {
+        "breakdown_type": filter.breakdown_type,
+        "breakdown": filter.breakdown,
+        "breakdown_normalize_url": filter.breakdown_normalize_url,
+        "breakdown_group_type_index": filter.breakdown_group_type_index,
+        "breakdown_histogram_bin_count": filter.breakdown_histogram_bin_count if filter.insight == "TRENDS" else None,
     }
+
+    if filter.breakdowns is not None:
+        if len(filter.breakdowns) == 1:
+            breakdownFilter["breakdown_type"] = filter.breakdowns[0].get("type", None)
+            breakdownFilter["breakdown"] = filter.breakdowns[0].get("property", None)
+        else:
+            raise Exception("Could not convert multi-breakdown property `breakdowns` - found more than one breakdown")
+
+    if breakdownFilter["breakdown"] is not None and breakdownFilter["breakdown_type"] is None:
+        breakdownFilter["breakdown_type"] = "event"
+
+    return {"breakdown": BreakdownFilter(**breakdownFilter)}
 
 
 def _group_aggregation_filter(filter: AnyInsightFilter):

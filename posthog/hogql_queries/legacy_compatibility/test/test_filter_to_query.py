@@ -714,3 +714,23 @@ class TestFilterToQuery(BaseTest):
             query.breakdown,
             BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser", breakdown_normalize_url=False),
         )
+
+    def test_breakdown_converts_multi(self):
+        filter = Filter(data={"breakdowns": [{"type": "event", "property": "$browser"}]})
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.breakdown,
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser", breakdown_normalize_url=False),
+        )
+
+    def test_breakdown_type_default(self):
+        filter = Filter(data={"breakdown": "some_prop"})
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.breakdown,
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="some_prop", breakdown_normalize_url=False),
+        )
