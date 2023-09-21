@@ -296,76 +296,87 @@ def test_base_insights(insight):
     filter_to_query(filter)
 
 
-test_properties = [
-    [],
-    [{"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"}],
-    [
-        {"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"},
-        {"key": "$current_url", "type": "event", "value": "/path", "operator": "not_icontains"},
+properties_0 = []
+properties_1 = [{"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"}]
+properties_2 = [
+    {"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"},
+    {"key": "$current_url", "type": "event", "value": "/path", "operator": "not_icontains"},
+]
+properties_3 = {}
+properties_4 = {"type": "AND", "values": []}
+properties_5 = {"type": "AND", "values": [{"type": "AND", "values": []}]}
+properties_6 = {
+    "type": "AND",
+    "values": [
+        {
+            "type": "AND",
+            "values": [
+                {"key": "$current_url", "type": "event", "value": "?", "operator": "not_icontains"},
+                {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
+            ],
+        }
     ],
-    {},
-    {"type": "AND", "values": []},
-    {"type": "AND", "values": [{"type": "AND", "values": []}]},
-    {
-        "type": "AND",
-        "values": [
-            {
-                "type": "AND",
-                "values": [
-                    {"key": "$current_url", "type": "event", "value": "?", "operator": "not_icontains"},
-                    {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
-                ],
-            }
-        ],
-    },
-    {
-        "type": "AND",
-        "values": [
-            {"type": "AND", "values": [{"type": "AND", "values": []}, {"type": "AND", "values": []}]},
-            {
-                "type": "AND",
-                "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
-            },
-        ],
-    },
-    {
-        "type": "AND",
-        "values": [
-            {
-                "type": "AND",
-                "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
-            },
-            {
-                "type": "AND",
-                "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
-            },
-        ],
-    },
-    {
-        "type": "AND",
-        "values": [
-            {
-                "type": "AND",
-                "values": [
-                    {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event"},
-                    {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "person"},
-                    {"key": "$feature/hogql-insights", "value": ["true"], "operator": "exact", "type": "event"},
-                    {
-                        "key": "site_url",
-                        "value": ["http://localhost:8000"],
-                        "operator": "exact",
-                        "type": "group",
-                        "group_type_index": 1,
-                    },
-                    {"key": "id", "value": 2, "type": "cohort"},
-                    {"key": "tag_name", "value": ["elem"], "operator": "exact", "type": "element"},
-                    {"key": "$session_duration", "value": None, "operator": "gt", "type": "session"},
-                    {"type": "hogql", "key": "properties.name", "value": None},
-                ],
-            },
-            {"type": "OR", "values": [{}]},
-        ],
-    },
+}
+properties_7 = {
+    "type": "AND",
+    "values": [
+        {"type": "AND", "values": [{"type": "AND", "values": []}, {"type": "AND", "values": []}]},
+        {
+            "type": "AND",
+            "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
+        },
+    ],
+}
+properties_8 = {
+    "type": "AND",
+    "values": [
+        {
+            "type": "AND",
+            "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
+        },
+        {
+            "type": "AND",
+            "values": [{"key": "dateDiff('minute', timestamp, now()) < 5", "type": "hogql", "value": None}],
+        },
+    ],
+}
+properties_9 = {
+    "type": "AND",
+    "values": [
+        {
+            "type": "AND",
+            "values": [
+                {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event"},
+                {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "person"},
+                {"key": "$feature/hogql-insights", "value": ["true"], "operator": "exact", "type": "event"},
+                {
+                    "key": "site_url",
+                    "value": ["http://localhost:8000"],
+                    "operator": "exact",
+                    "type": "group",
+                    "group_type_index": 1,
+                },
+                {"key": "id", "value": 2, "type": "cohort"},
+                {"key": "tag_name", "value": ["elem"], "operator": "exact", "type": "element"},
+                {"key": "$session_duration", "value": None, "operator": "gt", "type": "session"},
+                {"type": "hogql", "key": "properties.name", "value": None},
+            ],
+        },
+        {"type": "OR", "values": [{}]},
+    ],
+}
+
+test_properties = [
+    properties_0,
+    properties_1,
+    properties_2,
+    properties_3,
+    properties_4,
+    properties_5,
+    properties_6,
+    properties_7,
+    properties_8,
+    properties_9,
 ]
 
 
