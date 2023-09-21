@@ -7,7 +7,7 @@ from posthog.schema import ActionsNode, BaseMathType, CountPerActorMathType, Eve
 from posthog.test.base import BaseTest
 from posthog.models.filters.filter import Filter
 
-insight_1 = {
+insight_0 = {
     "events": [{"id": "signed_up", "type": "events", "order": 0}],
     "actions": [],
     "display": "ActionsLineGraph",
@@ -15,7 +15,7 @@ insight_1 = {
     "interval": "week",
     "date_from": "-8w",
 }
-insight_2 = {
+insight_1 = {
     "events": [{"id": "signed_up", "type": "events", "order": 0}],
     "actions": [],
     "display": "WorldMap",
@@ -24,7 +24,7 @@ insight_2 = {
     "date_from": "-1m",
     "breakdown_type": "event",
 }
-insight_3 = {
+insight_2 = {
     "events": [
         {"id": "signed_up", "name": "signed_up", "type": "events", "order": 2, "custom_name": "Signed up"},
         {"id": "upgraded_plan", "name": "upgraded_plan", "type": "events", "order": 4, "custom_name": "Upgraded plan"},
@@ -37,7 +37,7 @@ insight_3 = {
     "funnel_viz_type": "steps",
     "filter_test_accounts": True,
 }
-insight_4 = {
+insight_3 = {
     "period": "Week",
     "display": "ActionsTable",
     "insight": "RETENTION",
@@ -52,7 +52,7 @@ insight_4 = {
     "total_intervals": 9,
     "returning_entity": {"id": 1, "name": "Interacted with file", "type": "actions", "order": 0},
 }
-insight_5 = {
+insight_4 = {
     "events": [],
     "actions": [{"id": 1, "math": "total", "name": "Interacted with file", "type": "actions", "order": 0}],
     "compare": False,
@@ -65,7 +65,7 @@ insight_5 = {
     "properties": [],
     "filter_test_accounts": True,
 }
-insight_6 = {
+insight_5 = {
     "events": [
         {
             "id": "uploaded_file",
@@ -95,7 +95,7 @@ insight_6 = {
     "properties": [],
     "filter_test_accounts": True,
 }
-insight_7 = {
+insight_6 = {
     "events": [{"id": "paid_bill", "math": "sum", "type": "events", "order": 0, "math_property": "amount_usd"}],
     "actions": [],
     "display": "ActionsLineGraph",
@@ -103,7 +103,7 @@ insight_7 = {
     "interval": "month",
     "date_from": "-6m",
 }
-insight_8 = {
+insight_7 = {
     "events": [
         {
             "id": "paid_bill",
@@ -124,7 +124,7 @@ insight_8 = {
     "properties": [],
     "filter_test_accounts": True,
 }
-insight_9 = {
+insight_8 = {
     "events": [{"id": "$pageview", "math": "total", "type": "events", "order": 0}],
     "actions": [],
     "display": "ActionsTable",
@@ -144,7 +144,7 @@ insight_9 = {
     },
     "breakdown_type": "event",
 }
-insight_10 = {
+insight_9 = {
     "events": [
         {
             "id": "$pageview",
@@ -176,7 +176,7 @@ insight_10 = {
     "funnel_viz_type": "steps",
     "filter_test_accounts": True,
 }
-insight_11 = {
+insight_10 = {
     "date_to": None,
     "insight": "PATHS",
     "date_from": "-30d",
@@ -190,7 +190,7 @@ insight_11 = {
     "include_event_types": ["$pageview"],
     "local_path_cleaning_filters": [],
 }
-insight_12 = {
+insight_11 = {
     "events": [
         {"id": "uploaded_file", "type": "events", "order": 0},
         {"id": "deleted_file", "type": "events", "order": 2},
@@ -202,7 +202,7 @@ insight_12 = {
     "interval": "day",
     "date_from": "-30d",
 }
-insight_13 = {
+insight_12 = {
     "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
     "display": "ActionsLineGraph",
     "insight": "TRENDS",
@@ -210,7 +210,7 @@ insight_13 = {
     "date_from": "-30d",
     "filter_test_accounts": True,
 }
-insight_14 = {
+insight_13 = {
     "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
     "display": "ActionsLineGraph",
     "insight": "TRENDS",
@@ -218,7 +218,7 @@ insight_14 = {
     "date_from": "-90d",
     "filter_test_accounts": True,
 }
-insight_15 = {
+insight_14 = {
     "period": "Week",
     "insight": "RETENTION",
     "target_entity": {"id": "$pageview", "type": "events"},
@@ -226,7 +226,7 @@ insight_15 = {
     "returning_entity": {"id": "$pageview", "type": "events"},
     "filter_test_accounts": True,
 }
-insight_16 = {
+insight_15 = {
     "events": [{"id": "$pageview", "type": "events"}],
     "insight": "LIFECYCLE",
     "interval": "week",
@@ -235,7 +235,7 @@ insight_16 = {
     "entity_type": "events",
     "filter_test_accounts": True,
 }
-insight_17 = {
+insight_16 = {
     "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
     "display": "ActionsBarValue",
     "insight": "TRENDS",
@@ -245,7 +245,7 @@ insight_17 = {
     "breakdown_type": "event",
     "filter_test_accounts": True,
 }
-insight_18 = {
+insight_17 = {
     "events": [
         {"id": "$pageview", "type": "events", "order": 0, "custom_name": "First page view"},
         {"id": "$pageview", "type": "events", "order": 1, "custom_name": "Second page view"},
@@ -262,7 +262,8 @@ insight_18 = {
     "filter_test_accounts": True,
 }
 
-testdata = [
+test_insights = [
+    insight_0,
     insight_1,
     insight_2,
     insight_3,
@@ -280,13 +281,12 @@ testdata = [
     insight_15,
     insight_16,
     insight_17,
-    insight_18,
 ]
 
 
-@pytest.mark.parametrize("data", testdata)
-def test_base_insights(data):
-    filter = Filter(data=data)
+@pytest.mark.parametrize("insight", test_insights)
+def test_base_insights(insight):
+    filter = Filter(data=insight)
     filter_to_query(filter)
 
 
