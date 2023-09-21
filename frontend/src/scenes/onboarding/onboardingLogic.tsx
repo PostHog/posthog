@@ -135,15 +135,34 @@ export const onboardingLogic = kea<onboardingLogicType>({
         },
         setAllOnboardingSteps: ({ allOnboardingSteps }) => {
             // once we have the onboarding steps we need to make sure the step key is valid,
-            // and if so use it to set the step number. if not valid, remove it from the state
-            if (values.stepKey && values.stepKey in onboardingStepMap) {
-                const stepIndex = allOnboardingSteps
-                    .map((step) => step.type.name)
-                    .indexOf(onboardingStepMap[values.stepKey as OnboardingStepKey])
-                if (stepIndex > -1) {
-                    actions.setCurrentOnboardingStepNumber(stepIndex + 1)
-                } else {
-                    actions.setStepKey('')
+            // and if so use it to set the step number. if not valid, remove it from the state.
+            // valid step keys are either numbers (used for unnamed steps) or keys from the onboardingStepMap.
+            // if it's a number, we try to convert it to a named step key using the onboardingStepMap.
+            let stepKey = values.stepKey
+            if (values.stepKey) {
+                if (parseInt(values.stepKey) > 0) {
+                    const stepName = allOnboardingSteps[parseInt(values.stepKey) - 1]?.type?.name
+                    const newStepKey = Object.keys(onboardingStepMap).find((key) => onboardingStepMap[key] === stepName)
+                    if (stepName && stepKey) {
+                        stepKey = newStepKey || stepKey
+                        actions.setStepKey(stepKey)
+                    }
+                }
+                if (stepKey in onboardingStepMap) {
+                    const stepIndex = allOnboardingSteps
+                        .map((step) => step.type.name)
+                        .indexOf(onboardingStepMap[stepKey as OnboardingStepKey])
+                    if (stepIndex > -1) {
+                        actions.setCurrentOnboardingStepNumber(stepIndex + 1)
+                    } else {
+                        actions.setStepKey('')
+                    }
+                } else if (
+                    parseInt(stepKey) > 1 &&
+                    allOnboardingSteps.length > 0 &&
+                    allOnboardingSteps[parseInt(stepKey) - 1]
+                ) {
+                    actions.setCurrentOnboardingStepNumber(parseInt(stepKey))
                 }
             }
         },
@@ -151,9 +170,10 @@ export const onboardingLogic = kea<onboardingLogicType>({
             if (
                 stepKey &&
                 values.allOnboardingSteps.length > 0 &&
-                !values.allOnboardingSteps.find(
+                (!values.allOnboardingSteps.find(
                     (step) => step.type.name === onboardingStepMap[stepKey as OnboardingStepKey]
-                )
+                ) ||
+                    !values.allOnboardingSteps[parseInt(stepKey) - 1])
             ) {
                 actions.setStepKey('')
             }
@@ -184,7 +204,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
             if (productKey !== values.productKey) {
                 actions.setProductKey(productKey)
             }
-            if (step && (step in onboardingStepMap || parseInt(step) > 1)) {
+            if (step && (step in onboardingStepMap || parseInt(step) > 0)) {
                 actions.setStepKey(step)
             } else {
                 actions.setCurrentOnboardingStepNumber(1)
@@ -192,3 +212,6 @@ export const onboardingLogic = kea<onboardingLogicType>({
         },
     }),
 })
+
+//  problems:
+// - after upgrading it redirects to the first step
