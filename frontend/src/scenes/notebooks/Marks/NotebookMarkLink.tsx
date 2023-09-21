@@ -35,10 +35,20 @@ export const NotebookMarkLink = Mark.create({
                 key: new PluginKey('handleLinkClick'),
                 props: {
                     handleDOMEvents: {
-                        click() {
-                            const range = getMarkRange(editor.state.selection.$anchor, markType)
-                            if (range) {
-                                editor.commands.setTextSelection(range)
+                        click(_, event) {
+                            if (event.metaKey) {
+                                const link = event.target as HTMLAnchorElement
+                                const href = link.href
+
+                                if (href) {
+                                    event.preventDefault()
+                                    window.open(href, link.target)
+                                }
+                            } else {
+                                const range = getMarkRange(editor.state.selection.$anchor, markType)
+                                if (range) {
+                                    editor.commands.setTextSelection(range)
+                                }
                             }
                         },
                     },

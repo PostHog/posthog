@@ -153,27 +153,19 @@
     }
 
     .NotebookInlineMenu {
-        margin-bottom: -0.5rem;
+        margin-bottom: -0.2rem;
+        box-shadow: 0px 4px 10px 0px rgba(0, 0, 0, 0.1);
 
         .LemonInput {
             border: 0px;
             min-height: 0px;
         }
 
-        .NotebookInlineMenu__button {
-            border-radius: 2px;
-            background: var(--white);
-            font-size: 1rem;
-            cursor: pointer;
+        .LemonButton {
+            min-height: 1.75rem;
 
-            &--default:hover,
-            &--primary,
-            &--active {
-                color: var(--primary);
-            }
-
-            &--destructive {
-                color: var(--danger);
+            .LemonButton__icon {
+                font-size: 1rem;
             }
         }
     }
