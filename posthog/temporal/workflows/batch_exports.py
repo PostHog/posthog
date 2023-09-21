@@ -1,14 +1,27 @@
 import collections.abc
 import csv
+import dataclasses
 import datetime as dt
 import gzip
 import json
+import logging
 import tempfile
 import typing
+import uuid
 from string import Template
 
 import brotli
-from temporalio import workflow
+from asgiref.sync import sync_to_async
+from django.conf import settings
+from temporalio import activity, workflow
+
+from posthog.batch_exports.service import (
+    BatchExportsInputsProtocol,
+    create_batch_export_run,
+    update_batch_export_run_status,
+)
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_BATCH_EXPORTS_LOG_ENTRIES
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -405,3 +418,161 @@ class BatchExportTemporaryFile:
 
         self.bytes_since_last_reset = 0
         self.records_since_last_reset = 0
+
+
+class BatchExportLoggerAdapter(logging.LoggerAdapter):
+    """Adapter that adds batch export details to log records."""
+
+    def __init__(
+        self,
+        logger: logging.Logger,
+        extra=None,
+    ) -> None:
+        """Create the logger adapter."""
+        if logger.name not in ("temporalio.activity", "temporalio.workflow"):
+            raise ValueError(f"Invalid logger '{logger.name}'")
+
+        super().__init__(logger, extra or {})
+
+    def process(self, msg: str, kwargs) -> tuple:
+        """Override to add batch exports details."""
+        if self.logger.name == "temporalio.activity":
+            info = activity.info()
+            workflow_run_id = info.workflow_run_id
+        elif self.logger.name == "temporalio.workflow":
+            info = workflow.info()
+            workflow_run_id = info.run_id
+        else:
+            raise ValueError(f"Invalid logger '{self.logger.name}'")
+
+        workflow_id = info.workflow_id
+        # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
+        # Since {data_interval_date} is an iso formatted datetime string, it has two '-' to separate the
+        # date. Plus one more leaves us at the end of {batch_export_id}.
+        batch_export_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        attempt = info.attempt
+
+        extra = kwargs.get("extra", None) or {}
+        extra["workflow_id"] = workflow_id
+        extra["batch_export_id"] = batch_export_id
+        extra["workflow_run_id"] = workflow_run_id
+        extra["attempt"] = attempt
+
+        if isinstance(self.extra, dict):
+            extra = extra | self.extra
+        kwargs["extra"] = extra
+
+        return (msg, kwargs)
+
+    @property
+    def base_logger(self) -> logging.Logger:
+        """Underlying logger usable for actions such as adding handlers/formatters."""
+        return self.logger
+
+
+class BatchExportsLogRecord(logging.LogRecord):
+    team_id: int
+    batch_export_id: str
+    workflow_run_id: str
+    attempt: int
+
+
+class KafkaLoggingHandler(logging.Handler):
+    def __init__(self, topic, key=None):
+        logging.Handler.__init__(self)
+        self.producer = KafkaProducer()
+        self.topic = topic
+        self.key = key
+
+    def emit(self, record: BatchExportsLogRecord):
+        if record.name == "kafka":
+            return
+
+        msg = self.format(record)
+        data = {
+            "message": msg,
+            "team_id": record.team_id,
+            "batch_export_id": record.batch_export_id,
+            "run_id": record.workflow_run_id,
+            "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "level": record.levelname,
+        }
+
+        future = self.producer.produce(topic=self.topic, data=data, key=self.key)
+        future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
+
+    def close(self):
+        self.producer.close()
+        logging.Handler.close(self)
+
+
+def get_batch_exports_logger(name: str, inputs: BatchExportsInputsProtocol) -> BatchExportLoggerAdapter:
+    """Configure and return a logger for BatchExports."""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+
+    if not any(isinstance(handler, KafkaLoggingHandler) for handler in logger.handlers):
+        handler = KafkaLoggingHandler(topic=KAFKA_BATCH_EXPORTS_LOG_ENTRIES)
+        handler.setLevel(logging.DEBUG)
+        logger.addHandler(handler)
+
+    adapter = BatchExportLoggerAdapter(logger, {"team_id": inputs.team_id})
+
+    return adapter
+
+
+@dataclasses.dataclass
+class CreateBatchExportRunInputs:
+    """Inputs to the create_export_run activity.
+
+    Attributes:
+        team_id: The id of the team the BatchExportRun belongs to.
+        batch_export_id: The id of the BatchExport this BatchExportRun belongs to.
+        data_interval_start: Start of this BatchExportRun's data interval.
+        data_interval_end: End of this BatchExportRun's data interval.
+    """
+
+    team_id: int
+    batch_export_id: str
+    data_interval_start: str
+    data_interval_end: str
+    status: str = "Starting"
+
+
+@activity.defn
+async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
+    """Activity that creates an BatchExportRun.
+
+    Intended to be used in all export workflows, usually at the start, to create a model
+    instance to represent them in our database.
+    """
+    activity.logger.info(f"Creating BatchExportRun model instance in team {inputs.team_id}.")
+
+    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
+    # But one of our dependencies is pinned to asgiref==3.3.2.
+    # Remove these comments once we upgrade.
+    run = await sync_to_async(create_batch_export_run)(  # type: ignore
+        batch_export_id=uuid.UUID(inputs.batch_export_id),
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+        status=inputs.status,
+    )
+
+    activity.logger.info(f"Created BatchExportRun {run.id} in team {inputs.team_id}.")
+
+    return str(run.id)
+
+
+@dataclasses.dataclass
+class UpdateBatchExportRunStatusInputs:
+    """Inputs to the update_export_run_status activity."""
+
+    id: str
+    status: str
+    latest_error: str | None = None
+
+
+@activity.defn
+async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
+    """Activity that updates the status of an BatchExportRun."""
+    await sync_to_async(update_batch_export_run_status)(run_id=uuid.UUID(inputs.id), status=inputs.status, latest_error=inputs.latest_error)  # type: ignore
