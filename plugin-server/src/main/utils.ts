@@ -4,35 +4,29 @@ import { exponentialBuckets, Histogram } from 'prom-client'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
 
-interface FunctionInstrumentation<T, E> {
-    event?: E
+interface FunctionInstrumentation<T> {
+    statsKey: string
+    func: () => Promise<T>
     timeout?: number
     timeoutMessage?: string
-    statsKey: string
-    func: (event?: E) => Promise<T>
+    timeoutContext?: () => Record<string, any>
     teamId?: number
 }
 
-export async function runInstrumentedFunction<T, E>({
+export async function runInstrumentedFunction<T>({
     timeoutMessage,
     timeout,
-    event,
+    timeoutContext,
     func,
     statsKey,
     teamId,
-}: FunctionInstrumentation<T, E>): Promise<T> {
-    const t = timeoutGuard(
-        timeoutMessage ?? `Timeout warning for '${statsKey}'!`,
-        {
-            event: JSON.stringify(event),
-        },
-        timeout
-    )
+}: FunctionInstrumentation<T>): Promise<T> {
+    const t = timeoutGuard(timeoutMessage ?? `Timeout warning for '${statsKey}'!`, timeoutContext, timeout)
     const end = instrumentedFunctionDuration.startTimer({
         function: statsKey,
     })
     try {
-        const result = await func(event)
+        const result = await func()
         end({ success: 'true' })
         return result
     } catch (error) {
