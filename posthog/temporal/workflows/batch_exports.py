@@ -483,9 +483,14 @@ class KafkaLoggingHandler(logging.Handler):
         self.topic = topic
         self.key = key
 
-    def emit(self, record: BatchExportsLogRecord):
+    def emit(self, record):
         if record.name == "kafka":
             return
+
+        # This is a lie, but as long as this handler is used together
+        # with BatchExportLoggerAdapter we should be fine.
+        # This is definetely cheaper than a bunch if checks for attributes.
+        record = typing.cast(BatchExportsLogRecord, record)
 
         msg = self.format(record)
         data = {
