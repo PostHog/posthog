@@ -1,6 +1,11 @@
 # This file contains all CREATE TABLE queries, used to sync and test schema
 import re
 
+from posthog.clickhouse.batch_exports_log_entries import (
+    BATCH_EXPORTS_LOG_ENTRIES_TABLE_MV_SQL,
+    BATCH_EXPORTS_LOG_ENTRIES_TABLE_SQL,
+    KAFKA_BATCH_EXPORTS_LOG_ENTRIES_TABLE_SQL,
+)
 from posthog.clickhouse.dead_letter_queue import *
 from posthog.clickhouse.plugin_log_entries import *
 from posthog.models.app_metrics.sql import *
@@ -29,13 +34,14 @@ from posthog.models.person_overrides.sql import (
 )
 from posthog.session_recordings.sql.session_recording_event_sql import *
 from posthog.session_recordings.sql.session_replay_event_sql import (
-    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
-    SESSION_REPLAY_EVENTS_TABLE_SQL,
+    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 
 CREATE_MERGETREE_TABLE_QUERIES = (
+    BATCH_EXPORTS_LOG_ENTRIES_TABLE_SQL,
     CREATE_COHORTPEOPLE_TABLE_SQL,
     PERSON_STATIC_COHORT_TABLE_SQL,
     DEAD_LETTER_QUEUE_TABLE_SQL,
@@ -64,6 +70,7 @@ CREATE_DISTRIBUTED_TABLE_QUERIES = (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 CREATE_KAFKA_TABLE_QUERIES = (
+    KAFKA_BATCH_EXPORTS_LOG_ENTRIES_TABLE_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     KAFKA_EVENTS_TABLE_JSON_SQL,
     KAFKA_GROUPS_TABLE_SQL,
@@ -79,6 +86,7 @@ CREATE_KAFKA_TABLE_QUERIES = (
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 CREATE_MV_TABLE_QUERIES = (
+    BATCH_EXPORTS_LOG_ENTRIES_TABLE_MV_SQL,
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
     EVENTS_TABLE_JSON_MV_SQL,
     GROUPS_TABLE_MV_SQL,
