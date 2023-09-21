@@ -9,6 +9,7 @@ import { isCloud } from '../../utils/env-utils'
 import { safeTrackedFetch, trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
+import { AppMetrics } from './app-metrics'
 import { OrganizationManager } from './organization-manager'
 import { TeamManager } from './team-manager'
 
@@ -255,6 +256,7 @@ export class HookCommander {
     postgres: PostgresRouter
     teamManager: TeamManager
     organizationManager: OrganizationManager
+    appMetrics: AppMetrics
     statsd: StatsD | undefined
     siteUrl: string
     /** null means that the hostname guard is enabled for everyone */
@@ -268,7 +270,8 @@ export class HookCommander {
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
         fetchHostnameGuardTeams: Set<number> | null = new Set(),
-        statsd?: StatsD
+        appMetrics: AppMetrics,
+        statsd: StatsD | undefined
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
@@ -281,6 +284,7 @@ export class HookCommander {
             this.siteUrl = ''
         }
         this.statsd = statsd
+        this.appMetrics = appMetrics
     }
 
     public async findAndFireHooks(event: PostIngestionEvent, actionMatches: Action[]): Promise<void> {
@@ -382,6 +386,26 @@ export class HookCommander {
             this.statsd?.increment('webhook_firings', {
                 team_id: event.teamId.toString(),
             })
+            await this.appMetrics.queueMetric({
+                teamId: event.teamId,
+                pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+                category: 'webhook',
+                successes: 1,
+            })
+        } catch (error) {
+            await this.appMetrics.queueError(
+                {
+                    teamId: event.teamId,
+                    pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+                    category: 'webhook',
+                    failures: 1,
+                },
+                {
+                    error,
+                    event,
+                }
+            )
+            throw error
         } finally {
             clearTimeout(timeout)
         }
@@ -427,6 +451,26 @@ export class HookCommander {
                 status.warn('⚠️', `Rest hook failed status ${request.status} for team ${event.teamId}`)
             }
             this.statsd?.increment('rest_hook_firings')
+            await this.appMetrics.queueMetric({
+                teamId: event.teamId,
+                pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+                category: 'webhook',
+                successes: 1,
+            })
+        } catch (error) {
+            await this.appMetrics.queueError(
+                {
+                    teamId: event.teamId,
+                    pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+                    category: 'webhook',
+                    failures: 1,
+                },
+                {
+                    error,
+                    event,
+                }
+            )
+            throw error
         } finally {
             clearTimeout(timeout)
         }

@@ -51,6 +51,12 @@ pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
     timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
 )
 
+export async function createKafkaProducerWrapper(serverConfig: PluginsServerConfig): Promise<KafkaProducerWrapper> {
+    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
+    const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
+    return new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
+}
+
 export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     threadId: number | null = null,
@@ -101,10 +107,7 @@ export async function createHub(
     status.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
-    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
-    const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
-
-    const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
+    const kafkaProducer = await createKafkaProducerWrapper(serverConfig)
     status.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig, statsd)
