@@ -5,6 +5,8 @@ import datetime as dt
 import gzip
 import json
 import logging
+import logging.handlers
+import queue
 import tempfile
 import typing
 import uuid
@@ -12,7 +14,6 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from temporalio import activity, workflow
 
 from posthog.batch_exports.service import (
@@ -429,25 +430,34 @@ class BatchExportLoggerAdapter(logging.LoggerAdapter):
         extra=None,
     ) -> None:
         """Create the logger adapter."""
-        if logger.name not in ("temporalio.activity", "temporalio.workflow"):
-            raise ValueError(f"Invalid logger '{logger.name}'")
-
         super().__init__(logger, extra or {})
 
     def process(self, msg: str, kwargs) -> tuple[typing.Any, collections.abc.MutableMapping[str, typing.Any]]:
         """Override to add batch exports details."""
-        if self.logger.name == "temporalio.activity":
+        workflow_id = None
+        workflow_run_id = None
+        attempt = None
+
+        try:
             activity_info = activity.info()
+        except RuntimeError:
+            pass
+        else:
             workflow_run_id = activity_info.workflow_run_id
             workflow_id = activity_info.workflow_id
             attempt = activity_info.attempt
-        elif self.logger.name == "temporalio.workflow":
+
+        try:
             workflow_info = workflow.info()
+        except RuntimeError:
+            pass
+        else:
             workflow_run_id = workflow_info.run_id
             workflow_id = workflow_info.workflow_id
             attempt = workflow_info.attempt
-        else:
-            raise ValueError(f"Invalid logger '{self.logger.name}'")
+
+        if workflow_id is None or workflow_run_id is None or attempt is None:
+            return (None, {})
 
         # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
         # Since {data_interval_date} is an iso formatted datetime string, it has two '-' to separate the
@@ -481,7 +491,7 @@ class BatchExportsLogRecord(logging.LogRecord):
 
 class KafkaLoggingHandler(logging.Handler):
     def __init__(self, topic, key=None):
-        logging.Handler.__init__(self)
+        super().__init__()
         self.producer = KafkaProducer()
         self.topic = topic
         self.key = key
@@ -492,7 +502,7 @@ class KafkaLoggingHandler(logging.Handler):
 
         # This is a lie, but as long as this handler is used together
         # with BatchExportLoggerAdapter we should be fine.
-        # This is definetely cheaper than a bunch if checks for attributes.
+        # This is definitely cheaper than a bunch if checks for attributes.
         record = typing.cast(BatchExportsLogRecord, record)
 
         msg = self.format(record)
@@ -505,23 +515,35 @@ class KafkaLoggingHandler(logging.Handler):
             "level": record.levelname,
         }
 
-        future = self.producer.produce(topic=self.topic, data=data, key=self.key)
-        future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
+        try:
+            future = self.producer.produce(topic=self.topic, data=data, key=self.key)
+            future.get(timeout=1)
+        except Exception as e:
+            logging.exception("Failed to produce log to Kafka topic %s", self.topic, exc_info=e)
 
     def close(self):
         self.producer.close()
         logging.Handler.close(self)
 
 
-def get_batch_exports_logger(name: str, inputs: BatchExportsInputsProtocol) -> BatchExportLoggerAdapter:
-    """Configure and return a logger for BatchExports."""
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+LOG_QUEUE: queue.Queue = queue.Queue(-1)
+QUEUE_HANDLER = logging.handlers.QueueHandler(LOG_QUEUE)
+QUEUE_HANDLER.setLevel(logging.DEBUG)
 
-    if not any(isinstance(handler, KafkaLoggingHandler) for handler in logger.handlers):
-        handler = KafkaLoggingHandler(topic=KAFKA_BATCH_EXPORTS_LOG_ENTRIES)
-        handler.setLevel(logging.DEBUG)
-        logger.addHandler(handler)
+KAFKA_HANDLER = KafkaLoggingHandler(topic=KAFKA_BATCH_EXPORTS_LOG_ENTRIES)
+KAFKA_HANDLER.setLevel(logging.DEBUG)
+QUEUE_LISTENER = logging.handlers.QueueListener(LOG_QUEUE, KAFKA_HANDLER)
+
+logger = logging.getLogger(__name__)
+logger.addHandler(QUEUE_HANDLER)
+logger.setLevel(logging.DEBUG)
+
+
+def get_batch_exports_logger(inputs: BatchExportsInputsProtocol) -> BatchExportLoggerAdapter:
+    """Return a logger for BatchExports."""
+    # Need a type comment as _thread is private.
+    if QUEUE_LISTENER._thread is None:  # type: ignore
+        QUEUE_LISTENER.start()
 
     adapter = BatchExportLoggerAdapter(logger, {"team_id": inputs.team_id})
 
@@ -553,7 +575,8 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    activity.logger.info(f"Creating BatchExportRun model instance in team {inputs.team_id}.")
+    logger = get_batch_exports_logger(inputs=inputs)
+    logger.info(f"Creating BatchExportRun model instance in team {inputs.team_id}.")
 
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
@@ -565,7 +588,7 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
         status=inputs.status,
     )
 
-    activity.logger.info(f"Created BatchExportRun {run.id} in team {inputs.team_id}.")
+    logger.info(f"Created BatchExportRun {run.id} in team {inputs.team_id}.")
 
     return str(run.id)
 

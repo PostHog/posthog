@@ -96,7 +96,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
-    logger = get_batch_exports_logger(activity.logger.base_logger.name, inputs=inputs)
+    logger = get_batch_exports_logger(inputs=inputs)
     logger.info(
         "Running Snowflake export batch %s - %s",
         inputs.data_interval_start,
@@ -288,7 +288,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
-        logger = get_batch_exports_logger(workflow.logger.base_logger.name, inputs=inputs)
+        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
         logger.info("Starting Snowflake export batch %s - %s", data_interval_start, data_interval_end)
 

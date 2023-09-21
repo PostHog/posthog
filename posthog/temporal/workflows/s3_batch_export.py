@@ -251,7 +251,7 @@ class S3InsertInputs:
 
 def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
-    logger = get_batch_exports_logger(activity.logger.base_logger.name, inputs=inputs)
+    logger = get_batch_exports_logger(inputs=inputs)
     key = get_s3_key(inputs)
     s3_client = boto3.client(
         "s3",
@@ -307,7 +307,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     runs, timing out after say 30 seconds or something and upload multiple
     files.
     """
-    logger = get_batch_exports_logger(activity.logger.base_logger.name, inputs=inputs)
+    logger = get_batch_exports_logger(inputs=inputs)
     logger.info(
         "Running S3 export batch %s - %s",
         inputs.data_interval_start,
@@ -429,7 +429,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        logger = get_batch_exports_logger(workflow.logger.base_logger.name, inputs=inputs)
+        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
         logger.info("Starting S3 export batch %s - %s", data_interval_start, data_interval_end)
 
