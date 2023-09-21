@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -10,15 +10,18 @@ export function PersonDisplayNameProperties(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const [value, setValue] = useState([] as string[])
+    const [suggestions, setSuggestions] = useState([] as string[])
 
-    useEffect(
-        () => setValue(currentTeam?.person_display_name_properties || PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES),
-        [currentTeam]
-    )
+    useEffect(() => {
+        setValue(currentTeam?.person_display_name_properties || [])
+        setSuggestions(PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES)
+    }, [currentTeam])
 
     if (!currentTeam) {
         return <LemonSkeleton className="w-1/2" />
     }
+
+    const activeSuggestions = suggestions.filter((s) => !value.includes(s))
 
     return (
         <>
@@ -33,6 +36,16 @@ export function PersonDisplayNameProperties(): JSX.Element {
                     addText="Add"
                     sortable
                 />
+                <div>
+                    <h4>Suggestions</h4>
+                    <div className="space-x-1">
+                        {activeSuggestions.map((suggestion) => (
+                            <LemonSnack key={suggestion} onClick={() => setValue([...value, suggestion])}>
+                                {suggestion}
+                            </LemonSnack>
+                        ))}
+                    </div>
+                </div>
                 <LemonButton
                     type="primary"
                     onClick={() =>
