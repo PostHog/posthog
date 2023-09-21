@@ -5,23 +5,29 @@ import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
 
 interface FunctionInstrumentation<T, E> {
-    event: E
-    timeoutMessage: string
+    event?: E
+    timeout?: number
+    timeoutMessage?: string
     statsKey: string
-    func: (event: E) => Promise<T>
-    teamId: number
+    func: (event?: E) => Promise<T>
+    teamId?: number
 }
 
 export async function runInstrumentedFunction<T, E>({
     timeoutMessage,
+    timeout,
     event,
     func,
     statsKey,
     teamId,
 }: FunctionInstrumentation<T, E>): Promise<T> {
-    const timeout = timeoutGuard(timeoutMessage, {
-        event: JSON.stringify(event),
-    })
+    const t = timeoutGuard(
+        timeoutMessage ?? `Timeout warning for '${statsKey}'!`,
+        {
+            event: JSON.stringify(event),
+        },
+        timeout
+    )
     const end = instrumentedFunctionDuration.startTimer({
         function: statsKey,
     })
@@ -35,7 +41,7 @@ export async function runInstrumentedFunction<T, E>({
         Sentry.captureException(error, { tags: { team_id: teamId } })
         throw error
     } finally {
-        clearTimeout(timeout)
+        clearTimeout(t)
     }
 }
 
