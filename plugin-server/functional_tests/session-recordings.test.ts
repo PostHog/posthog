@@ -34,7 +34,7 @@ test.concurrent(
         })
 
         const events = await waitForExpect(async () => {
-            const events = await fetchSessionReplayEvents(teamId)
+            const events = await fetchSessionReplayEvents(teamId, sessionId)
             expect(events.length).toBe(1)
             return events
         })
