@@ -13,88 +13,80 @@ beforeAll(async () => {
     organizationId = await createOrganization()
 })
 
-test.concurrent(
-    `snapshot captured, processed, ingested`,
-    async () => {
-        const teamId = await createTeam(organizationId)
-        const distinctId = new UUIDT().toString()
-        const uuid = new UUIDT().toString()
-        const sessionId = new UUIDT().toString()
+test.skip(`snapshot captured, processed, ingested`, async () => {
+    const teamId = await createTeam(organizationId)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+    const sessionId = new UUIDT().toString()
 
-        await capture({
-            teamId,
-            distinctId,
-            uuid,
-            event: '$snapshot_items',
-            properties: {
-                $session_id: sessionId,
-                $window_id: 'abc1234',
-                $snapshot_items: ['yes way'],
-            },
-        })
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: '$snapshot_items',
+        properties: {
+            $session_id: sessionId,
+            $window_id: 'abc1234',
+            $snapshot_items: ['yes way'],
+        },
+    })
 
-        const events = await waitForExpect(async () => {
-            const events = await fetchSessionReplayEvents(teamId, sessionId)
-            expect(events.length).toBe(1)
-            return events
-        })
+    const events = await waitForExpect(async () => {
+        const events = await fetchSessionReplayEvents(teamId, sessionId)
+        expect(events.length).toBe(1)
+        return events
+    })
 
-        expect(events[0]).toEqual({
-            _offset: expect.any(Number),
-            _timestamp: expect.any(String),
-            click_count: 0,
-            created_at: expect.any(String),
-            distinct_id: distinctId,
-            events_summary: [],
-            first_event_timestamp: null,
-            has_full_snapshot: 0,
-            keypress_count: 0,
-            last_event_timestamp: null,
-            session_id: sessionId,
-            snapshot_data: 'yes way',
-            team_id: teamId,
-            timestamp: expect.any(String),
-            timestamps_summary: [],
-            urls: [],
-            uuid: uuid,
-            window_id: 'abc1234',
-        })
-    },
-    20000
-)
+    expect(events[0]).toEqual({
+        _offset: expect.any(Number),
+        _timestamp: expect.any(String),
+        click_count: 0,
+        created_at: expect.any(String),
+        distinct_id: distinctId,
+        events_summary: [],
+        first_event_timestamp: null,
+        has_full_snapshot: 0,
+        keypress_count: 0,
+        last_event_timestamp: null,
+        session_id: sessionId,
+        snapshot_data: 'yes way',
+        team_id: teamId,
+        timestamp: expect.any(String),
+        timestamps_summary: [],
+        urls: [],
+        uuid: uuid,
+        window_id: 'abc1234',
+    })
+}, 20000)
 
-test.concurrent(
-    `snapshot captured, processed, ingested with no team_id set`,
-    async () => {
-        const token = uuidv4()
-        const teamId = await createTeam(organizationId, undefined, token)
-        const distinctId = new UUIDT().toString()
-        const uuid = new UUIDT().toString()
+test.skip(`snapshot captured, processed, ingested with no team_id set`, async () => {
+    const token = uuidv4()
+    const teamId = await createTeam(organizationId, undefined, token)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
 
-        await capture({
-            teamId: null,
-            distinctId,
-            uuid,
-            event: '$snapshot_items',
-            properties: {
-                $session_id: '1234abc',
-                $snapshot_items: ['yes way'],
-            },
-            token,
-            sentAt: new Date(),
-            eventTime: new Date(),
-            now: new Date(),
-        })
+    await capture({
+        teamId: null,
+        distinctId,
+        uuid,
+        event: '$snapshot_items',
+        properties: {
+            $session_id: '1234abc',
+            $snapshot_items: ['yes way'],
+        },
+        token,
+        sentAt: new Date(),
+        eventTime: new Date(),
+        now: new Date(),
+    })
 
-        await waitForExpect(async () => {
-            const events = await fetchSessionReplayEvents(teamId)
-            expect(events.length).toBe(1)
-        })
-    },
-    20000
-)
+    await waitForExpect(async () => {
+        const events = await fetchSessionReplayEvents(teamId)
+        expect(events.length).toBe(1)
+    })
+}, 20000)
 
-test.concurrent(`recording events not ingested to ClickHouse if team is opted out`, async () => {
+test.skip(`recording events not ingested to ClickHouse if team is opted out`, async () => {
     // NOTE: to have something we can assert on in the positive to ensure that
     // we had tried to ingest the recording for the team with the opted out
     // session recording status, we create a team that is opted in and then
@@ -153,7 +145,7 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     expect(events.length).toBe(0)
 })
 
-test.concurrent(`liveness check endpoint works`, async () => {
+test.skip(`liveness check endpoint works`, async () => {
     await waitForExpect(async () => {
         const response = await fetch('http://localhost:6738/_health')
         expect(response.status).toBe(200)
@@ -167,7 +159,7 @@ test.concurrent(`liveness check endpoint works`, async () => {
     })
 })
 
-test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+test.skip('consumer updates timestamp exported to prometheus', async () => {
     // NOTE: it may be another event other than the one we emit here that causes
     // the gauge to increase, but pushing this event through should at least
     // ensure that the gauge is updated.

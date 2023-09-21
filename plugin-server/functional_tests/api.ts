@@ -80,7 +80,7 @@ export const capture = async ({
     $set_once?: object
 }) => {
     // WARNING: this capture method is meant to simulate the ingestion of events
-    // from the capture endpoint, but there is no guarantee that is is 100%
+    // from the capture endpoint, but there is no guarantee that it is 100%
     // accurate.
     return await produce({
         topic,
