@@ -12,7 +12,6 @@ from posthog.session_recordings.sql.session_recording_event_sql import INSERT_SE
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_helpers import (
     RRWEB_MAP_EVENT_TYPE,
-    legacy_preprocess_session_recording_events_for_clickhouse,
 )
 from posthog.utils import cast_timestamp_or_now
 
@@ -72,42 +71,6 @@ def create_session_recording_events(
             first_timestamp=timestamp,
             last_timestamp=timestamp,
         )
-
-    if use_recording_table:
-        if window_id is None:
-            window_id = session_id
-
-        if not snapshots:
-            snapshots = [
-                {
-                    "type": RRWEB_MAP_EVENT_TYPE.FullSnapshot,
-                    "data": {},
-                    "timestamp": round(timestamp.timestamp() * 1000),  # NOTE: rrweb timestamps are milliseconds
-                }
-            ]
-
-        # We use the same code path for chunking events by mocking this as an typical posthog event
-        mock_events = [
-            {
-                "event": "$snapshot",
-                "properties": {
-                    "$session_id": session_id,
-                    "$window_id": window_id,
-                    "$snapshot_data": snapshot,
-                },
-            }
-            for snapshot in snapshots
-        ]
-
-        for event in legacy_preprocess_session_recording_events_for_clickhouse(mock_events, chunk_size=chunk_size):
-            _insert_session_recording_event(
-                team_id=team_id,
-                distinct_id=distinct_id,
-                session_id=session_id,
-                window_id=window_id,
-                timestamp=timestamp,
-                snapshot_data=event["properties"]["$snapshot_data"],
-            )
 
 
 # Pre-compression and events_summary additions which potentially existed for some self-hosted instances

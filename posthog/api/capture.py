@@ -35,7 +35,6 @@ from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
-    legacy_preprocess_session_recording_events_for_clickhouse,
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
@@ -367,14 +366,9 @@ def get_event(request):
             capture_exception(e)
 
         try:
+            # split the replay events off as they are passed to kafka separately
             replay_events, other_events = split_replay_events(events)
-            processed_replay_events = replay_events
-
-            if len(replay_events) > 0:
-                # Legacy solution stays in place
-                processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
-
-            events = processed_replay_events + other_events
+            events = other_events
 
         except ValueError as e:
             return cors_response(
