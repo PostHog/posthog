@@ -77,7 +77,6 @@ export enum PluginServerMode {
     jobs = 'jobs',
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
-    recordings_ingestion = 'recordings-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
 }
 
@@ -286,7 +285,6 @@ export interface PluginServerCapabilities {
     processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
-    sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
     transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
