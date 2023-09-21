@@ -20,7 +20,7 @@ const FLAG_EXPIRE_MS = 'PX'
  * To do this we keep a "lock" in place until we have flushed as much data as possible.
  */
 export class PartitionLocker {
-    consumerID = randomUUID()
+    consumerID = process.env.HOSTNAME ?? randomUUID()
     delay = 1000
     ttl = 30000
 
@@ -62,8 +62,6 @@ export class PartitionLocker {
                         keys.map(async (key) => {
                             const existingClaim = await client.get(key)
 
-                            status.info('🔒', `PartitionLocker claim: ${key}:${existingClaim}`)
-
                             if (existingClaim && existingClaim !== this.consumerID) {
                                 // Still claimed by someone else!
                                 blockingConsumers.add(existingClaim)
@@ -92,7 +90,7 @@ export class PartitionLocker {
                 }
             }
 
-            status.info('🔒', 'PartitionLocker claimed all required keys')
+            status.debug('🔒', 'PartitionLocker claimed all required keys')
         } catch (error) {
             status.error('🧨', 'PartitionLocker errored to claim keys', {
                 error: error.message,

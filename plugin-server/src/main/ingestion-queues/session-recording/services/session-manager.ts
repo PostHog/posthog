@@ -528,7 +528,7 @@ export class SessionManager {
         })
 
         this.realtimeTail.on('line', async (data: string) => {
-            status.info('⚡️', '[session-manager][realtime] writing to redis', {
+            status.debug('⚡️', '[session-manager][realtime] writing to redis', {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
             })
