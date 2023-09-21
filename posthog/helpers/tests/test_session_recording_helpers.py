@@ -16,7 +16,6 @@ from posthog.session_recordings.session_recording_helpers import (
     decompress_chunked_snapshot_data,
     get_events_summary_from_snapshot_data,
     is_active_event,
-    legacy_preprocess_session_recording_events_for_clickhouse,
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
@@ -37,12 +36,11 @@ def mock_capture_flow(events: List[dict], max_size_bytes=512 * 1024) -> Tuple[Li
     Returns the legacy events and the new flow ones
     """
     replay_events, other_events = split_replay_events(events)
-    legacy_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(
-        replay_events, chunk_size=max_size_bytes
-    )
+
     new_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events, max_size_bytes=max_size_bytes)
 
-    return legacy_replay_events + other_events, new_replay_events + other_events
+    # TODO this should only be returning the second part of the tuple, it used to return legacy snapshot data too
+    return other_events, new_replay_events + other_events
 
 
 def test_preprocess_with_no_recordings():
