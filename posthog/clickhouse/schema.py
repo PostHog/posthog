@@ -1,6 +1,11 @@
 # This file contains all CREATE TABLE queries, used to sync and test schema
 import re
 
+from posthog.clickhouse.batch_exports_log_entries import (
+    BATCH_EXPORTS_LOG_ENTRIES_TABLE_MV_SQL,
+    BATCH_EXPORTS_LOG_ENTRIES_TABLE_SQL,
+    KAFKA_BATCH_EXPORTS_LOG_ENTRIES_TABLE_SQL,
+)
 from posthog.clickhouse.dead_letter_queue import *
 from posthog.clickhouse.log_entries import (
     KAFKA_LOG_ENTRIES_TABLE_SQL,
