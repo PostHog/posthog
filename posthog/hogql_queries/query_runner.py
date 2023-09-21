@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
+from math import ceil
 from typing import Any, Generic, List, Optional, Type, Dict, TypeVar
 
 from prometheus_client import Counter
@@ -7,6 +8,8 @@ from django.core.cache import cache
 from django.conf import settings
 from pydantic import BaseModel, ConfigDict
 
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.caching.utils import is_stale
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -118,10 +121,24 @@ class QueryRunner(ABC):
     def _cache_key(self) -> str:
         return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}_{self.team.timezone}")
 
-    @abstractmethod
-    def _is_stale(self, cached_result_package) -> bool:
-        raise NotImplementedError()
+    def _is_stale(self, cached_result_package):
+        date_to = self.query_date_range.date_to()
+        interval = self.query_date_range.interval_name
+        return is_stale(self.team, date_to, interval, cached_result_package)
 
-    @abstractmethod
-    def _refresh_frequency(self) -> timedelta:
-        raise NotImplementedError()
+    def _refresh_frequency(self):
+        date_to = self.query_date_range.date_to()
+        date_from = self.query_date_range.date_from()
+        interval = self.query_date_range.interval_name
+
+        delta_days: Optional[int] = None
+        if date_from and date_to:
+            delta = date_to - date_from
+            delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
+
+        refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+        if interval == "hour" or (delta_days is not None and delta_days <= 7):
+            # The interval is shorter for short-term insights
+            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+
+        return refresh_frequency
