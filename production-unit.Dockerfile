@@ -81,7 +81,7 @@ RUN corepack enable && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.10.10-slim-bullseye AS posthog-build
+FROM python:3.11-slim-bullseye AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -136,7 +136,7 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-FROM nginx/unit:1.28.0-python3.10
+FROM unit:1.31.0-python3.11
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
