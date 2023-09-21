@@ -8,12 +8,11 @@ import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { runInstrumentedFunction } from '../../../main/utils'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
-import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
-import { asyncTimeoutGuard } from '../../../utils/timing'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
@@ -183,11 +182,12 @@ export class SessionRecordingIngesterV2 {
             op: 'checkHighWaterMark',
         })
 
-        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, offset)) {
+        // Check that we are not below the high water mark for this partition (another consumer may have flushed further than us when revoking)
+        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, HIGH_WATERMARK_KEY, offset)) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark',
+                    drop_cause: 'high_water_mark_partition',
                 })
                 .inc()
 
@@ -195,12 +195,11 @@ export class SessionRecordingIngesterV2 {
             return
         }
 
-        // Check that we are not below the high water mark for this partition (another consumer may have flushed further than us when revoking)
-        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, HIGH_WATERMARK_KEY, offset)) {
+        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, offset)) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark_partition',
+                    drop_cause: 'high_water_mark',
                 })
                 .inc()
 
@@ -309,9 +308,10 @@ export class SessionRecordingIngesterV2 {
     }
 
     public async handleEachBatch(messages: Message[]): Promise<void> {
-        await asyncTimeoutGuard(
-            { message: 'Processing batch is taking longer than 60 seconds', timeout: 60 * 1000 },
-            async () => {
+        await runInstrumentedFunction({
+            statsKey: `recordingingester.handleEachBatch`,
+            logExecutionTime: true,
+            func: async () => {
                 const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
                 histogramKafkaBatchSize.observe(messages.length)
 
@@ -321,53 +321,63 @@ export class SessionRecordingIngesterV2 {
                     await this.partitionLocker.claim(messages)
                 }
 
-                for (const message of messages) {
-                    const { partition, offset, timestamp } = message
+                await runInstrumentedFunction({
+                    statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
+                    func: async () => {
+                        for (const message of messages) {
+                            const { partition, offset, timestamp } = message
 
-                    if (timestamp && this.partitionAssignments[partition]) {
-                        const metrics = this.partitionAssignments[partition]
+                            if (timestamp && this.partitionAssignments[partition]) {
+                                const metrics = this.partitionAssignments[partition]
 
-                        // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                        metrics.lastMessageTimestamp = timestamp
-                        // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-                        metrics.lastKnownCommit = metrics.lastKnownCommit ?? offset
-                        metrics.lastMessageOffset = offset
+                                // For some reason timestamp can be null. If it isn't, update our ingestion metrics
+                                metrics.lastMessageTimestamp = timestamp
+                                // If we don't have a last known commit then set it to this offset as we can't commit lower than that
+                                metrics.lastKnownCommit = metrics.lastKnownCommit ?? offset
+                                metrics.lastMessageOffset = offset
 
-                        counterKafkaMessageReceived.inc({ partition })
+                                counterKafkaMessageReceived.inc({ partition })
 
-                        gaugeLagMilliseconds
-                            .labels({
-                                partition: partition.toString(),
-                            })
-                            .set(now() - timestamp)
+                                gaugeLagMilliseconds
+                                    .labels({
+                                        partition: partition.toString(),
+                                    })
+                                    .set(now() - timestamp)
 
-                        const offsetsByPartition = await this.offsetsRefresher.get()
-                        const highOffset = offsetsByPartition[partition]
+                                const offsetsByPartition = await this.offsetsRefresher.get()
+                                const highOffset = offsetsByPartition[partition]
 
-                        if (highOffset) {
-                            // NOTE: This is an important metric used by the autoscaler
-                            gaugeLag.set({ partition }, Math.max(0, highOffset - metrics.lastMessageOffset))
+                                if (highOffset) {
+                                    // NOTE: This is an important metric used by the autoscaler
+                                    gaugeLag.set({ partition }, Math.max(0, highOffset - metrics.lastMessageOffset))
+                                }
+                            }
+
+                            const recordingMessage = await this.parseKafkaMessage(message, (token) =>
+                                this.teamsRefresher.get().then((teams) => teams[token] || null)
+                            )
+
+                            if (recordingMessage) {
+                                recordingMessages.push(recordingMessage)
+                            }
                         }
-                    }
+                    },
+                })
 
-                    const recordingMessage = await this.parseKafkaMessage(message, (token) =>
-                        this.teamsRefresher.get().then((teams) => teams[token] || null)
-                    )
+                await runInstrumentedFunction({
+                    statsKey: `recordingingester.handleEachBatch.consumeSerial`,
+                    func: async () => {
+                        for (const message of recordingMessages) {
+                            const consumeSpan = transaction?.startChild({
+                                op: 'blobConsume',
+                            })
 
-                    if (recordingMessage) {
-                        recordingMessages.push(recordingMessage)
-                    }
-                }
-
-                for (const message of recordingMessages) {
-                    const consumeSpan = transaction?.startChild({
-                        op: 'blobConsume',
-                    })
-
-                    await this.consume(message, consumeSpan)
-                    // TODO: We could do this as batch of offsets for the whole lot...
-                    consumeSpan?.finish()
-                }
+                            await this.consume(message, consumeSpan)
+                            // TODO: We could do this as batch of offsets for the whole lot...
+                            consumeSpan?.finish()
+                        }
+                    },
+                })
 
                 for (const message of messages) {
                     // Now that we have consumed everything, attempt to commit all messages in this batch
@@ -375,14 +385,22 @@ export class SessionRecordingIngesterV2 {
                     await this.commitOffset(message.topic, partition, offset)
                 }
 
-                await this.replayEventsIngester.consumeBatch(recordingMessages)
-                const timeout = timeoutGuard(`Flushing sessions timed out`, {}, 120 * 1000)
-                await this.flushAllReadySessions()
-                clearTimeout(timeout)
+                await runInstrumentedFunction({
+                    statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
+                    func: async () => {
+                        await this.replayEventsIngester.consumeBatch(recordingMessages)
+                    },
+                })
+                await runInstrumentedFunction({
+                    statsKey: `recordingingester.handleEachBatch.flushAllReadySessions`,
+                    func: async () => {
+                        await this.flushAllReadySessions()
+                    },
+                })
 
                 transaction.finish()
-            }
-        )
+            },
+        })
     }
 
     public async start(): Promise<void> {
@@ -549,12 +567,19 @@ export class SessionRecordingIngesterV2 {
         // - have some sort of timeout so we don't get stuck here forever
         if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
             status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
-            await Promise.allSettled(
-                sessionsToDrop
-                    .map(([_, x]) => x)
-                    .sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
-                    .map((x) => x.flush('partition_shutdown'))
-            )
+
+            await runInstrumentedFunction({
+                statsKey: `recordingingester.onRevokePartitions.flushSessions`,
+                logExecutionTime: true,
+                func: async () => {
+                    await Promise.allSettled(
+                        sessionsToDrop
+                            .map(([_, x]) => x)
+                            .sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
+                            .map((x) => x.flush('partition_shutdown'))
+                    )
+                },
+            })
         }
 
         topicPartitions.forEach((topicPartition: TopicPartition) => {

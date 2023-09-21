@@ -116,7 +116,9 @@ export const instrumentConsumerMetrics = (
                 }
             }
         } else if (error.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-            status.info('📝️', `librdkafka ${strategyString} rebalance started, partitions revoked`, { assignments })
+            status.info('📝️', `librdkafka ${strategyString} rebalance started, partitions revoked`, {
+                revocations: assignments,
+            })
             for (const [topic, count] of countPartitionsPerTopic(assignments)) {
                 if (cooperativeRebalance) {
                     kafkaRebalancePartitionCount.labels({ topic: topic }).dec(count)

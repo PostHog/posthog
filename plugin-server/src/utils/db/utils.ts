@@ -30,12 +30,13 @@ export function sanitizeEventName(eventName: any): string {
 
 export function timeoutGuard(
     message: string,
-    context?: Record<string, any>,
+    context?: Record<string, any> | (() => Record<string, any>),
     timeout = defaultConfig.TASK_TIMEOUT * 1000
 ): NodeJS.Timeout {
     return setTimeout(() => {
-        console.log(`⌛⌛⌛ ${message}`, context)
-        Sentry.captureMessage(message, context ? { extra: context } : undefined)
+        const ctx = typeof context === 'function' ? context() : context
+        console.log(`⌛⌛⌛ ${message}`, ctx)
+        Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
     }, timeout)
 }
 
