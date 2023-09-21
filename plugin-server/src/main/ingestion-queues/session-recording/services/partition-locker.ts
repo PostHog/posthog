@@ -62,8 +62,6 @@ export class PartitionLocker {
                         keys.map(async (key) => {
                             const existingClaim = await client.get(key)
 
-                            status.info('🔒', `PartitionLocker claim: ${key}:${existingClaim}`)
-
                             if (existingClaim && existingClaim !== this.consumerID) {
                                 // Still claimed by someone else!
                                 blockingConsumers.add(existingClaim)
@@ -92,7 +90,7 @@ export class PartitionLocker {
                 }
             }
 
-            status.info('🔒', 'PartitionLocker claimed all required keys')
+            status.debug('🔒', 'PartitionLocker claimed all required keys')
         } catch (error) {
             status.error('🧨', 'PartitionLocker errored to claim keys', {
                 error: error.message,
