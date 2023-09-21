@@ -14,7 +14,7 @@ import {
     RawAction,
     RawClickHouseEvent,
     RawPerformanceEvent,
-    RawSessionRecordingEvent,
+    RawSessionReplayEvent,
 } from '../src/types'
 import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
@@ -62,7 +62,7 @@ export const capture = async ({
     now = new Date(),
     $set = undefined,
     $set_once = undefined,
-    topic = ['$performance_event', '$snapshot'].includes(event)
+    topic = ['$performance_event', '$snapshot_items'].includes(event)
         ? 'session_recording_events'
         : 'events_plugin_ingestion',
 }: {
@@ -300,16 +300,15 @@ export const fetchPostgresPersons = async (teamId: number) => {
     return rows
 }
 
-export const fetchSessionRecordingsEvents = async (teamId: number, uuid?: string) => {
+export const fetchSessionReplayEvents = async (teamId: number, sessionId?: string) => {
     const queryResult = (await clickHouseClient.querying(
-        `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ${
-            uuid ? ` AND uuid = '${uuid}'` : ''
-        } ORDER BY timestamp ASC`
-    )) as unknown as ClickHouse.ObjectQueryResult<RawSessionRecordingEvent>
+        `SELECT min(min_first_timestamp), any(team_id), any(distinct_id), sessionId, any(window) FROM session_replay_events WHERE team_id = ${teamId} ${
+            sessionId ? ` AND sessionId = '${sessionId}'` : ''
+        } group by sessionId ORDER BY min_first_timestamp ASC`
+    )) as unknown as ClickHouse.ObjectQueryResult<RawSessionReplayEvent>
     return queryResult.data.map((event) => {
         return {
             ...event,
-            snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
         }
     })
 }
