@@ -126,9 +126,6 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/EmptyPropertyFilter"
                 }
             ]
         },
@@ -524,24 +521,6 @@
                 }
             },
             "required": ["attributes", "tag_name"],
-            "type": "object"
-        },
-        "EmptyPropertyFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "not": {}
-                },
-                "operator": {
-                    "not": {}
-                },
-                "type": {
-                    "not": {}
-                },
-                "value": {
-                    "not": {}
-                }
-            },
             "type": "object"
         },
         "EntityType": {
