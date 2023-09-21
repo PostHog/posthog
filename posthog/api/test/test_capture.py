@@ -1216,7 +1216,6 @@ class TestCapture(BaseTest):
             {
                 "event": "$snapshot",
                 "properties": {
-                    "$snapshot_consumer": "v1",
                     "$snapshot_data": {
                         "chunk_count": 1,
                         "chunk_id": "fake-uuid",
