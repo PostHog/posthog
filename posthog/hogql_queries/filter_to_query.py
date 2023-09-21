@@ -77,6 +77,31 @@ def _properties(filter: AnyInsightFilter):
         return {"properties": PropertyGroupFilter(**raw_properties)}
 
 
+def _breakdown_filter(filter: AnyInsightFilter):
+    return {}  # TODO: implement
+
+
+def _group_aggregation_filter(filter: AnyInsightFilter):
+    return {}  # TODO: implement
+
+
+def _insight_filter(filter: AnyInsightFilter):
+    if filter.insight == "TRENDS":
+        return {}  # TODO: implement
+    elif filter.insight == "FUNNELS":
+        return {}  # TODO: implement
+    elif filter.insight == "RETENTION":
+        return {}  # TODO: implement
+    elif filter.insight == "PATHS":
+        return {}  # TODO: implement
+    elif filter.insight == "LIFECYCLE":
+        return {}  # TODO: implement
+    elif filter.insight == "STICKINESS":
+        return {}  # TODO: implement
+    else:
+        raise Exception(f"Invalid insight type {filter.insight}.")
+
+
 def filter_to_query(filter: AnyInsightFilter) -> InsightQueryNode:
     Query = insight_to_query_type[filter.insight]
 
@@ -87,6 +112,9 @@ def filter_to_query(filter: AnyInsightFilter) -> InsightQueryNode:
         **_sampling_factor(filter),
         **_filter_test_accounts(filter),
         **_properties(filter),
+        **_breakdown_filter(filter),
+        **_group_aggregation_filter(filter),
+        **_insight_filter(filter),
     }
 
     return Query(**data)
