@@ -20,7 +20,7 @@ const FLAG_EXPIRE_MS = 'PX'
  * To do this we keep a "lock" in place until we have flushed as much data as possible.
  */
 export class PartitionLocker {
-    consumerID = randomUUID()
+    consumerID = process.env.HOSTNAME ?? randomUUID()
     delay = 1000
     ttl = 30000
 
