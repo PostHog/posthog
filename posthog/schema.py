@@ -123,6 +123,13 @@ class ElementType(BaseModel):
     text: Optional[str] = None
 
 
+class EmptyPropertyFilter(BaseModel):
+    pass
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class EntityType(str, Enum):
     actions = "actions"
     events = "events"
@@ -681,6 +688,7 @@ class EventsNode(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -709,6 +717,7 @@ class EventsNode(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -735,6 +744,7 @@ class EventsQuery(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -758,6 +768,7 @@ class EventsQuery(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -783,6 +794,7 @@ class HogQLFilters(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ]
         ]
     ] = None
@@ -827,6 +839,7 @@ class PersonsNode(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -848,6 +861,7 @@ class PersonsNode(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -873,6 +887,7 @@ class PropertyGroupFilterValue(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ],
         ]
     ]
@@ -895,6 +910,7 @@ class ActionsNode(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -922,6 +938,7 @@ class ActionsNode(BaseModel):
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
+                EmptyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1007,6 +1024,7 @@ class RetentionQuery(BaseModel):
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
+                    EmptyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -1044,6 +1062,7 @@ class StickinessQuery(BaseModel):
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
+                    EmptyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -1083,6 +1102,7 @@ class TrendsQuery(BaseModel):
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
+                    EmptyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -1123,6 +1143,7 @@ class FunnelsQuery(BaseModel):
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
+                    EmptyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -1161,6 +1182,7 @@ class LifecycleQuery(BaseModel):
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
+                    EmptyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -1195,6 +1217,7 @@ class PathsQuery(BaseModel):
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
+                    EmptyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,

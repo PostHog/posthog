@@ -6,9 +6,18 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
+    CohortPropertyFilter,
     CountPerActorMathType,
+    ElementPropertyFilter,
+    EventPropertyFilter,
     EventsNode,
+    GroupPropertyFilter,
+    HogQLPropertyFilter,
+    Key,
+    PersonPropertyFilter,
     PropertyMathType,
+    PropertyOperator,
+    SessionPropertyFilter,
 )
 from posthog.test.base import BaseTest
 from posthog.models.filters.filter import Filter
@@ -292,6 +301,7 @@ test_insights = [
 
 @pytest.mark.parametrize("insight", test_insights)
 def test_base_insights(insight):
+    """smoke test (i.e. filter_to_query should not throw) for real world insights"""
     filter = Filter(data=insight)
     filter_to_query(filter)
 
@@ -382,6 +392,7 @@ test_properties = [
 
 @pytest.mark.parametrize("properties", test_properties)
 def test_base_properties(properties):
+    """smoke test (i.e. filter_to_query should not throw) for real world properties"""
     filter = Filter(data={"properties": properties})
     filter_to_query(filter)
 
@@ -586,4 +597,108 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_properties(self):
-        pass  # TODO
+        filter = Filter(
+            data={
+                "events": [
+                    {"id": "$pageview", "properties": []},  # smoke test
+                    {
+                        "id": "$pageview",
+                        "properties": [{"key": "success", "type": "event", "value": ["true"], "operator": "exact"}],
+                    },
+                    {
+                        "id": "$pageview",
+                        "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+                    },
+                    {
+                        "id": "$pageview",
+                        "properties": [{"key": "text", "value": ["some text"], "operator": "exact", "type": "element"}],
+                    },
+                    {
+                        "id": "$pageview",
+                        "properties": [{"key": "$session_duration", "value": 1, "operator": "gt", "type": "session"}],
+                    },
+                    {"id": "$pageview", "properties": [{"key": "id", "value": 2, "type": "cohort"}]},
+                    {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "name",
+                                "value": ["Hedgebox Inc."],
+                                "operator": "exact",
+                                "type": "group",
+                                "group_type_index": 2,
+                            }
+                        ],
+                    },
+                    {
+                        "id": "$pageview",
+                        "properties": [
+                            {"key": "dateDiff('minute', timestamp, now()) < 30", "type": "hogql", "value": None}
+                        ],
+                    },
+                    {
+                        "id": "$pageview",
+                        "properties": [
+                            {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
+                            {"key": "utm_source", "type": "event", "value": "is_not_set", "operator": "is_not_set"},
+                        ],
+                    },
+                ]
+            }
+        )
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.series,
+            [
+                EventsNode(event="$pageview", name="$pageview", properties=[]),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    properties=[EventPropertyFilter(key="success", value=["true"], operator=PropertyOperator.exact)],
+                ),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    properties=[PersonPropertyFilter(key="email", value="is_set", operator=PropertyOperator.is_set)],
+                ),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    properties=[
+                        ElementPropertyFilter(key=Key.text, value=["some text"], operator=PropertyOperator.exact)
+                    ],
+                ),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    properties=[SessionPropertyFilter(value=1, operator=PropertyOperator.gt)],
+                ),
+                EventsNode(event="$pageview", name="$pageview", properties=[CohortPropertyFilter(value=2)]),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    properties=[
+                        GroupPropertyFilter(
+                            key="name", value=["Hedgebox Inc."], operator=PropertyOperator.exact, group_type_index=2
+                        )
+                    ],
+                ),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    properties=[HogQLPropertyFilter(key="dateDiff('minute', timestamp, now()) < 30")],
+                ),
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$referring_domain", value="google", operator=PropertyOperator.icontains
+                        ),
+                        EventPropertyFilter(key="utm_source", value="is_not_set", operator=PropertyOperator.is_not_set),
+                    ],
+                ),
+            ],
+        )

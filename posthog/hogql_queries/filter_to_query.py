@@ -19,7 +19,7 @@ def entity_to_node(entity: Entity) -> EventsNode | ActionsNode:
     shared = {
         "name": entity.name,
         "custom_name": entity.custom_name,
-        # "properties": entity.properties,
+        "properties": entity._data.get("properties", None),
         "math": entity.math,
         "math_property": entity.math_property,
         "math_hogql": entity.math_hogql,

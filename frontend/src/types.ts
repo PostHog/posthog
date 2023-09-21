@@ -585,6 +585,8 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
     key: string
 }
 
+export interface EmptyPropertyFilter {}
+
 export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -595,6 +597,7 @@ export type AnyPropertyFilter =
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
+    | EmptyPropertyFilter
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
