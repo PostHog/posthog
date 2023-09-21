@@ -157,6 +157,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
                         actions.setCurrentOnboardingStepNumber(stepIndex + 1)
                     } else {
                         actions.setStepKey('')
+                        actions.setCurrentOnboardingStepNumber(1)
                     }
                 } else if (
                     // if it's a number, just use that and set the correct onboarding step number
@@ -169,6 +170,9 @@ export const onboardingLogic = kea<onboardingLogicType>({
             }
         },
         setStepKey: ({ stepKey }) => {
+            // if the step key is invalid (doesn't exist in the onboardingStepMap or the allOnboardingSteps array)
+            // remove it from the state. Numeric step keys are also allowed, as long as they are a valid
+            // index for the allOnboardingSteps array.
             if (
                 stepKey &&
                 values.allOnboardingSteps.length > 0 &&
@@ -183,6 +187,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
     }),
     actionToUrl: ({ values }) => ({
         setCurrentOnboardingStepNumber: () => {
+            // when the current step number changes, update the url to reflect the new step
             const stepName = values.allOnboardingSteps[values.currentOnboardingStepNumber - 1]?.type?.name
             const stepKey =
                 Object.keys(onboardingStepMap).find((key) => onboardingStepMap[key] === stepName) ||
