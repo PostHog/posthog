@@ -2,6 +2,7 @@ from posthog.models.entity.entity import Entity
 from posthog.models.filters import AnyInsightFilter
 from posthog.schema import (
     ActionsNode,
+    BreakdownFilter,
     DateRange,
     EventsNode,
     FunnelsQuery,
@@ -78,7 +79,16 @@ def _properties(filter: AnyInsightFilter):
 
 
 def _breakdown_filter(filter: AnyInsightFilter):
-    return {}  # TODO: implement
+    return {
+        "breakdown": BreakdownFilter(
+            breakdown_type=filter.breakdown_type,
+            breakdown=filter.breakdown,
+            breakdown_normalize_url=filter.breakdown_normalize_url,
+            breakdowns=filter.breakdowns,
+            breakdown_group_type_index=filter.breakdown_group_type_index,
+            breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count if filter.insight == "TRENDS" else None,
+        )
+    }
 
 
 def _group_aggregation_filter(filter: AnyInsightFilter):

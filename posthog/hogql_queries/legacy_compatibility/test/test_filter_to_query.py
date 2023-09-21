@@ -1,11 +1,13 @@
 import pytest
-from posthog.hogql_queries.filter_to_query import filter_to_query
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
+    BreakdownFilter,
+    BreakdownType,
     CohortPropertyFilter,
     CountPerActorMathType,
     ElementPropertyFilter,
@@ -701,4 +703,14 @@ class TestFilterToQuery(BaseTest):
                     ],
                 ),
             ],
+        )
+
+    def test_breakdown(self):
+        filter = Filter(data={"breakdown_type": "event", "breakdown": "$browser"})
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.breakdown,
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser", breakdown_normalize_url=False),
         )
