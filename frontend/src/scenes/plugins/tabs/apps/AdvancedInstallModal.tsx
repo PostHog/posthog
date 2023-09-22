@@ -50,12 +50,14 @@ export function AdvancedInstallModal(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <LemonInput
                             value={sourcePluginName}
+                            disabled={loading}
                             onChange={setSourcePluginName}
                             placeholder={`For example: "Hourly Weather Sync App"`}
                             className="flex-1"
                         />
                         <LemonButton
                             disabledReason={!sourcePluginName ? 'Please enter a name' : undefined}
+                            loading={loading}
                             type="primary"
                             onClick={() => installPlugin(sourcePluginName, PluginInstallationType.Source)}
                         >
