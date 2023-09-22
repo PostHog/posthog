@@ -3,18 +3,7 @@ import React, { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
-<<<<<<< HEAD
 import { ActionFilter as ActionFilterType, FilterType, FunnelExclusion, InsightType, Optional } from '~/types'
-import { SortableActionFilterContainer, SortableActionFilterRow } from './ActionFilterRow/SortableActionFilterRow'
-=======
-import {
-    ActionFilter as ActionFilterType,
-    FilterType,
-    FunnelStepRangeEntityFilter,
-    InsightType,
-    Optional,
-} from '~/types'
->>>>>>> master
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
