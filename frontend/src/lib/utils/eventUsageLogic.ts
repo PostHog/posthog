@@ -351,9 +351,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
-            delay?: number,
-            loadedFromBlobStorage?: boolean
-        ) => ({ playerData, durations, type, delay, loadedFromBlobStorage }),
+            delay?: number
+        ) => ({ playerData, durations, type, delay }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingsListFetched: (loadTime: number) => ({
@@ -831,7 +830,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, durations, type, loadedFromBlobStorage }) => {
+        reportRecording: ({ playerData, durations, type }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -845,7 +844,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint?.duration ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
-                loadedFromBlobStorage,
             }
             posthog.capture(`recording ${type}`, payload)
         },

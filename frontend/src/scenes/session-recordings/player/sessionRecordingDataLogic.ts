@@ -30,8 +30,8 @@ import posthog from 'posthog-js'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
-const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): RecordingSnapshot[] => {
-    const snapshots: RecordingSnapshot[] = items.flatMap((l) => {
+const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): RecordingSnapshot[] =>
+    items.flatMap((l) => {
         try {
             const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
             const snapshotData = snapshotLine['data']
@@ -45,9 +45,6 @@ const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): Re
             return []
         }
     })
-
-    return snapshots
-}
 
 const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined => {
     return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
@@ -165,12 +162,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
-        chunkPaginationIndex: [
-            0,
-            {
-                loadRecordingSnapshotsSuccess: (state) => state + 1,
-            },
-        ],
         isNotFound: [
             false as boolean,
             {
@@ -222,14 +213,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
         loadRecordingSnapshotsSuccess: () => {
-            if (values.chunkPaginationIndex === 1 || values.loadedFromBlobStorage) {
-                // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
-                // when loading from blob storage by the time this is hit the chunkPaginationIndex is already > 1
-                // when loading from the API the chunkPaginationIndex is 1 for the first success that reaches this point
-                cache.firstPaintDurationRow = {
-                    size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
-                    duration: Math.round(performance.now() - cache.snapshotsStartTime),
-                }
+            cache.firstPaintDurationRow = {
+                size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
+                duration: Math.round(performance.now() - cache.snapshotsStartTime),
             }
 
             actions.reportViewed()
@@ -265,16 +251,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.VIEWED,
-                0,
-                values.loadedFromBlobStorage
+                0
             )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportRecording(
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.ANALYZED,
-                10,
-                values.loadedFromBlobStorage
+                10
             )
         },
     })),
