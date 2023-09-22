@@ -3,16 +3,14 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Generator, List, Tuple
 
 from dateutil.parser import ParserError, parse
 from sentry_sdk.api import capture_exception
 
 from posthog.session_recordings.models.metadata import (
-    DecompressedRecordingData,
     SessionRecordingEventSummary,
     SnapshotData,
-    SnapshotDataTaggedWithWindowId,
 )
 from posthog.utils import flatten
 
@@ -96,6 +94,7 @@ def split_replay_events(events: List[Event]) -> Tuple[List[Event], List[Event]]:
     return replay, other
 
 
+# TODO is this covered by enough tests post-blob ingester rollout
 def preprocess_replay_events_for_blob_ingestion(events: List[Event], max_size_bytes=1024 * 1024) -> List[Event]:
     return _process_windowed_events(events, lambda x: preprocess_replay_events(x, max_size_bytes=max_size_bytes))
 
@@ -235,111 +234,9 @@ def is_unprocessed_snapshot_event(event: Dict) -> bool:
         raise ValueError('$snapshot events must contain property "$snapshot_data"!')
 
 
-def compress_to_string(json_string: str) -> str:
-    compressed_data = gzip.compress(json_string.encode("utf-16", "surrogatepass"))
-    return base64.b64encode(compressed_data).decode("utf-8")
-
-
 def decompress(base64data: str) -> str:
     compressed_bytes = base64.b64decode(base64data)
     return gzip.decompress(compressed_bytes).decode("utf-16", "surrogatepass")
-
-
-def decompress_chunked_snapshot_data(
-    all_recording_events: List[SnapshotDataTaggedWithWindowId],
-    limit: Optional[int] = None,
-    offset: int = 0,
-    return_only_activity_data: bool = False,
-) -> DecompressedRecordingData:
-    """
-    Before data is stored in clickhouse, it is compressed and then chunked. This function
-    gets back to the original data by unchunking the events and then decompressing the data.
-
-    If limit + offset is provided, then it will paginate the decompression by chunks (not by events, because
-    you can't decompress an incomplete chunk).
-
-    Depending on the size of the recording, this function can return a lot of data. To decrease the
-    memory used, you should either use the pagination parameters or pass in 'return_only_activity_data' which
-    drastically reduces the size of the data returned if you only want the activity data (used for metadata calculation)
-    """
-
-    if len(all_recording_events) == 0:
-        return DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={})
-
-    snapshot_data_by_window_id = defaultdict(list)
-    chunks_collector: DefaultDict[str, List[SnapshotDataTaggedWithWindowId]] = defaultdict(list)
-    processed_chunk_ids = set()
-    count = 0
-
-    for event in all_recording_events:
-        # Handle unchunked snapshots
-        if "chunk_id" not in event["snapshot_data"]:
-            count += 1
-
-            if offset >= count:
-                continue
-
-            if event["snapshot_data"].get("data_items"):
-                decompressed_items = [json.loads(decompress(x)) for x in event["snapshot_data"]["data_items"]]
-
-                # New format where the event is a list of raw rrweb events
-                snapshot_data_by_window_id[event["window_id"]].extend(
-                    event["snapshot_data"]["events_summary"] if return_only_activity_data else decompressed_items
-                )
-            else:
-                # Old format where the event is just a single raw rrweb event
-                snapshot_data_by_window_id[event["window_id"]].append(
-                    get_events_summary_from_snapshot_data([event["snapshot_data"]])[0]
-                    if return_only_activity_data
-                    else event["snapshot_data"]
-                )
-        else:
-            # Handle chunked snapshots
-            if event["snapshot_data"]["chunk_id"] in processed_chunk_ids:
-                continue
-
-            chunks = chunks_collector[event["snapshot_data"]["chunk_id"]]
-            chunks.append(event)
-
-            deduplicated_chunks = {}
-            for chunk in chunks:
-                # reduce the chunks into deduplicated chunks by chunk_id taking only the first seen for each chunk_id
-                if chunk["snapshot_data"]["chunk_index"] not in deduplicated_chunks:
-                    deduplicated_chunks[chunk["snapshot_data"]["chunk_index"]] = chunk
-
-            chunks = chunks_collector[event["snapshot_data"]["chunk_id"]] = list(deduplicated_chunks.values())
-
-            if len(chunks) == event["snapshot_data"]["chunk_count"]:
-                count += 1
-                chunks_collector[event["snapshot_data"]["chunk_id"]] = []
-
-                # Somehow mark this chunk_id as processed...
-                processed_chunk_ids.add(event["snapshot_data"]["chunk_id"])
-
-                if offset >= count:
-                    continue
-
-                b64_compressed_data = "".join(
-                    chunk["snapshot_data"]["data"]
-                    for chunk in sorted(chunks, key=lambda c: c["snapshot_data"]["chunk_index"])
-                )
-                decompressed_data = json.loads(decompress(b64_compressed_data))
-
-                if type(decompressed_data) is dict:
-                    decompressed_data = [decompressed_data]
-
-                if return_only_activity_data:
-                    events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
-                    snapshot_data_by_window_id[event["window_id"]].extend(events_with_only_activity_data)
-                else:
-                    snapshot_data_by_window_id[event["window_id"]].extend(decompressed_data)
-
-        if limit and count >= offset + limit:
-            break
-
-    has_next = count < len(all_recording_events)
-
-    return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
 def is_active_event(event: SessionRecordingEventSummary) -> bool:
