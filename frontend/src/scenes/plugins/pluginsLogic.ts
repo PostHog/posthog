@@ -27,7 +27,6 @@ export type PluginForm = FormInstance
 export interface PluginSelectionType {
     name: string
     url?: string
-    tab: PluginTab
 }
 
 const PAGINATION_DEFAULT_MAX_PAGES = 10
@@ -86,7 +85,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             temporaryOrder,
             movedPluginId,
         }),
-        makePluginOrderSaveable: true,
         savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
         showPluginLogs: (id: number) => ({ id }),
@@ -331,7 +329,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             PluginTab.Apps as PluginTab,
             {
                 setPluginTab: (_, { tab }) => tab,
-                installPluginSuccess: (state) => (state === PluginTab.Apps ? state : PluginTab.Installed),
             },
         ],
         updateStatus: [
@@ -359,14 +356,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             {
                 checkForUpdates: () => true,
                 checkedForUpdates: () => false,
-            },
-        ],
-        pluginOrderSaveable: [
-            false,
-            {
-                makePluginOrderSaveable: () => true,
-                cancelRearranging: () => false,
-                savePluginOrdersSuccess: () => false,
             },
         ],
         temporaryOrder: [
@@ -547,6 +536,11 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (editingPluginId, installedPlugins) =>
                 editingPluginId ? installedPlugins.find((plugin) => plugin.id === editingPluginId) : null,
         ],
+        loading: [
+            (s) => [s.pluginsLoading, s.repositoryLoading, s.pluginConfigsLoading],
+            (pluginsLoading, repositoryLoading, pluginConfigsLoading) =>
+                pluginsLoading || repositoryLoading || pluginConfigsLoading,
+        ],
         showingLogsPlugin: [
             (s) => [s.showingLogsPluginId, s.installedPlugins],
             (showingLogsPluginId, installedPlugins) =>
@@ -624,14 +618,14 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (repository, plugins) => {
                 const allPossiblePlugins: PluginSelectionType[] = []
                 for (const plugin of Object.values(plugins) as PluginType[]) {
-                    allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Installed })
+                    allPossiblePlugins.push({ name: plugin.name, url: plugin.url })
                 }
 
                 const installedUrls = new Set(Object.values(plugins).map((plugin) => plugin.url))
 
                 for (const plugin of Object.values(repository) as PluginRepositoryEntry[]) {
                     if (!installedUrls.has(plugin.url)) {
-                        allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Repository })
+                        allPossiblePlugins.push({ name: plugin.name, url: plugin.url })
                     }
                 }
                 return allPossiblePlugins
@@ -646,9 +640,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        toggleEnabledSuccess: ({ payload: { id } }) => {
-            actions.syncFrontendAppState(id)
-        },
         // Load or unload an app, as directed by its enabled state in pluginsLogic
         syncFrontendAppState: ({ id }) => {
             const pluginConfig = values.getPluginConfig(id)
@@ -685,12 +676,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
             if (canInstallPlugins(userLogic.values.user?.organization)) {
                 actions.checkForUpdates(false, initialUpdateStatus)
-                if (
-                    Object.keys(values.plugins).length === 0 &&
-                    canGloballyManagePlugins(userLogic.values.user?.organization)
-                ) {
-                    actions.setPluginTab(PluginTab.Repository)
-                }
             }
         },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
@@ -748,8 +733,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 }
 
                 let replace = false // set a page in history
-                if (!searchParams['tab'] && values.pluginTab === PluginTab.Installed) {
-                    // we are on the Installed page, and have clicked the Installed tab, don't set history
+                if (!searchParams['tab'] && values.pluginTab === PluginTab.Apps) {
+                    // we are on the Apps page, and have clicked the Apps tab, don't set history
                     replace = true
                 }
                 searchParams['tab'] = values.pluginTab
@@ -783,7 +768,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 if (tab) {
                     actions.setPluginTab(tab as PluginTab)
                 }
-                if (name && [PluginTab.Repository, PluginTab.Installed].includes(values.pluginTab)) {
+                if (name && values.pluginTab === PluginTab.Apps) {
                     actions.setSearchTerm(name)
                 }
                 runActions(null, false, null)
