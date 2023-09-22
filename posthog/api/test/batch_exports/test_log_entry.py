@@ -156,11 +156,13 @@ def test_log_level_filter(batch_export, team):
                 before=dt.datetime(2023, 9, 22, 1, 0, 1),
             )
 
+            results.sort(key=lambda record: record.message)
+
             assert len(results) == 2
-            assert results[0].message == "Test log 2"
+            assert results[0].message == "Test log 1"
             assert results[0].level == level
             assert results[0].batch_export_id == str(batch_export["id"])
-            assert results[1].message == "Test log 1"
+            assert results[1].message == "Test log 2"
             assert results[1].level == level
             assert results[1].batch_export_id == str(batch_export["id"])
 
