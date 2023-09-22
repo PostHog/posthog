@@ -27,6 +27,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyMathType,
     PropertyOperator,
+    RetentionType,
     SessionPropertyFilter,
     ShownAsValue,
     StepOrderValue,
@@ -854,10 +855,10 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_retention_filter(self):
-        filter = LegacyFilter(
+        filter = LegacyRetentionFilter(
             data={
-                "insight": "RETENTION",
-                # "retention_type": "retention_first_time",
+                # "insight": "RETENTION",
+                "retention_type": "retention_first_time",
                 # # retention_reference="previous",
                 # "total_intervals": 12,
                 # "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
@@ -870,7 +871,7 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(
             query.retentionFilter,
-            RetentionFilter(),
+            RetentionFilter(retention_type=RetentionType.retention_first_time),
         )
 
     def test_paths_filter(self):

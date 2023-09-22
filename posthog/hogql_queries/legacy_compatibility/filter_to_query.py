@@ -1,7 +1,9 @@
 from posthog.models.entity.entity import Entity
 from posthog.models.filters import AnyInsightFilter
-from posthog.models.filters.filter import Filter
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.filter import Filter as LegacyFilter
+from posthog.models.filters.path_filter import PathFilter as LegacyPathFilter
+from posthog.models.filters.retention_filter import RetentionFilter as LegacyRetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter as LegacyStickinessFilter
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
@@ -111,13 +113,13 @@ def _breakdown_filter(filter: AnyInsightFilter):
 
 
 def _group_aggregation_filter(filter: AnyInsightFilter):
-    if isinstance(filter, StickinessFilter):
+    if isinstance(filter, LegacyStickinessFilter):
         return {}
     return {"aggregation_group_type_index": filter.aggregation_group_type_index}
 
 
 def _insight_filter(filter: AnyInsightFilter):
-    if filter.insight == "TRENDS" and isinstance(filter, Filter):
+    if filter.insight == "TRENDS" and isinstance(filter, LegacyFilter):
         return {
             "trendsFilter": TrendsFilter(
                 smoothing_intervals=filter.smoothing_intervals,
@@ -134,7 +136,7 @@ def _insight_filter(filter: AnyInsightFilter):
                 # show_percent_stack_view=filter.show_percent_stack_view,
             )
         }
-    elif filter.insight == "FUNNELS" and isinstance(filter, Filter):
+    elif filter.insight == "FUNNELS" and isinstance(filter, LegacyFilter):
         return {
             "funnelsFilter": FunnelsFilter(
                 funnel_viz_type=filter.funnel_viz_type,
@@ -172,10 +174,10 @@ def _insight_filter(filter: AnyInsightFilter):
                 # funnel_correlation_person_converted=filter.funnel_correlation_person_converted,
             ),
         }
-    elif filter.insight == "RETENTION":
+    elif filter.insight == "RETENTION" and isinstance(filter, LegacyRetentionFilter):
         return {
             "retentionFilter": RetentionFilter(
-                # retention_type=filter.retention_type,
+                retention_type=filter.retention_type,
                 # # retention_reference=filter.retention_reference,
                 # total_intervals=filter.total_intervals,
                 # returning_entity=filter.returning_entity,
@@ -183,7 +185,7 @@ def _insight_filter(filter: AnyInsightFilter):
                 # period=filter.period,
             )
         }
-    elif filter.insight == "PATHS":
+    elif filter.insight == "PATHS" and isinstance(filter, LegacyPathFilter):
         return {}  # TODO: implement
     elif filter.insight == "LIFECYCLE":
         return {
@@ -193,7 +195,7 @@ def _insight_filter(filter: AnyInsightFilter):
                 # show_values_on_series=filter.show_values_on_series,
             )
         }
-    elif filter.insight == "STICKINESS":
+    elif filter.insight == "STICKINESS" and isinstance(filter, LegacyStickinessFilter):
         return {}  # TODO: implement
     else:
         raise Exception(f"Invalid insight type {filter.insight}.")
