@@ -14,6 +14,7 @@ from posthog.schema import (
     LifecycleQuery,
     PathsQuery,
     PropertyGroupFilter,
+    RetentionFilter,
     RetentionQuery,
     StickinessQuery,
     TrendsFilter,
@@ -172,7 +173,16 @@ def _insight_filter(filter: AnyInsightFilter):
             ),
         }
     elif filter.insight == "RETENTION":
-        return {}  # TODO: implement
+        return {
+            "retentionFilter": RetentionFilter(
+                # retention_type=filter.retention_type,
+                # # retention_reference=filter.retention_reference,
+                # total_intervals=filter.total_intervals,
+                # returning_entity=filter.returning_entity,
+                # target_entity=filter.target_entity,
+                # period=filter.period,
+            )
+        }
     elif filter.insight == "PATHS":
         return {}  # TODO: implement
     elif filter.insight == "LIFECYCLE":

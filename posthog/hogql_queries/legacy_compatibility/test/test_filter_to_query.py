@@ -1,8 +1,9 @@
 import pytest
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.filter import Filter as LegacyFilter
+from posthog.models.filters.path_filter import PathFilter as LegacyPathFilter
+from posthog.models.filters.retention_filter import RetentionFilter as LegacyRetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter as LegacyStickinessFilter
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -31,9 +32,13 @@ from posthog.schema import (
     StepOrderValue,
     TrendsFilter,
     FunnelsFilter,
+    RetentionFilter,
+    PathsFilter,
+    StickinessFilter,
+    LifecycleFilter,
 )
 from posthog.test.base import BaseTest
-from posthog.models.filters.filter import Filter
+
 
 insight_0 = {
     "events": [{"id": "signed_up", "type": "events", "order": 0}],
@@ -315,7 +320,7 @@ test_insights = [
 @pytest.mark.parametrize("insight", test_insights)
 def test_base_insights(insight):
     """smoke test (i.e. filter_to_query should not throw) for real world insights"""
-    filter = Filter(data=insight)
+    filter = LegacyFilter(data=insight)
     filter_to_query(filter)
 
 
@@ -406,20 +411,20 @@ test_properties = [
 @pytest.mark.parametrize("properties", test_properties)
 def test_base_properties(properties):
     """smoke test (i.e. filter_to_query should not throw) for real world properties"""
-    filter = Filter(data={"properties": properties})
+    filter = LegacyFilter(data={"properties": properties})
     filter_to_query(filter)
 
 
 class TestFilterToQuery(BaseTest):
     def test_base_trend(self):
-        filter = Filter(data={})
+        filter = LegacyFilter(data={})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "TrendsQuery")
 
     def test_full_trend(self):
-        filter = Filter(data={})
+        filter = LegacyFilter(data={})
 
         query = filter_to_query(filter)
 
@@ -440,63 +445,63 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_base_funnel(self):
-        filter = Filter(data={"insight": "FUNNELS"})
+        filter = LegacyFilter(data={"insight": "FUNNELS"})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "FunnelsQuery")
 
     def test_base_retention_query(self):
-        filter = Filter(data={"insight": "RETENTION"})
+        filter = LegacyFilter(data={"insight": "RETENTION"})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "RetentionQuery")
 
     def test_base_retention_query_from_retention_filter(self):
-        filter = RetentionFilter(data={})
+        filter = LegacyRetentionFilter(data={})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "RetentionQuery")
 
     def test_base_paths_query(self):
-        filter = Filter(data={"insight": "PATHS"})
+        filter = LegacyFilter(data={"insight": "PATHS"})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "PathsQuery")
 
     def test_base_path_query_from_path_filter(self):
-        filter = PathFilter(data={})
+        filter = LegacyPathFilter(data={})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "PathsQuery")
 
     def test_base_lifecycle_query(self):
-        filter = Filter(data={"insight": "LIFECYCLE"})
+        filter = LegacyFilter(data={"insight": "LIFECYCLE"})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "LifecycleQuery")
 
     def test_base_stickiness_query(self):
-        filter = Filter(data={"insight": "STICKINESS"})
+        filter = LegacyFilter(data={"insight": "STICKINESS"})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "StickinessQuery")
 
     def test_base_stickiness_query_from_stickiness_filter(self):
-        filter = StickinessFilter(data={}, team=self.team)
+        filter = LegacyStickinessFilter(data={}, team=self.team)
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "StickinessQuery")
 
     def test_date_range_default(self):
-        filter = Filter(data={})
+        filter = LegacyFilter(data={})
 
         query = filter_to_query(filter)
 
@@ -504,7 +509,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.dateRange.date_to, None)
 
     def test_date_range_custom(self):
-        filter = Filter(data={"date_from": "-14d", "date_to": "-7d"})
+        filter = LegacyFilter(data={"date_from": "-14d", "date_to": "-7d"})
 
         query = filter_to_query(filter)
 
@@ -512,28 +517,28 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.dateRange.date_to, "-7d")
 
     def test_interval_default(self):
-        filter = Filter(data={})
+        filter = LegacyFilter(data={})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.interval, "day")
 
     def test_interval_custom(self):
-        filter = Filter(data={"interval": "hour"})
+        filter = LegacyFilter(data={"interval": "hour"})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.interval, "hour")
 
     def test_series_default(self):
-        filter = Filter(data={})
+        filter = LegacyFilter(data={})
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.series, [])
 
     def test_series_custom(self):
-        filter = Filter(
+        filter = LegacyFilter(
             data={
                 "events": [{"id": "$pageview"}, {"id": "$pageview", "math": "dau"}],
                 "actions": [{"id": 1}, {"id": 1, "math": "dau"}],
@@ -553,7 +558,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_order(self):
-        filter = Filter(
+        filter = LegacyFilter(
             data={
                 "events": [{"id": "$pageview", "order": 1}, {"id": "$pageview", "math": "dau", "order": 2}],
                 "actions": [{"id": 1, "order": 3}, {"id": 1, "math": "dau", "order": 0}],
@@ -573,7 +578,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_math(self):
-        filter = Filter(
+        filter = LegacyFilter(
             data={
                 "events": [
                     {"id": "$pageview", "math": "dau"},  # base math type
@@ -610,7 +615,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_properties(self):
-        filter = Filter(
+        filter = LegacyFilter(
             data={
                 "events": [
                     {"id": "$pageview", "properties": []},  # smoke test
@@ -717,7 +722,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_breakdown(self):
-        filter = Filter(data={"breakdown_type": "event", "breakdown": "$browser"})
+        filter = LegacyFilter(data={"breakdown_type": "event", "breakdown": "$browser"})
 
         query = filter_to_query(filter)
 
@@ -727,7 +732,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_breakdown_converts_multi(self):
-        filter = Filter(data={"breakdowns": [{"type": "event", "property": "$browser"}]})
+        filter = LegacyFilter(data={"breakdowns": [{"type": "event", "property": "$browser"}]})
 
         query = filter_to_query(filter)
 
@@ -737,7 +742,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_breakdown_type_default(self):
-        filter = Filter(data={"breakdown": "some_prop"})
+        filter = LegacyFilter(data={"breakdown": "some_prop"})
 
         query = filter_to_query(filter)
 
@@ -747,7 +752,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_trends_filter(self):
-        filter = Filter(
+        filter = LegacyFilter(
             data={
                 "smoothing_intervals": 2,
                 "compare": True,
@@ -777,7 +782,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_funnels_filter(self):
-        filter = Filter(
+        filter = LegacyFilter(
             data={
                 "insight": "FUNNELS",
                 "funnel_viz_type": "steps",
@@ -845,5 +850,70 @@ class TestFilterToQuery(BaseTest):
                 funnel_aggregate_by_hogql="person_id",
                 funnel_custom_steps=[],
                 # funnel_step_reference=FunnelStepReference.previous,
+            ),
+        )
+
+    def test_retention_filter(self):
+        filter = LegacyFilter(
+            data={
+                "insight": "RETENTION",
+                # "retention_type": "retention_first_time",
+                # # retention_reference="previous",
+                # "total_intervals": 12,
+                # "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                # "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                # "period": "Week",
+            }
+        )
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.retentionFilter,
+            RetentionFilter(),
+        )
+
+    def test_paths_filter(self):
+        filter = LegacyFilter(
+            data={
+                "insight": "PATHS",
+            }
+        )
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.pathsFilter,
+            PathsFilter(),
+        )
+
+    def test_stickiness_filter(self):
+        filter = LegacyFilter(
+            data={
+                "insight": "STICKINESS",
+            }
+        )
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.stickinessFilter,
+            StickinessFilter(),
+        )
+
+    def test_lifecycle_filter(self):
+        filter = LegacyFilter(
+            data={
+                "insight": "LIFECYCLE",
+                "shown_as": "Lifecycle",
+            }
+        )
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.lifecycleFilter,
+            LifecycleFilter(
+                shown_as=ShownAsValue.Lifecycle,
             ),
         )
