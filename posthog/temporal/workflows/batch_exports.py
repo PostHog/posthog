@@ -506,12 +506,13 @@ class KafkaLoggingHandler(logging.Handler):
 
         msg = self.format(record)
         data = {
+            "instance_id": record.workflow_run_id,
+            "level": record.levelname,
+            "log_source": "batch_exports",
+            "log_source_id": record.batch_export_id,
             "message": msg,
             "team_id": record.team_id,
-            "batch_export_id": record.batch_export_id,
-            "run_id": record.workflow_run_id,
             "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "level": record.levelname,
         }
 
         try:
