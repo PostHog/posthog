@@ -4,7 +4,7 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 LOG_ENTRIES_TABLE = "log_entries"
-LOG_ENTRIES_TTL_WEEKS = 1
+LOG_ENTRIES_TTL_DAYS = 90
 
 LOG_ENTRIES_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -32,7 +32,7 @@ SETTINGS index_granularity=512
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
     engine=LOG_ENTRIES_TABLE_ENGINE(),
-    ttl_period=ttl_period("timestamp", LOG_ENTRIES_TTL_WEEKS),
+    ttl_period=ttl_period("timestamp", LOG_ENTRIES_TTL_DAYS // 7),
 )
 
 KAFKA_LOG_ENTRIES_TABLE_SQL = lambda: LOG_ENTRIES_TABLE_BASE_SQL.format(
