@@ -144,6 +144,8 @@ def test_log_level_filter(batch_export, team, level):
                 message=message,
                 level=level,
             )
+            if (dt.datetime.utcnow() - start) > dt.timedelta(seconds=timeout):
+                break
 
     results = []
     timeout = 10
