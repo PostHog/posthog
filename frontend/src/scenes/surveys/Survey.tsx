@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { NewSurvey, defaultSurveyAppearance, surveyLogic } from './surveyLogic'
+import { NewSurvey, defaultSurveyAppearance, defaultSurveyFieldValues, surveyLogic } from './surveyLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -119,7 +119,16 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             <Group name={`questions.${index}`} key={index}>
                                 <Field name="type" label="Question type" className="max-w-60">
                                     <LemonSelect
-                                        onSelect={(newValue) => setDefaultForQuestionType(newValue)}
+                                        onSelect={(newType) => {
+                                            const stateObj = survey.questions[0]
+                                            const isEditingQuestion =
+                                                defaultSurveyFieldValues[stateObj.type].questions[0].question !==
+                                                stateObj.question
+                                            const isEditingDescription =
+                                                defaultSurveyFieldValues[stateObj.type].questions[0].description !==
+                                                stateObj.description
+                                            setDefaultForQuestionType(newType, isEditingQuestion, isEditingDescription)
+                                        }}
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
                                             { label: 'Link', value: SurveyQuestionType.Link },
