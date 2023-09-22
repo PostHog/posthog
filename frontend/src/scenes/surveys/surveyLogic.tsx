@@ -179,8 +179,6 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
-        editingQuestion: (editing: boolean) => ({ editing }),
-        editingDescription: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (
             type: SurveyQuestionType,
             isEditingQuestion: boolean,
@@ -258,18 +256,6 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
-            },
-        ],
-        isEditingQuestion: [
-            false,
-            {
-                editingQuestion: (_, { editing }) => editing,
-            },
-        ],
-        isEditingDescription: [
-            false,
-            {
-                editingDescription: (_, { editing }) => editing,
             },
         ],
         survey: [
