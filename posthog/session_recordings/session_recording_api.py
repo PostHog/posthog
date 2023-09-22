@@ -40,6 +40,7 @@ from posthog.session_recordings.queries.session_recording_list_from_replay_summa
 from posthog.session_recordings.queries.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
+from posthog.session_recordings.snapshots.convert_legacy_snapshots import convert_original_version_lts_recording
 from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
 from prometheus_client import Counter
@@ -351,7 +352,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 if recording.storage_version == "2023-08-01":
                     file_key = f"{recording.object_storage_path}/{blob_key}"
                 else:
-                    file_key = recording.object_storage_path
+                    # this is a legacy recording, we need to load the file from the old path
+                    file_key = convert_original_version_lts_recording(recording)
             else:
                 file_key = (
                     f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
