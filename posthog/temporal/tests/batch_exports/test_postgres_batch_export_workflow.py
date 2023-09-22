@@ -67,7 +67,7 @@ def assert_events_in_postgres(connection, schema, table_name, events):
             "set": properties.get("$set", None) if properties else None,
             "set_once": properties.get("$set_once", None) if properties else None,
             # Kept for backwards compatibility, but not exported anymore.
-            "site_url": "",
+            "site_url": None,
             # For compatibility with CH which doesn't parse timezone component, so we add it here assuming UTC.
             "timestamp": dt.datetime.fromisoformat(event.get("timestamp") + "+00:00"),
             "team_id": event.get("team_id"),
