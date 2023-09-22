@@ -37,13 +37,7 @@ const MinimalAppView = ({ plugin, order }: { plugin: { id: number; name: string 
 
 export function InstalledAppsReorderModal(): JSX.Element {
     const { reorderModalOpen, sortableEnabledPlugins, temporaryOrder, pluginConfigsLoading } = useValues(pluginsLogic)
-    const { closeReorderModal, cancelRearranging, savePluginOrders } = useActions(pluginsLogic)
-
-    const [tempOrder, setTempOrder] = useState<{ id: number; name: string }[]>([
-        { id: 1, name: 'one' },
-        { id: 2, name: 'two' },
-        { id: 3, name: 'three' },
-    ])
+    const { closeReorderModal, setTemporaryOrder, cancelRearranging, savePluginOrders } = useActions(pluginsLogic)
 
     // useEffect(() => {
     //     if (reorderModalOpen) {
@@ -53,41 +47,29 @@ export function InstalledAppsReorderModal(): JSX.Element {
 
     // console.log(tempOrder.map((p) => p.name))
 
-    const onDragEnd = ({ active, over }: DragEndEvent): void => {
-        const tempOrderIds = tempOrder.map((p) => p.id)
-
-        if (over && active.id !== over.id) {
-            const oldIndex = tempOrderIds.indexOf(Number(active.id))
-            const newIndex = tempOrderIds.indexOf(Number(over.id))
-
-            setTempOrder(arrayMove(tempOrder, oldIndex, newIndex))
-        }
-    }
+    const [items, setItems] = useState([
+        { id: 'one', name: 'one' },
+        { id: 'two', name: 'two' },
+        { id: 'three', name: 'three' },
+    ])
 
     const onClose = (): void => {
         cancelRearranging()
         closeReorderModal()
     }
 
-    function handleDragEnd(event) {
-        const { active, over } = event
+    function handleDragEnd({ active, over }: DragEndEvent): void {
         const itemIds = items.map((item) => item.id)
 
-        if (active.id !== over.id) {
+        if (over && active.id !== over.id) {
             setItems((items) => {
-                const oldIndex = itemIds.indexOf(active.id)
-                const newIndex = itemIds.indexOf(over.id)
+                const oldIndex = itemIds.indexOf(active.id.toString())
+                const newIndex = itemIds.indexOf(over.id.toString())
 
                 return arrayMove(items, oldIndex, newIndex)
             })
         }
     }
-
-    const [items, setItems] = useState([
-        { id: 1, name: 'one' },
-        { id: 2, name: 'two' },
-        { id: 3, name: 'three' },
-    ])
 
     return (
         <LemonModal
@@ -119,7 +101,7 @@ export function InstalledAppsReorderModal(): JSX.Element {
             <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={items} strategy={verticalListSortingStrategy}>
                     {items.map((item) => (
-                        <SortableItem key={item} plugin={item} />
+                        <SortableItem key={item.id} plugin={item} />
                     ))}
                 </SortableContext>
             </DndContext>
@@ -140,7 +122,7 @@ export function InstalledAppsReorderModal(): JSX.Element {
     )
 }
 
-function SortableItem({ plugin }) {
+function SortableItem({ plugin }: { plugin: { id: string; name: string } }) {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: plugin.id })
 
     const style = {
