@@ -1,8 +1,8 @@
 # EE extended functions for SessionRecording model
-
+import gzip
 import json
-from datetime import timedelta
-from typing import Optional
+from datetime import timedelta, datetime
+from typing import Optional, cast
 
 import structlog
 from django.utils import timezone
@@ -25,6 +25,34 @@ SNAPSHOT_PERSIST_TIME_HISTOGRAM = Histogram(
 )
 
 MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
+
+# TODO rename this...
+def save_recording_with_new_content(recording: SessionRecording, content: str) -> str:
+    if not settings.OBJECT_STORAGE_ENABLED:
+        return ""
+
+    logger.info(
+        "re-saving recording file into 2023-08-01 LTS storage format",
+        recording_id=recording.session_id,
+        team_id=recording.team_id,
+    )
+
+    target_prefix = recording.build_object_storage_path("2023-08-01")
+
+    start = int(cast(datetime, recording.start_time).timestamp() * 1000)
+    end = int(cast(datetime, recording.end_time).timestamp() * 1000)
+    new_path = f"{target_prefix}/{start}-{end}"
+
+    zipped_content = gzip.compress(content.encode("utf-8"))
+    object_storage.write(
+        new_path, zipped_content, extras={"ContentType": "application/json", "ContentEncoding": "gzip"}
+    )
+
+    recording.storage_version = "2023-08-01"
+    recording.object_storage_path = target_prefix
+    recording.save()
+
+    return new_path
 
 
 def persist_recording(recording_id: str, team_id: int) -> None:

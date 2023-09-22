@@ -121,7 +121,7 @@ def get_person_name(team: Team, person: Person) -> str:
 
 def get_person_display_name(person: Person, team: Team) -> str | None:
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
-        if person.properties.get(property):
+        if person.properties and person.properties.get(property):
             return person.properties.get(property)
     return None
 

@@ -219,7 +219,8 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
     SESSION_RECORDING_BUFFER_AGE_JITTER: number
     SESSION_RECORDING_REMOTE_FOLDER: string
-    SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+    SESSION_RECORDING_REDIS_PREFIX: string
+    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -268,7 +269,8 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    fetchHostnameGuardTeams: Set<number>
+    /** null means that the hostname guard is enabled for everyone */
+    fetchHostnameGuardTeams: Set<number> | null
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
