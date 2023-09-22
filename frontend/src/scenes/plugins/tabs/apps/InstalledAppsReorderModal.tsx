@@ -5,31 +5,28 @@ import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { DndContext, DragEndEvent, closestCenter, closestCorners } from '@dnd-kit/core'
+import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { CSS } from '@dnd-kit/utilities'
-import { useEffect, useState } from 'react'
-import { verticalSortableListCollisionDetection } from 'lib/sortable'
 
-const MinimalAppView = ({ plugin, order }: { plugin: { id: number; name: string }; order: number }): JSX.Element => {
-    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: plugin.id })
+const MinimalAppView = ({ plugin, order }: { plugin: PluginTypeWithConfig; order: number }): JSX.Element => {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: plugin.id })
 
     return (
         <div
             ref={setNodeRef}
+            className="flex gap-2 cursor-move border rounded p-2 items-center bg-bg-light"
+            style={{
+                position: 'relative',
+                transform: CSS.Transform.toString(transform),
+                transition,
+                zIndex: isDragging ? 999999 : undefined,
+            }}
             {...attributes}
             {...listeners}
-            // className="flex gap-2 cursor-move border rounded p-2 items-center bg-bg-light"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                // position: 'relative',
-                // zIndex: isDragging ? 999999 : undefined,
-                transform: CSS.Translate.toString(transform),
-                transition,
-            }}
         >
-            {/* <LemonBadge.Number count={order + 1} maxDigits={3} /> */}
-            {/* <PluginImage plugin={plugin} size="small" /> */}
+            <LemonBadge.Number count={order + 1} maxDigits={3} />
+            <PluginImage plugin={plugin} size="small" />
             <span className="font-semibold">{plugin.name}</span>
         </div>
     )
@@ -39,35 +36,27 @@ export function InstalledAppsReorderModal(): JSX.Element {
     const { reorderModalOpen, sortableEnabledPlugins, temporaryOrder, pluginConfigsLoading } = useValues(pluginsLogic)
     const { closeReorderModal, setTemporaryOrder, cancelRearranging, savePluginOrders } = useActions(pluginsLogic)
 
-    // useEffect(() => {
-    //     if (reorderModalOpen) {
-    //         setTempOrder(sortableEnabledPlugins)
-    //     }
-    // }, [reorderModalOpen])
-
-    // console.log(tempOrder.map((p) => p.name))
-
-    const [items, setItems] = useState([
-        { id: 'one', name: 'one' },
-        { id: 'two', name: 'two' },
-        { id: 'three', name: 'three' },
-    ])
-
     const onClose = (): void => {
         cancelRearranging()
         closeReorderModal()
     }
 
-    function handleDragEnd({ active, over }: DragEndEvent): void {
-        const itemIds = items.map((item) => item.id)
+    const handleDragEnd = ({ active, over }: DragEndEvent): void => {
+        const itemIds = sortableEnabledPlugins.map((item) => item.id)
 
         if (over && active.id !== over.id) {
-            setItems((items) => {
-                const oldIndex = itemIds.indexOf(active.id.toString())
-                const newIndex = itemIds.indexOf(over.id.toString())
+            const oldIndex = itemIds.indexOf(Number(active.id))
+            const newIndex = itemIds.indexOf(Number(over.id))
+            const newOrder = arrayMove(sortableEnabledPlugins, oldIndex, newIndex)
 
-                return arrayMove(items, oldIndex, newIndex)
-            })
+            const newTemporaryOrder = newOrder.reduce((acc, plugin, index) => {
+                return {
+                    ...acc,
+                    [plugin.id]: index + 1,
+                }
+            }, {})
+
+            setTemporaryOrder(newTemporaryOrder, Number(active.id))
         }
     }
 
@@ -98,41 +87,15 @@ export function InstalledAppsReorderModal(): JSX.Element {
                 </>
             }
         >
-            <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={items} strategy={verticalListSortingStrategy}>
-                    {items.map((item) => (
-                        <SortableItem key={item.id} plugin={item} />
-                    ))}
-                </SortableContext>
-            </DndContext>
-            {/* <div className="flex flex-col gap-2">
-            <DndContext
-                onDragEnd={onDragEnd}
-                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-                collisionDetection={closestCorners}
-            >
-                <SortableContext items={tempOrder} strategy={verticalListSortingStrategy}>
-                    {tempOrder.map((tempOrder, index) => (
-                        <MinimalAppView key={`item-${index}`} order={index} plugin={tempOrder} />
-                    ))}
-                </SortableContext>
-            </DndContext>
-            </div> */}
+            <div className="flex flex-col gap-2">
+                <DndContext modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleDragEnd}>
+                    <SortableContext items={sortableEnabledPlugins} strategy={verticalListSortingStrategy}>
+                        {sortableEnabledPlugins.map((item, index) => (
+                            <MinimalAppView key={item.id} plugin={item} order={index} />
+                        ))}
+                    </SortableContext>
+                </DndContext>
+            </div>
         </LemonModal>
-    )
-}
-
-function SortableItem({ plugin }: { plugin: { id: string; name: string } }) {
-    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: plugin.id })
-
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-    }
-
-    return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            {plugin.name}
-        </div>
     )
 }
