@@ -21,10 +21,13 @@ from posthog.schema import (
     EventsNode,
     FunnelConversionWindowTimeUnit,
     FunnelExclusion,
+    FunnelPathType,
     FunnelVizType,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     Key,
+    PathCleaningFilter,
+    PathType,
     PersonPropertyFilter,
     PropertyMathType,
     PropertyOperator,
@@ -901,9 +904,32 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_paths_filter(self):
-        filter = LegacyFilter(
+        filter = LegacyPathFilter(
             data={
-                "insight": "PATHS",
+                "include_event_types": ["$pageview", "hogql"],
+                "start_point": "http://localhost:8000/events",
+                "end_point": "http://localhost:8000/home",
+                "paths_hogql_expression": "event",
+                "edge_limit": 50,
+                "min_edge_weight": 10,
+                "max_edge_weight": 20,
+                "local_path_cleaning_filters": [{"alias": "merchant", "regex": "\\/merchant\\/\\d+\\/dashboard$"}],
+                "path_replacements": True,
+                "exclude_events": ["http://localhost:8000/events"],
+                "step_limit": 5,
+                "path_groupings": ["/merchant/*/payment"],
+                "funnel_paths": "funnel_path_between_steps",
+                "funnel_filter": {
+                    "insight": "FUNNELS",
+                    "events": [
+                        {"type": "events", "id": "$pageview", "order": 0, "name": "$pageview", "math": "total"},
+                        {"type": "events", "id": None, "order": 1, "math": "total"},
+                    ],
+                    "funnel_viz_type": "steps",
+                    "exclusions": [],
+                    "filter_test_accounts": True,
+                    "funnel_step": 2,
+                },
             }
         )
 
@@ -911,7 +937,34 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(
             query.pathsFilter,
-            PathsFilter(),
+            PathsFilter(
+                include_event_types=[PathType.field_pageview, PathType.hogql],
+                paths_hogql_expression="event",
+                start_point="http://localhost:8000/events",
+                end_point="http://localhost:8000/home",
+                edge_limit=50,
+                min_edge_weight=10,
+                max_edge_weight=20,
+                local_path_cleaning_filters=[
+                    PathCleaningFilter(alias="merchant", regex="\\/merchant\\/\\d+\\/dashboard$")
+                ],
+                path_replacements=True,
+                exclude_events=["http://localhost:8000/events"],
+                step_limit=5,
+                path_groupings=["/merchant/*/payment"],
+                funnel_paths=FunnelPathType.funnel_path_between_steps,
+                funnel_filter={
+                    "insight": "FUNNELS",
+                    "events": [
+                        {"type": "events", "id": "$pageview", "order": 0, "name": "$pageview", "math": "total"},
+                        {"type": "events", "id": None, "order": 1, "math": "total"},
+                    ],
+                    "funnel_viz_type": "steps",
+                    "exclusions": [],
+                    "filter_test_accounts": True,
+                    "funnel_step": 2,
+                },
+            ),
         )
 
     def test_stickiness_filter(self):

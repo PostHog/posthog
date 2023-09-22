@@ -14,6 +14,7 @@ from posthog.schema import (
     FunnelsQuery,
     LifecycleFilter,
     LifecycleQuery,
+    PathsFilter,
     PathsQuery,
     PropertyGroupFilter,
     RetentionFilter,
@@ -192,7 +193,25 @@ def _insight_filter(filter: AnyInsightFilter):
             )
         }
     elif filter.insight == "PATHS" and isinstance(filter, LegacyPathFilter):
-        return {}  # TODO: implement
+        return {
+            "pathsFilter": PathsFilter(
+                # path_type=filter.path_type, # legacy
+                paths_hogql_expression=filter.paths_hogql_expression,
+                include_event_types=filter._data.get("include_event_types"),
+                start_point=filter.start_point,
+                end_point=filter.end_point,
+                path_groupings=filter.path_groupings,
+                exclude_events=filter.exclude_events,
+                step_limit=filter.step_limit,
+                path_replacements=filter.path_replacements,
+                local_path_cleaning_filters=filter.local_path_cleaning_filters,
+                edge_limit=filter.edge_limit,
+                min_edge_weight=filter.min_edge_weight,
+                max_edge_weight=filter.max_edge_weight,
+                funnel_paths=filter.funnel_paths,
+                funnel_filter=filter._data.get("funnel_filter"),
+            )
+        }
     elif filter.insight == "LIFECYCLE":
         return {
             "lifecycleFilter": LifecycleFilter(
