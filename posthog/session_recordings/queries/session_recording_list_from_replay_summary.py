@@ -46,6 +46,22 @@ def _get_recording_start_time_clause(recording_filters: SessionRecordingsFilter)
     return start_time_clause, start_time_params
 
 
+def _get_filter_by_log_text_session_ids_clause(
+    team: Team, recording_filters: SessionRecordingsFilter, column_name="session_id"
+) -> Tuple[str, Dict[str, Any]]:
+    if not recording_filters.console_search_query:
+        return "", {}
+
+    log_query = LogQuery(team=team, filter=recording_filters).get_query()
+    matching_session_ids = sync_execute(log_query[0], log_query[1])
+
+    # we return this _even_ if there are no matching ids since if there are no matching ids
+    # then no sessions can match...
+    return f'AND "{column_name}" in %(session_ids)s', {
+        "session_ids": (recording_filters.session_ids or []) + matching_session_ids
+    }
+
+
 def _get_filter_by_provided_session_ids_clause(
     recording_filters: SessionRecordingsFilter, column_name="session_id"
 ) -> Tuple[str, Dict[str, Any]]:
@@ -69,6 +85,72 @@ def ttl_days(team: Team) -> int:
             ttl_days = days_since_blob_ingestion
 
     return ttl_days
+
+
+class LogQuery:
+    _filter: SessionRecordingsFilter
+    _team_id: int
+    _team: Team
+
+    def __init__(
+        self,
+        team: Team,
+        filter: SessionRecordingsFilter,
+    ):
+        self._filter = filter
+        self._team = team
+        self._team_id = team.pk
+
+    _rawQuery = """
+    SELECT distinct log_source_id as session_id
+    FROM log_entries
+    PREWHERE team_id = %(team_id)s
+            AND timestamp >= %(clamped_to_storage_ttl)s
+            AND timestamp <= now()
+            {events_timestamp_clause}
+    WHERE 1=1 {console_log_clause}
+    AND message ilike %(console_search_query)s
+    """
+
+    @property
+    def ttl_days(self):
+        return ttl_days(self._team)
+
+    # We want to select events beyond the range of the recording to handle the case where
+    # a recording spans the time boundaries
+    # TODO This is just copied from below
+    @cached_property
+    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
+        timestamp_clause = ""
+        timestamp_params = {}
+        if self._filter.date_from:
+            timestamp_clause += "\nAND timestamp >= %(event_start_time)s"
+            timestamp_params["event_start_time"] = self._filter.date_from - timedelta(hours=12)
+        if self._filter.date_to:
+            timestamp_clause += "\nAND timestamp <= %(event_end_time)s"
+            timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
+        return timestamp_clause, timestamp_params
+
+    @staticmethod
+    def _get_console_log_clause(console_logs_filter: List[Literal["error", "warn", "log"]]) -> str:
+        filters = [f"console_{log}_count > 0" for log in console_logs_filter]
+        return f"AND ({' OR '.join(filters)})" if filters else ""
+
+    def get_query(self):
+        # TODO if no self._filter.console_search_query then return "", {} or something?
+
+        events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
+        console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
+        console_search_query = f"%{self._filter.console_search_query}%"
+        return self._rawQuery.format(
+            events_timestamp_clause=events_timestamp_clause,
+            console_log_clause=console_log_clause,
+        ), {
+            "team_id": self._team_id,
+            "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
+            "console_search_query": console_search_query,
+            **events_timestamp_params,
+        }
 
 
 class PersonsQuery(EventQuery):
@@ -301,7 +383,7 @@ class SessionIdEventsQuery(EventQuery):
 
         _, recording_start_time_params = _get_recording_start_time_clause(self._filter)
         provided_session_ids_clause, provided_session_ids_params = _get_filter_by_provided_session_ids_clause(
-            recording_filters=self._filter, column_name="$session_id"
+            team=self._team, recording_filters=self._filter, column_name="$session_id"
         )
 
         event_filters = self.build_event_filters
@@ -436,6 +518,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         {persons_sub_query}
         {events_sub_query}
     {provided_session_ids_clause}
+    {log_matching_session_ids_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause} {console_log_clause}
     ORDER BY start_time DESC
@@ -501,6 +584,11 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         provided_session_ids_clause, provided_session_ids_params = _get_filter_by_provided_session_ids_clause(
             recording_filters=self._filter
         )
+
+        log_matching_session_ids_clause, log_matching_session_ids_params = _get_filter_by_log_text_session_ids_clause(
+            team=self._team, recording_filters=self._filter
+        )
+
         duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
 
@@ -524,6 +612,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 console_log_clause=console_log_clause,
                 persons_sub_query=persons_select,
                 events_sub_query=events_select,
+                log_matching_session_ids_clause=log_matching_session_ids_clause,
             ),
             {
                 **base_params,
@@ -532,6 +621,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 **duration_params,
                 **provided_session_ids_params,
                 **persons_select_params,
+                **log_matching_session_ids_params,
             },
         )
 
