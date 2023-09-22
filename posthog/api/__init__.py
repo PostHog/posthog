@@ -4,6 +4,8 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import saved_query, table, view_link
+
+from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
     activity_log,
     annotation,
@@ -40,7 +42,6 @@ from . import (
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
-from ..session_recordings.session_recording_api import SessionRecordingViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -132,7 +133,22 @@ app_metrics_router.register(
 batch_exports_router = projects_router.register(
     r"batch_exports", batch_exports.BatchExportViewSet, "batch_exports", ["team_id"]
 )
-batch_exports_router.register(r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"])
+batch_export_runs_router = batch_exports_router.register(
+    r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"]
+)
+batch_exports_router.register(
+    r"logs",
+    batch_exports.BatchExportLogViewSet,
+    "batch_export_run_logs",
+    ["team_id", "batch_export_id"],
+)
+
+batch_export_runs_router.register(
+    r"logs",
+    batch_exports.BatchExportLogViewSet,
+    "batch_export_logs",
+    ["team_id", "batch_export_id", "run_id"],
+)
 
 projects_router.register(r"warehouse_tables", table.TableViewSet, "project_warehouse_tables", ["team_id"])
 projects_router.register(
