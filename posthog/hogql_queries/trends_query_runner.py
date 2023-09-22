@@ -1,3 +1,5 @@
+from itertools import groupby
+from operator import itemgetter
 from typing import List, Optional, Any, Dict
 
 from django.utils.timezone import datetime
@@ -8,6 +10,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
@@ -113,6 +116,9 @@ class TrendsQueryRunner(QueryRunner):
             timings.extend(response.timings)
 
             res.extend(self.build_series_response(response, series_with_extra))
+
+        if self.query.trendsFilter.formula is not None:
+            res = self.apply_formula(self.query.trendsFilter.formula, res)
 
         return TrendsQueryResponse(result=res, timings=timings)
 
@@ -246,3 +252,31 @@ class TrendsQueryRunner(QueryRunner):
             return updated_series
 
         return [SeriesWithExtras(series, is_previous_period_series=False) for series in self.query.series]
+
+    def apply_formula(self, formula: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if self.query.trendsFilter.compare:
+            sorted_results = sorted(results, key=itemgetter("compare_label"))
+            res = []
+            for _, group in groupby(sorted_results, key=itemgetter("compare_label")):
+                group_list = list(group)
+
+                series_data = map(lambda s: s["data"], group_list)
+                new_series_data = FormulaAST(series_data).call(formula)
+
+                new_result = group_list[0]
+                new_result["data"] = new_series_data
+                new_result["count"] = float(sum(new_series_data))
+                new_result["label"] = f"Formula ({formula})"
+
+                res.append(new_result)
+            return res
+
+        series_data = map(lambda s: s["data"], results)
+        new_series_data = FormulaAST(series_data).call(formula)
+        new_result = results[0]
+
+        new_result["data"] = new_series_data
+        new_result["count"] = float(sum(new_series_data))
+        new_result["label"] = f"Formula ({formula})"
+
+        return [new_result]
