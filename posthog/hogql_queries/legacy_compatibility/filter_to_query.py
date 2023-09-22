@@ -136,19 +136,17 @@ def _insight_filter(filter: AnyInsightFilter):
         return {
             "funnelsFilter": FunnelsFilter(
                 funnel_viz_type=filter.funnel_viz_type,
+                funnel_order_type=filter.funnel_order_type,
                 funnel_from_step=filter.funnel_from_step,
                 funnel_to_step=filter.funnel_to_step,
+                funnel_window_interval_unit=filter.funnel_window_interval_unit,
+                funnel_window_interval=filter.funnel_window_interval,
                 # funnel_step_reference=filter.funnel_step_reference,
-                funnel_step_breakdown=filter.funnel_step_breakdown,
+                # funnel_step_breakdown=filter.funnel_step_breakdown,
                 breakdown_attribution_type=filter.breakdown_attribution_type,
                 breakdown_attribution_value=filter.breakdown_attribution_value,
                 bin_count=filter.bin_count,
-                funnel_window_interval_unit=filter.funnel_window_interval_unit,
-                funnel_window_interval=filter.funnel_window_interval,
-                funnel_order_type=filter.funnel_order_type,
                 exclusions=filter.exclusions,
-                # funnel_correlation_person_entity=filter.funnel_correlation_person_entity,
-                # funnel_correlation_person_converted=filter.funnel_correlation_person_converted,
                 funnel_custom_steps=filter.funnel_custom_steps,
                 # funnel_advanced=filter.funnel_advanced,
                 layout=filter.layout,
@@ -157,6 +155,8 @@ def _insight_filter(filter: AnyInsightFilter):
                 drop_off=filter.drop_off,
                 # hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
                 funnel_aggregate_by_hogql=filter.funnel_aggregate_by_hogql,
+                # funnel_correlation_person_entity=filter.funnel_correlation_person_entity,
+                # funnel_correlation_person_converted=filter.funnel_correlation_person_converted,
             ),
         }
     elif filter.insight == "RETENTION":

@@ -7,6 +7,7 @@ from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
     BaseMathType,
+    BreakdownAttributionType,
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
@@ -15,6 +16,8 @@ from posthog.schema import (
     ElementPropertyFilter,
     EventPropertyFilter,
     EventsNode,
+    FunnelConversionWindowTimeUnit,
+    FunnelVizType,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     Key,
@@ -23,7 +26,9 @@ from posthog.schema import (
     PropertyOperator,
     SessionPropertyFilter,
     ShownAsValue,
+    StepOrderValue,
     TrendsFilter,
+    FunnelsFilter,
 )
 from posthog.test.base import BaseTest
 from posthog.models.filters.filter import Filter
@@ -766,5 +771,68 @@ class TestFilterToQuery(BaseTest):
                 formula="A + B",
                 shown_as=ShownAsValue.Volume,
                 display=ChartDisplayType.ActionsAreaGraph,
+            ),
+        )
+
+    def test_funnels_filter(self):
+        filter = Filter(
+            data={
+                "insight": "FUNNELS",
+                "funnel_viz_type": "steps",
+                "funnel_window_interval_unit": "hour",
+                "funnel_window_interval": 13,
+                "breakdown_attribution_type": "step",
+                "breakdown_attribution_value": 2,
+                "funnel_order_type": "strict",
+                "funnel_aggregate_by_hogql": "person_id",
+                # "exclusions": [
+                #     {
+                #         "id": "$pageview",
+                #         "type": "events",
+                #         "order": 0,
+                #         "name": "$pageview",
+                #         "funnel_from_step": 1,
+                #         "funnel_to_step": 2,
+                #     }
+                # ],
+                "bin_count": 15,  # used in time to convert: number of bins to show in histogram
+                "funnel_from_step": 1,  # used in time to convert: initial step index to compute time to convert
+                "funnel_to_step": 2,  # used in time to convert: ending step index to compute time to convert
+                #
+                # frontend only params
+                # "layout": layout,
+                # "funnel_advanced":funnel_advanced, # unused, previously used to toggle advanced options on or off
+                # "funnel_step_reference": "previous", # whether conversion shown in graph should be across all steps or just from the previous step
+                # hidden_legend_keys # used to toggle visibilities in table and legend
+                #
+                # persons endpoint only params
+                # "funnel_step_breakdown": funnel_step_breakdown, # used in steps breakdown: persons modal
+                # "funnel_correlation_person_entity":funnel_correlation_person_entity,
+                # "funnel_correlation_person_converted":funnel_correlation_person_converted, # success or failure counts
+                # "entrance_period_start": entrance_period_start, # this and drop_off is used for funnels time conversion date for the persons modal
+                # "drop_off": drop_off,
+                # "funnel_step": funnel_step,
+                # "funnel_custom_steps": funnel_custom_steps,
+            }
+        )
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(
+            query.funnelsFilter,
+            FunnelsFilter(
+                funnel_viz_type=FunnelVizType.steps,
+                funnel_from_step=1,
+                funnel_to_step=2,
+                funnel_window_interval_unit=FunnelConversionWindowTimeUnit.hour,
+                funnel_window_interval=13,
+                breakdown_attribution_type=BreakdownAttributionType.step,
+                breakdown_attribution_value=2,
+                funnel_order_type=StepOrderValue.strict,
+                exclusions=[],
+                bin_count=15,
+                funnel_aggregate_by_hogql="person_id",
+                funnel_custom_steps=[],
+                # funnel_step_reference=FunnelStepReference.previous,
             ),
         )
