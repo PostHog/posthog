@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
 import { Counter } from 'prom-client'
 
-import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
@@ -116,7 +116,7 @@ export class ReplayEventsIngester {
         }
 
         try {
-            const replayRecord = createSessionReplayEvent(
+            const [replayRecord, consoleLogEntries] = createSessionReplayEvent(
                 randomUUID(),
                 event.team_id,
                 event.distinct_id,
@@ -160,13 +160,25 @@ export class ReplayEventsIngester {
 
             replayEventsCounter.inc()
 
+            const s1 = JSON.stringify(replayRecord)
+            const consoleLogProduces = consoleLogEntries.map((consoleLogEntry) => {
+                const s = JSON.stringify(consoleLogEntry)
+                status.info('🔁', '[replay-events] console_log', { s, s1 })
+                return produce({
+                    producer: this.producer,
+                    topic: KAFKA_LOG_ENTRIES,
+                    value: Buffer.from(s),
+                    key: event.session_id,
+                })
+            })
             return [
                 produce({
                     producer: this.producer,
                     topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-                    value: Buffer.from(JSON.stringify(replayRecord)),
+                    value: Buffer.from(s1),
                     key: event.session_id,
                 }),
+                ...consoleLogProduces,
             ]
         } catch (error) {
             status.error('⚠️', '[replay-events] processing_error', {

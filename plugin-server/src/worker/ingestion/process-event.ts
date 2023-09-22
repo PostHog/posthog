@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
+    ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
     Hub,
@@ -286,13 +287,39 @@ export interface SummarizedSessionRecordingEvent {
     message_count: number
 }
 
+type ConsoleLogEntry = {
+    team_id: number
+    message: string
+    log_level: 'info' | 'warn' | 'error'
+    log_source: 'session_replay'
+    // the session_id
+    log_source_id: string
+    // maybe we omit this?
+    instance_id: string
+    timestamp: ClickHouseTimestamp
+}
+
+function safeString(payload: string[]) {
+    let candidate = payload.join(' ')
+
+    if (candidate.startsWith('"') || candidate.startsWith("'")) {
+        candidate = candidate.substring(1)
+    }
+
+    if (candidate.endsWith('"') || candidate.endsWith("'")) {
+        candidate = candidate.substring(0, candidate.length - 1)
+    }
+
+    return candidate
+}
+
 export const createSessionReplayEvent = (
     uuid: string,
     team_id: number,
     distinct_id: string,
     session_id: string,
     events: RRWebEvent[]
-) => {
+): [SummarizedSessionRecordingEvent, ConsoleLogEntry[]] => {
     const timestamps = events
         .filter((e) => !!e?.timestamp)
         .map((e) => castTimestampOrNow(DateTime.fromMillis(e.timestamp), TimestampFormat.ClickHouse))
@@ -315,6 +342,8 @@ export const createSessionReplayEvent = (
     let consoleWarnCount = 0
     let consoleErrorCount = 0
     let url: string | null = null
+    const consoleLogEntries: ConsoleLogEntry[] = []
+
     events.forEach((event) => {
         if (event.type === 3) {
             mouseActivity += 1
@@ -337,6 +366,16 @@ export const createSessionReplayEvent = (
             } else if (level === 'error') {
                 consoleErrorCount += 1
             }
+            consoleLogEntries.push({
+                team_id,
+                // when is it not a single item array?
+                message: safeString(event.data.payload?.payload),
+                log_level: level,
+                log_source: 'session_replay',
+                log_source_id: session_id,
+                instance_id: event.data.instanceId,
+                timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
+            })
         }
     })
 
@@ -364,7 +403,7 @@ export const createSessionReplayEvent = (
         message_count: 1,
     }
 
-    return data
+    return [data, consoleLogEntries]
 }
 
 export function createPerformanceEvent(uuid: string, team_id: number, distinct_id: string, properties: Properties) {
