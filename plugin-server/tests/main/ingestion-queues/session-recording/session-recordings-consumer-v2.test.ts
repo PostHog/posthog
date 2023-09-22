@@ -7,16 +7,22 @@ import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngesterV2 } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v2'
 import { Hub, PluginsServerConfig } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
-import { createIncomingRecordingMessage } from './fixtures'
+import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
+import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
-const keyPrefix = 'test-session-offset-high-water-mark'
+const SESSION_RECORDING_REDIS_PREFIX = '@posthog-tests/replay/'
 
-async function deleteKeysWithPrefix(hub: Hub, keyPrefix: string) {
+const config: PluginsServerConfig = {
+    ...defaultConfig,
+    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: true,
+    SESSION_RECORDING_REDIS_PREFIX,
+}
+
+async function deleteKeysWithPrefix(hub: Hub) {
     const redisClient = await hub.redisPool.acquire()
-    const keys = await redisClient.keys(`${keyPrefix}*`)
+    const keys = await redisClient.keys(`${SESSION_RECORDING_REDIS_PREFIX}*`)
     const pipeline = redisClient.pipeline()
     keys.forEach(function (key) {
-        console.log('deleting key', key)
         pipeline.del(key)
     })
     await pipeline.exec()
@@ -24,6 +30,9 @@ async function deleteKeysWithPrefix(hub: Hub, keyPrefix: string) {
 }
 
 const mockCommit = jest.fn()
+const mockQueryWatermarkOffsets = jest.fn((_1, _2, cb) => {
+    cb(null, { highOffset: 0, lowOffset: 0 })
+})
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -37,6 +46,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                     on: jest.fn(),
                     commitSync: mockCommit,
                     commit: mockCommit,
+                    queryWatermarkOffsets: mockQueryWatermarkOffsets,
                 },
             })
         ),
@@ -46,34 +56,27 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
 jest.setTimeout(1000)
 
 describe('ingester', () => {
-    const config: PluginsServerConfig = {
-        ...defaultConfig,
-        SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/test-session-recordings',
-    }
-
     let ingester: SessionRecordingIngesterV2
 
     let hub: Hub
     let closeHub: () => Promise<void>
+    let teamToken = ''
 
-    beforeAll(() => {
-        jest.useFakeTimers({
-            // magic is for evil wizards
-            // setInterval in blob consumer doesn't fire
-            // if legacyFakeTimers is false
-            // 🤷
-            legacyFakeTimers: true,
-        })
+    beforeAll(async () => {
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
+        await resetTestDatabase()
     })
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
+        const team = await getFirstTeam(hub)
+        teamToken = team.api_token
+        await deleteKeysWithPrefix(hub)
     })
 
     afterEach(async () => {
-        jest.runOnlyPendingTimers()
-        await deleteKeysWithPrefix(hub, keyPrefix)
+        jest.setTimeout(10000)
+        await deleteKeysWithPrefix(hub)
         await ingester.stop()
         await closeHub()
     })
@@ -85,15 +88,7 @@ describe('ingester', () => {
 
     // these tests assume that a flush won't run while they run
     beforeEach(async () => {
-        ingester = new SessionRecordingIngesterV2(
-            {
-                ...defaultConfig,
-                SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: keyPrefix,
-            },
-            hub.postgres,
-            hub.objectStorage,
-            hub.redisPool
-        )
+        ingester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
         await ingester.start()
     })
 
@@ -140,9 +135,7 @@ describe('ingester', () => {
             lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
         }
 
-        await ingester.flushAllReadySessions(true)
-
-        jest.runOnlyPendingTimers() // flush timer
+        await ingester.flushAllReadySessions()
 
         expect(ingester.sessions['1-session_id_1']).not.toBeDefined()
     })
@@ -338,6 +331,111 @@ describe('ingester', () => {
                 ...metadata,
                 offset: 4,
             })
+        })
+    })
+
+    describe('simulated rebalancing', () => {
+        let otherIngester: SessionRecordingIngesterV2
+        jest.setTimeout(5000) // Increased to cover lock delay
+
+        beforeEach(async () => {
+            otherIngester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
+            await otherIngester.start()
+        })
+
+        afterEach(async () => {
+            await otherIngester.stop()
+        })
+        /**
+         * It is really hard to actually do rebalance tests against kafka, so we instead simulate the various methods and ensure the correct logic occurs
+         */
+        it('rebalances new consumers', async () => {
+            const partitionMsgs1 = [
+                createKafkaMessage(
+                    teamToken,
+                    {
+                        partition: 1,
+                        offset: 1,
+                    },
+                    {
+                        $session_id: 'session_id_1',
+                    }
+                ),
+
+                createKafkaMessage(
+                    teamToken,
+                    {
+                        partition: 1,
+                        offset: 2,
+                    },
+                    {
+                        $session_id: 'session_id_2',
+                    }
+                ),
+            ]
+
+            const partitionMsgs2 = [
+                createKafkaMessage(
+                    teamToken,
+                    {
+                        partition: 2,
+                        offset: 1,
+                    },
+                    {
+                        $session_id: 'session_id_3',
+                    }
+                ),
+                createKafkaMessage(
+                    teamToken,
+                    {
+                        partition: 2,
+                        offset: 2,
+                    },
+                    {
+                        $session_id: 'session_id_4',
+                    }
+                ),
+            ]
+
+            await ingester.onAssignPartitions([createTP(1), createTP(2), createTP(3)])
+            await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
+
+            expect(
+                Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
+            ).toEqual(['1:session_id_1:1', '1:session_id_2:1', '2:session_id_3:1', '2:session_id_4:1'])
+
+            const rebalancePromises = [
+                ingester.onRevokePartitions([createTP(2), createTP(3)]),
+                otherIngester.onAssignPartitions([createTP(2), createTP(3)]),
+            ]
+
+            // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
+            // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
+            await otherIngester.handleEachBatch([
+                ...partitionMsgs2,
+                createKafkaMessage(
+                    teamToken,
+                    {
+                        partition: 2,
+                        offset: 3,
+                    },
+                    {
+                        $session_id: 'session_id_4',
+                    }
+                ),
+            ])
+
+            await Promise.all(rebalancePromises)
+
+            // Should still have the partition 1 sessions that didnt move
+            expect(
+                Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
+            ).toEqual(['1:session_id_1:1', '1:session_id_2:1'])
+
+            // Should have session_id_4 but not session_id_3 as it was flushed
+            expect(
+                Object.values(otherIngester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
+            ).toEqual(['2:session_id_4:1'])
         })
     })
 })

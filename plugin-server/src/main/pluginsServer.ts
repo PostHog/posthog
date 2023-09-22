@@ -442,7 +442,7 @@ export async function startPluginsServer(
                     await ingester.stop()
                 }
                 joinSessionRecordingBlobConsumer = () => batchConsumer.join()
-                healthChecks['session-recordings-blob'] = () => batchConsumer.isHealthy() ?? false
+                healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
             }
         }
 
