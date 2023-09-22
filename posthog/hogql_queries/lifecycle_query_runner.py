@@ -1,6 +1,10 @@
+from datetime import timedelta
+from math import ceil
 from typing import Optional, Any, Dict, List
 
 from django.utils.timezone import datetime
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -247,3 +251,25 @@ class LifecycleQueryRunner(QueryRunner):
                 timings=self.timings,
             )
         return periods_query
+
+    def _is_stale(self, cached_result_package):
+        date_to = self.query_date_range.date_to()
+        interval = self.query_date_range.interval_name
+        return is_stale(self.team, date_to, interval, cached_result_package)
+
+    def _refresh_frequency(self):
+        date_to = self.query_date_range.date_to()
+        date_from = self.query_date_range.date_from()
+        interval = self.query_date_range.interval_name
+
+        delta_days: Optional[int] = None
+        if date_from and date_to:
+            delta = date_to - date_from
+            delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
+
+        refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+        if interval == "hour" or (delta_days is not None and delta_days <= 7):
+            # The interval is shorter for short-term insights
+            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+
+        return refresh_frequency

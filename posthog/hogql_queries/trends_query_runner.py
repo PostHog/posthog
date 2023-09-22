@@ -1,8 +1,12 @@
+from datetime import timedelta
 from itertools import groupby
+from math import ceil
 from operator import itemgetter
 from typing import List, Optional, Any, Dict
 
 from django.utils.timezone import datetime
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -93,6 +97,28 @@ class TrendsQueryRunner(QueryRunner):
                 )
         return queries
 
+    def _is_stale(self, cached_result_package):
+        date_to = self.query_date_range.date_to()
+        interval = self.query_date_range.interval_name
+        return is_stale(self.team, date_to, interval, cached_result_package)
+
+    def _refresh_frequency(self):
+        date_to = self.query_date_range.date_to()
+        date_from = self.query_date_range.date_from()
+        interval = self.query_date_range.interval_name
+
+        delta_days: Optional[int] = None
+        if date_from and date_to:
+            delta = date_to - date_from
+            delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
+
+        refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+        if interval == "hour" or (delta_days is not None and delta_days <= 7):
+            # The interval is shorter for short-term insights
+            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+
+        return refresh_frequency
+
     def to_persons_query(self) -> str:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
@@ -117,12 +143,15 @@ class TrendsQueryRunner(QueryRunner):
 
             res.extend(self.build_series_response(response, series_with_extra))
 
-        if self.query.trendsFilter.formula is not None:
+        if self.query.trendsFilter is not None and self.query.trendsFilter.formula is not None:
             res = self.apply_formula(self.query.trendsFilter.formula, res)
 
         return TrendsQueryResponse(result=res, timings=timings)
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras):
+        if response.results is None:
+            return []
+
         res = []
         for val in response.results:
             series_object = {
@@ -134,7 +163,7 @@ class TrendsQueryRunner(QueryRunner):
             }
 
             # Modifications for when comparing to previous period
-            if self.query.trendsFilter.compare:
+            if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
                 labels = [
                     "{} {}".format(self.query.interval if self.query.interval is not None else "day", i)
                     for i in range(len(series_object["labels"]))
@@ -244,7 +273,7 @@ class TrendsQueryRunner(QueryRunner):
         return None
 
     def setup_series(self) -> List[SeriesWithExtras]:
-        if self.query.trendsFilter.compare:
+        if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
             updated_series = []
             for series in self.query.series:
                 updated_series.append(SeriesWithExtras(series, is_previous_period_series=False))
@@ -254,7 +283,7 @@ class TrendsQueryRunner(QueryRunner):
         return [SeriesWithExtras(series, is_previous_period_series=False) for series in self.query.series]
 
     def apply_formula(self, formula: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        if self.query.trendsFilter.compare:
+        if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
             sorted_results = sorted(results, key=itemgetter("compare_label"))
             res = []
             for _, group in groupby(sorted_results, key=itemgetter("compare_label")):
