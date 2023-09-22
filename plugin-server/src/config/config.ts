@@ -152,6 +152,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
         SESSION_RECORDING_REDIS_PREFIX: '@posthog/replay/',
         SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: false,
+        SESSION_RECORDING_PARALLEL_CONSUMPTION: false,
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
     }

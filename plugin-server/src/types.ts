@@ -221,6 +221,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_REMOTE_FOLDER: string
     SESSION_RECORDING_REDIS_PREFIX: string
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
+    SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
