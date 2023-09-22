@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Generic, List, Optional, Type, Dict, TypeVar
 
 from prometheus_client import Counter
@@ -119,9 +119,9 @@ class QueryRunner(ABC):
         return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}_{self.team.timezone}")
 
     @abstractmethod
-    def _is_stale(self, cached_result_package) -> bool:
+    def _is_stale(self, cached_result_package):
         raise NotImplementedError()
 
     @abstractmethod
-    def _refresh_frequency(self) -> timedelta:
+    def _refresh_frequency(self):
         raise NotImplementedError()
