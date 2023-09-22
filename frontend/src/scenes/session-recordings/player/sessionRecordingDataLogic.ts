@@ -12,7 +12,6 @@ import {
     SessionPlayerData,
     SessionPlayerSnapshotData,
     SessionRecordingId,
-    SessionRecordingSnapshotResponse,
     SessionRecordingSnapshotSource,
     SessionRecordingType,
     SessionRecordingUsageType,
@@ -26,10 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -143,7 +139,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -153,7 +149,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingMeta: true,
         maybeLoadRecordingMeta: true,
         addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
-        loadRecordingSnapshotsV1: (nextUrl?: string) => ({ nextUrl }),
         loadRecordingSnapshotsV2: (source?: SessionRecordingSnapshotSource) => ({ source }),
         loadRecordingSnapshots: true,
         loadRecordingSnapshotsSuccess: true,
@@ -174,12 +169,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             0,
             {
                 loadRecordingSnapshotsSuccess: (state) => state + 1,
-            },
-        ],
-        loadedFromBlobStorage: [
-            false as boolean,
-            {
-                loadRecordingSnapshotsV2Success: () => true,
             },
         ],
         isNotFound: [
@@ -209,30 +198,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return
             }
             if (!values.sessionPlayerSnapshotData?.snapshots) {
-                // if `getCurrentExporterData` has a value then we're embedded/exported
-                // so, we always want to use blob replay
-                if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY] || getCurrentExporterData()) {
-                    actions.loadRecordingSnapshotsV2()
-                } else {
-                    actions.loadRecordingSnapshotsV1()
-                }
+                actions.loadRecordingSnapshotsV2()
             }
             actions.loadEvents()
         },
         loadRecordingSnapshotsV2Success: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
-                const canFallbackToClickHouse = values.canFallbackToClickHouseForData
-                // We got the snapshot response for realtime, and it was empty, so we fall back to the old API
-                // Until we migrate over we need to fall back to the old API if the new one returns no snapshots
+                // We got only a snapshot response for realtime, and it was empty
                 posthog.capture('recording_snapshots_v2_empty_response', {
                     source: sources[0],
-                    canFallbackToClickHouse,
                 })
 
-                if (canFallbackToClickHouse) {
-                    actions.loadRecordingSnapshotsV1()
-                }
                 return
             }
 
@@ -244,18 +221,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.loadRecordingSnapshotsV2(nextSourceToLoad)
             }
         },
-        loadRecordingSnapshotsV1Success: ({ sessionPlayerSnapshotData }) => {
-            if (sessionPlayerSnapshotData?.sources?.length) {
-                // v1 request was force-upgraded to v2
-                actions.loadRecordingSnapshotsV2Success(sessionPlayerSnapshotData, undefined)
-                return
-            }
-
-            actions.loadRecordingSnapshotsSuccess()
-
-            if (values.sessionPlayerSnapshotData?.next) {
-                actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
-            }
+        loadRecordingSnapshotsSuccess: () => {
             if (values.chunkPaginationIndex === 1 || values.loadedFromBlobStorage) {
                 // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
                 // when loading from blob storage by the time this is hit the chunkPaginationIndex is already > 1
@@ -265,13 +231,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
             }
-        },
-        loadRecordingSnapshotsSuccess: () => {
+
             actions.reportViewed()
             actions.reportUsageIfFullyLoaded()
-        },
-        loadRecordingSnapshotsV1Failure: () => {
-            actions.loadRecordingSnapshotsFailure()
         },
         loadRecordingSnapshotsV2Failure: () => {
             actions.loadRecordingSnapshotsFailure()
@@ -346,55 +308,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         sessionPlayerSnapshotData: [
             null as SessionPlayerSnapshotData | null,
             {
-                loadRecordingSnapshotsV1: async (
-                    { nextUrl },
-                    breakpoint
-                ): Promise<SessionPlayerSnapshotData | null> => {
-                    cache.snapshotsStartTime = performance.now()
-
-                    if (!props.sessionRecordingId) {
-                        return values.sessionPlayerSnapshotData
-                    }
-                    await breakpoint(1)
-
-                    const params = toParams({
-                        recording_start_time: props.recordingStartTime,
-                    })
-                    const apiUrl =
-                        nextUrl ||
-                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
-
-                    const response: SessionRecordingSnapshotResponse = await api.get(apiUrl)
-                    breakpoint()
-
-                    if (response.snapshot_data_by_window_id) {
-                        // NOTE: This might seem backwards as we translate the snapshotsByWindowId to an array and then derive it again later but
-                        // this is for future support of the API that will return them as a simple array
-                        const snapshots = convertSnapshotsResponse(
-                            response.snapshot_data_by_window_id,
-                            nextUrl ? values.sessionPlayerSnapshotData?.snapshots ?? [] : []
-                        )
-
-                        posthog.capture('recording_snapshot_loaded', {
-                            source: 'clickhouse',
-                        })
-
-                        return {
-                            snapshots,
-                            next: response.next,
-                        }
-                    } else if (response.sources) {
-                        // we've been force-upgraded to V2 by 302 redirect
-                        const data: SessionPlayerSnapshotData = {
-                            ...(values.sessionPlayerSnapshotData || {}),
-                        }
-                        data.sources = response.sources
-                        return data
-                    } else {
-                        throw new Error('Invalid response from snapshots API')
-                    }
-                },
-
                 loadRecordingSnapshotsV2: async ({ source }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
                     if (!props.sessionRecordingId) {
                         return values.sessionPlayerSnapshotData
@@ -568,12 +481,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     selectors({
-        canFallbackToClickHouseForData: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_ALLOW_V1_SNAPSHOTS]
-            },
-        ],
         sessionPlayerData: [
             (s) => [
                 s.sessionPlayerMetaData,
