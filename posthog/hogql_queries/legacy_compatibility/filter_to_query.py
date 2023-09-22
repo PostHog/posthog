@@ -1,4 +1,4 @@
-from posthog.models.entity.entity import Entity
+from posthog.models.entity.entity import Entity as BackendEntity
 from posthog.models.filters import AnyInsightFilter
 from posthog.models.filters.filter import Filter as LegacyFilter
 from posthog.models.filters.path_filter import PathFilter as LegacyPathFilter
@@ -25,7 +25,7 @@ from posthog.schema import (
 from posthog.types import InsightQueryNode
 
 
-def entity_to_node(entity: Entity) -> EventsNode | ActionsNode:
+def entity_to_node(entity: BackendEntity) -> EventsNode | ActionsNode:
     shared = {
         "name": entity.name,
         "custom_name": entity.custom_name,
@@ -40,6 +40,16 @@ def entity_to_node(entity: Entity) -> EventsNode | ActionsNode:
         return ActionsNode(id=entity.id, **shared)
     else:
         return EventsNode(event=entity.id, **shared)
+
+
+def to_base_entity_dict(entity: BackendEntity):
+    return {
+        "type": entity.type,
+        "id": entity.id,
+        "name": entity.name,
+        "custom_name": entity.custom_name,
+        "order": entity.order,
+    }
 
 
 insight_to_query_type = {
@@ -152,11 +162,7 @@ def _insight_filter(filter: AnyInsightFilter):
                 bin_count=filter.bin_count,
                 exclusions=[
                     FunnelExclusion(
-                        type=entity.type,
-                        id=entity.id,
-                        name=entity.name,
-                        custom_name=entity.custom_name,
-                        order=entity.order,
+                        **to_base_entity_dict(entity),
                         funnel_from_step=entity.funnel_from_step,
                         funnel_to_step=entity.funnel_to_step,
                     )
@@ -178,11 +184,11 @@ def _insight_filter(filter: AnyInsightFilter):
         return {
             "retentionFilter": RetentionFilter(
                 retention_type=filter.retention_type,
-                # # retention_reference=filter.retention_reference,
-                # total_intervals=filter.total_intervals,
-                # returning_entity=filter.returning_entity,
-                # target_entity=filter.target_entity,
-                # period=filter.period,
+                # retention_reference=filter.retention_reference,
+                total_intervals=filter.total_intervals,
+                returning_entity={**to_base_entity_dict(filter.returning_entity), "order": 0},
+                target_entity={**to_base_entity_dict(filter.target_entity), "order": 0},
+                period=filter.period,
             )
         }
     elif filter.insight == "PATHS" and isinstance(filter, LegacyPathFilter):

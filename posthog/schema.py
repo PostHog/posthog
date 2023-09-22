@@ -498,6 +498,17 @@ class ElementPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
+class Entity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    id: Union[str, float]
+    name: str
+    order: float
+    type: EntityType
+
+
 class EventPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -645,8 +656,8 @@ class RetentionFilter(BaseModel):
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
-    returning_entity: Optional[Dict[str, Any]] = None
-    target_entity: Optional[Dict[str, Any]] = None
+    returning_entity: Optional[Entity] = None
+    target_entity: Optional[Entity] = None
     total_intervals: Optional[float] = None
 
 

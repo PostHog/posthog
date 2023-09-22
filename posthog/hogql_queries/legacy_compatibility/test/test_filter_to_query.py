@@ -15,6 +15,7 @@ from posthog.schema import (
     CohortPropertyFilter,
     CountPerActorMathType,
     ElementPropertyFilter,
+    Entity,
     EntityType,
     EventPropertyFilter,
     EventsNode,
@@ -27,6 +28,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyMathType,
     PropertyOperator,
+    RetentionPeriod,
     RetentionType,
     SessionPropertyFilter,
     ShownAsValue,
@@ -876,13 +878,12 @@ class TestFilterToQuery(BaseTest):
     def test_retention_filter(self):
         filter = LegacyRetentionFilter(
             data={
-                # "insight": "RETENTION",
                 "retention_type": "retention_first_time",
-                # # retention_reference="previous",
-                # "total_intervals": 12,
-                # "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                # "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                # "period": "Week",
+                # retention_reference="previous",
+                "total_intervals": 12,
+                "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                "period": "Week",
             }
         )
 
@@ -890,7 +891,13 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(
             query.retentionFilter,
-            RetentionFilter(retention_type=RetentionType.retention_first_time),
+            RetentionFilter(
+                retention_type=RetentionType.retention_first_time,
+                total_intervals=12,
+                period=RetentionPeriod.Week,
+                returning_entity=Entity(id="$pageview", name="$pageview", type=EntityType.events, order=0),
+                target_entity=Entity(id="$pageview", name="$pageview", type=EntityType.events, order=0),
+            ),
         )
 
     def test_paths_filter(self):
