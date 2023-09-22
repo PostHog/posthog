@@ -10,8 +10,8 @@ import pytest
 from freezegun import freeze_time
 from temporalio import activity, workflow
 
-from posthog.clickhouse.batch_exports_log_entries import (
-    KAFKA_BATCH_EXPORTS_LOG_ENTRIES,
+from posthog.clickhouse.log_entries import (
+    KAFKA_LOG_ENTRIES,
 )
 from posthog.temporal.workflows.batch_exports import (
     KafkaLoggingHandler,
@@ -23,7 +23,7 @@ def test_kafka_logging_handler_produces_to_kafka(caplog):
     """Test a mocked call to Kafka produce from the KafkaLoggingHandler."""
     logger_name = "test-logger"
     logger = logging.getLogger(logger_name)
-    handler = KafkaLoggingHandler(topic=KAFKA_BATCH_EXPORTS_LOG_ENTRIES)
+    handler = KafkaLoggingHandler(topic=KAFKA_LOG_ENTRIES)
     handler.setLevel(logging.DEBUG)
     logger.addHandler(handler)
 
@@ -66,9 +66,7 @@ def test_kafka_logging_handler_produces_to_kafka(caplog):
                         "timestamp": timestamp,
                         "level": logging.getLevelName(level),
                     }
-                    expected_kafka_produce_calls_kwargs.append(
-                        {"topic": KAFKA_BATCH_EXPORTS_LOG_ENTRIES, "data": data, "key": None}
-                    )
+                    expected_kafka_produce_calls_kwargs.append({"topic": KAFKA_LOG_ENTRIES, "data": data, "key": None})
 
         assert caplog.record_tuples == expected_tuples
 

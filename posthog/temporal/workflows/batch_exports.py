@@ -22,7 +22,7 @@ from posthog.batch_exports.service import (
     update_batch_export_run_status,
 )
 from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_BATCH_EXPORTS_LOG_ENTRIES
+from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -530,7 +530,7 @@ LOG_QUEUE: queue.Queue = queue.Queue(-1)
 QUEUE_HANDLER = logging.handlers.QueueHandler(LOG_QUEUE)
 QUEUE_HANDLER.setLevel(logging.DEBUG)
 
-KAFKA_HANDLER = KafkaLoggingHandler(topic=KAFKA_BATCH_EXPORTS_LOG_ENTRIES)
+KAFKA_HANDLER = KafkaLoggingHandler(topic=KAFKA_LOG_ENTRIES)
 KAFKA_HANDLER.setLevel(logging.DEBUG)
 QUEUE_LISTENER = logging.handlers.QueueListener(LOG_QUEUE, KAFKA_HANDLER)
 
