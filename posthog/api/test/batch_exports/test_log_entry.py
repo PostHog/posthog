@@ -142,12 +142,17 @@ def test_log_level_filter(batch_export, team):
                     level=level,
                 )
 
-        for level in (
-            BatchExportLogEntryLevel.INFO,
-            BatchExportLogEntryLevel.WARNING,
-            BatchExportLogEntryLevel.ERROR,
-            BatchExportLogEntryLevel.DEBUG,
-        ):
+    for level in (
+        BatchExportLogEntryLevel.INFO,
+        BatchExportLogEntryLevel.WARNING,
+        BatchExportLogEntryLevel.ERROR,
+        BatchExportLogEntryLevel.DEBUG,
+    ):
+        results = []
+        timeout = 10
+        start = dt.datetime.utcnow()
+
+        while not results:
             results = fetch_batch_export_log_entries(
                 team_id=team.pk,
                 batch_export_id=batch_export["id"],
@@ -155,16 +160,18 @@ def test_log_level_filter(batch_export, team):
                 after=dt.datetime(2023, 9, 22, 0, 59, 59),
                 before=dt.datetime(2023, 9, 22, 1, 0, 1),
             )
+            if (dt.datetime.utcnow() - start) > dt.timedelta(seconds=timeout):
+                break
 
-            results.sort(key=lambda record: record.message)
+        results.sort(key=lambda record: record.message)
 
-            assert len(results) == 2
-            assert results[0].message == "Test log 1"
-            assert results[0].level == level
-            assert results[0].batch_export_id == str(batch_export["id"])
-            assert results[1].message == "Test log 2"
-            assert results[1].level == level
-            assert results[1].batch_export_id == str(batch_export["id"])
+        assert len(results) == 2
+        assert results[0].message == "Test log 1"
+        assert results[0].level == level
+        assert results[0].batch_export_id == str(batch_export["id"])
+        assert results[1].message == "Test log 2"
+        assert results[1].level == level
+        assert results[1].batch_export_id == str(batch_export["id"])
 
 
 @pytest.mark.django_db
