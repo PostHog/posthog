@@ -270,7 +270,7 @@ async def test_get_results_iterator(client):
             "elements_chain": "this that and the other",
             "elements": json.dumps("this that and the other"),
             "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
+            "site_url": "",
             "set": None,
             "set_once": None,
         }
@@ -327,7 +327,7 @@ async def test_get_results_iterator_handles_duplicates(client):
             "elements_chain": "this that and the other",
             "elements": json.dumps("this that and the other"),
             "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
+            "site_url": "",
             "set": None,
             "set_once": None,
         }
@@ -387,7 +387,7 @@ async def test_get_results_iterator_can_exclude_events(client):
             "elements_chain": "this that and the other",
             "elements": json.dumps("this that and the other"),
             "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
+            "site_url": "",
             "set": None,
             "set_once": None,
         }

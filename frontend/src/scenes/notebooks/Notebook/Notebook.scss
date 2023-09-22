@@ -152,6 +152,24 @@
         }
     }
 
+    .NotebookInlineMenu {
+        margin-bottom: -0.2rem;
+        box-shadow: 0px 4px 10px 0px rgba(0, 0, 0, 0.1);
+
+        .LemonInput {
+            border: 0px;
+            min-height: 0px;
+        }
+
+        .LemonButton {
+            min-height: 1.75rem;
+
+            .LemonButton__icon {
+                font-size: 1rem;
+            }
+        }
+    }
+
     .NotebookNodeSettings__widgets {
         &__content {
             max-height: calc(100vh - 220px);
