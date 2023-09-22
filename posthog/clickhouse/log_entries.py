@@ -11,11 +11,11 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     team_id UInt64,
     log_source LowCardinality(String),
-    log_source_id VARCHAR,
-    instance_id VARCHAR,
+    log_source_id String,
+    instance_id String,
     timestamp DateTime64(6, 'UTC'),
     level LowCardinality(String),
-    message VARCHAR
+    message String
     {extra_fields}
 ) ENGINE = {engine}
 """
