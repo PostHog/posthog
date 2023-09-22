@@ -51,7 +51,7 @@ const SecretFieldIcon = (): JSX.Element => (
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
+    const { editingPlugin, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
     const {
         editPlugin,
         savePluginConfig,
@@ -213,12 +213,7 @@ export function PluginDrawer(): JSX.Element {
                             <Button onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
                                 Cancel
                             </Button>
-                            <Button
-                                type="primary"
-                                loading={loading}
-                                onClick={form.submit}
-                                data-attr="plugin-drawer-save"
-                            >
+                            <Button type="primary" onClick={form.submit} data-attr="plugin-drawer-save">
                                 Save
                             </Button>
                         </Space>

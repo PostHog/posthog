@@ -24,13 +24,6 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export type PluginForm = FormInstance
 
-export enum PluginSection {
-    Upgrade = 'upgrade',
-    Installed = 'installed',
-    Enabled = 'enabled',
-    Disabled = 'disabled',
-}
-
 export interface PluginSelectionType {
     name: string
     url?: string
@@ -78,7 +71,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
         setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
         setPluginTab: (tab: PluginTab) => ({ tab }),
         setEditingSource: (editingSource: boolean) => ({ editingSource }),
-        resetPluginConfigError: (id: number) => ({ id }),
         checkForUpdates: (checkAll: boolean, initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}) => ({
             checkAll,
             initialUpdateStatus,
@@ -90,7 +82,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
         pluginUpdated: (id: number) => ({ id }),
         patchPlugin: (id: number, pluginChanges: Partial<PluginType> = {}) => ({ id, pluginChanges }),
         generateApiKeysIfNeeded: (form: PluginForm) => ({ form }),
-        rearrange: true,
         setTemporaryOrder: (temporaryOrder: Record<number, number>, movedPluginId: number) => ({
             temporaryOrder,
             movedPluginId,
@@ -100,10 +91,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
         cancelRearranging: true,
         showPluginLogs: (id: number) => ({ id }),
         hidePluginLogs: true,
-        processSearchInput: (term: string) => ({ term }),
         setSearchTerm: (term: string | null) => ({ term }),
-        setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
-        toggleSectionOpen: (section: PluginSection) => ({ section }),
         syncFrontendAppState: (id: number) => ({ id }),
         openAdvancedInstallModal: true,
         closeAdvancedInstallModal: true,
@@ -231,13 +219,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
-                resetPluginConfigError: async ({ id }) => {
-                    const { pluginConfigs } = values
-                    const response = await api.update(`api/plugin_config/${id}`, {
-                        error: null,
-                    })
-                    return { ...pluginConfigs, [response.plugin]: response }
-                },
                 savePluginOrders: async ({ newOrders }) => {
                     const { pluginConfigs } = values
                     const response: PluginConfigType[] = await api.update(`api/plugin_config/rearrange`, {
@@ -347,7 +328,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             },
         },
         pluginTab: [
-            PluginTab.Installed as PluginTab,
+            PluginTab.Apps as PluginTab,
             {
                 setPluginTab: (_, { tab }) => tab,
                 installPluginSuccess: (state) => (state === PluginTab.Apps ? state : PluginTab.Installed),
@@ -388,18 +369,9 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 savePluginOrdersSuccess: () => false,
             },
         ],
-        rearranging: [
-            false,
-            {
-                rearrange: () => true,
-                cancelRearranging: () => false,
-                savePluginOrdersSuccess: () => false,
-            },
-        ],
         temporaryOrder: [
             {} as Record<number, number>,
             {
-                rearrange: () => ({}),
                 setTemporaryOrder: (_, { temporaryOrder }) => temporaryOrder,
                 cancelRearranging: () => ({}),
                 savePluginOrdersSuccess: () => ({}),
@@ -408,7 +380,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
         movedPlugins: [
             {} as Record<number, boolean>,
             {
-                rearrange: () => ({}),
                 setTemporaryOrder: (state, { movedPluginId }) => ({ ...state, [movedPluginId]: true }),
                 cancelRearranging: () => ({}),
                 savePluginOrdersSuccess: () => ({}),
@@ -431,17 +402,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             null as string | null,
             {
                 setSearchTerm: (_, { term }) => term,
-            },
-        ],
-        sectionsOpen: [
-            [PluginSection.Enabled, PluginSection.Disabled] as PluginSection[],
-            {
-                toggleSectionOpen: (currentOpenSections, { section }) => {
-                    if (currentOpenSections.includes(section)) {
-                        return currentOpenSections.filter((s) => section !== s)
-                    }
-                    return [...currentOpenSections, section]
-                },
             },
         ],
         advancedInstallModalOpen: [
@@ -587,11 +547,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (editingPluginId, installedPlugins) =>
                 editingPluginId ? installedPlugins.find((plugin) => plugin.id === editingPluginId) : null,
         ],
-        loading: [
-            (s) => [s.pluginsLoading, s.repositoryLoading, s.pluginConfigsLoading],
-            (pluginsLoading, repositoryLoading, pluginConfigsLoading) =>
-                pluginsLoading || repositoryLoading || pluginConfigsLoading,
-        ],
         showingLogsPlugin: [
             (s) => [s.showingLogsPluginId, s.installedPlugins],
             (showingLogsPluginId, installedPlugins) =>
@@ -720,7 +675,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
 
             actions.checkedForUpdates()
-            actions.toggleSectionOpen(PluginSection.Upgrade)
         },
         loadPluginsSuccess() {
             const initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}
