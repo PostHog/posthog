@@ -584,29 +584,39 @@ export class SessionRecordingIngesterV2 {
         gaugeSessionsRevoked.set(sessionsToDrop.length)
         gaugeSessionsHandled.remove()
 
-        if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
-            // Extend our claim on these partitions to give us time to flush
-            await this.partitionLocker.claim(topicPartitions)
-            status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
-
-            // Flush all the sessions we are supposed to drop
-            await runInstrumentedFunction({
-                statsKey: `recordingingester.onRevokePartitions.flushSessions`,
-                logExecutionTime: true,
-                func: async () => {
-                    await Promise.allSettled(
-                        sessionsToDrop
-                            .sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
-                            .map((x) => x.flush('partition_shutdown'))
+        await runInstrumentedFunction({
+            statsKey: `recordingingester.onRevokePartitions.revokeSessions`,
+            logExecutionTime: true,
+            timeout: 30000, // same as the partition lock
+            func: async () => {
+                if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
+                    // Extend our claim on these partitions to give us time to flush
+                    await this.partitionLocker.claim(topicPartitions)
+                    status.info(
+                        '🔁',
+                        `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`
                     )
-                },
-            })
 
-            await this.partitionLocker.release(topicPartitions)
-        }
+                    // Flush all the sessions we are supposed to drop
+                    await runInstrumentedFunction({
+                        statsKey: `recordingingester.onRevokePartitions.flushSessions`,
+                        logExecutionTime: true,
+                        func: async () => {
+                            await Promise.allSettled(
+                                sessionsToDrop
+                                    .sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
+                                    .map((x) => x.flush('partition_shutdown'))
+                            )
+                        },
+                    })
 
-        await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
-        await this.offsetsRefresher.refresh()
+                    await this.partitionLocker.release(topicPartitions)
+                }
+
+                await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
+                await this.offsetsRefresher.refresh()
+            },
+        })
     }
 
     async flushAllReadySessions(): Promise<void> {
