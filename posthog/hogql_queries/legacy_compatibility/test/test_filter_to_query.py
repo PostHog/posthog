@@ -321,7 +321,14 @@ test_insights = [
 @pytest.mark.parametrize("insight", test_insights)
 def test_base_insights(insight):
     """smoke test (i.e. filter_to_query should not throw) for real world insights"""
-    filter = LegacyFilter(data=insight)
+    if insight.get("insight") == "RETENTION":
+        filter = LegacyRetentionFilter(data=insight)
+    elif insight.get("insight") == "PATHS":
+        filter = LegacyPathFilter(data=insight)
+    elif insight.get("insight") == "STICKINESS":
+        filter = LegacyStickinessFilter(data=insight)
+    else:
+        filter = LegacyFilter(data=insight)
     filter_to_query(filter)
 
 
@@ -455,9 +462,13 @@ class TestFilterToQuery(BaseTest):
     def test_base_retention_query(self):
         filter = LegacyFilter(data={"insight": "RETENTION"})
 
-        query = filter_to_query(filter)
+        with pytest.raises(Exception) as exception:
+            filter_to_query(filter)
 
-        self.assertEqual(query.kind, "RetentionQuery")
+        self.assertEqual(
+            str(exception.value),
+            "Filter type <class 'posthog.models.filters.filter.Filter'> does not match insight type RETENTION",
+        )
 
     def test_base_retention_query_from_retention_filter(self):
         filter = LegacyRetentionFilter(data={})
@@ -469,9 +480,13 @@ class TestFilterToQuery(BaseTest):
     def test_base_paths_query(self):
         filter = LegacyFilter(data={"insight": "PATHS"})
 
-        query = filter_to_query(filter)
+        with pytest.raises(Exception) as exception:
+            filter_to_query(filter)
 
-        self.assertEqual(query.kind, "PathsQuery")
+        self.assertEqual(
+            str(exception.value),
+            "Filter type <class 'posthog.models.filters.filter.Filter'> does not match insight type PATHS",
+        )
 
     def test_base_path_query_from_path_filter(self):
         filter = LegacyPathFilter(data={})
@@ -490,9 +505,13 @@ class TestFilterToQuery(BaseTest):
     def test_base_stickiness_query(self):
         filter = LegacyFilter(data={"insight": "STICKINESS"})
 
-        query = filter_to_query(filter)
+        with pytest.raises(Exception) as exception:
+            filter_to_query(filter)
 
-        self.assertEqual(query.kind, "StickinessQuery")
+        self.assertEqual(
+            str(exception.value),
+            "Filter type <class 'posthog.models.filters.filter.Filter'> does not match insight type STICKINESS",
+        )
 
     def test_base_stickiness_query_from_stickiness_filter(self):
         filter = LegacyStickinessFilter(data={}, team=self.team)

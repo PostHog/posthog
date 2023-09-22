@@ -202,6 +202,22 @@ def _insight_filter(filter: AnyInsightFilter):
 
 
 def filter_to_query(filter: AnyInsightFilter) -> InsightQueryNode:
+    if (filter.insight == "TRENDS" or filter.insight == "FUNNELS" or filter.insight == "LIFECYCLE") and isinstance(
+        filter, LegacyFilter
+    ):
+        matching_filter_type = True
+    elif filter.insight == "RETENTION" and isinstance(filter, LegacyRetentionFilter):
+        matching_filter_type = True
+    elif filter.insight == "PATHS" and isinstance(filter, LegacyPathFilter):
+        matching_filter_type = True
+    elif filter.insight == "STICKINESS" and isinstance(filter, LegacyStickinessFilter):
+        matching_filter_type = True
+    else:
+        matching_filter_type = False
+
+    if not matching_filter_type:
+        raise Exception(f"Filter type {type(filter)} does not match insight type {filter.insight}")
+
     Query = insight_to_query_type[filter.insight]
 
     data = {
