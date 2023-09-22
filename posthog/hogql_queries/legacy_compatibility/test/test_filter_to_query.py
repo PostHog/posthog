@@ -14,9 +14,11 @@ from posthog.schema import (
     CohortPropertyFilter,
     CountPerActorMathType,
     ElementPropertyFilter,
+    EntityType,
     EventPropertyFilter,
     EventsNode,
     FunnelConversionWindowTimeUnit,
+    FunnelExclusion,
     FunnelVizType,
     GroupPropertyFilter,
     HogQLPropertyFilter,
@@ -785,16 +787,16 @@ class TestFilterToQuery(BaseTest):
                 "breakdown_attribution_value": 2,
                 "funnel_order_type": "strict",
                 "funnel_aggregate_by_hogql": "person_id",
-                # "exclusions": [
-                #     {
-                #         "id": "$pageview",
-                #         "type": "events",
-                #         "order": 0,
-                #         "name": "$pageview",
-                #         "funnel_from_step": 1,
-                #         "funnel_to_step": 2,
-                #     }
-                # ],
+                "exclusions": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "funnel_from_step": 1,
+                        "funnel_to_step": 2,
+                    }
+                ],
                 "bin_count": 15,  # used in time to convert: number of bins to show in histogram
                 "funnel_from_step": 1,  # used in time to convert: initial step index to compute time to convert
                 "funnel_to_step": 2,  # used in time to convert: ending step index to compute time to convert
@@ -829,7 +831,16 @@ class TestFilterToQuery(BaseTest):
                 breakdown_attribution_type=BreakdownAttributionType.step,
                 breakdown_attribution_value=2,
                 funnel_order_type=StepOrderValue.strict,
-                exclusions=[],
+                exclusions=[
+                    FunnelExclusion(
+                        id="$pageview",
+                        type=EntityType.events,
+                        order=0,
+                        name="$pageview",
+                        funnel_from_step=1,
+                        funnel_to_step=2,
+                    )
+                ],
                 bin_count=15,
                 funnel_aggregate_by_hogql="person_id",
                 funnel_custom_steps=[],

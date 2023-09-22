@@ -7,6 +7,7 @@ from posthog.schema import (
     BreakdownFilter,
     DateRange,
     EventsNode,
+    FunnelExclusion,
     FunnelsFilter,
     FunnelsQuery,
     LifecycleFilter,
@@ -146,7 +147,18 @@ def _insight_filter(filter: AnyInsightFilter):
                 breakdown_attribution_type=filter.breakdown_attribution_type,
                 breakdown_attribution_value=filter.breakdown_attribution_value,
                 bin_count=filter.bin_count,
-                exclusions=filter.exclusions,
+                exclusions=[
+                    FunnelExclusion(
+                        type=entity.type,
+                        id=entity.id,
+                        name=entity.name,
+                        custom_name=entity.custom_name,
+                        order=entity.order,
+                        funnel_from_step=entity.funnel_from_step,
+                        funnel_to_step=entity.funnel_to_step,
+                    )
+                    for entity in filter.exclusions
+                ],
                 funnel_custom_steps=filter.funnel_custom_steps,
                 # funnel_advanced=filter.funnel_advanced,
                 layout=filter.layout,

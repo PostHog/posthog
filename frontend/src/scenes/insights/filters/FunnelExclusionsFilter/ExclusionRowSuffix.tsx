@@ -1,7 +1,7 @@
 import { Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, FunnelsFilterType } from '~/types'
+import { FunnelExclusion, ActionFilter as ActionFilterType, FunnelsFilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/lemon-ui/icons'
@@ -10,7 +10,7 @@ import { FunnelsQuery } from '~/queries/schema'
 import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelUtils'
 
 type ExclusionRowSuffixComponentBaseProps = {
-    filter: ActionFilterType | FunnelStepRangeEntityFilter
+    filter: ActionFilterType | FunnelExclusion
     index: number
     onClose?: () => void
     isVertical: boolean
@@ -28,7 +28,7 @@ export function ExclusionRowSuffix({
     )
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    const setOneEventExclusionFilter = (eventFilter: FunnelStepRangeEntityFilter, index: number): void => {
+    const setOneEventExclusionFilter = (eventFilter: FunnelExclusion, index: number): void => {
         const exclusions = ((insightFilter as FunnelsFilterType)?.exclusions || []).map((e, e_i) =>
             e_i === index
                 ? getClampedStepRangeFilterDataExploration({

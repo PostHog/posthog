@@ -781,8 +781,7 @@ export type EntityFilter = {
     order?: number
 }
 
-// TODO: Separate FunnelStepRange and FunnelStepRangeEntity filter types
-export interface FunnelStepRangeEntityFilter extends Partial<EntityFilter> {
+export interface FunnelExclusion extends Partial<EntityFilter> {
     funnel_from_step?: number
     funnel_to_step?: number
 }
@@ -1677,6 +1676,7 @@ export interface TrendsFilterType extends FilterType {
     show_percent_stack_view?: boolean
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
+
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
     show_legend?: boolean // used to show/hide legend next to insights graph
@@ -1686,6 +1686,7 @@ export interface StickinessFilterType extends FilterType {
     display?: ChartDisplayType
     show_values_on_series?: boolean
 }
+
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
@@ -1698,7 +1699,7 @@ export interface FunnelsFilterType extends FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
-    exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
+    exclusions?: FunnelExclusion[] // used in funnel exclusion filters
     funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
