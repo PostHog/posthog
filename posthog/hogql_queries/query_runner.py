@@ -117,3 +117,11 @@ class QueryRunner(ABC):
 
     def _cache_key(self) -> str:
         return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}_{self.team.timezone}")
+
+    @abstractmethod
+    def _is_stale(self, cached_result_package):
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _refresh_frequency(self):
+        raise NotImplementedError()
