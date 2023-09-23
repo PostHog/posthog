@@ -587,7 +587,12 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
     key: string
 }
 
-export interface EmptyPropertyFilter {}
+export interface EmptyPropertyFilter {
+    type?: never
+    value?: never
+    operator?: never
+    key?: never
+}
 
 export type AnyPropertyFilter =
     | EventPropertyFilter
