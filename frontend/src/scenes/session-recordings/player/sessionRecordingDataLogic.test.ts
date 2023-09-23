@@ -15,36 +15,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 import { useAvailableFeatures } from '~/mocks/features'
-import fs from 'fs'
-import path from 'path'
-// const createSnapshotEndpoint = (id: number): string => `api/projects/${MOCK_TEAM_ID}/session_recordings/${id}/snapshots`
-// const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
-//     `api/projects/${MOCK_TEAM_ID}/session_recordings/\\d/snapshots`
-// )
 
-// read the jsonl file as a string
-const jsonlPath = '../__mocks__/recording_snapshots.jsonl'
-// read the file using a relative path
-const recordingSnapshotsJson = fs.readFileSync(path.join(__dirname, jsonlPath), 'utf8')
+import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 
-const sortedRecordingSnapshotsJson = {
-    snapshot_data_by_window_id: {},
-}
-
-recordingSnapshotsJson
-    .trim()
-    .split('\n')
-    .forEach((line) => {
-        const j = JSON.parse(line)
-        sortedRecordingSnapshotsJson.snapshot_data_by_window_id[j.window_id] = j.data
-            .map((jd: Record<string, any>) => {
-                return {
-                    windowId: j.window_id,
-                    ...jd,
-                }
-            })
-            .sort((a: any, b: any) => a.timestamp - b.timestamp)
-    })
+const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
@@ -56,7 +30,7 @@ describe('sessionRecordingDataLogic', () => {
                 '/api/projects/:team/session_recordings/:id/snapshots': async (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
-                        return res(ctx.text(recordingSnapshotsJson))
+                        return res(ctx.text(snapshotsAsJSONLines()))
                     }
                     // with no source requested should return sources
                     return [

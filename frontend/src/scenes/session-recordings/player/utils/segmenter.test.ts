@@ -1,4 +1,4 @@
-import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
+import { sortedRecordingSnapshots } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import { createSegments } from './segmenter'
 import { convertSnapshotsResponse } from '../sessionRecordingDataLogic'
@@ -7,7 +7,7 @@ import { RecordingSnapshot } from '~/types'
 
 describe('segmenter', () => {
     it('matches snapshots', async () => {
-        const snapshots = convertSnapshotsResponse(recordingSnapshotsJson.snapshot_data_by_window_id)
+        const snapshots = convertSnapshotsResponse(sortedRecordingSnapshots().snapshot_data_by_window_id)
         const segments = createSegments(
             snapshots,
             dayjs(recordingMetaJson.start_time),

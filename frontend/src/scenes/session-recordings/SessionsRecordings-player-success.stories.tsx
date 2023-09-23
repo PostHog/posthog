@@ -5,7 +5,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
-import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
+import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import recording_playlists from './__mocks__/recording_playlists.json'
@@ -87,7 +87,8 @@ const meta: Meta = {
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
                 // without the session-recording-blob-replay feature flag, we only load via ClickHouse
-                '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
+                '/api/projects/:team/session_recordings/:id/snapshots': (_, res, ctx) =>
+                    res(ctx.text(snapshotsAsJSONLines())),
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
                 'api/projects/:team/notebooks': {
                     count: 0,
