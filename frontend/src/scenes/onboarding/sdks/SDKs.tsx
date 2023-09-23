@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 import { sdksLogic } from './sdksLogic'
 import { useActions, useValues } from 'kea'
 import { OnboardingStep } from '../OnboardingStep'
@@ -7,6 +7,7 @@ import { onboardingLogic } from '../onboardingLogic'
 import { useEffect } from 'react'
 import React from 'react'
 import { SDKInstructionsMap } from '~/types'
+import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
 
 export function SDKs({
     usersAction,
@@ -32,7 +33,7 @@ export function SDKs({
         >
             <LemonDivider className="my-8" />
             <div className="flex gap-x-8 mt-8">
-                <div className={`flex flex-col gap-y-2 flex-wrap gap-x-4 min-w-50`}>
+                <div className={`flex flex-col gap-y-2 flex-wrap gap-x-4 min-w-50 w-50`}>
                     {showSourceOptionsSelect && (
                         <LemonSelect
                             allowClear
@@ -58,6 +59,11 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
+                    <LemonCard className="mt-6" hoverEffect={false}>
+                        <h3 className="font-bold">Need help with this step?</h3>
+                        <p>Invite a team member to help you get set up.</p>
+                        <InviteMembersButton type="primary" />
+                    </LemonCard>
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div className="shrink min-w-8">
