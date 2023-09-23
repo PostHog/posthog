@@ -968,17 +968,15 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_stickiness_filter(self):
-        filter = LegacyFilter(
-            data={
-                "insight": "STICKINESS",
-            }
+        filter = LegacyStickinessFilter(
+            data={"insight": "STICKINESS", "compare": True, "shown_as": "Stickiness"}, team=self.team
         )
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.stickinessFilter,
-            StickinessFilter(),
+            StickinessFilter(compare=True, shown_as=ShownAsValue.Stickiness),
         )
 
     def test_lifecycle_filter(self):

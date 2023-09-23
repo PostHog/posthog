@@ -19,6 +19,7 @@ from posthog.schema import (
     PropertyGroupFilter,
     RetentionFilter,
     RetentionQuery,
+    StickinessFilter,
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
@@ -221,7 +222,15 @@ def _insight_filter(filter: AnyInsightFilter):
             )
         }
     elif filter.insight == "STICKINESS" and isinstance(filter, LegacyStickinessFilter):
-        return {}  # TODO: implement
+        return {
+            "stickinessFilter": StickinessFilter(
+                compare=filter.compare,
+                shown_as=filter.shown_as,
+                # show_legend=filter.show_legend,
+                # hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
+                # show_values_on_series=filter.show_values_on_series,
+            )
+        }
     else:
         raise Exception(f"Invalid insight type {filter.insight}.")
 
