@@ -1838,24 +1838,10 @@
                     "$ref": "#/definitions/RetentionType"
                 },
                 "returning_entity": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/EventsNode"
-                        },
-                        {
-                            "$ref": "#/definitions/ActionsNode"
-                        }
-                    ]
+                    "type": "object"
                 },
                 "target_entity": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/EventsNode"
-                        },
-                        {
-                            "$ref": "#/definitions/ActionsNode"
-                        }
-                    ]
+                    "type": "object"
                 },
                 "total_intervals": {
                     "type": "number"

@@ -897,8 +897,20 @@ class TestFilterToQuery(BaseTest):
                 retention_type=RetentionType.retention_first_time,
                 total_intervals=12,
                 period=RetentionPeriod.Week,
-                returning_entity=EventsNode(event="$pageview", name="$pageview"),
-                target_entity=EventsNode(event="$pageview", name="$pageview"),
+                returning_entity={
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events",
+                    "custom_name": None,
+                    "order": None,
+                },
+                target_entity={
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events",
+                    "custom_name": None,
+                    "order": None,
+                },
             ),
         )
 

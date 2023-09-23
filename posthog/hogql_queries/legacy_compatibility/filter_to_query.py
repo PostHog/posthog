@@ -188,10 +188,8 @@ def _insight_filter(filter: AnyInsightFilter):
                 retention_type=filter.retention_type,
                 # retention_reference=filter.retention_reference,
                 total_intervals=filter.total_intervals,
-                returning_entity=entity_to_node(filter.returning_entity),
-                target_entity=entity_to_node(filter.target_entity),
-                # returning_entity={**to_base_entity_dict(filter.returning_entity), "order": 0},
-                # target_entity={**to_base_entity_dict(filter.target_entity), "order": 0},
+                returning_entity=to_base_entity_dict(filter.returning_entity),
+                target_entity=to_base_entity_dict(filter.target_entity),
                 period=filter.period,
             )
         }
