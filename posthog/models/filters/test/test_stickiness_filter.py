@@ -37,7 +37,7 @@ class TestStickinessFilter(BaseTest):
                         "properties": {},
                     }
                 ],
-                "insight": "TRENDS",
+                "insight": "STICKINESS",
                 "interval": "month",
                 "sampling_factor": 0.1,
             },
