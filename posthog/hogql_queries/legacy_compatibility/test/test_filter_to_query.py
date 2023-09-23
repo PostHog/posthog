@@ -15,7 +15,6 @@ from posthog.schema import (
     CohortPropertyFilter,
     CountPerActorMathType,
     ElementPropertyFilter,
-    Entity,
     EntityType,
     EventPropertyFilter,
     EventsNode,
@@ -898,8 +897,8 @@ class TestFilterToQuery(BaseTest):
                 retention_type=RetentionType.retention_first_time,
                 total_intervals=12,
                 period=RetentionPeriod.Week,
-                returning_entity=Entity(id="$pageview", name="$pageview", type=EntityType.events, order=0),
-                target_entity=Entity(id="$pageview", name="$pageview", type=EntityType.events, order=0),
+                returning_entity=EventsNode(event="$pageview", name="$pageview"),
+                target_entity=EventsNode(event="$pageview", name="$pageview"),
             ),
         )
 

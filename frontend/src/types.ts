@@ -27,7 +27,9 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import {
+    ActionsNode,
     DatabaseSchemaQueryResponseField,
+    EventsNode,
     HogQLQuery,
     InsightQueryNode,
     InsightVizNode,
@@ -1735,8 +1737,8 @@ export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
     total_intervals?: number // retention total intervals
-    returning_entity?: Entity
-    target_entity?: Entity
+    returning_entity?: EventsNode | ActionsNode
+    target_entity?: EventsNode | ActionsNode
     period?: RetentionPeriod
 }
 export interface LifecycleFilterType extends FilterType {

@@ -498,17 +498,6 @@ class ElementPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class Entity(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    custom_name: Optional[str] = None
-    id: Union[str, float]
-    name: str
-    order: float
-    type: EntityType
-
-
 class EventPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -647,18 +636,6 @@ class PersonPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
-
-
-class RetentionFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    period: Optional[RetentionPeriod] = None
-    retention_reference: Optional[RetentionReference] = None
-    retention_type: Optional[RetentionType] = None
-    returning_entity: Optional[Entity] = None
-    target_entity: Optional[Entity] = None
-    total_intervals: Optional[float] = None
 
 
 class TimeToSeeDataSessionsQuery(BaseModel):
@@ -1010,6 +987,18 @@ class PropertyGroupFilter(BaseModel):
     )
     type: FilterLogicalOperator
     values: List[PropertyGroupFilterValue]
+
+
+class RetentionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    period: Optional[RetentionPeriod] = None
+    retention_reference: Optional[RetentionReference] = None
+    retention_type: Optional[RetentionType] = None
+    returning_entity: Optional[Union[EventsNode, ActionsNode]] = None
+    target_entity: Optional[Union[EventsNode, ActionsNode]] = None
+    total_intervals: Optional[float] = None
 
 
 class RetentionQuery(BaseModel):

@@ -530,28 +530,6 @@
             "additionalProperties": false,
             "type": "object"
         },
-        "Entity": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": ["string", "number"]
-                },
-                "name": {
-                    "type": "string"
-                },
-                "order": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EntityType"
-                }
-            },
-            "required": ["id", "name", "order", "type"],
-            "type": "object"
-        },
         "EntityType": {
             "enum": ["actions", "events", "new_entity"],
             "type": "string"
@@ -1860,10 +1838,24 @@
                     "$ref": "#/definitions/RetentionType"
                 },
                 "returning_entity": {
-                    "$ref": "#/definitions/Entity"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
                 },
                 "target_entity": {
-                    "$ref": "#/definitions/Entity"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
                 },
                 "total_intervals": {
                     "type": "number"
