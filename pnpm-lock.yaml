@@ -5450,8 +5450,8 @@ packages:
       '@tiptap/core': 2.1.0-rc.12(@tiptap/pm@2.1.0-rc.12)
     dev: false
 
-  /@tiptap/extension-bubble-menu@2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12):
-    resolution: {integrity: sha512-Q8DzlM61KAhrq742b0x4+Ey3WChp6X8mIvHRhNhdbChmgtNyKX1d8k72euUC6hKBCUwH4b+AQ5JVmmhoJTfsjQ==}
+  /@tiptap/extension-bubble-menu@2.1.10(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12):
+    resolution: {integrity: sha512-XxgJajXkfAj/fChXkIwKBs7/3pd7OxV1uGc6Opx1qW/nSRYx/rr97654Sx/sg6auwIlbpRoqTmyqjbykGX1/yA==}
     peerDependencies:
       '@tiptap/core': ^2.0.0
       '@tiptap/pm': ^2.0.0
@@ -5652,7 +5652,7 @@ packages:
       react-dom: ^17.0.0 || ^18.0.0
     dependencies:
       '@tiptap/core': 2.1.0-rc.12(@tiptap/pm@2.1.0-rc.12)
-      '@tiptap/extension-bubble-menu': 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
+      '@tiptap/extension-bubble-menu': 2.1.10(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
       '@tiptap/extension-floating-menu': 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
       '@tiptap/pm': 2.1.0-rc.12
       react: 16.14.0
