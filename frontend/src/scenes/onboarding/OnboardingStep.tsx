@@ -19,6 +19,7 @@ export const OnboardingStep = ({
 }): JSX.Element => {
     const { currentOnboardingStepNumber, totalOnboardingSteps } = useValues(onboardingLogic)
     const { setCurrentOnboardingStepNumber, completeOnboarding } = useActions(onboardingLogic)
+    const isLastStep = currentOnboardingStepNumber == totalOnboardingSteps
     return (
         <BridgePage
             view="onboarding-step"
@@ -47,13 +48,13 @@ export const OnboardingStep = ({
                         <LemonButton
                             type="tertiary"
                             onClick={() =>
-                                currentOnboardingStepNumber == totalOnboardingSteps
+                                isLastStep
                                     ? completeOnboarding()
                                     : setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
                             }
                             status="muted"
                         >
-                            Skip for now
+                            Skip {isLastStep ? 'and finish' : 'for now'}
                         </LemonButton>
                     )}
                     {continueOverride ? (

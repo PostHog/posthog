@@ -11,6 +11,7 @@ import { ProductKey } from '~/types'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
+import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -43,15 +44,16 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 
     const createAllSteps = (): void => {
         const ProductIntro = <OnboardingProductIntro product={product} />
+        const OtherProductsStep = <OnboardingOtherProductsStep />
         let steps = []
         if (Array.isArray(children)) {
             steps = [ProductIntro, ...children]
         } else {
-            steps = [ProductIntro, children as JSX.Element]
+            steps = [ProductIntro, children as JSX.Element, OtherProductsStep]
         }
         if (shouldShowBillingStep) {
             const BillingStep = <OnboardingBillingStep product={product} />
-            steps = [...steps, BillingStep]
+            steps = [...steps, BillingStep, OtherProductsStep]
         }
         setAllSteps(steps)
     }
