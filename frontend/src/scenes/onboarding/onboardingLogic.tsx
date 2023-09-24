@@ -42,7 +42,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
         completeOnboarding: (redirectUri: string | undefined | null) => ({ redirectUri }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: string) => ({ stepKey }),
-        setSubscribedDuringOnboarding: (subscribedDuringOnboarding) => ({ subscribedDuringOnboarding }),
+        setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
     },
     reducers: () => ({
         productKey: [
@@ -119,7 +119,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
                         p.type !== product?.type &&
                         !p.contact_support &&
                         !p.inclusion_only &&
-                        !currentTeam.has_completed_onboarding_for[p.type]
+                        !currentTeam?.has_completed_onboarding_for?.[p.type]
                 ) || [],
         ],
     },
