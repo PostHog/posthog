@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -32,7 +33,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
     path: ['scenes', 'onboarding', 'onboardingLogic'],
     connect: {
         values: [billingLogic, ['billing']],
-        actions: [billingLogic, ['loadBillingSuccess']],
+        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam']],
     },
     actions: {
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
@@ -131,6 +132,8 @@ export const onboardingLogic = kea<onboardingLogicType>({
             }
         },
         completeOnboarding: ({ redirectUri }) => {
+            values.productKey &&
+                actions.updateCurrentTeam({ has_completed_onboarding_for: { [values.productKey]: true } })
             window.location.href = redirectUri || values.onCompleteOnbardingRedirectUrl
         },
         setAllOnboardingSteps: ({ allOnboardingSteps }) => {
