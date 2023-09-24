@@ -14,6 +14,7 @@ import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { teamLogic } from 'scenes/teamLogic'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
+import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -93,7 +94,11 @@ const SessionReplayOnboarding = (): JSX.Element => {
     )
 }
 const FeatureFlagsOnboarding = (): JSX.Element => {
-    return <OnboardingWrapper>{/* <SDKs usersAction="loading flags" /> */}</OnboardingWrapper>
+    return (
+        <OnboardingWrapper>
+            <SDKs usersAction="loading flags" sdkInstructionMap={FeatureFlagsSDKInstructions} />
+        </OnboardingWrapper>
+    )
 }
 
 export function Onboarding(): JSX.Element | null {
