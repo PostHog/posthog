@@ -13,6 +13,7 @@ import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionRepla
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { teamLogic } from 'scenes/teamLogic'
+import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -67,6 +68,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <SDKs usersAction="collecting events" sdkInstructionMap={ProductAnalyticsSDKInstructions} />
+            <OnboardingVerificationStep listeningForName="event" teamPropertyToVerify="ingested_event" />
         </OnboardingWrapper>
     )
 }
@@ -85,7 +87,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             <SDKs
                 usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
-                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. if you already have the snippet installed, you can skip this step!"
+                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
             />
         </OnboardingWrapper>
     )
