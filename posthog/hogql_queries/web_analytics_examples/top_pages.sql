@@ -1,5 +1,6 @@
+WITH
 
-WITH scroll_depth_cte AS (
+scroll_depth_cte AS (
 SELECT
     events.properties.`$prev_pageview_pathname` AS pathname,
     countIf(events.event == '$pageview') as total_pageviews,
@@ -14,40 +15,65 @@ FROM
     events
 WHERE
     (event = '$pageview' OR event = '$pageleave') AND events.properties.`$prev_pageview_pathname` IS NOT NULL
+    AND events.timestamp >= now() - INTERVAL 7 DAY
 GROUP BY pathname
-),
+)
 
-bounce_rate_cte AS (
-SELECT
-    events.properties.$pathname as pathname,
-    countIf(events.event == '$pageview') as total_pageviews,
-    (COUNT(DISTINCT CASE
-        WHEN (raw_session_replay_events.click_count = 0 AND raw_session_replay_events.active_milliseconds < 60000)
-        THEN raw_session_replay_events.session_id
-        ELSE NULL
-    END) * 100.0) / COUNT(DISTINCT raw_session_replay_events.session_id) AS bounce_rate
+,
+
+session_cte AS (
+    SELECT
+    events.properties.`$session_id` AS session_id,
+    -- create a tuple so that these are grouped in the same order, see https://github.com/ClickHouse/ClickHouse/discussions/42338
+    groupArray((events.timestamp, events.properties.`$referrer`, events.properties.`$pathname`)) AS tuple_array,
+    min(events.timestamp) AS min_timestamp,
+    max(events.timestamp) AS max_timestamp,
+    dateDiff('second', min_timestamp, max_timestamp) AS duration_s,
+    arrayFirstIndex(x -> tupleElement(x, 1) == min_timestamp, tuple_array) as index_of_earliest,
+    arrayFirstIndex(x -> tupleElement(x, 1) == max_timestamp, tuple_array) as index_of_latest,
+    tupleElement(arrayElement(
+        tuple_array,
+        index_of_earliest
+    ), 2) AS earliest_referrer,
+    tupleElement(arrayElement(
+        tuple_array,
+        index_of_earliest
+    ), 3) AS earliest_pathname,
+    countIf(events.event == '$pageview') AS num_pageviews,
+    countIf(events.event == '$autocapture') AS num_autocaptures,
+    -- definition of a GA4 bounce from here https://support.google.com/analytics/answer/12195621?hl=en
+    (num_autocaptures == 0 AND num_pageviews <= 1 AND duration_s < 10) AS is_bounce
 FROM
     events
-INNER JOIN
-    raw_session_replay_events ON events.properties.$session_id = raw_session_replay_events.session_id
 WHERE
-    created_at >= now() - INTERVAL 7 DAY
+    session_id IS NOT NULL AND
+    events.timestamp >= now() - INTERVAL 8 DAY
 GROUP BY
-    pathname
-ORDER BY total_pageviews DESC
+    events.properties.`$session_id`
+HAVING min_timestamp >= now() - INTERVAL 7 DAY
 
 )
 
+,
+
+bounce_rate_cte AS (
+SELECT session_cte.earliest_pathname,
+       avg(session_cte.is_bounce) as bounce_rate
+FROM session_cte
+GROUP BY earliest_pathname
+)
+
+
+
 SELECT scroll_depth_cte.pathname as pathname,
 scroll_depth_cte.total_pageviews as total_pageviews,
-bounce_rate_cte.total_pageviews as total_pageviews_2,
 scroll_depth_cte.unique_visitors as unique_visitors,
 scroll_depth_cte.scroll_gt80_percentage as scroll_gt80_percentage,
 scroll_depth_cte.average_scroll_percentage as average_scroll_percentage,
 bounce_rate_cte.bounce_rate as bounce_rate
 FROM
     scroll_depth_cte LEFT OUTER JOIN bounce_rate_cte
-ON scroll_depth_cte.pathname = bounce_rate_cte.pathname
+ON scroll_depth_cte.pathname = bounce_rate_cte.earliest_pathname
 ORDER BY total_pageviews DESC
 
 
