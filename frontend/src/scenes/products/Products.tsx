@@ -96,13 +96,20 @@ export function Products(): JSX.Element {
                 </p>
             </div>
             {products.length > 0 ? (
-                <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
-                    {products
-                        .filter((product) => !product.contact_support && !product.inclusion_only)
-                        .map((product) => (
-                            <ProductCard product={product} key={product.type} />
-                        ))}
-                </div>
+                <>
+                    <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
+                        {products
+                            .filter((product) => !product.contact_support && !product.inclusion_only)
+                            .map((product) => (
+                                <ProductCard product={product} key={product.type} />
+                            ))}
+                    </div>
+                    <div className="mt-20">
+                        <LemonButton status="muted" to={urls.default()} size="small">
+                            None of these
+                        </LemonButton>
+                    </div>
+                </>
             ) : (
                 <Spinner className="text-3xl" />
             )}
