@@ -49,12 +49,13 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         if (Array.isArray(children)) {
             steps = [ProductIntro, ...children]
         } else {
-            steps = [ProductIntro, children as JSX.Element, OtherProductsStep]
+            steps = [ProductIntro, children as JSX.Element]
         }
         if (shouldShowBillingStep) {
             const BillingStep = <OnboardingBillingStep product={product} />
-            steps = [...steps, BillingStep, OtherProductsStep]
+            steps = [...steps, BillingStep]
         }
+        steps = [...steps, OtherProductsStep]
         setAllSteps(steps)
     }
 
