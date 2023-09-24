@@ -9,12 +9,14 @@ export const OnboardingStep = ({
     subtitle,
     children,
     showSkip = false,
+    onSkip,
     continueOverride,
 }: {
     title: string
     subtitle?: string
     children: React.ReactNode
     showSkip?: boolean
+    onSkip?: () => void
     continueOverride?: JSX.Element
 }): JSX.Element => {
     const { currentOnboardingStepNumber, totalOnboardingSteps } = useValues(onboardingLogic)
@@ -47,11 +49,12 @@ export const OnboardingStep = ({
                     {showSkip && (
                         <LemonButton
                             type="tertiary"
-                            onClick={() =>
+                            onClick={() => {
+                                onSkip && onSkip()
                                 isLastStep
                                     ? completeOnboarding()
                                     : setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
-                            }
+                            }}
                             status="muted"
                         >
                             Skip {isLastStep ? 'and finish' : 'for now'}
