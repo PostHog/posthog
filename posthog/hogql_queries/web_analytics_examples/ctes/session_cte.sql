@@ -14,7 +14,7 @@ SELECT
     tupleElement(arrayElement(
         tuple_array,
         index_of_earliest
-    ), 3) AS earlist_pathname,
+    ), 3) AS earliest_pathname,
     countIf(events.event == '$pageview') AS num_pageviews,
     countIf(events.event == '$autocapture') AS num_autocaptures,
     -- definition of a GA4 bounce from here https://support.google.com/analytics/answer/12195621?hl=en
