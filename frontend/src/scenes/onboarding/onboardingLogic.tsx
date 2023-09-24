@@ -13,7 +13,7 @@ export enum OnboardingStepKey {
     PRODUCT_INTRO = 'product_intro',
     SDKS = 'sdks',
     BILLING = 'billing',
-    PAIRS_WITH = 'pairs_with',
+    OTHER_PRODUCTS = 'other_products',
 }
 
 export type OnboardingStepMap = Record<OnboardingStepKey, string>
@@ -22,7 +22,7 @@ const onboardingStepMap: OnboardingStepMap = {
     [OnboardingStepKey.PRODUCT_INTRO]: 'OnboardingProductIntro',
     [OnboardingStepKey.SDKS]: 'SDKs',
     [OnboardingStepKey.BILLING]: 'OnboardingBillingStep',
-    [OnboardingStepKey.PAIRS_WITH]: 'OnboardingPairsWithStep',
+    [OnboardingStepKey.OTHER_PRODUCTS]: 'OnboardingOtherProductsStep',
 }
 
 export type AllOnboardingSteps = JSX.Element[]
@@ -38,7 +38,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
         setCurrentOnboardingStepNumber: (currentOnboardingStepNumber: number) => ({ currentOnboardingStepNumber }),
-        completeOnboarding: true,
+        completeOnboarding: (redirectUri: string | undefined | null) => ({ redirectUri }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: string) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding) => ({ subscribedDuringOnboarding }),
@@ -130,8 +130,8 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
             }
         },
-        completeOnboarding: () => {
-            window.location.href = values.onCompleteOnbardingRedirectUrl
+        completeOnboarding: ({ redirectUri }) => {
+            window.location.href = redirectUri || values.onCompleteOnbardingRedirectUrl
         },
         setAllOnboardingSteps: ({ allOnboardingSteps }) => {
             // once we have the onboarding steps we need to make sure the step key is valid,
