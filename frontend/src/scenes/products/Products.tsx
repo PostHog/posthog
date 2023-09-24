@@ -76,6 +76,8 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
 export function Products(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
     const products = billing?.products || []
 
     useEffect(() => {
@@ -87,9 +89,10 @@ export function Products(): JSX.Element {
     return (
         <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">
             <div className="mb-8">
-                <h1 className="text-center text-4xl">Pick your first product.</h1>
+                <h1 className="text-center text-4xl">Pick your {isFirstProduct ? 'first' : 'next'} product.</h1>
                 <p className="text-center">
-                    Pick your first product to get started with. You can set up any others you'd like later.
+                    Pick your {isFirstProduct ? 'first' : 'next'} product to get started with. You can set up any others
+                    you'd like later.
                 </p>
             </div>
             {products.length > 0 ? (
