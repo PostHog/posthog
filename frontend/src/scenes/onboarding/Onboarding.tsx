@@ -12,6 +12,7 @@ import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/Produc
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -21,7 +22,7 @@ export const scene: SceneExport = {
 /**
  * Wrapper for custom onboarding content. This automatically includes the product intro and billing step.
  */
-const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
+const OnboardingWrapper = ({ children, onStart }: { children: React.ReactNode; onStart?: () => void }): JSX.Element => {
     const { currentOnboardingStepNumber, shouldShowBillingStep } = useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
@@ -43,7 +44,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     }
 
     const createAllSteps = (): void => {
-        const ProductIntro = <OnboardingProductIntro product={product} />
+        const ProductIntro = <OnboardingProductIntro product={product} onStart={onStart} />
         const OtherProductsStep = <OnboardingOtherProductsStep />
         let steps = []
         if (Array.isArray(children)) {
@@ -70,8 +71,17 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
+    const { updateCurrentTeam } = useActions(teamLogic)
     return (
-        <OnboardingWrapper>
+        <OnboardingWrapper
+            onStart={() => {
+                updateCurrentTeam({
+                    session_recording_opt_in: true,
+                    capture_console_log_opt_in: true,
+                    capture_performance_opt_in: true,
+                })
+            }}
+        >
             <SDKs
                 usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
