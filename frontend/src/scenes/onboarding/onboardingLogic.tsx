@@ -15,6 +15,7 @@ export enum OnboardingStepKey {
     SDKS = 'sdks',
     BILLING = 'billing',
     OTHER_PRODUCTS = 'other_products',
+    VERIFY = 'verify',
 }
 
 export type OnboardingStepMap = Record<OnboardingStepKey, string>
@@ -24,6 +25,7 @@ const onboardingStepMap: OnboardingStepMap = {
     [OnboardingStepKey.SDKS]: 'SDKs',
     [OnboardingStepKey.BILLING]: 'OnboardingBillingStep',
     [OnboardingStepKey.OTHER_PRODUCTS]: 'OnboardingOtherProductsStep',
+    [OnboardingStepKey.VERIFY]: 'OnboardingVerificationStep',
 }
 
 export type AllOnboardingSteps = JSX.Element[]
@@ -39,7 +41,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
         setCurrentOnboardingStepNumber: (currentOnboardingStepNumber: number) => ({ currentOnboardingStepNumber }),
-        completeOnboarding: (redirectUri: string | undefined | null) => ({ redirectUri }),
+        completeOnboarding: (redirectUri?: string) => ({ redirectUri }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: string) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
