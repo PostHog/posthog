@@ -75,7 +75,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             <SDKs
                 usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
-                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library."
+                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. if you already have the snippet installed, you can skip this step!"
             />
         </OnboardingWrapper>
     )
