@@ -32,7 +32,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
     props: {} as OnboardingLogicProps,
     path: ['scenes', 'onboarding', 'onboardingLogic'],
     connect: {
-        values: [billingLogic, ['billing']],
+        values: [billingLogic, ['billing'], teamLogic, ['currentTeam']],
         actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam']],
     },
     actions: {
@@ -132,8 +132,15 @@ export const onboardingLogic = kea<onboardingLogicType>({
             }
         },
         completeOnboarding: ({ redirectUri }) => {
-            values.productKey &&
-                actions.updateCurrentTeam({ has_completed_onboarding_for: { [values.productKey]: true } })
+            if (values.productKey) {
+                // update the current team has_completed_onboarding_for field, only writing over the current product
+                actions.updateCurrentTeam({
+                    has_completed_onboarding_for: {
+                        ...values.currentTeam?.has_completed_onboarding_for,
+                        [values.productKey]: true,
+                    },
+                })
+            }
             window.location.href = redirectUri || values.onCompleteOnbardingRedirectUrl
         },
         setAllOnboardingSteps: ({ allOnboardingSteps }) => {
