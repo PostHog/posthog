@@ -2,16 +2,14 @@ import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { OnboardingStep } from './OnboardingStep'
 import { onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
 
 export const OnboardingOtherProductsStep = (): JSX.Element => {
-    const { product } = useValues(onboardingLogic)
+    const { product, suggestedProducts } = useValues(onboardingLogic)
     const { completeOnboarding } = useActions(onboardingLogic)
-    const { billing } = useValues(billingLogic)
-    const suggestedProducts = billing?.products?.filter(
-        (p) => p.type !== product?.type && !p.contact_support && !p.inclusion_only
-    )
+    if (suggestedProducts.length === 0) {
+        completeOnboarding()
+    }
 
     return (
         <OnboardingStep
