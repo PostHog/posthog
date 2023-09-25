@@ -24,17 +24,24 @@ SELECT
     if(domain(earliest_referrer) = '', earliest_referrer, domain(earliest_referrer)) AS referrer_domain,
     multiIf(
         earliest_utm_source IS NOT NULL, earliest_utm_source,
+        -- This will need to be an approach that scales better
         referrer_domain == 'app.posthog.com', 'posthog',
         referrer_domain == 'eu.posthog.com', 'posthog',
         referrer_domain == 'posthog.com', 'posthog',
         referrer_domain == 'www.google.com', 'google',
         referrer_domain == 'www.google.co.uk', 'google',
         referrer_domain == 'www.google.com.hk', 'google',
+        referrer_domain == 'www.google.de', 'google',
         referrer_domain == 't.co', 'twitter',
         referrer_domain == 'github.com', 'github',
+        referrer_domain == 'duckduckgo.com', 'duckduckgo',
+        referrer_domain == 'www.bing.com', 'bing',
         referrer_domain == 'bing.com', 'bing',
         referrer_domain == 'yandex.ru', 'yandex',
         referrer_domain == 'quora.com', 'quora',
+        referrer_domain == 'www.quora.com', 'quora',
+        referrer_domain == 'linkedin.com', 'linkedin',
+        startsWith(referrer_domain, 'http://localhost:'), 'localhost',
         referrer_domain
     ) AS blended_source,
 
