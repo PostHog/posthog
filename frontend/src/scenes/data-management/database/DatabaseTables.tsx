@@ -88,7 +88,9 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
                                               // TODO: Use `hogql` tag?
                                               query: `SELECT ${obj.columns
                                                   .filter(({ table, fields, chain }) => !table && !fields && !chain)
-                                                  .map(({ key }) => key)} FROM ${table} LIMIT 100`,
+                                                  .map(({ key }) => key)} FROM ${
+                                                  table === 'numbers' ? 'numbers(0, 10)' : table
+                                              } LIMIT 100`,
                                           },
                                       }
                                       return (
