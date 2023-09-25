@@ -332,7 +332,6 @@ export class SessionRecordingIngesterV2 {
             statsKey: `recordingingester.handleEachBatch`,
             logExecutionTime: true,
             func: async () => {
-                const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
                 histogramKafkaBatchSize.observe(messages.length)
 
                 const recordingMessages: IncomingRecordingMessage[] = []
@@ -385,16 +384,14 @@ export class SessionRecordingIngesterV2 {
                 })
 
                 await runInstrumentedFunction({
-                    statsKey: `recordingingester.handleEachBatch.consumeSerial`,
+                    statsKey: `recordingingester.handleEachBatch.consumeBatch`,
                     func: async () => {
-                        for (const message of recordingMessages) {
-                            const consumeSpan = transaction?.startChild({
-                                op: 'blobConsume',
-                            })
-
-                            await this.consume(message, consumeSpan)
-                            // TODO: We could do this as batch of offsets for the whole lot...
-                            consumeSpan?.finish()
+                        if (this.serverConfig.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
+                            await Promise.all(recordingMessages.map((x) => this.consume(x)))
+                        } else {
+                            for (const message of recordingMessages) {
+                                await this.consume(message)
+                            }
                         }
                     },
                 })
@@ -417,8 +414,6 @@ export class SessionRecordingIngesterV2 {
                         await this.flushAllReadySessions()
                     },
                 })
-
-                transaction.finish()
             },
         })
     }
@@ -544,7 +539,9 @@ export class SessionRecordingIngesterV2 {
             this.partitionAssignments[topicPartition.partition] = {}
         })
 
-        await this.partitionLocker.claim(topicPartitions)
+        if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
+            await this.partitionLocker.claim(topicPartitions)
+        }
         await this.offsetsRefresher.refresh()
     }
 
