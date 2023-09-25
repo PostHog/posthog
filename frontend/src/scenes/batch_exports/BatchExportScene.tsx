@@ -362,7 +362,7 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
 }
 
 export function BatchExportScene(): JSX.Element {
-    const { batchExportConfig, batchExportConfigLoading, showTab, activeTab } = useValues(batchExportLogic)
+    const { batchExportConfig, batchExportConfigLoading, activeTab } = useValues(batchExportLogic)
     const { loadBatchExportConfig, loadBatchExportRuns, openBackfillModal, pause, unpause, archive, setActiveTab } =
         useActions(batchExportLogic)
 
@@ -502,12 +502,12 @@ export function BatchExportScene(): JSX.Element {
                     activeKey={activeTab}
                     onChange={(newKey) => setActiveTab(newKey)}
                     tabs={[
-                        showTab(BatchExportTab.Runs) && {
+                        {
                             key: BatchExportTab.Runs,
                             label: <>Latest runs</>,
                             content: <RunsTab />,
                         },
-                        showTab(BatchExportTab.Logs) && {
+                        {
                             key: BatchExportTab.Logs,
                             label: <>Logs</>,
                             content: <LogsTab batchExportId={batchExportConfig.id} />,

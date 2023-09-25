@@ -243,13 +243,6 @@ export const batchExportLogic = kea<batchExportLogicType>([
         ],
 
         defaultTab: [(s) => [s.batchExportConfig], () => BatchExportTab.Runs],
-
-        showTab: [
-            () => [() => 1],
-            () => (): boolean => {
-                return true
-            },
-        ],
     })),
 
     listeners(({ actions, cache, props }) => ({
