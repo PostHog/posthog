@@ -15017,7 +15017,7 @@ packages:
     dev: false
 
   /posthog-js@1.81.0:
-    resolution: {integrity: sha512-Ax+qzJQtJjViZ9jJPS3sf2vlDd/xZHVHcEik3tEOY0LXLgJZhbUymqW1Lo3sqsKRvKjHSidPsodTpm5/K63h+Q==
+    resolution: {integrity: sha512-Ax+qzJQtJjViZ9jJPS3sf2vlDd/xZHVHcEik3tEOY0LXLgJZhbUymqW1Lo3sqsKRvKjHSidPsodTpm5/K63h+Q==}
     dependencies:
       fflate: 0.4.8
     dev: false
