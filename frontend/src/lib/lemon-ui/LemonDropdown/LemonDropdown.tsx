@@ -90,7 +90,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
                             }
                         },
                         onMouseLeave: (e: React.MouseEvent): void => {
-                            if (!floatingRef.current?.contains(e.relatedTarget as Node)) {
+                            if (trigger === 'hover' && !floatingRef.current?.contains(e.relatedTarget as Node)) {
                                 setLocalVisible(false)
                             }
                         },

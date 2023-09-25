@@ -1,5 +1,4 @@
 import './index.scss'
-import { Popover } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ProjectOutlined, LaptopOutlined, GlobalOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
@@ -8,8 +7,7 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { styles } from '../../../styles/vars'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonDropdown } from '@posthog/lemon-ui'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -121,12 +119,14 @@ function TZLabelRaw({
 
     if (showPopover) {
         return (
-            <Popover
-                content={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} />}
-                zIndex={styles.zPopover}
+            <LemonDropdown
+                trigger="hover"
+                placement="top"
+                showArrow
+                overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} />}
             >
                 {innerContent}
-            </Popover>
+            </LemonDropdown>
         )
     }
 

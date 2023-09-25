@@ -132,7 +132,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     floating.style.width = sameWidth ? `${rects.reference.width}px` : 'initial'
                 },
             }),
-            ...(showArrow ? [arrow({ element: arrowRef, padding: 4 })] : []),
+            ...(showArrow ? [arrow({ element: arrowRef, padding: 8 })] : []),
             ...(middleware ?? []),
         ],
     })
