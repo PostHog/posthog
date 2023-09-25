@@ -2108,7 +2108,7 @@ export interface SurveyAppearance {
     thankYouMessageDescription?: string
 }
 
-interface SurveyQuestionBase {
+export interface SurveyQuestionBase {
     question: string
     description?: string | null
     required?: boolean

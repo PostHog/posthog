@@ -1119,7 +1119,8 @@ export function sampleOne<T>(items: T[]): T {
     if (!items.length) {
         throw Error('Items array is empty!')
     }
-    return items[Math.floor(Math.random() * items.length)]
+    const index = inStorybookTestRunner() ? 0 : Math.floor(Math.random() * items.length)
+    return items[index]
 }
 
 /** Convert camelCase, PascalCase or snake_case to Sentence case or Title Case. */

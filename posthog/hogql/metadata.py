@@ -61,6 +61,8 @@ def get_hogql_metadata(
 
 
 def is_valid_view(select_query: ast.SelectQuery | ast.SelectUnionQuery) -> bool:
+    if not isinstance(select_query, ast.SelectQuery):
+        return False
     for field in select_query.select:
         if not isinstance(field, ast.Alias):
             return False

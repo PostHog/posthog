@@ -26,7 +26,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
+    const { notebook, content, notebookLoading, editor, conflictWarningVisible } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
         useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -57,14 +57,6 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
         return <NotebookLoadingState />
     } else if (!notebook) {
         return <NotFound object="notebook" />
-    } else if (isEmpty && !editable) {
-        return (
-            <div className="NotebookEditor">
-                <h1>
-                    <i>Untitled</i>
-                </h1>
-            </div>
-        )
     }
 
     return (

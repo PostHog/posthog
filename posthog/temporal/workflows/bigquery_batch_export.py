@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from django.conf import settings
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BigQueryBatchExportInputs
@@ -253,12 +253,21 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                 ),
             )
 
+        except exceptions.ActivityError as e:
+            if isinstance(e.cause, exceptions.CancelledError):
+                workflow.logger.exception("BigQuery BatchExport was cancelled.")
+                update_inputs.status = "Cancelled"
+            else:
+                workflow.logger.exception("BigQuery BatchExport failed.", exc_info=e)
+                update_inputs.status = "Failed"
+
+            update_inputs.latest_error = str(e.cause)
+            raise
+
         except Exception as e:
-            workflow.logger.exception("Bigquery BatchExport failed.", exc_info=e)
+            workflow.logger.exception("BigQuery BatchExport failed with an unexpected exception.", exc_info=e)
             update_inputs.status = "Failed"
-            # Note: This shallows the exception type, but the message should be enough.
-            # If not, swap to repr(e)
-            update_inputs.latest_error = str(e)
+            update_inputs.latest_error = "An unexpected error has ocurred"
             raise
 
         finally:

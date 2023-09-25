@@ -155,7 +155,8 @@ def iter_batch_records(batch) -> typing.Generator[dict[str, typing.Any], None, N
             "set": properties.get("$set", None) if properties else None,
             "set_once": properties.get("$set_once", None) if properties else None,
             "properties": properties,
-            "site_url": properties.get("$current_url", None) if properties else None,
+            # Kept for backwards compatibility, but not exported anymore.
+            "site_url": "",
             "team_id": record.get("team_id"),
             "timestamp": record.get("timestamp").isoformat(),
             "uuid": record.get("uuid").decode(),

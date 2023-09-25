@@ -40,10 +40,6 @@
         transition: transform var(--notebook-popover-transition-properties),
             width var(--notebook-popover-transition-properties);
 
-        > * + * {
-            margin-top: 1rem;
-        }
-
         .NotebookPopover__content__card {
             flex: 1;
             display: flex;
@@ -102,6 +98,7 @@
 
     transition: all 150ms;
     height: 4rem;
+    margin-bottom: 1rem;
     backdrop-filter: blur(5px);
     display: flex;
 
