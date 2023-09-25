@@ -32,7 +32,7 @@ require('@sentry/tracing')
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const PARTITION_LOCK_INTERVAL_MS = 10000
-const HIGH_WATERMARK_KEY = 'session_replay_blob_ingester'
+const PARTITION_WATERMARK_KEY = 'session_replay_blob_ingester'
 
 // const flushIntervalTimeoutMs = 30000
 
@@ -97,7 +97,8 @@ type PartitionMetrics = {
 export class SessionRecordingIngesterV2 {
     redisPool: RedisPool
     sessions: Record<string, SessionManager> = {}
-    offsetHighWaterMarker: OffsetHighWaterMarker
+    sessionHighWaterMarker: OffsetHighWaterMarker
+    persistentHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager
     replayEventsIngester: ReplayEventsIngester
     partitionLocker: PartitionLocker
@@ -124,13 +125,18 @@ export class SessionRecordingIngesterV2 {
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
         this.partitionLocker = new PartitionLocker(this.redisPool, this.config.SESSION_RECORDING_REDIS_PREFIX)
 
-        this.offsetHighWaterMarker = new OffsetHighWaterMarker(
+        this.sessionHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
             this.config.SESSION_RECORDING_REDIS_PREFIX
         )
 
+        this.persistentHighWaterMarker = new OffsetHighWaterMarker(
+            this.redisPool,
+            this.config.SESSION_RECORDING_REDIS_PREFIX + 'persistent/'
+        )
+
         // NOTE: This is the only place where we need to use the shared server config
-        this.replayEventsIngester = new ReplayEventsIngester(globalServerConfig, this.offsetHighWaterMarker)
+        this.replayEventsIngester = new ReplayEventsIngester(globalServerConfig, this.persistentHighWaterMarker)
 
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
@@ -206,7 +212,9 @@ export class SessionRecordingIngesterV2 {
         })
 
         // Check that we are not below the high water mark for this partition (another consumer may have flushed further than us when revoking)
-        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, HIGH_WATERMARK_KEY, offset)) {
+        if (
+            await this.persistentHighWaterMarker.isBelowHighWaterMark(event.metadata, PARTITION_WATERMARK_KEY, offset)
+        ) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
@@ -218,7 +226,7 @@ export class SessionRecordingIngesterV2 {
             return
         }
 
-        if (await this.offsetHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, offset)) {
+        if (await this.sessionHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, offset)) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
@@ -237,7 +245,7 @@ export class SessionRecordingIngesterV2 {
                 this.config,
                 this.objectStorage.s3,
                 this.realtimeManager,
-                this.offsetHighWaterMarker,
+                this.sessionHighWaterMarker,
                 team_id,
                 session_id,
                 partition,
@@ -589,7 +597,8 @@ export class SessionRecordingIngesterV2 {
             gaugeLagMilliseconds.remove({ partition })
             gaugeOffsetCommitted.remove({ partition })
             gaugeOffsetCommitFailed.remove({ partition })
-            this.offsetHighWaterMarker.revoke(topicPartition)
+            this.sessionHighWaterMarker.revoke(topicPartition)
+            this.persistentHighWaterMarker.revoke(topicPartition)
         })
 
         gaugeSessionsRevoked.set(sessionsToDrop.length)
@@ -719,8 +728,10 @@ export class SessionRecordingIngesterV2 {
             offset: highestOffsetToCommit + 1,
         })
 
-        await this.offsetHighWaterMarker.add(topicPartition, HIGH_WATERMARK_KEY, highestOffsetToCommit)
-        await this.offsetHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
+        // Store the committed offset to the persistent store to avoid rebalance issues
+        await this.persistentHighWaterMarker.add(topicPartition, PARTITION_WATERMARK_KEY, highestOffsetToCommit)
+        // Clear all session offsets below the committed offset (as we know they have been flushed)
+        await this.sessionHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
         gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
     }
 
