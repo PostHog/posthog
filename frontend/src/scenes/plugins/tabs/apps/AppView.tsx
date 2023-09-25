@@ -82,7 +82,7 @@ export function AppView({
                                 </>
                             }
                         >
-                            <LemonButton onClick={() => openReorderModal()} noPadding>
+                            <LemonButton onClick={openReorderModal} noPadding>
                                 {orderedIndex ? (
                                     <LemonBadge.Number status="primary" count={orderedIndex} maxDigits={3} />
                                 ) : (
