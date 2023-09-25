@@ -12,6 +12,7 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 interface DefinitionPopoverProps {
     children: React.ReactNode
@@ -98,7 +99,11 @@ function Header({
 }
 
 function Description({ description }: { description: React.ReactNode }): JSX.Element {
-    return <div className="definition-popover-description">{description}</div>
+    return (
+        <LemonMarkdown className="definition-popover-description" lowKeyHeadings>
+            {description}
+        </LemonMarkdown>
+    )
 }
 
 function DescriptionEmpty(): JSX.Element {
