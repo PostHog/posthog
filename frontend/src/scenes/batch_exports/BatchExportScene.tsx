@@ -1,10 +1,12 @@
+import { Checkbox } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonDivider, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonInput } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
-import { BatchExportLogicProps, batchExportLogic } from './batchExportLogic'
+import { BatchExportLogicProps, batchExportLogic, BatchExportTab } from './batchExportLogic'
+import { BatchExportLogsProps, batchExportLogsLogic, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
@@ -18,6 +20,11 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ResizableTable, ResizableColumnType } from 'lib/components/ResizableTable'
+import { dayjs } from 'lib/dayjs'
+import { BatchExportLogEntryLevel, BatchExportLogEntry } from '~/types'
+import { pluralize } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -27,28 +34,337 @@ export const scene: SceneExport = {
     }),
 }
 
-export function BatchExportScene(): JSX.Element {
+export function RunsTab(): JSX.Element {
     const {
         batchExportRunsResponse,
         batchExportConfig,
-        batchExportConfigLoading,
         groupedRuns,
         batchExportRunsResponseLoading,
         runsDateRange,
+        batchExportConfigLoading,
     } = useValues(batchExportLogic)
-    const {
-        loadBatchExportConfig,
-        loadBatchExportRuns,
-        loadNextBatchExportRuns,
-        openBackfillModal,
-        setRunsDateRange,
-        retryRun,
-        pause,
-        unpause,
-        archive,
-    } = useActions(batchExportLogic)
+    const { loadNextBatchExportRuns, openBackfillModal, setRunsDateRange, retryRun } = useActions(batchExportLogic)
 
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
+
+    if (!batchExportConfig && !batchExportConfigLoading) {
+        return <NotFound object={'Batch Export'} />
+    }
+
+    return (
+        <div className="flex items-start mt-4 gap-8 flex-wrap">
+            <div className="flex-1 space-y-2">
+                <div className="flex justify-between items-start">
+                    <h2 className="flex-1">Latest Runs</h2>
+                    <Popover
+                        actionable
+                        onClickOutside={function noRefCheck() {
+                            setDateRangeVisible(false)
+                        }}
+                        visible={dateRangeVisible}
+                        overlay={
+                            <LemonCalendarRange
+                                value={[runsDateRange.from, runsDateRange.to]}
+                                onChange={([start, end]) => {
+                                    setRunsDateRange({ from: start.startOf('day'), to: end.endOf('day') })
+                                    setDateRangeVisible(false)
+                                }}
+                                onClose={function noRefCheck() {
+                                    setDateRangeVisible(false)
+                                }}
+                            />
+                        }
+                    >
+                        <LemonButton
+                            onClick={function onClick() {
+                                setDateRangeVisible(!dateRangeVisible)
+                            }}
+                            type="secondary"
+                            status="stealth"
+                            size="small"
+                        >
+                            {runsDateRange.from.format('MMMM D, YYYY')} - {runsDateRange.to.format('MMMM D, YYYY')}
+                        </LemonButton>
+                    </Popover>
+                </div>
+                <LemonTable
+                    dataSource={groupedRuns}
+                    loading={batchExportRunsResponseLoading}
+                    loadingSkeletonRows={5}
+                    footer={
+                        batchExportRunsResponse?.next && (
+                            <div className="flex items-center m-2">
+                                <LemonButton
+                                    center
+                                    fullWidth
+                                    onClick={loadNextBatchExportRuns}
+                                    loading={batchExportRunsResponseLoading}
+                                >
+                                    Load more button in the footer!
+                                </LemonButton>
+                            </div>
+                        )
+                    }
+                    expandable={{
+                        noIndent: true,
+                        expandedRowRender: (groupedRuns) => {
+                            return (
+                                <LemonTable
+                                    dataSource={groupedRuns.runs}
+                                    embedded={true}
+                                    size="small"
+                                    columns={[
+                                        {
+                                            title: 'Status',
+                                            key: 'status',
+                                            width: 0,
+                                            render: (_, run) => <BatchExportRunIcon runs={[run]} showLabel />,
+                                        },
+                                        {
+                                            title: 'ID',
+                                            key: 'runId',
+                                            render: (_, run) => run.id,
+                                        },
+                                        {
+                                            title: 'Run start',
+                                            key: 'runStart',
+                                            tooltip: 'Date and time when this BatchExport run started',
+                                            render: (_, run) => <TZLabel time={run.created_at} />,
+                                        },
+                                    ]}
+                                />
+                            )
+                        },
+                    }}
+                    columns={[
+                        {
+                            key: 'icon',
+                            width: 0,
+                            render: (_, groupedRun) => {
+                                return <BatchExportRunIcon runs={groupedRun.runs} />
+                            },
+                        },
+
+                        {
+                            title: 'Data interval start',
+                            key: 'dataIntervalStart',
+                            tooltip: 'Start of the time range to export',
+                            render: (_, run) => {
+                                return (
+                                    <TZLabel
+                                        time={run.data_interval_start}
+                                        formatDate="MMMM DD, YYYY"
+                                        formatTime="HH:mm:ss"
+                                    />
+                                )
+                            },
+                        },
+                        {
+                            title: 'Data interval end',
+                            key: 'dataIntervalEnd',
+                            tooltip: 'End of the time range to export',
+                            render: (_, run) => {
+                                return (
+                                    <TZLabel
+                                        time={run.data_interval_end}
+                                        formatDate="MMMM DD, YYYY"
+                                        formatTime="HH:mm:ss"
+                                    />
+                                )
+                            },
+                        },
+                        {
+                            title: 'Latest run start',
+                            key: 'runStart',
+                            tooltip: 'Date and time when this BatchExport run started',
+                            render: (_, groupedRun) => {
+                                return <TZLabel time={groupedRun.last_run_at} />
+                            },
+                        },
+                        {
+                            // title: 'Actions',
+                            key: 'actions',
+                            width: 0,
+                            render: function RenderName(_, groupedRun) {
+                                return (
+                                    <span className="flex items-center gap-1">
+                                        {!isRunInProgress(groupedRun.runs[0]) && (
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                icon={<IconRefresh />}
+                                                onClick={() =>
+                                                    LemonDialog.open({
+                                                        title: 'Retry export?',
+                                                        description: (
+                                                            <>
+                                                                <p>
+                                                                    This will schedule a new run for the same interval.
+                                                                    Any changes to the configuration will be applied to
+                                                                    the new run.
+                                                                </p>
+                                                                <p>
+                                                                    <b>Please note -</b> there may be a slight delay
+                                                                    before the new run appears.
+                                                                </p>
+                                                            </>
+                                                        ),
+                                                        width: '20rem',
+                                                        primaryButton: {
+                                                            children: 'Retry',
+                                                            onClick: () => retryRun(groupedRun.runs[0]),
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    })
+                                                }
+                                            />
+                                        )}
+                                    </span>
+                                )
+                            },
+                        },
+                    ]}
+                    emptyState={
+                        <>
+                            No runs yet. Your exporter runs every <b>{batchExportConfig.interval}</b>.
+                            <br />
+                            <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                                Create historic export
+                            </LemonButton>
+                        </>
+                    }
+                />
+            </div>
+        </div>
+    )
+}
+
+function BatchExportLogEntryLevelDisplay(type: BatchExportLogEntryLevel): JSX.Element {
+    let color: string | undefined
+    switch (type) {
+        case BatchExportLogEntryLevel.Debug:
+            color = 'var(--muted)'
+            break
+        case BatchExportLogEntryLevel.Log:
+            color = 'var(--default)'
+            break
+        case BatchExportLogEntryLevel.Info:
+            color = 'var(--blue)'
+            break
+        case BatchExportLogEntryLevel.Warning:
+            color = 'var(--warning)'
+            break
+        case BatchExportLogEntryLevel.Error:
+            color = 'var(--danger)'
+            break
+        default:
+            break
+    }
+    return <span style={{ color }}>{type}</span>
+}
+
+const columns: ResizableColumnType<BatchExportLogEntry>[] = [
+    {
+        title: 'Timestamp',
+        key: 'timestamp',
+        dataIndex: 'timestamp',
+        span: 3,
+        render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
+    },
+    {
+        title: 'Level',
+        key: 'level',
+        dataIndex: 'level',
+        span: 1,
+        render: BatchExportLogEntryLevelDisplay,
+    } as ResizableColumnType<BatchExportLogEntry>,
+    {
+        title: 'Message',
+        key: 'message',
+        dataIndex: 'message',
+        span: 6,
+    } as ResizableColumnType<BatchExportLogEntry>,
+]
+
+export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
+    const { activeTab, batchExportConfig, batchExportConfigLoading } = useValues(batchExportLogic)
+
+    if (!batchExportConfig || batchExportConfigLoading || !activeTab) {
+        return <LemonSkeleton />
+    }
+
+    const logic = batchExportLogsLogic({ batchExportId })
+    const {
+        batchExportLogs,
+        batchExportLogsLoading,
+        batchExportLogsBackground,
+        isThereMoreToLoad,
+        batchExportLogsTypes,
+    } = useValues(logic)
+    const { revealBackground, loadBatchExportLogsMore, setBatchExportLogsTypes, setSearchTerm } = useActions(logic)
+
+    return (
+        <div className="ph-no-capture space-y-2 flex-1">
+            <LemonInput
+                type="search"
+                placeholder="Search for messages containing…"
+                fullWidth
+                onChange={setSearchTerm}
+                allowClear
+            />
+            <div className="flex items-center gap-2">
+                <span>Show logs of type:&nbsp;</span>
+                <Checkbox.Group
+                    options={Object.values(BatchExportLogEntryLevel)}
+                    value={batchExportLogsTypes}
+                    onChange={setBatchExportLogsTypes}
+                    style={{ marginLeft: '8px' }}
+                />
+            </div>
+            <LemonButton
+                onClick={revealBackground}
+                loading={batchExportLogsLoading}
+                type="secondary"
+                fullWidth
+                center
+                disabledReason={!batchExportLogsBackground.length ? "There's nothing to load" : undefined}
+            >
+                {batchExportLogsBackground.length
+                    ? `Load ${pluralize(batchExportLogsBackground.length, 'newer entry', 'newer entries')}`
+                    : 'No new entries'}
+            </LemonButton>
+            <ResizableTable
+                dataSource={batchExportLogs}
+                columns={columns}
+                loading={batchExportLogsLoading}
+                size="small"
+                className="ph-no-capture"
+                rowKey="id"
+                style={{ flexGrow: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+                pagination={{ pageSize: 200, hideOnSinglePage: true }}
+            />
+            {!!batchExportLogs.length && (
+                <LemonButton
+                    onClick={loadBatchExportLogsMore}
+                    loading={batchExportLogsLoading}
+                    type="secondary"
+                    fullWidth
+                    center
+                    disabledReason={!isThereMoreToLoad ? "There's nothing mote to load" : undefined}
+                >
+                    {isThereMoreToLoad ? `Load up to ${LOGS_PORTION_LIMIT} older entries` : 'No older entries'}
+                </LemonButton>
+            )}
+        </div>
+    )
+}
+
+export function BatchExportScene(): JSX.Element {
+    const { batchExportConfig, batchExportConfigLoading, showTab, activeTab } = useValues(batchExportLogic)
+    const { loadBatchExportConfig, loadBatchExportRuns, openBackfillModal, pause, unpause, archive, setActiveTab } =
+        useActions(batchExportLogic)
 
     useEffect(() => {
         loadBatchExportConfig()
@@ -181,194 +497,23 @@ export function BatchExportScene(): JSX.Element {
                 )}
             </div>
 
-            {batchExportConfig ? (
-                <div className="flex items-start mt-4 gap-8 flex-wrap">
-                    <div className="flex-1 space-y-2">
-                        <div className="flex justify-between items-start">
-                            <h2 className="flex-1">Latest Runs</h2>
-                            <Popover
-                                actionable
-                                onClickOutside={function noRefCheck() {
-                                    setDateRangeVisible(false)
-                                }}
-                                visible={dateRangeVisible}
-                                overlay={
-                                    <LemonCalendarRange
-                                        value={[runsDateRange.from, runsDateRange.to]}
-                                        onChange={([start, end]) => {
-                                            setRunsDateRange({ from: start.startOf('day'), to: end.endOf('day') })
-                                            setDateRangeVisible(false)
-                                        }}
-                                        onClose={function noRefCheck() {
-                                            setDateRangeVisible(false)
-                                        }}
-                                    />
-                                }
-                            >
-                                <LemonButton
-                                    onClick={function onClick() {
-                                        setDateRangeVisible(!dateRangeVisible)
-                                    }}
-                                    type="secondary"
-                                    status="stealth"
-                                    size="small"
-                                >
-                                    {runsDateRange.from.format('MMMM D, YYYY')} -{' '}
-                                    {runsDateRange.to.format('MMMM D, YYYY')}
-                                </LemonButton>
-                            </Popover>
-                        </div>
-                        <LemonTable
-                            dataSource={groupedRuns}
-                            loading={batchExportRunsResponseLoading}
-                            loadingSkeletonRows={5}
-                            footer={
-                                batchExportRunsResponse?.next && (
-                                    <div className="flex items-center m-2">
-                                        <LemonButton
-                                            center
-                                            fullWidth
-                                            onClick={loadNextBatchExportRuns}
-                                            loading={batchExportRunsResponseLoading}
-                                        >
-                                            Load more button in the footer!
-                                        </LemonButton>
-                                    </div>
-                                )
-                            }
-                            expandable={{
-                                noIndent: true,
-                                expandedRowRender: (groupedRuns) => {
-                                    return (
-                                        <LemonTable
-                                            dataSource={groupedRuns.runs}
-                                            embedded={true}
-                                            size="small"
-                                            columns={[
-                                                {
-                                                    title: 'Status',
-                                                    key: 'status',
-                                                    width: 0,
-                                                    render: (_, run) => <BatchExportRunIcon runs={[run]} showLabel />,
-                                                },
-                                                {
-                                                    title: 'ID',
-                                                    key: 'runId',
-                                                    render: (_, run) => run.id,
-                                                },
-                                                {
-                                                    title: 'Run start',
-                                                    key: 'runStart',
-                                                    tooltip: 'Date and time when this BatchExport run started',
-                                                    render: (_, run) => <TZLabel time={run.created_at} />,
-                                                },
-                                            ]}
-                                        />
-                                    )
-                                },
-                            }}
-                            columns={[
-                                {
-                                    key: 'icon',
-                                    width: 0,
-                                    render: (_, groupedRun) => {
-                                        return <BatchExportRunIcon runs={groupedRun.runs} />
-                                    },
-                                },
-
-                                {
-                                    title: 'Data interval start',
-                                    key: 'dataIntervalStart',
-                                    tooltip: 'Start of the time range to export',
-                                    render: (_, run) => {
-                                        return (
-                                            <TZLabel
-                                                time={run.data_interval_start}
-                                                formatDate="MMMM DD, YYYY"
-                                                formatTime="HH:mm:ss"
-                                            />
-                                        )
-                                    },
-                                },
-                                {
-                                    title: 'Data interval end',
-                                    key: 'dataIntervalEnd',
-                                    tooltip: 'End of the time range to export',
-                                    render: (_, run) => {
-                                        return (
-                                            <TZLabel
-                                                time={run.data_interval_end}
-                                                formatDate="MMMM DD, YYYY"
-                                                formatTime="HH:mm:ss"
-                                            />
-                                        )
-                                    },
-                                },
-                                {
-                                    title: 'Latest run start',
-                                    key: 'runStart',
-                                    tooltip: 'Date and time when this BatchExport run started',
-                                    render: (_, groupedRun) => {
-                                        return <TZLabel time={groupedRun.last_run_at} />
-                                    },
-                                },
-                                {
-                                    // title: 'Actions',
-                                    key: 'actions',
-                                    width: 0,
-                                    render: function RenderName(_, groupedRun) {
-                                        return (
-                                            <span className="flex items-center gap-1">
-                                                {!isRunInProgress(groupedRun.runs[0]) && (
-                                                    <LemonButton
-                                                        size="small"
-                                                        type="secondary"
-                                                        icon={<IconRefresh />}
-                                                        onClick={() =>
-                                                            LemonDialog.open({
-                                                                title: 'Retry export?',
-                                                                description: (
-                                                                    <>
-                                                                        <p>
-                                                                            This will schedule a new run for the same
-                                                                            interval. Any changes to the configuration
-                                                                            will be applied to the new run.
-                                                                        </p>
-                                                                        <p>
-                                                                            <b>Please note -</b> there may be a slight
-                                                                            delay before the new run appears.
-                                                                        </p>
-                                                                    </>
-                                                                ),
-                                                                width: '20rem',
-                                                                primaryButton: {
-                                                                    children: 'Retry',
-                                                                    onClick: () => retryRun(groupedRun.runs[0]),
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                },
-                                                            })
-                                                        }
-                                                    />
-                                                )}
-                                            </span>
-                                        )
-                                    },
-                                },
-                            ]}
-                            emptyState={
-                                <>
-                                    No runs yet. Your exporter runs every <b>{batchExportConfig.interval}</b>.
-                                    <br />
-                                    <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                        Create historic export
-                                    </LemonButton>
-                                </>
-                            }
-                        />
-                    </div>
-                </div>
+            {batchExportConfig && activeTab ? (
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(newKey) => setActiveTab(newKey)}
+                    tabs={[
+                        showTab(BatchExportTab.Runs) && {
+                            key: BatchExportTab.Runs,
+                            label: <>Latest runs</>,
+                            content: <RunsTab />,
+                        },
+                        showTab(BatchExportTab.Logs) && {
+                            key: BatchExportTab.Logs,
+                            label: <>Logs</>,
+                            content: <LogsTab batchExportId={batchExportConfig.id} />,
+                        },
+                    ]}
+                />
             ) : null}
 
             <BatchExportBackfillModal />

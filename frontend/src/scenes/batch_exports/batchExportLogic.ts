@@ -16,6 +16,11 @@ export type BatchExportLogicProps = {
     id: string
 }
 
+export enum BatchExportTab {
+    Runs = 'runs',
+    Logs = 'logs',
+}
+
 // TODO: Fix this
 const RUNS_REFRESH_INTERVAL = 5000
 
@@ -58,9 +63,16 @@ export const batchExportLogic = kea<batchExportLogicType>([
         closeBackfillModal: true,
         retryRun: (run: BatchExportRun) => ({ run }),
         setRunsDateRange: (data: { from: Dayjs; to: Dayjs }) => data,
+        setActiveTab: (tab: BatchExportTab) => ({ tab }),
     }),
 
     reducers({
+        activeTab: [
+            'runs' as BatchExportTab | null,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         runsDateRange: [
             { from: dayjs().subtract(7, 'day').startOf('day'), to: dayjs().endOf('day') } as { from: Dayjs; to: Dayjs },
             {
@@ -228,6 +240,15 @@ export const batchExportLogic = kea<batchExportLogicType>([
         batchExportRuns: [
             (s) => [s.batchExportRunsResponse],
             (batchExportRunsResponse): BatchExportRun[] => batchExportRunsResponse?.results ?? [],
+        ],
+
+        defaultTab: [(s) => [s.batchExportConfig], () => BatchExportTab.Runs],
+
+        showTab: [
+            () => [() => 1],
+            () => (): boolean => {
+                return true
+            },
         ],
     })),
 
