@@ -88,7 +88,7 @@ describe('ingester', () => {
 
     // these tests assume that a flush won't run while they run
     beforeEach(async () => {
-        ingester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
+        ingester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage)
         await ingester.start()
     })
 
@@ -339,7 +339,7 @@ describe('ingester', () => {
         jest.setTimeout(5000) // Increased to cover lock delay
 
         beforeEach(async () => {
-            otherIngester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
+            otherIngester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage)
             await otherIngester.start()
         })
 

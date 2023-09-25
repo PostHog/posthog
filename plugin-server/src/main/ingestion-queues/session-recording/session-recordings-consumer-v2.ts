@@ -13,6 +13,7 @@ import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId 
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
+import { createRedisPool } from '../../../utils/utils'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
@@ -94,6 +95,7 @@ type PartitionMetrics = {
 }
 
 export class SessionRecordingIngesterV2 {
+    redisPool: RedisPool
     sessions: Record<string, SessionManager> = {}
     offsetHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager
@@ -112,10 +114,11 @@ export class SessionRecordingIngesterV2 {
     constructor(
         private serverConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
-        private objectStorage: ObjectStorage,
-        private redisPool: RedisPool
+        private objectStorage: ObjectStorage
     ) {
         this.recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
+        this.redisPool = createRedisPool(this.serverConfig)
+
         this.realtimeManager = new RealtimeManager(this.redisPool, this.recordingConsumerConfig)
         this.partitionLocker = new PartitionLocker(
             this.redisPool,
@@ -525,6 +528,9 @@ export class SessionRecordingIngesterV2 {
 
         await this.realtimeManager.unsubscribe()
         await this.replayEventsIngester.stop()
+        await this.redisPool.drain()
+        await this.redisPool.clear()
+
         await Promise.allSettled(this.promises)
         status.info('👍', 'blob_ingester_consumer - stopped!')
     }
