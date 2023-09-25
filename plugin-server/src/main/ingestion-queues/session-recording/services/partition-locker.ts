@@ -83,7 +83,7 @@ export class PartitionLocker {
                         `PartitionLocker failed to claim keys. Waiting ${this.delay} before retrying...`,
                         {
                             id: this.consumerID,
-                            blockingConsumers,
+                            blockingConsumers: [...blockingConsumers],
                         }
                     )
                     await new Promise((r) => setTimeout(r, this.delay))
@@ -131,6 +131,7 @@ export class PartitionLocker {
                     keys,
                 },
             })
+            throw error
         }
     }
 }
