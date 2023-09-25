@@ -409,6 +409,11 @@ describe('ingester', () => {
                 otherIngester.onAssignPartitions([createTP(2), createTP(3)]),
             ]
 
+            // Should immediately be removed from the tracked sessions
+            expect(
+                Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
+            ).toEqual(['1:session_id_1:1', '1:session_id_2:1'])
+
             // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
             // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
             await otherIngester.handleEachBatch([
