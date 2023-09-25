@@ -528,10 +528,13 @@ export class SessionRecordingIngesterV2 {
 
         await this.realtimeManager.unsubscribe()
         await this.replayEventsIngester.stop()
+
+        await Promise.allSettled(this.promises)
+
+        // Finally we clear up redis once we are sure everything else has been handled
         await this.redisPool.drain()
         await this.redisPool.clear()
 
-        await Promise.allSettled(this.promises)
         status.info('👍', 'blob_ingester_consumer - stopped!')
     }
 
