@@ -13,6 +13,7 @@ import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId 
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
+import { createRedisPool } from '../../../utils/utils'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
@@ -94,6 +95,7 @@ type PartitionMetrics = {
 }
 
 export class SessionRecordingIngesterV2 {
+    redisPool: RedisPool
     sessions: Record<string, SessionManager> = {}
     offsetHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager
@@ -112,10 +114,11 @@ export class SessionRecordingIngesterV2 {
     constructor(
         private serverConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
-        private objectStorage: ObjectStorage,
-        private redisPool: RedisPool
+        private objectStorage: ObjectStorage
     ) {
         this.recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
+        this.redisPool = createRedisPool(this.serverConfig)
+
         this.realtimeManager = new RealtimeManager(this.redisPool, this.recordingConsumerConfig)
         this.partitionLocker = new PartitionLocker(
             this.redisPool,
@@ -509,24 +512,30 @@ export class SessionRecordingIngesterV2 {
         })
     }
 
-    public async stop(): Promise<void> {
+    public async stop(): Promise<PromiseSettledResult<any>[]> {
         status.info('🔁', 'blob_ingester_consumer - stopping')
 
         if (this.partitionLockInterval) {
             clearInterval(this.partitionLockInterval)
         }
-
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         await this.batchConsumer?.stop()
 
         // Simulate a revoke command to try and flush all sessions
         // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
         void this.scheduleWork(this.onRevokePartitions(this.assignedTopicPartitions))
+        void this.scheduleWork(this.realtimeManager.unsubscribe())
+        void this.scheduleWork(this.replayEventsIngester.stop())
 
-        await this.realtimeManager.unsubscribe()
-        await this.replayEventsIngester.stop()
-        await Promise.allSettled(this.promises)
+        const promiseResults = await Promise.allSettled(this.promises)
+
+        // Finally we clear up redis once we are sure everything else has been handled
+        await this.redisPool.drain()
+        await this.redisPool.clear()
+
         status.info('👍', 'blob_ingester_consumer - stopped!')
+
+        return promiseResults
     }
 
     public isHealthy() {
