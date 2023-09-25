@@ -202,7 +202,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity,
             funnel_correlation_person_converted: filters.funnel_correlation_person_converted,
             funnel_custom_steps: filters.funnel_custom_steps,
-            funnel_advanced: filters.funnel_advanced,
             layout: filters.layout,
             funnel_step: filters.funnel_step,
             entrance_period_start: filters.entrance_period_start,

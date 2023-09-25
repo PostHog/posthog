@@ -1708,7 +1708,6 @@ export interface FunnelsFilterType extends FilterType {
     funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
-    funnel_advanced?: boolean // used to toggle advanced options on or off
     layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal

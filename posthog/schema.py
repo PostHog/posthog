@@ -541,7 +541,6 @@ class FunnelsFilter(BaseModel):
     breakdown_attribution_type: Optional[BreakdownAttributionType] = None
     breakdown_attribution_value: Optional[float] = None
     exclusions: Optional[List[FunnelExclusion]] = None
-    funnel_advanced: Optional[bool] = None
     funnel_aggregate_by_hogql: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_order_type: Optional[StepOrderValue] = None

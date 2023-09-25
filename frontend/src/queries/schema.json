@@ -911,9 +911,6 @@
                     },
                     "type": "array"
                 },
-                "funnel_advanced": {
-                    "type": "boolean"
-                },
                 "funnel_aggregate_by_hogql": {
                     "type": "string"
                 },

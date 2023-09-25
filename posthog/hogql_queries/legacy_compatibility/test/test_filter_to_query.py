@@ -832,7 +832,6 @@ class TestFilterToQuery(BaseTest):
                 #
                 # frontend only params
                 # "layout": layout,
-                # "funnel_advanced":funnel_advanced, # unused, previously used to toggle advanced options on or off
                 # "funnel_step_reference": "previous", # whether conversion shown in graph should be across all steps or just from the previous step
                 # hidden_legend_keys # used to toggle visibilities in table and legend
                 #

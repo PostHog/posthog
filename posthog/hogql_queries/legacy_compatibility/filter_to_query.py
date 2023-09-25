@@ -169,7 +169,6 @@ def _insight_filter(filter: AnyInsightFilter):
                     )
                     for entity in filter.exclusions
                 ],
-                # funnel_advanced=filter.funnel_advanced,
                 layout=filter.layout,
                 # hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
                 funnel_aggregate_by_hogql=filter.funnel_aggregate_by_hogql,

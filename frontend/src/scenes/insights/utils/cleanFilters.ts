@@ -232,7 +232,6 @@ export function cleanFilters(
             ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
             ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
             ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
-            ...(filters.funnel_advanced ? { funnel_advanced: filters.funnel_advanced } : {}),
             ...(filters.funnel_aggregate_by_hogql
                 ? { funnel_aggregate_by_hogql: filters.funnel_aggregate_by_hogql }
                 : {}),
