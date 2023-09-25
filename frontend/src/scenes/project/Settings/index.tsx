@@ -36,6 +36,9 @@ import { IngestionInfo } from './IngestionInfo'
 import { ExtraTeamSettings } from './ExtraTeamSettings'
 import { WeekStartConfig } from './WeekStartConfig'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SurveySettings } from './Survey'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -75,6 +78,7 @@ export function ProjectSettings(): JSX.Element {
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useAnchor(location.hash)
 
@@ -245,6 +249,7 @@ export function ProjectSettings(): JSX.Element {
                 <SessionRecording />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
+                {featureFlags[FEATURE_FLAGS.SURVEYS_SITE_APP_DEPRECATION] && <SurveySettings />}
                 <ExtraTeamSettings />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />

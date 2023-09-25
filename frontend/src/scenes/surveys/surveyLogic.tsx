@@ -23,6 +23,8 @@ import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface NewSurvey
     extends Pick<
@@ -104,7 +106,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
             ],
         ],
-        values: [pluginsLogic, ['installedPlugins', 'loading as pluginsLoading', 'enabledPlugins']],
+        values: [
+            pluginsLogic,
+            ['installedPlugins', 'loading as pluginsLoading', 'enabledPlugins'],
+            enabledFlagLogic,
+            ['featureFlags as enabledFlags'],
+        ],
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
@@ -204,12 +211,15 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         showSurveyAppWarning: [
-            (s) => [s.survey, s.enabledPlugins, s.pluginsLoading],
-            (survey: Survey, enabledPlugins: PluginType[], pluginsLoading: boolean): boolean => {
-                return !!(
-                    survey.type !== SurveyType.API &&
-                    !pluginsLoading &&
-                    !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
+            (s) => [s.survey, s.enabledPlugins, s.pluginsLoading, s.enabledFlags],
+            (survey: Survey, enabledPlugins: PluginType[], pluginsLoading: boolean, enabledFlags): boolean => {
+                return (
+                    !enabledFlags[FEATURE_FLAGS.SURVEYS_SITE_APP_DEPRECATION] &&
+                    !!(
+                        survey.type !== SurveyType.API &&
+                        !pluginsLoading &&
+                        !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
+                    )
                 )
             },
         ],
