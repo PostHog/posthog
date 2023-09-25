@@ -23,18 +23,18 @@ describe('AppMetrics()', () => {
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ APP_METRICS_FLUSH_FREQUENCY_MS: 100 })
-        appMetrics = new AppMetrics(hub)
-
-        jest.spyOn(hub.organizationManager, 'hasAvailableFeature').mockResolvedValue(true)
+        ;[hub, closeHub] = await createHub({ APP_METRICS_FLUSH_FREQUENCY_MS: 100, APP_METRICS_FLUSH_MAX_QUEUE_SIZE: 5 })
+        appMetrics = new AppMetrics(
+            hub.kafkaProducer,
+            hub.APP_METRICS_FLUSH_FREQUENCY_MS,
+            hub.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+        )
+        // doesn't flush again on the next call, i.e. flust metrics were reset
         jest.spyOn(hub.kafkaProducer, 'queueMessage').mockReturnValue(Promise.resolve())
     })
 
     afterEach(async () => {
         jest.useRealTimers()
-        if (appMetrics.timer) {
-            clearTimeout(appMetrics.timer)
-        }
         await closeHub()
     })
 
@@ -164,44 +164,34 @@ describe('AppMetrics()', () => {
             ])
         })
 
-        it('creates timer to flush if no timer before', async () => {
+        it('flushes when time is up', async () => {
+            Date.now = jest.fn(() => 1600000000)
+            await appMetrics.flush()
+
             jest.spyOn(appMetrics, 'flush')
-            jest.useFakeTimers()
+            Date.now = jest.fn(() => 1600000120)
 
             await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
 
-            const timer = appMetrics.timer
-            expect(timer).not.toBeNull()
-
-            jest.advanceTimersByTime(120)
-
-            expect(appMetrics.timer).toBeNull()
-            expect(appMetrics.flush).toHaveBeenCalled()
+            expect(appMetrics.flush).toHaveBeenCalledTimes(1)
+            // doesn't flush again on the next call, i.e. flust metrics were reset
+            Date.now = jest.fn(() => 1600000130)
+            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
+            expect(appMetrics.flush).toHaveBeenCalledTimes(1)
         })
 
-        it('does not create a timer on subsequent requests', async () => {
-            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
-            const originalTimer = appMetrics.timer
-            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
-
-            expect(originalTimer).not.toBeNull()
-            expect(appMetrics.timer).toEqual(originalTimer)
-        })
-
-        it('does nothing if feature is not available', async () => {
-            jest.mocked(hub.organizationManager.hasAvailableFeature).mockResolvedValue(false)
-
-            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
-            expect(appMetrics.queuedData).toEqual({})
-        })
-
-        it('does not query `hasAvailableFeature` if not needed', async () => {
-            hub.APP_METRICS_GATHERED_FOR_ALL = true
-
-            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
-
-            expect(appMetrics.queuedData).not.toEqual({})
-            expect(hub.organizationManager.hasAvailableFeature).not.toHaveBeenCalled()
+        it('flushes when max queue size is hit', async () => {
+            jest.spyOn(appMetrics, 'flush')
+            // parallel could trigger multiple flushes and make the test flaky
+            for (let i = 0; i < 7; i++) {
+                await appMetrics.queueMetric({ ...metric, successes: 1, teamId: i }, timestamp)
+            }
+            expect(appMetrics.flush).toHaveBeenCalledTimes(1)
+            // we only count different keys, so this should not trigger a flush
+            for (let i = 0; i < 7; i++) {
+                await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
+            }
+            expect(appMetrics.flush).toHaveBeenCalledTimes(1)
         })
     })
 

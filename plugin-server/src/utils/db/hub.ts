@@ -28,6 +28,7 @@ import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
+import { isTestEnv } from '../env-utils'
 import { status } from '../status'
 import { createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -192,9 +193,16 @@ export async function createHub(
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-    hub.appMetrics = new AppMetrics(hub as Hub)
+    hub.appMetrics = new AppMetrics(
+        kafkaProducer,
+        serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+        serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+    )
 
     const closeHub = async () => {
+        if (!isTestEnv()) {
+            await hub.appMetrics?.flush()
+        }
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
 

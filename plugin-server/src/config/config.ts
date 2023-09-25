@@ -62,6 +62,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
+        APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
