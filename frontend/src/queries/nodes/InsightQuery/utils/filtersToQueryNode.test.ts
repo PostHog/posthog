@@ -486,7 +486,6 @@ describe('filtersToQueryNode', () => {
                 compare: true,
                 show_legend: true,
                 hidden_legend_keys: { 0: true, 10: true },
-                stickiness_days: 2,
                 shown_as: ShownAsValue.STICKINESS,
                 display: ChartDisplayType.ActionsLineGraph,
             }
@@ -499,7 +498,6 @@ describe('filtersToQueryNode', () => {
                     compare: true,
                     show_legend: true,
                     hidden_legend_indexes: [0, 10],
-                    stickiness_days: 2,
                     shown_as: ShownAsValue.STICKINESS,
                     display: ChartDisplayType.ActionsLineGraph,
                 },

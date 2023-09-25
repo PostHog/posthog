@@ -872,7 +872,6 @@ class TestFilterToQuery(BaseTest):
                 ],
                 bin_count=15,
                 funnel_aggregate_by_hogql="person_id",
-                funnel_custom_steps=[],
                 # funnel_step_reference=FunnelStepReference.previous,
             ),
         )
