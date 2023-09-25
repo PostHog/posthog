@@ -512,30 +512,30 @@ export class SessionRecordingIngesterV2 {
         })
     }
 
-    public async stop(): Promise<void> {
+    public async stop(): Promise<PromiseSettledResult<any>[]> {
         status.info('🔁', 'blob_ingester_consumer - stopping')
 
         if (this.partitionLockInterval) {
             clearInterval(this.partitionLockInterval)
         }
-
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         await this.batchConsumer?.stop()
 
         // Simulate a revoke command to try and flush all sessions
         // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
         void this.scheduleWork(this.onRevokePartitions(this.assignedTopicPartitions))
+        void this.scheduleWork(this.realtimeManager.unsubscribe())
+        void this.scheduleWork(this.replayEventsIngester.stop())
 
-        await this.realtimeManager.unsubscribe()
-        await this.replayEventsIngester.stop()
-
-        await Promise.allSettled(this.promises)
+        const promiseResults = await Promise.allSettled(this.promises)
 
         // Finally we clear up redis once we are sure everything else has been handled
         await this.redisPool.drain()
         await this.redisPool.clear()
 
         status.info('👍', 'blob_ingester_consumer - stopped!')
+
+        return promiseResults
     }
 
     public isHealthy() {

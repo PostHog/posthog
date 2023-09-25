@@ -131,6 +131,7 @@ export class PartitionLocker {
                     keys,
                 },
             })
+            throw error
         }
     }
 }

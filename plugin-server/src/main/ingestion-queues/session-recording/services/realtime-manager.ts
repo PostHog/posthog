@@ -66,6 +66,7 @@ export class RealtimeManager extends EventEmitter {
         )
 
         this.pubsubRedis?.disconnect()
+        this.pubsubRedis = undefined
     }
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {

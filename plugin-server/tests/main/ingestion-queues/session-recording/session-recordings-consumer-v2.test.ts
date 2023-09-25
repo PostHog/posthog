@@ -72,6 +72,9 @@ describe('ingester', () => {
         const team = await getFirstTeam(hub)
         teamToken = team.api_token
         await deleteKeysWithPrefix(hub)
+
+        ingester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage)
+        await ingester.start()
     })
 
     afterEach(async () => {
@@ -84,12 +87,6 @@ describe('ingester', () => {
     afterAll(() => {
         rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
         jest.useRealTimers()
-    })
-
-    // these tests assume that a flush won't run while they run
-    beforeEach(async () => {
-        ingester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage)
-        await ingester.start()
     })
 
     it('creates a new session manager if needed', async () => {
@@ -441,6 +438,64 @@ describe('ingester', () => {
             expect(
                 Object.values(otherIngester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
             ).toEqual(['2:session_id_4:1'])
+        })
+    })
+
+    describe('stop()', () => {
+        const setup = async (): Promise<void> => {
+            const partitionMsgs1 = [
+                createKafkaMessage(
+                    teamToken,
+                    {
+                        partition: 1,
+                        offset: 1,
+                    },
+                    {
+                        $session_id: 'session_id_1',
+                    }
+                ),
+
+                createKafkaMessage(
+                    teamToken,
+                    {
+                        partition: 1,
+                        offset: 2,
+                    },
+                    {
+                        $session_id: 'session_id_2',
+                    }
+                ),
+            ]
+
+            await ingester.onAssignPartitions([createTP(1)])
+            await ingester.handleEachBatch(partitionMsgs1)
+        }
+
+        // NOTE: This test is a sanity check for the follow up test. It demonstrates what happens if we shutdown in the wrong order
+        // It doesn't reliably work though as the onRevoke is called via the kafka lib ending up with dangling promises so rather it is here as a reminder
+        // demonstation for when we need it
+        it.skip('shuts down with error if redis forcefully shutdown', async () => {
+            await setup()
+
+            await ingester.redisPool.drain()
+            await ingester.redisPool.clear()
+
+            // revoke, realtime unsub, replay stop
+            await expect(ingester.stop()).resolves.toMatchObject([
+                { status: 'rejected' },
+                { status: 'fulfilled' },
+                { status: 'fulfilled' },
+            ])
+        })
+        it('shuts down without error', async () => {
+            await setup()
+
+            // revoke, realtime unsub, replay stop
+            await expect(ingester.stop()).resolves.toMatchObject([
+                { status: 'fulfilled' },
+                { status: 'fulfilled' },
+                { status: 'fulfilled' },
+            ])
         })
     })
 })
