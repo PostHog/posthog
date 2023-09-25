@@ -487,10 +487,10 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
-                logger.exception("S3 BatchExport was cancelled.", exc_info=e)
+                logger.error("S3 BatchExport was cancelled.")
                 update_inputs.status = "Cancelled"
             else:
-                logger.exception("S3 BatchExport failed.", exc_info=e)
+                logger.exception("S3 BatchExport failed.", exc_info=e.cause)
                 update_inputs.status = "Failed"
 
             update_inputs.latest_error = str(e.cause)

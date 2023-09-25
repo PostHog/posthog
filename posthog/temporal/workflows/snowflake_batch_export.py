@@ -350,10 +350,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
-                logger.exception("Snowflake BatchExport was cancelled.", exc_info=e)
+                logger.error("Snowflake BatchExport was cancelled.")
                 update_inputs.status = "Cancelled"
             else:
-                logger.exception("Snowflake BatchExport failed.", exc_info=e)
+                logger.exception("Snowflake BatchExport failed.", exc_info=e.cause)
                 update_inputs.status = "Failed"
 
             update_inputs.latest_error = str(e.cause)

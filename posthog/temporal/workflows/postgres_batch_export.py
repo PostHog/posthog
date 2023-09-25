@@ -260,10 +260,10 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
-                logger.exception("Postgres BatchExport was cancelled.", exc_info=e)
+                logger.error("Postgres BatchExport was cancelled.")
                 update_inputs.status = "Cancelled"
             else:
-                logger.exception("Postgres BatchExport failed.", exc_info=e)
+                logger.exception("Postgres BatchExport failed.", exc_info=e.cause)
                 update_inputs.status = "Failed"
 
             update_inputs.latest_error = str(e.cause)
