@@ -99,10 +99,12 @@ function Header({
 }
 
 function Description({ description }: { description: React.ReactNode }): JSX.Element {
-    return (
+    return typeof description === 'string' ? (
         <LemonMarkdown className="definition-popover-description" lowKeyHeadings>
             {description}
         </LemonMarkdown>
+    ) : (
+        <div className="definition-popover-description">{description}</div>
     )
 }
 
