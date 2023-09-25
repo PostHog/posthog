@@ -36,6 +36,7 @@ from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySeria
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
+from posthog.types import InsightQueryNode
 from posthog.utils import refresh_requested_by_client
 
 
@@ -198,11 +199,14 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 
 
 def process_query(
-    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
+    team: Team,
+    query_json: Dict | InsightQueryNode,
+    default_limit: Optional[int] = None,
+    request: Optional[Request] = None,
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
-    query_kind = query_json.get("kind")
+    query_kind = query_json.get("kind") if isinstance(query_json, dict) else query_json.kind
 
     tag_queries(query=query_json)
 
