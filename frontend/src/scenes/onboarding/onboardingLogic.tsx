@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -13,7 +14,8 @@ export enum OnboardingStepKey {
     PRODUCT_INTRO = 'product_intro',
     SDKS = 'sdks',
     BILLING = 'billing',
-    PAIRS_WITH = 'pairs_with',
+    OTHER_PRODUCTS = 'other_products',
+    VERIFY = 'verify',
 }
 
 export type OnboardingStepMap = Record<OnboardingStepKey, string>
@@ -22,7 +24,8 @@ const onboardingStepMap: OnboardingStepMap = {
     [OnboardingStepKey.PRODUCT_INTRO]: 'OnboardingProductIntro',
     [OnboardingStepKey.SDKS]: 'SDKs',
     [OnboardingStepKey.BILLING]: 'OnboardingBillingStep',
-    [OnboardingStepKey.PAIRS_WITH]: 'OnboardingPairsWithStep',
+    [OnboardingStepKey.OTHER_PRODUCTS]: 'OnboardingOtherProductsStep',
+    [OnboardingStepKey.VERIFY]: 'OnboardingVerificationStep',
 }
 
 export type AllOnboardingSteps = JSX.Element[]
@@ -31,17 +34,17 @@ export const onboardingLogic = kea<onboardingLogicType>({
     props: {} as OnboardingLogicProps,
     path: ['scenes', 'onboarding', 'onboardingLogic'],
     connect: {
-        values: [billingLogic, ['billing']],
-        actions: [billingLogic, ['loadBillingSuccess']],
+        values: [billingLogic, ['billing'], teamLogic, ['currentTeam']],
+        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam']],
     },
     actions: {
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
         setCurrentOnboardingStepNumber: (currentOnboardingStepNumber: number) => ({ currentOnboardingStepNumber }),
-        completeOnboarding: true,
+        completeOnboarding: (redirectUri?: string) => ({ redirectUri }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: string) => ({ stepKey }),
-        setSubscribedDuringOnboarding: (subscribedDuringOnboarding) => ({ subscribedDuringOnboarding }),
+        setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
     },
     reducers: () => ({
         productKey: [
@@ -110,6 +113,17 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
             },
         ],
+        suggestedProducts: [
+            (s) => [s.billing, s.product, s.currentTeam],
+            (billing, product, currentTeam) =>
+                billing?.products?.filter(
+                    (p) =>
+                        p.type !== product?.type &&
+                        !p.contact_support &&
+                        !p.inclusion_only &&
+                        !currentTeam?.has_completed_onboarding_for?.[p.type]
+                ) || [],
+        ],
     },
     listeners: ({ actions, values }) => ({
         loadBillingSuccess: () => {
@@ -130,8 +144,17 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
             }
         },
-        completeOnboarding: () => {
-            window.location.href = values.onCompleteOnbardingRedirectUrl
+        completeOnboarding: ({ redirectUri }) => {
+            if (values.productKey) {
+                // update the current team has_completed_onboarding_for field, only writing over the current product
+                actions.updateCurrentTeam({
+                    has_completed_onboarding_for: {
+                        ...values.currentTeam?.has_completed_onboarding_for,
+                        [values.productKey]: true,
+                    },
+                })
+            }
+            window.location.href = redirectUri || values.onCompleteOnbardingRedirectUrl
         },
         setAllOnboardingSteps: ({ allOnboardingSteps }) => {
             // once we have the onboarding steps we need to make sure the step key is valid,
