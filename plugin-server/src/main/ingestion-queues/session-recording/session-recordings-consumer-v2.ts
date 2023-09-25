@@ -117,7 +117,7 @@ export class SessionRecordingIngesterV2 {
         private objectStorage: ObjectStorage
     ) {
         this.recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
-        this.redisPool = createRedisPool(this.serverConfig)
+        this.redisPool = createRedisPool(this.recordingConsumerConfig)
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.recordingConsumerConfig)
         this.partitionLocker = new PartitionLocker(
