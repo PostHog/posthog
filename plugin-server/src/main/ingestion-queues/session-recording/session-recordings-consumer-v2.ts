@@ -539,7 +539,9 @@ export class SessionRecordingIngesterV2 {
             this.partitionAssignments[topicPartition.partition] = {}
         })
 
-        await this.partitionLocker.claim(topicPartitions)
+        if (this.serverConfig.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
+            await this.partitionLocker.claim(topicPartitions)
+        }
         await this.offsetsRefresher.refresh()
     }
 
