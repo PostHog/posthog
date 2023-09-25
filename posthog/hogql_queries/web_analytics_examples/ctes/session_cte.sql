@@ -41,6 +41,7 @@ SELECT
         referrer_domain == 'quora.com', 'quora',
         referrer_domain == 'www.quora.com', 'quora',
         referrer_domain == 'linkedin.com', 'linkedin',
+        referrer_domain == 'www.linkedin.com', 'linkedin',
         startsWith(referrer_domain, 'http://localhost:'), 'localhost',
         referrer_domain
     ) AS blended_source,
