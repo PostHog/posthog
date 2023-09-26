@@ -45,7 +45,8 @@ afterAll(async () => {
     await dlqConsumer.disconnect()
 })
 
-test.concurrent(
+// we are deprecating session recording events. these tests will be removed or replaced
+test.concurrent.skip(
     `snapshot captured, processed, ingested`,
     async () => {
         const teamId = await createTeam(organizationId)
@@ -95,7 +96,8 @@ test.concurrent(
     20000
 )
 
-test.concurrent(
+// we are deprecating session recording events. these tests will be removed or replaced
+test.concurrent.skip(
     `snapshot captured, processed, ingested with no team_id set`,
     async () => {
         const token = uuidv4()
@@ -129,7 +131,8 @@ test.concurrent(
     20000
 )
 
-test.concurrent(`recording events not ingested to ClickHouse if team is opted out`, async () => {
+// we are deprecating session recording events. these tests will be removed or replaced
+test.concurrent.skip(`recording events not ingested to ClickHouse if team is opted out`, async () => {
     // NOTE: to have something we can assert on in the positive to ensure that
     // we had tried to ingest the recording for the team with the opted out
     // session recording status, we create a team that is opted in and then
@@ -188,7 +191,8 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     expect(events.length).toBe(0)
 })
 
-test.concurrent(
+// we are deprecating session recording events. these tests will be removed or replaced
+test.concurrent.skip(
     `ingests $performance_event`,
     async () => {
         const teamId = await createTeam(organizationId)
@@ -304,7 +308,8 @@ test.concurrent(
     20000
 )
 
-test.concurrent(`liveness check endpoint works`, async () => {
+// we are deprecating session recording events. these tests will be removed or replaced
+test.concurrent.skip(`liveness check endpoint works`, async () => {
     await waitForExpect(async () => {
         const response = await fetch('http://localhost:6738/_health')
         expect(response.status).toBe(200)
@@ -318,7 +323,8 @@ test.concurrent(`liveness check endpoint works`, async () => {
     })
 })
 
-test.concurrent(
+// we are deprecating session recording events. these tests will be removed or replaced
+test.concurrent.skip(
     `consumer handles empty messages`,
     async () => {
         const key = uuidv4()
@@ -333,7 +339,8 @@ test.concurrent(
     20000
 )
 
-test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+// we are deprecating session recording events. these tests will be removed or replaced
+test.concurrent.skip('consumer updates timestamp exported to prometheus', async () => {
     // NOTE: it may be another event other than the one we emit here that causes
     // the gauge to increase, but pushing this event through should at least
     // ensure that the gauge is updated.
@@ -357,7 +364,8 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     }, 10_000)
 })
 
-test.concurrent(`handles invalid JSON`, async () => {
+// we are deprecating session recording events. these tests will be removed or replaced
+test.concurrent.skip(`handles invalid JSON`, async () => {
     const key = uuidv4()
 
     await produce({ topic: 'session_recording_events', message: Buffer.from('invalid json'), key })
@@ -368,7 +376,8 @@ test.concurrent(`handles invalid JSON`, async () => {
     })
 })
 
-test.concurrent(`handles message with no token or with token and no associated team_id`, async () => {
+// we are deprecating session recording events. these tests will be removed or replaced
+test.concurrent.skip(`handles message with no token or with token and no associated team_id`, async () => {
     // NOTE: Here we are relying on the topic only having a single partition,
     // which ensures that if the last message we send is in ClickHouse, then
     // that should mean that the previous messages have already been processed.
