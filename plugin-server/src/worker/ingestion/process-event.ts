@@ -117,7 +117,11 @@ export class EventsProcessor {
         let elementsList: Element[] = []
 
         if (elements && elements.length) {
-            elementsList = extractElements(elements)
+            try {
+                elementsList = extractElements(elements)
+            } catch (error) {
+                status.warn('⚠️', 'Failed to extract elements from an event', { eventUuid, elements, error })
+            }
             delete properties['$elements']
         }
 
