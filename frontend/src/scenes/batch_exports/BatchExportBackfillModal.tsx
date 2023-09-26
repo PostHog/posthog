@@ -55,7 +55,7 @@ export function BatchExportBackfillModal(): JSX.Element {
                 className="space-y-2"
             >
                 <LemonBanner type="warning">
-                    Creating exports larger than 1 month is not recommended. We are actively working on increasing this
+                    Exporting historical data beyond 1 month is not recommended. We are actively working on increasing this
                     limit.
                 </LemonBanner>
 
