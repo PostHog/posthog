@@ -38,11 +38,5 @@ def _cached_response_to_insight_result(response: CachedQueryResponse) -> Insight
 
 def process_insight(insight: Insight, team: Team) -> InsightResult:
     query = _insight_to_query(insight, team)
-    # response = process_query(team, query_json=query)
-    # refresh_requested = refresh_requested_by_client(request) if request else False
-    lifecycle_query_runner = LifecycleQueryRunner(query=query, team=team)
-    # return _unwrap_pydantic_dict(lifecycle_query_runner.run(refresh_requested=refresh_requested))
-    response = lifecycle_query_runner.run(refresh_requested=False)
-
-    result = _cached_response_to_insight_result(response)
-    return result
+    response = LifecycleQueryRunner(query=query, team=team).run(refresh_requested=False)
+    return _cached_response_to_insight_result(response)
