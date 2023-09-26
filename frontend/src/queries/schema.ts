@@ -195,6 +195,7 @@ export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
 }
+
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string
@@ -392,11 +393,19 @@ export interface TrendsQuery extends InsightsQueryBase {
     response?: TrendsQueryResponse
 }
 
-/** `FunnelsFilterType` minus everything inherited from `FilterType` and
- * `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
+/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
+ * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
 export type FunnelsFilter = Omit<
     FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
-    keyof FilterType | 'hidden_legend_keys'
+    | keyof FilterType
+    | 'hidden_legend_keys'
+    | 'funnel_step_breakdown'
+    | 'funnel_correlation_person_entity'
+    | 'funnel_correlation_person_converted'
+    | 'entrance_period_start'
+    | 'drop_off'
+    | 'funnel_step'
+    | 'funnel_custom_steps'
 >
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
@@ -418,19 +427,22 @@ export interface RetentionQuery extends InsightsQueryBase {
     retentionFilter?: RetentionFilter
 }
 
-/** `PathsFilterType` minus everything inherited from `FilterType` */
-export type PathsFilter = Omit<PathsFilterType, keyof FilterType>
+/** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
+export type PathsFilter = Omit<
+    PathsFilterType,
+    keyof FilterType | 'path_start_key' | 'path_end_key' | 'path_dropoff_key'
+>
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     /** Properties specific to the paths insight */
     pathsFilter?: PathsFilter
 }
 
-/** `StickinessFilterType` minus everything inherited from `FilterType` and
- * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
+/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
+ * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys'
+    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days'
 >
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery

@@ -3,13 +3,7 @@ import React, { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import {
-    ActionFilter as ActionFilterType,
-    FilterType,
-    FunnelStepRangeEntityFilter,
-    InsightType,
-    Optional,
-} from '~/types'
+import { ActionFilter as ActionFilterType, FilterType, FunnelExclusion, InsightType, Optional } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -55,11 +49,7 @@ export interface ActionFilterProps {
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((props: {
-              filter: ActionFilterType | FunnelStepRangeEntityFilter
-              index: number
-              onClose: () => void
-          }) => JSX.Element)
+        | ((props: { filter: ActionFilterType | FunnelExclusion; index: number; onClose: () => void }) => JSX.Element)
     /** Show nested arrows to the left of property filter buttons */
     showNestedArrow?: boolean
     /** Which tabs to show for actions selector */

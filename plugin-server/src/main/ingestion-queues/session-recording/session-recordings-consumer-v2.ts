@@ -117,7 +117,7 @@ export class SessionRecordingIngesterV2 {
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage
     ) {
-        // NOTE: dangerousServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
+        // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We stil connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.config = sessionRecordingConsumerConfig(globalServerConfig)
         this.redisPool = createRedisPool(this.config)

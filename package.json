@@ -126,7 +126,7 @@
         "md5": "^2.3.0",
         "monaco-editor": "^0.39.0",
         "papaparse": "^5.4.1",
-        "posthog-js": "1.79.1",
+        "posthog-js": "1.81.1",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
