@@ -78,6 +78,9 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_persons_query_source_search_name(self):
         pass
 
+    def test_persons_query_source_search_distinct_id(self):
+        pass
+
     def test_persons_query_source_search_case_insensitive(self):
         pass
 
@@ -91,4 +94,10 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         pass
 
     def test_persons_query_aggregation_select(self):
+        pass
+
+    def test_persons_query_columns(self):
+        pass
+
+    def test_persons_query_order_by(self):
         pass

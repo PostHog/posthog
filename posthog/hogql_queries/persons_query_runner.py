@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Optional, Any, Dict, List
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
@@ -36,7 +36,7 @@ class PersonsQueryRunner(QueryRunner):
             types=[],
         )
 
-    def filter_conditions(self) -> ast.Expr:
+    def filter_conditions(self) -> List[ast.Expr]:
         where_exprs: List[ast.Expr] = []
 
         if self.query.properties:
@@ -77,29 +77,46 @@ class PersonsQueryRunner(QueryRunner):
                     ]
                 )
             )
+        return where_exprs
 
-        if len(where_exprs) == 0:
-            return ast.Constant(value=True)
-        elif len(where_exprs) == 1:
-            return where_exprs[0]
-        else:
-            return ast.And(exprs=where_exprs)
+    def columns(self) -> List[ast.Expr]:
+        return []
 
     def to_query(self) -> ast.SelectQuery:
         # adding +1 to the limit to check if there's a "next page" after the requested results
         from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 
-        limit = (
-            min(MAX_SELECT_RETURNED_ROWS, DEFAULT_RETURNED_ROWS if self.query.limit is None else self.query.limit) + 1
-        )
-        offset = 0 if self.query.offset is None else self.query.offset
+        with self.timings.measure("filter_conditions"):
+            filter_conditions = self.filter_conditions()
+            where_list = [expr for expr in filter_conditions if not has_aggregation(expr)]
+            if len(where_list) == 0:
+                where = None
+            elif len(where_list) == 1:
+                where = where_list[0]
+            else:
+                where = ast.And(exprs=where_list)
+
+            having_list = [expr for expr in filter_conditions if has_aggregation(expr)]
+            if len(having_list) == 0:
+                having = None
+            elif len(having_list) == 1:
+                having = having_list[0]
+            else:
+                having = ast.And(exprs=having_list)
+
+        with self.timings.measure("limit"):
+            limit = (
+                min(MAX_SELECT_RETURNED_ROWS, DEFAULT_RETURNED_ROWS if self.query.limit is None else self.query.limit)
+                + 1
+            )
+            offset = 0 if self.query.offset is None else self.query.offset
 
         with self.timings.measure("select"):
             stmt = ast.SelectQuery(
-                select=[],
+                select=self.columns(),
                 select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-                where=self.filter_conditions(),
-                # having=having,
+                where=where,
+                having=having,
                 # group_by=group_by if has_any_aggregation else None,
                 # order_by=order_by,
                 limit=ast.Constant(value=limit),
