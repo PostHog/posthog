@@ -225,6 +225,8 @@ def get_decide(request: HttpRequest):
                     "recorderVersion": "v2",
                 }
 
+            response["surveys"] = True if team.surveys_opt_in else False
+
             site_apps = []
             # errors mean the database is unavailable, bail in this case
             if team.inject_web_apps and not errors:

@@ -166,6 +166,7 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
     HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
+    SURVEYS_SITE_APP_DEPRECATION: 'surveys-site-app-deprecation', // owner: @neilkakkar
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
