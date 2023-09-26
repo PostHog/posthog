@@ -195,6 +195,7 @@ export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
 }
+
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string

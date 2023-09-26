@@ -528,20 +528,6 @@
         },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "not": {}
-                },
-                "operator": {
-                    "not": {}
-                },
-                "type": {
-                    "not": {}
-                },
-                "value": {
-                    "not": {}
-                }
-            },
             "type": "object"
         },
         "EntityType": {
@@ -860,15 +846,7 @@
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
-        "FunnelLayout": {
-            "enum": ["horizontal", "vertical"],
-            "type": "string"
-        },
-        "FunnelPathType": {
-            "enum": ["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"],
-            "type": "string"
-        },
-        "FunnelStepRangeEntityFilter": {
+        "FunnelExclusion": {
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
@@ -897,6 +875,14 @@
                 }
             },
             "type": "object"
+        },
+        "FunnelLayout": {
+            "enum": ["horizontal", "vertical"],
+            "type": "string"
+        },
+        "FunnelPathType": {
+            "enum": ["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"],
+            "type": "string"
         },
         "FunnelStepReference": {
             "enum": ["total", "previous"],
@@ -927,7 +913,7 @@
                 },
                 "exclusions": {
                     "items": {
-                        "$ref": "#/definitions/FunnelStepRangeEntityFilter"
+                        "$ref": "#/definitions/FunnelExclusion"
                     },
                     "type": "array"
                 },

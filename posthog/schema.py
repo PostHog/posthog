@@ -124,13 +124,10 @@ class ElementType(BaseModel):
 
 
 class EmptyPropertyFilter(BaseModel):
+    pass
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Optional[Any] = None
-    operator: Optional[Any] = None
-    type: Optional[Any] = None
-    value: Optional[Any] = None
 
 
 class EntityType(str, Enum):
@@ -185,18 +182,7 @@ class FunnelConversionWindowTimeUnit(str, Enum):
     month = "month"
 
 
-class FunnelLayout(str, Enum):
-    horizontal = "horizontal"
-    vertical = "vertical"
-
-
-class FunnelPathType(str, Enum):
-    funnel_path_before_step = "funnel_path_before_step"
-    funnel_path_between_steps = "funnel_path_between_steps"
-    funnel_path_after_step = "funnel_path_after_step"
-
-
-class FunnelStepRangeEntityFilter(BaseModel):
+class FunnelExclusion(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -208,6 +194,17 @@ class FunnelStepRangeEntityFilter(BaseModel):
     name: Optional[str] = None
     order: Optional[float] = None
     type: Optional[EntityType] = None
+
+
+class FunnelLayout(str, Enum):
+    horizontal = "horizontal"
+    vertical = "vertical"
+
+
+class FunnelPathType(str, Enum):
+    funnel_path_before_step = "funnel_path_before_step"
+    funnel_path_between_steps = "funnel_path_between_steps"
+    funnel_path_after_step = "funnel_path_after_step"
 
 
 class FunnelStepReference(str, Enum):
@@ -554,7 +551,7 @@ class FunnelsFilter(BaseModel):
     breakdown_attribution_value: Optional[float] = None
     drop_off: Optional[bool] = None
     entrance_period_start: Optional[str] = None
-    exclusions: Optional[List[FunnelStepRangeEntityFilter]] = None
+    exclusions: Optional[List[FunnelExclusion]] = None
     funnel_advanced: Optional[bool] = None
     funnel_aggregate_by_hogql: Optional[str] = None
     funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted] = None
