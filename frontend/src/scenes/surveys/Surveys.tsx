@@ -94,14 +94,12 @@ export function Surveys(): JSX.Element {
                                         )
                                     },
                                 },
-                                // TODO: add responses count later
-                                // {
-                                //     title: 'Responses',
-                                //     render: function RenderResponses() {
-                                //         // const responsesCount = getResponsesCount(survey)
-                                //         return <div>{0}</div>
-                                //     },
-                                // },
+                                {
+                                    title: 'Responses',
+                                    render: function RenderResponses(_, survey) {
+                                        return <div>{survey.responses_count}</div>
+                                    },
+                                },
                                 {
                                     dataIndex: 'type',
                                     title: 'Type',

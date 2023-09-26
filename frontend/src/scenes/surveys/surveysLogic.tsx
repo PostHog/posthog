@@ -25,8 +25,15 @@ export const surveysLogic = kea<surveysLogicType>([
         surveys: {
             __default: [] as Survey[],
             loadSurveys: async () => {
-                const response = await api.surveys.list()
-                return response.results
+                const responseSurveys = await api.surveys.list()
+                const surveysResponsesCount = await api.surveys.getResponsesCount()
+
+                responseSurveys.results.forEach((survey) => {
+                    survey.responses_count = 0
+                    survey.responses_count = surveysResponsesCount[survey.id] ?? survey.responses_count
+                })
+
+                return responseSurveys.results
             },
             deleteSurvey: async (id) => {
                 await api.surveys.delete(id)
