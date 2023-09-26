@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
+import { LemonButton } from '@posthog/lemon-ui'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -93,8 +94,9 @@ export function HTMLElementsDisplay({
     const [key] = useState(() => `HtmlElementsDisplay.${uniqueNode++}`)
 
     const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key, startingSelector, providedElements })
-    const { parsedSelectors, chosenSelector, chosenSelectorMatchCount, messageStatus, elements } = useValues(logic)
-    const { setParsedSelectors } = useActions(logic)
+    const { parsedSelectors, chosenSelector, chosenSelectorMatchCount, messageStatus, elements, parsedElements } =
+        useValues(logic)
+    const { setParsedSelectors, showAdditionalElements } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-1">
@@ -114,16 +116,19 @@ export function HTMLElementsDisplay({
                 </LemonBanner>
             )}
             <div className="px-4 rounded bg-default">
+                <LemonButton fullWidth onClick={showAdditionalElements}>
+                    Click to see hidden elements
+                </LemonButton>
                 {elements.length ? (
                     <>
                         <Tags
-                            elements={elements}
+                            elements={parsedElements}
                             highlight={highlight}
                             editable={editable}
                             parsedCSSSelectors={parsedSelectors}
                             onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
                         />
-                        <CloseAllTags elements={elements} />
+                        <CloseAllTags elements={parsedElements} />
                     </>
                 ) : (
                     <div className="text-side">No elements to display</div>
