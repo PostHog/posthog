@@ -8,6 +8,7 @@ import type { surveysLogicType } from './surveysLogicType'
 import { lemonToast } from '@posthog/lemon-ui'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -20,7 +21,15 @@ export function getSurveyStatus(survey: Survey): ProgressStatus {
 
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
-    connect([userLogic]),
+    connect(() => ({
+        values: [
+            pluginsLogic,
+            ['installedPlugins', 'loading as pluginsLoading', 'enabledPlugins'],
+            // ['enabledPlugins'],
+            userLogic,
+            ['user'],
+        ],
+    })),
     loaders(({ values }) => ({
         surveys: {
             __default: [] as Survey[],
@@ -66,8 +75,14 @@ export const surveysLogic = kea<surveysLogicType>([
             (surveys: Survey[]): Survey[] => surveys.filter((survey) => survey.archived),
         ],
         whitelabelAvailable: [
-            () => [userLogic.selectors.user],
+            (s) => [s.user],
             (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
+        ],
+        usingSurveysSiteApp: [
+            (s) => [s.enabledPlugins, s.pluginsLoading],
+            (enabledPlugins, pluginsLoading): boolean => {
+                return !!(!pluginsLoading && enabledPlugins.find((plugin) => plugin.name === 'Surveys app'))
+            },
         ],
     }),
     afterMount(async ({ actions }) => {
