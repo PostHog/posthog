@@ -28,6 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.web_analytics.top_sources import TopSourcesQueryRunner
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
@@ -250,6 +251,10 @@ def process_query(
         )
         serializer.is_valid(raise_exception=True)
         return get_session_events(serializer) or {}
+    elif query_kind == "WebTopSourcesQuery":
+        refresh_requested = refresh_requested_by_client(request) if request else False
+        top_sources_query_runner = TopSourcesQueryRunner(query_json, team)
+        return _unwrap_pydantic_dict(top_sources_query_runner.run(refresh_requested=refresh_requested))
     else:
         if query_json.get("source"):
             return process_query(team, query_json["source"])

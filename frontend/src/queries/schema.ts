@@ -57,6 +57,9 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
 
+    // Web analytics queries
+    WebTopSourcesQuery = 'WebTopSourcesQuery',
+
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
@@ -277,7 +280,7 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node, DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
+    source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery | WebTopSourcesQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -482,6 +485,14 @@ export interface LifecycleQuery extends InsightsQueryBase {
     lifecycleFilter?: LifecycleFilter
     response?: LifecycleQueryResponse
 }
+
+export interface WebAnalyticsQueryBase {}
+
+export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopSourcesQuery
+    query: any
+}
+export interface WebTopSourcesQueryResponse extends QueryResponse {}
 
 export type InsightQueryNode =
     | TrendsQuery
