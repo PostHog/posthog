@@ -41,7 +41,7 @@ from posthog.models.person.sql import (
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
-    DEPRECATE_CH_RECORDINGS_DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
+    DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_replay_event_sql import (
@@ -730,7 +730,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-                DEPRECATE_CH_RECORDINGS_DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 TRUNCATE_GROUPS_TABLE_SQL,
                 TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -762,7 +762,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-                DEPRECATE_CH_RECORDINGS_DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             ]
         )
