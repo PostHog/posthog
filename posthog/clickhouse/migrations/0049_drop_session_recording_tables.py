@@ -1,31 +1,38 @@
-from infi.clickhouse_orm import migrations
-
-from posthog.client import sync_execute
-from posthog.cloud_utils import is_cloud
-from posthog.settings import CLICKHOUSE_CLUSTER, DEBUG, TEST
 import structlog
+
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.cloud_utils import is_cloud
+from posthog.session_recordings.sql.session_recording_event_sql import (
+    DEPRECATE_CH_RECORDINGS_DROP_SESSION_RECORDING_EVENTS_MV_TABLE_SQL,
+    DEPRECATE_CH_RECORDINGS_DROP_SESSION_RECORDING_EVENTS_PARTITION_STATISTICS_MV_TABLE_SQL,
+    DEPRECATE_CH_RECORDINGS_DROP_KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL,
+    DEPRECATE_CH_RECORDINGS_DROP_KAFKA_SESSION_RECORDING_EVENTS_PARTITION_STATISTICS_TABLE_SQL,
+    DEPRECATE_CH_RECORDINGS_DROP_WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL,
+    DEPRECATE_CH_RECORDINGS_DROP_SHARDED_SESSION_RECORDING_EVENTS_TABLE_SQL,
+    DEPRECATE_CH_RECORDINGS_DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
+)
+from posthog.settings import DEBUG, TEST
 
 logger = structlog.get_logger(__name__)
 
-DROP_TABLE_SQL = """
-DROP TABLE IF EXISTS {table} ON CLUSTER '{cluster}';
-"""
+
+def no_op_migration(sql: str):
+    logger.debug("Skipping drop_session_recording_tables migration as not on cloud", sql=sql)
 
 
-def drop_session_recording_tables(table: str):
-    if not is_cloud() and not DEBUG and not TEST:
-        logger.debug("Skipping drop_session_recording_tables migration as not on cloud", table=table)
-        return
+def run_sql_on_cloud(sql: str) -> None:
+    if is_cloud() or DEBUG or TEST:
+        return run_sql_with_exceptions(sql)
     else:
-        sync_execute(DROP_TABLE_SQL.format(table=table, cluster=CLICKHOUSE_CLUSTER))
+        return no_op_migration(sql)
 
 
 operations = [
-    migrations.RunPython(drop_session_recording_tables("kafka_session_recording_events_partition_statistics")),
-    migrations.RunPython(drop_session_recording_tables("kafka_session_recording_events")),
-    migrations.RunPython(drop_session_recording_tables("session_recording_events_partition_statistics_mv")),
-    migrations.RunPython(drop_session_recording_tables("session_recording_events_mv")),
-    migrations.RunPython(drop_session_recording_tables("writable_session_recording_events")),
-    migrations.RunPython(drop_session_recording_tables("sharded_session_recording_events")),
-    migrations.RunPython(drop_session_recording_tables("session_recording_events")),
+    run_sql_on_cloud(DEPRECATE_CH_RECORDINGS_DROP_SESSION_RECORDING_EVENTS_MV_TABLE_SQL()),
+    run_sql_on_cloud(DEPRECATE_CH_RECORDINGS_DROP_SESSION_RECORDING_EVENTS_PARTITION_STATISTICS_MV_TABLE_SQL()),
+    run_sql_on_cloud(DEPRECATE_CH_RECORDINGS_DROP_KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL()),
+    run_sql_on_cloud(DEPRECATE_CH_RECORDINGS_DROP_KAFKA_SESSION_RECORDING_EVENTS_PARTITION_STATISTICS_TABLE_SQL()),
+    run_sql_on_cloud(DEPRECATE_CH_RECORDINGS_DROP_WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL()),
+    run_sql_on_cloud(DEPRECATE_CH_RECORDINGS_DROP_SHARDED_SESSION_RECORDING_EVENTS_TABLE_SQL()),
+    run_sql_on_cloud(DEPRECATE_CH_RECORDINGS_DROP_SESSION_RECORDING_EVENTS_TABLE_SQL()),
 ]

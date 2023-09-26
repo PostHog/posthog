@@ -89,6 +89,7 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
                                               query: `SELECT ${obj.columns
                                                   .filter(({ table, fields, chain }) => !table && !fields && !chain)
                                                   .map(({ key }) => key)} FROM ${table} LIMIT 100`,
+                                              it,
                                           },
                                       }
                                       return (
