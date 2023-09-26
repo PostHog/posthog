@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Optional, Any, Dict, List
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -79,14 +80,23 @@ class PersonsQueryRunner(QueryRunner):
             )
         return where_exprs
 
-    def columns(self) -> List[ast.Expr]:
-        return []
-
     def to_query(self) -> ast.SelectQuery:
         # adding +1 to the limit to check if there's a "next page" after the requested results
         from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 
-        with self.timings.measure("filter_conditions"):
+        with self.timings.measure("columns"):
+            columns = [
+                ast.Field(chain=["id"]),
+                ast.Field(chain=["properties"]),
+                ast.Field(chain=["created_at"]),
+                ast.Field(chain=["is_identified"]),
+                *[parse_expr(expr) for expr in self.query.select or []],
+            ]
+            group_by: List[ast.Expr] = [column for column in columns if not has_aggregation(column)]
+            aggregations: List[ast.Expr] = [column for column in columns if has_aggregation(column)]
+            has_any_aggregation = len(aggregations) > 0
+
+        with self.timings.measure("filters"):
             filter_conditions = self.filter_conditions()
             where_list = [expr for expr in filter_conditions if not has_aggregation(expr)]
             if len(where_list) == 0:
@@ -113,11 +123,11 @@ class PersonsQueryRunner(QueryRunner):
 
         with self.timings.measure("select"):
             stmt = ast.SelectQuery(
-                select=self.columns(),
+                select=columns,
                 select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
                 where=where,
                 having=having,
-                # group_by=group_by if has_any_aggregation else None,
+                group_by=group_by if has_any_aggregation else None,
                 # order_by=order_by,
                 limit=ast.Constant(value=limit),
                 offset=ast.Constant(value=offset),
