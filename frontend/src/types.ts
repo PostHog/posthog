@@ -39,17 +39,6 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
-type SnakeToCamelCaseStr<S extends string> = S extends `${infer T}_${infer U}`
-    ? `${T}${Capitalize<SnakeToCamelCaseStr<U>>}`
-    : S
-
-/** Convert snake_case keys to camelCase. Source: https://stackoverflow.com/a/65642944. */
-export type SnakeToCamelCase<T> = T extends object
-    ? {
-          [K in keyof T as SnakeToCamelCaseStr<K & string>]: SnakeToCamelCase<T[K]>
-      }
-    : T
-
 // Keep this in sync with backend constants (constants.py)
 export enum AvailableFeature {
     EVENTS = 'events',

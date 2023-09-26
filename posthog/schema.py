@@ -442,17 +442,17 @@ class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_axis_format: Optional[AggregationAxisFormat] = None
-    aggregation_axis_postfix: Optional[str] = None
-    aggregation_axis_prefix: Optional[str] = None
+    aggregationAxisFormat: Optional[AggregationAxisFormat] = None
+    aggregationAxisPostfix: Optional[str] = None
+    aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
-    show_legend: Optional[bool] = None
-    show_percent_stack_view: Optional[bool] = None
-    show_values_on_series: Optional[bool] = None
+    showLegend: Optional[bool] = None
+    showPercentStackView: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
 
@@ -541,10 +541,10 @@ class FunnelsFilter(BaseModel):
     breakdown_attribution_type: Optional[BreakdownAttributionType] = None
     breakdown_attribution_value: Optional[float] = None
     exclusions: Optional[List[FunnelExclusion]] = None
+    funnelStepReference: Optional[FunnelStepReference] = None
     funnel_aggregate_by_hogql: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_order_type: Optional[StepOrderValue] = None
-    funnel_step_reference: Optional[FunnelStepReference] = None
     funnel_to_step: Optional[float] = None
     funnel_viz_type: Optional[FunnelVizType] = None
     funnel_window_interval: Optional[float] = None
@@ -605,7 +605,7 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    show_values_on_series: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     toggledLifecycles: Optional[List[LifecycleToggle]] = None
 

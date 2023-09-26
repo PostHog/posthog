@@ -21,7 +21,6 @@ import {
     HogQLMathType,
     InsightLogicProps,
     InsightShortId,
-    SnakeToCamelCase,
 } from '~/types'
 
 /**
@@ -379,7 +378,14 @@ type TrendsFrontendFilters =
     | 'show_values_on_series'
     | 'show_percent_stack_view'
 
-type TrendsFrontendSettings = SnakeToCamelCase<Pick<TrendsFilterType, TrendsFrontendFilters>>
+type TrendsFrontendSettings = {
+    showLegend: TrendsFilterType['show_legend']
+    aggregationAxisFormat: TrendsFilterType['aggregation_axis_format']
+    aggregationAxisPrefix: TrendsFilterType['aggregation_axis_prefix']
+    aggregationAxisPostfix: TrendsFilterType['aggregation_axis_postfix']
+    showValuesOnSeries: TrendsFilterType['show_values_on_series']
+    showPercentStackView: TrendsFilterType['show_percent_stack_view']
+}
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
@@ -415,11 +421,13 @@ type FunnelsPersonsFilters =
     | 'funnel_custom_steps'
 
 type FunnelsFrontendFilters =
-    | 'layout'
+    // | 'layout' // this is a frontend only filter, but already camel cased
     // | 'hidden_legend_keys'
-    | 'funnel_step_reference'
+    'funnel_step_reference'
 
-type FunnelsFrontendSettings = SnakeToCamelCase<Pick<FunnelsFilterType, FunnelsFrontendFilters>>
+type FunnelsFrontendSettings = {
+    funnelStepReference: FunnelsFilterType['funnel_step_reference']
+}
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
  * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
@@ -477,7 +485,9 @@ export interface StickinessQuery extends InsightsQueryBase {
 
 type LifecycleFrontendFilters = 'show_values_on_series'
 
-type LifecycleFrontendSettings = SnakeToCamelCase<Pick<LifecycleFilterType, LifecycleFrontendFilters>>
+type LifecycleFrontendSettings = {
+    showValuesOnSeries: LifecycleFilterType['show_values_on_series']
+}
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
 export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | LifecycleFrontendFilters> &
