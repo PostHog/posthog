@@ -201,7 +201,11 @@ interface GridProps {
 
 function Grid({ children, cols }: GridProps): JSX.Element {
     return (
-        <div className="definition-popover-grid" style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}>
+        <div
+            className="definition-popover-grid"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}
+        >
             {children}
         </div>
     )
@@ -221,7 +225,11 @@ function Card({
     alignItems?: 'baseline' | 'center' | 'end'
 }): JSX.Element {
     return (
-        <div className="definition-popover-grid-card" style={{ alignItems }}>
+        <div
+            className="definition-popover-grid-card"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ alignItems }}
+        >
             <div className="definition-popover-grid-card-title">{title}</div>
             {value && <div className="definition-popover-grid-card-content">{value}</div>}
         </div>
