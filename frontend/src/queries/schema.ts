@@ -21,6 +21,7 @@ import {
     HogQLMathType,
     InsightLogicProps,
     InsightShortId,
+    SnakeToCamelCase,
 } from '~/types'
 
 /**
@@ -369,11 +370,22 @@ export interface InsightsQueryBase extends Node {
     samplingFactor?: number | null
 }
 
+type TrendsFrontendFilters =
+    | 'show_legend'
+    // | 'hidden_legend_keys'
+    | 'aggregation_axis_format'
+    | 'aggregation_axis_prefix'
+    | 'aggregation_axis_postfix'
+    | 'show_values_on_series'
+    | 'show_percent_stack_view'
+
+type TrendsFrontendSettings = SnakeToCamelCase<Pick<TrendsFilterType, TrendsFrontendFilters>>
+
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type TrendsFilter = Omit<
-    TrendsFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys'
+    TrendsFilterType & TrendsFrontendSettings & { hidden_legend_indexes?: number[] },
+    keyof FilterType | TrendsFrontendFilters | 'hidden_legend_keys'
 >
 
 export interface TrendsQueryResponse extends QueryResponse {
@@ -393,12 +405,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     response?: TrendsQueryResponse
 }
 
-/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
- * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
-export type FunnelsFilter = Omit<
-    FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
-    | keyof FilterType
-    | 'hidden_legend_keys'
+type FunnelsPersonsFilters =
     | 'funnel_step_breakdown'
     | 'funnel_correlation_person_entity'
     | 'funnel_correlation_person_converted'
@@ -406,6 +413,19 @@ export type FunnelsFilter = Omit<
     | 'drop_off'
     | 'funnel_step'
     | 'funnel_custom_steps'
+
+type FunnelsFrontendFilters =
+    | 'layout'
+    // | 'hidden_legend_keys'
+    | 'funnel_step_reference'
+
+type FunnelsFrontendSettings = SnakeToCamelCase<Pick<FunnelsFilterType, FunnelsFrontendFilters>>
+
+/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
+ * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
+export type FunnelsFilter = Omit<
+    FunnelsFilterType & FunnelsFrontendSettings & { hidden_legend_breakdowns?: string[] },
+    keyof FilterType | FunnelsFrontendFilters | FunnelsPersonsFilters | 'hidden_legend_keys'
 >
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
@@ -427,22 +447,23 @@ export interface RetentionQuery extends InsightsQueryBase {
     retentionFilter?: RetentionFilter
 }
 
+type PathsPersonsFilters = 'path_start_key' | 'path_end_key' | 'path_dropoff_key'
+
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
-export type PathsFilter = Omit<
-    PathsFilterType,
-    keyof FilterType | 'path_start_key' | 'path_end_key' | 'path_dropoff_key'
->
+export type PathsFilter = Omit<PathsFilterType, keyof FilterType | PathsPersonsFilters>
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     /** Properties specific to the paths insight */
     pathsFilter?: PathsFilter
 }
 
+type StickinessPersonsFilters = 'stickiness_days'
+
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
  * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days'
+    keyof FilterType | StickinessPersonsFilters | 'hidden_legend_keys'
 >
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
@@ -454,11 +475,16 @@ export interface StickinessQuery extends InsightsQueryBase {
     stickinessFilter?: StickinessFilter
 }
 
+type LifecycleFrontendFilters = 'show_values_on_series'
+
+type LifecycleFrontendSettings = SnakeToCamelCase<Pick<LifecycleFilterType, LifecycleFrontendFilters>>
+
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
-export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
-    /** Lifecycles that have been removed from display are not included in this array */
-    toggledLifecycles?: LifecycleToggle[]
-} // using everything except what it inherits from FilterType
+export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | LifecycleFrontendFilters> &
+    LifecycleFrontendSettings & {
+        /** Lifecycles that have been removed from display are not included in this array */
+        toggledLifecycles?: LifecycleToggle[]
+    } // using everything except what it inherits from FilterType
 
 export interface QueryResponse {
     result: unknown

@@ -594,9 +594,9 @@ class SampleMixin(BaseParamMixin):
         return {SAMPLING_FACTOR: self.sampling_factor or ""}
 
 
-class AggregationAxisMixin(BaseParamMixin):
+class FrontendSettingMixin(BaseParamMixin):
     """
-    Aggregation Axis. Only used frontend side.
+    Frontend-only settings.
     """
 
     @cached_property
@@ -610,3 +610,11 @@ class AggregationAxisMixin(BaseParamMixin):
     @cached_property
     def aggregation_axis_postfix(self) -> Optional[str]:
         return self._data.get("aggregation_axis_postfix", None)
+
+    @cached_property
+    def funnel_step_reference(self) -> Optional[str]:
+        return self._data.get("funnel_step_reference", None)
+
+    @cached_property
+    def retention_reference(self) -> Optional[str]:
+        return self._data.get("retention_reference", None)
