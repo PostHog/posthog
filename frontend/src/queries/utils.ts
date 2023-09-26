@@ -26,6 +26,7 @@ import {
     TimeToSeeDataJSONNode,
     DatabaseSchemaQuery,
     SavedInsightNode,
+    WebTopSourcesQuery,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -88,6 +89,10 @@ export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
 
 export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
+}
+
+export function isWebTopSourcesQuery(node?: Node | null): node is WebTopSourcesQuery {
+    return node?.kind === NodeKind.WebTopSourcesQuery
 }
 
 export function containsHogQLQuery(node?: Node | null): boolean {

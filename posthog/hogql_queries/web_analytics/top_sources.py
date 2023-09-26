@@ -12,6 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.schema import HogQLQueryResponse
 
 
 class TopSourcesQueryRunner(WebAnalyticsQueryRunner):
@@ -109,7 +110,7 @@ LIMIT 100
             )
         return top_sources_query
 
-    def calculate(self):
+    def calculate(self) -> HogQLQueryResponse:
         response = execute_hogql_query(
             query_type="top_sources_query",
             query=self.to_query(),
@@ -121,9 +122,7 @@ LIMIT 100
 
     @cached_property
     def query_date_range(self):
-        return QueryDateRange(
-            date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
-        )
+        return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
 
     def _is_stale(self, cached_result_package):
         date_to = self.query_date_range.date_to()

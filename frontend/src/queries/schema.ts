@@ -78,6 +78,7 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | TimeToSeeDataSessionsQuery
+    | WebTopSourcesQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -486,11 +487,16 @@ export interface LifecycleQuery extends InsightsQueryBase {
     response?: LifecycleQueryResponse
 }
 
-export interface WebAnalyticsQueryBase {}
+export interface WebAnalyticsFilters {}
+
+export interface WebAnalyticsQueryBase {
+    dateRange?: DateRange
+}
 
 export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopSourcesQuery
-    query: any
+    filters: WebAnalyticsFilters
+    response?: HogQLQueryResponse
 }
 export interface WebTopSourcesQueryResponse extends QueryResponse {}
 
