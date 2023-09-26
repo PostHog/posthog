@@ -104,10 +104,15 @@ export function Surveys(): JSX.Element {
                                 {
                                     title: 'Responses',
                                     render: function RenderResponses(_, survey) {
-                                        if (surveysResponsesCountLoading) {
-                                            return <Spinner />
-                                        }
-                                        return <div>{surveysResponsesCount[survey.id]}</div>
+                                        return (
+                                            <>
+                                                {surveysResponsesCountLoading ? (
+                                                    <Spinner />
+                                                ) : (
+                                                    <div>{surveysResponsesCount[survey.id]}</div>
+                                                )}
+                                            </>
+                                        )
                                     },
                                 },
                                 {
