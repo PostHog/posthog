@@ -54,10 +54,9 @@ export function RunsTab(): JSX.Element {
     return (
         <>
             {batchExportConfig ? (
-                <div className="flex items-start mt-4 gap-8 flex-wrap">
+                <div className="flex items-start gap-8 flex-wrap">
                     <div className="flex-1 space-y-2">
-                        <div className="flex justify-between items-start">
-                            <h2 className="flex-1">Latest Runs</h2>
+                        <div className="flex justify-end items-start">
                             <Popover
                                 actionable
                                 onClickOutside={function noRefCheck() {
