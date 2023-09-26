@@ -88,7 +88,7 @@ export function Surveys(): JSX.Element {
 
                     {surveysPopupDisabled ? (
                         <LemonBanner
-                            type="info"
+                            type="warning"
                             action={{
                                 type: 'secondary',
                                 icon: <IconSettings />,
