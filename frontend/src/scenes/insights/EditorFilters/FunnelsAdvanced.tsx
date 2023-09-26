@@ -40,7 +40,7 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
                         onClick={() => {
                             updateInsightFilter({
                                 funnel_order_type: undefined,
-                                funnel_step_reference: undefined,
+                                funnelStepReference: undefined,
                                 exclusions: undefined,
                             })
                         }}

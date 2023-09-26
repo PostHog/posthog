@@ -12,7 +12,7 @@ export function FunnelStepReferencePicker(): JSX.Element | null {
     const { insightFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    const { funnel_step_reference } = (insightFilter || {}) as FunnelsFilter
+    const { funnelStepReference } = (insightFilter || {}) as FunnelsFilter
 
     const options = [
         {
@@ -27,8 +27,8 @@ export function FunnelStepReferencePicker(): JSX.Element | null {
 
     return (
         <LemonSelect
-            value={funnel_step_reference || FunnelStepReference.total}
-            onChange={(stepRef) => stepRef && updateInsightFilter({ funnel_step_reference: stepRef })}
+            value={funnelStepReference || FunnelStepReference.total}
+            onChange={(stepRef) => stepRef && updateInsightFilter({ funnelStepReference: stepRef })}
             dropdownMatchSelectWidth={false}
             data-attr="funnel-step-reference-selector"
             options={options}

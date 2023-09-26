@@ -181,7 +181,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         stepsWithConversionMetrics: [
             (s) => [s.steps, s.funnelsFilter],
             (steps, funnelsFilter): FunnelStepWithConversionMetrics[] => {
-                const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
+                const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
                 return stepsWithConversionMetrics(steps, stepReference)
             },
         ],
@@ -356,7 +356,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
 
         /*
-         * Advanced options: funnel_order_type, funnel_step_reference, exclusions
+         * Advanced options: funnel_order_type, funnelStepReference, exclusions
          */
         advancedOptionsUsedCount: [
             (s) => [s.funnelsFilter],
@@ -366,8 +366,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     count = count + 1
                 }
                 if (
-                    funnelsFilter?.funnel_step_reference &&
-                    funnelsFilter?.funnel_step_reference !== FunnelStepReference.total
+                    funnelsFilter?.funnelStepReference &&
+                    funnelsFilter?.funnelStepReference !== FunnelStepReference.total
                 ) {
                     count = count + 1
                 }

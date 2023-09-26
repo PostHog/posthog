@@ -70,7 +70,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                 className={clsx(
                     'ActionsPie w-full',
                     inCardView && 'flex flex-row h-full items-center',
-                    trendsFilter?.show_legend && 'pr-4'
+                    trendsFilter?.showLegend && 'pr-4'
                 )}
             >
                 <div className={clsx('actions-pie-component', inCardView && 'grow')}>
@@ -113,7 +113,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                         {formatAggregationAxisValue(trendsFilter, total)}
                     </h3>
                 </div>
-                {inCardView && trendsFilter?.show_legend && <InsightLegend inCardView />}
+                {inCardView && trendsFilter?.showLegend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

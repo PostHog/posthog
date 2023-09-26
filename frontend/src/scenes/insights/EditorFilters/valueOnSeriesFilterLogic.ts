@@ -37,7 +37,7 @@ export const valueOnSeriesFilterLogic = kea<valueOnSeriesFilterLogicType>([
 
     listeners(({ actions }) => ({
         setValueOnSeries: ({ checked }) => {
-            actions.updateInsightFilter({ show_values_on_series: checked })
+            actions.updateInsightFilter({ showValuesOnSeries: checked })
         },
     })),
 ])

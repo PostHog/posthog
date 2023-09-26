@@ -81,8 +81,8 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
         (!isPercentStackViewOn &&
         showUnit &&
-        trendsFilter?.aggregation_axis_format &&
-        trendsFilter.aggregation_axis_format !== 'numeric'
+        trendsFilter?.aggregationAxisFormat &&
+        trendsFilter.aggregationAxisFormat !== 'numeric'
             ? 1
             : 0) +
         (hasLegend && showLegend ? 1 : 0)

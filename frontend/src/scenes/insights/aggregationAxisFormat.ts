@@ -15,13 +15,13 @@ export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[
 ]
 
 export const formatAggregationAxisValue = (
-    trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
+    trendsFilter: TrendsFilter | null | undefined,
     value: number | string
 ): string => {
     value = Number(value)
     let formattedValue = humanFriendlyNumber(value)
-    if (trendsFilter?.aggregation_axis_format) {
-        switch (trendsFilter?.aggregation_axis_format) {
+    if (trendsFilter?.aggregationAxisFormat) {
+        switch (trendsFilter?.aggregationAxisFormat) {
             case 'duration':
                 formattedValue = humanFriendlyDuration(value)
                 break
@@ -39,9 +39,7 @@ export const formatAggregationAxisValue = (
                 break
         }
     }
-    return `${trendsFilter?.aggregation_axis_prefix || ''}${formattedValue}${
-        trendsFilter?.aggregation_axis_postfix || ''
-    }`
+    return `${trendsFilter?.aggregationAxisPrefix || ''}${formattedValue}${trendsFilter?.aggregationAxisPostfix || ''}`
 }
 
 export const formatPercentStackAxisValue = (

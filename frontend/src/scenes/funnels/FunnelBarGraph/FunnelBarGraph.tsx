@@ -33,7 +33,7 @@ export function FunnelBarGraph({
     const { ref: graphRef, width } = useResizeObserver()
 
     const steps = visibleStepsWithConversionMetrics
-    const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
+    const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
 

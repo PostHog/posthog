@@ -35,4 +35,6 @@ export const ValueInspectorButton = React.forwardRef<HTMLElement, ValueInspector
         )
     }
 )
+
+// @ts-expect-error
 ValueInspectorButton.displayName = 'ValueInspectorButton'
