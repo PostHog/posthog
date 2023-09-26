@@ -87,8 +87,26 @@ const meta: Meta = {
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
                 // without the session-recording-blob-replay feature flag, we only load via ClickHouse
-                '/api/projects/:team/session_recordings/:id/snapshots': (_, res, ctx) =>
-                    res(ctx.text(snapshotsAsJSONLines())),
+                '/api/projects/:team/session_recordings/:id/snapshots': (req, res, ctx) => {
+                    // with no sources, returns sources...
+                    if (req.url.searchParams.get('source') === 'blob') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    // with no source requested should return sources
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '1691755416097-1691755492268',
+                                },
+                            ],
+                        },
+                    ]
+                },
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
                 'api/projects/:team/notebooks': {
                     count: 0,
