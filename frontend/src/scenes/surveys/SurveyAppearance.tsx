@@ -1,5 +1,5 @@
 import './SurveyAppearance.scss'
-import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import {
     SurveyAppearance as SurveyAppearanceType,
     SurveyQuestion,
@@ -100,16 +100,26 @@ export function SurveyAppearance({
                         value={appearance?.backgroundColor}
                         onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
                     />
-                    <div className="mt-2">Question text color</div>
+                    <div className="mt-2">Border color</div>
                     <LemonInput
-                        value={appearance?.textColor}
-                        onChange={(textColor) => onAppearanceChange({ ...appearance, textColor })}
+                        value={appearance?.borderColor}
+                        onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
                     />
-                    <div className="mt-2">Description text color</div>
-                    <LemonInput
-                        value={appearance?.descriptionTextColor || defaultSurveyAppearance.descriptionTextColor}
-                        onChange={(descriptionTextColor) => onAppearanceChange({ ...appearance, descriptionTextColor })}
-                    />
+                    <div className="mt-2">Position</div>
+                    <div className="flex gap-1">
+                        {['left', 'center', 'right'].map((position) => {
+                            return (
+                                <LemonButton
+                                    key={position}
+                                    type="tertiary"
+                                    onClick={() => onAppearanceChange({ ...appearance, position })}
+                                    active={appearance.position === position}
+                                >
+                                    {position}
+                                </LemonButton>
+                            )
+                        })}
+                    </div>
                     {surveyQuestionItem.type === SurveyQuestionType.Rating && (
                         <>
                             <div className="mt-2">Rating button color</div>
@@ -119,17 +129,13 @@ export function SurveyAppearance({
                                     onAppearanceChange({ ...appearance, ratingButtonColor })
                                 }
                             />
-                            {surveyQuestionItem.display === 'emoji' && (
-                                <>
-                                    <div className="mt-2">Rating button hover color</div>
-                                    <LemonInput
-                                        value={appearance?.ratingButtonHoverColor}
-                                        onChange={(ratingButtonHoverColor) =>
-                                            onAppearanceChange({ ...appearance, ratingButtonHoverColor })
-                                        }
-                                    />
-                                </>
-                            )}
+                            <div className="mt-2">Rating button active color</div>
+                            <LemonInput
+                                value={appearance?.ratingButtonActiveColor}
+                                onChange={(ratingButtonActiveColor) =>
+                                    onAppearanceChange({ ...appearance, ratingButtonActiveColor })
+                                }
+                            />
                         </>
                     )}
                     {[
@@ -150,6 +156,15 @@ export function SurveyAppearance({
                             <LemonInput
                                 value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
                                 onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
+                            />
+                        </>
+                    )}
+                    {surveyQuestionItem.type === SurveyQuestionType.Open && (
+                        <>
+                            <div className="mt-2">Placeholder</div>
+                            <LemonInput
+                                value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
+                                onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
                             />
                         </>
                     )}
