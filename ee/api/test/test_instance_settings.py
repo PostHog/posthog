@@ -5,7 +5,7 @@ from ee.api.test.base import APILicensedTest
 from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.performance.sql import PERFORMANCE_EVENT_DATA_TABLE
-from posthog.models.session_recording_event.sql import SESSION_RECORDING_EVENTS_DATA_TABLE
+from posthog.session_recordings.sql.session_recording_event_sql import SESSION_RECORDING_EVENTS_DATA_TABLE
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_alter_queries
 

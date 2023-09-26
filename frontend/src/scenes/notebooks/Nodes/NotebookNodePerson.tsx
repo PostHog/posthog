@@ -10,13 +10,19 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
-import api from 'lib/api'
+import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id } = props.attributes
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
     const { expanded } = useValues(notebookNodeLogic)
+
+    useEffect(() => {
+        props.updateAttributes({
+            title: person ? `Person: ${asDisplay(person)}` : 'Person',
+        })
+    }, [person])
 
     return (
         <div className="flex flex-col overflow-hidden">
@@ -51,17 +57,7 @@ type NotebookNodePersonAttributes = {
 
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
     nodeType: NotebookNodeType.Person,
-    title: async (attributes) => {
-        const theMountedPersonLogic = personLogic.findMounted({ id: attributes.id })
-        let person = theMountedPersonLogic?.values.person || null
-
-        if (person === null) {
-            const response = await api.persons.list({ distinct_id: attributes.id })
-            person = response.results[0]
-        }
-
-        return person ? `Person: ${asDisplay(person)}` : 'Person'
-    },
+    defaultTitle: 'Person',
     Component,
     heightEstimate: 300,
     minHeight: 100,
@@ -71,7 +67,7 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
         id: {},
     },
     pasteOptions: {
-        find: urls.person('(.+)'),
+        find: urls.person('(.+)', false),
         getAttributes: async (match) => {
             return { id: match[1] }
         },

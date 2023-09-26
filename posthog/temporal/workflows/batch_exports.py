@@ -143,23 +143,22 @@ def iter_batch_records(batch) -> typing.Generator[dict[str, typing.Any], None, N
         elements = json.dumps(record.get("elements_chain").decode())
 
         record = {
-            "created_at": record.get("created_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "created_at": record.get("created_at").isoformat(),
             "distinct_id": record.get("distinct_id").decode(),
             "elements": elements,
             "elements_chain": record.get("elements_chain").decode(),
             "event": record.get("event").decode(),
-            "inserted_at": record.get("inserted_at").strftime("%Y-%m-%d %H:%M:%S.%f")
-            if record.get("inserted_at")
-            else None,
+            "inserted_at": record.get("inserted_at").isoformat() if record.get("inserted_at") else None,
             "ip": properties.get("$ip", None) if properties else None,
             "person_id": record.get("person_id").decode(),
             "person_properties": json.loads(person_properties) if person_properties else None,
             "set": properties.get("$set", None) if properties else None,
             "set_once": properties.get("$set_once", None) if properties else None,
             "properties": properties,
-            "site_url": properties.get("$current_url", None) if properties else None,
+            # Kept for backwards compatibility, but not exported anymore.
+            "site_url": "",
             "team_id": record.get("team_id"),
-            "timestamp": record.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "timestamp": record.get("timestamp").isoformat(),
             "uuid": record.get("uuid").decode(),
         }
 

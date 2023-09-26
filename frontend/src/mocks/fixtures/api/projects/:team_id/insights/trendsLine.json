@@ -10,6 +10,12 @@
                 "name": "$pageview",
                 "type": "events",
                 "order": 0
+            },
+            {
+                "id": "$geoip_country_name",
+                "name": "$geoip_country_name",
+                "type": "events",
+                "order": 0
             }
         ],
         "actions": [],

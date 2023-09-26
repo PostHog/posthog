@@ -28,6 +28,7 @@ import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
+import { isTestEnv } from '../env-utils'
 import { status } from '../status'
 import { createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -70,6 +71,10 @@ export async function createHub(
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
+    const fetchHostnameGuardTeams =
+        serverConfig.FETCH_HOSTNAME_GUARD_TEAMS === '*'
+            ? null
+            : new Set(serverConfig.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number))
 
     const statsd: StatsD | undefined = createStatsdClient(serverConfig, threadId)
 
@@ -181,15 +186,23 @@ export async function createHub(
         rootAccessManager,
         promiseManager,
         conversionBufferEnabledTeams,
+        fetchHostnameGuardTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
     }
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-    hub.appMetrics = new AppMetrics(hub as Hub)
+    hub.appMetrics = new AppMetrics(
+        kafkaProducer,
+        serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+        serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+    )
 
     const closeHub = async () => {
+        if (!isTestEnv()) {
+            await hub.appMetrics?.flush()
+        }
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
 

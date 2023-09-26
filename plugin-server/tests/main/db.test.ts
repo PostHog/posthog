@@ -165,7 +165,7 @@ describe('DB', () => {
                 user_id: 1001,
                 resource_id: 69,
                 event: 'action_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
@@ -188,7 +188,7 @@ describe('DB', () => {
                                 team_id: 2,
                                 resource_id: 69,
                                 event: 'action_performed',
-                                target: 'https://rest-hooks.example.com/',
+                                target: 'https://example.com/',
                             },
                         ],
                         bytecode: null,
@@ -226,7 +226,7 @@ describe('DB', () => {
                 user_id: 1001,
                 resource_id: 69,
                 event: 'event_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
@@ -236,7 +236,7 @@ describe('DB', () => {
                 user_id: 1001,
                 resource_id: 70,
                 event: 'event_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
@@ -629,46 +629,6 @@ describe('DB', () => {
                 properties_last_updated_at: { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
                 properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 version: 2,
-            })
-        })
-
-        describe('with caching', () => {
-            it('insertGroup() and updateGroup() update cache', async () => {
-                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual(null)
-
-                await db.insertGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'val' },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set },
-                    1,
-                    undefined,
-                    { cache: true }
-                )
-
-                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
-                    created_at: CLICKHOUSE_TIMESTAMP,
-                    properties: { prop: 'val' },
-                })
-
-                await db.updateGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'newVal', prop2: 2 },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO(), prop2: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                    2
-                )
-
-                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
-                    created_at: CLICKHOUSE_TIMESTAMP,
-                    properties: { prop: 'newVal', prop2: 2 },
-                })
             })
         })
     })

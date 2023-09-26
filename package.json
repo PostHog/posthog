@@ -38,7 +38,7 @@
         "build:esbuild": "node frontend/build.mjs",
         "schema:build": "pnpm run schema:build:json && pnpm run schema:build:python",
         "schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'frontend/src/*.ts' --type 'QuerySchema' --no-type-check > frontend/src/queries/schema.json && prettier --write frontend/src/queries/schema.json",
-        "schema:build:python": "datamodel-codegen --collapse-root-models --disable-timestamp --use-subclass-enum --input frontend/src/queries/schema.json --input-file-type jsonschema --output posthog/schema.py && black posthog/schema.py",
+        "schema:build:python": "datamodel-codegen --collapse-root-models --disable-timestamp --use-one-literal-as-default --use-default-kwarg --use-subclass-enum --input frontend/src/queries/schema.json --input-file-type jsonschema --output posthog/schema.py --output-model-type pydantic_v2.BaseModel && black posthog/schema.py",
         "grammar:build": "cd posthog/hogql/grammar && antlr -Dlanguage=Python3 HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
         "packages:build": "pnpm packages:build:apps-common && pnpm packages:build:lemon-ui",
         "packages:build:apps-common": "cd frontend/@posthog/apps-common && pnpm i && pnpm build",
@@ -126,7 +126,7 @@
         "md5": "^2.3.0",
         "monaco-editor": "^0.39.0",
         "papaparse": "^5.4.1",
-        "posthog-js": "1.78.5",
+        "posthog-js": "1.81.1",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -236,6 +236,7 @@
         "cypress-terminal-report": "^5.1.1",
         "eslint": "^7.8.0",
         "eslint-config-prettier": "^8.8.0",
+        "eslint-plugin-compat": "^4.2.0",
         "eslint-plugin-cypress": "^2.13.3",
         "eslint-plugin-eslint-comments": "^3.2.0",
         "eslint-plugin-jest": "^27.2.3",
@@ -296,9 +297,6 @@
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "black",
             "ruff"
-        ],
-        "*.png": [
-            "optipng -clobber -o4 -strip all"
         ]
     },
     "browserslist": {
@@ -308,7 +306,7 @@
             "last 2 edge versions"
         ],
         "production": [
-            "defaults"
+            "defaults and not not op_mini all"
         ]
     },
     "browser": {

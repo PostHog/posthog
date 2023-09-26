@@ -3,13 +3,13 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional
+from typing import Any, Callable, DefaultDict, Dict, Generator, List, Optional, Tuple
 
 from dateutil.parser import ParserError, parse
 from sentry_sdk.api import capture_exception
 
 from posthog.models import utils
-from posthog.models.session_recording.metadata import (
+from posthog.session_recordings.models.metadata import (
     DecompressedRecordingData,
     SessionRecordingEventSummary,
     SnapshotData,
@@ -126,7 +126,7 @@ def legacy_compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 10
         }
 
 
-def split_replay_events(events: List[Event]) -> List[Event]:
+def split_replay_events(events: List[Event]) -> Tuple[List[Event], List[Event]]:
     replay, other = [], []
 
     for event in events:
@@ -139,7 +139,9 @@ def preprocess_replay_events_for_blob_ingestion(events: List[Event], max_size_by
     return _process_windowed_events(events, lambda x: preprocess_replay_events(x, max_size_bytes=max_size_bytes))
 
 
-def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) -> List[Event]:
+def preprocess_replay_events(
+    _events: List[Event] | Generator[Event, None, None], max_size_bytes=1024 * 1024
+) -> Generator[Event, None, None]:
     """
     The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
     1. Since posthog-js {version} we are grouping events on the frontend in a batch and passing their size in $snapshot_bytes
@@ -149,8 +151,14 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
     3. If not, we split out the "full snapshots" from the rest (they are typically bigger) and send them individually, trying one more time to group the rest, otherwise sending them individually
     """
 
+    if isinstance(_events, Generator):
+        # we check the first item in the events below so need to be dealing with a list
+        events = list(_events)
+    else:
+        events = _events
+
     if len(events) == 0:
-        return []
+        return
 
     size_with_headroom = max_size_bytes * 0.95  # Leave 5% headroom
 
@@ -158,7 +166,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
 
-    def new_event(items: List[dict] = None) -> Event:
+    def new_event(items: List[dict] | None = None) -> Event:
         return {
             **events[0],
             "event": "$snapshot_items",  # New event name to avoid confusion with the old $snapshot event
@@ -173,7 +181,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
 
     # 1. Group by $snapshot_bytes if any of the events have it
     if events[0]["properties"].get("$snapshot_bytes"):
-        current_event = None
+        current_event: Dict | None = None
         current_event_size = 0
 
         for event in events:
@@ -191,7 +199,8 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
             current_event["properties"]["$snapshot_items"].extend(additional_data)
             current_event_size += additional_bytes
 
-        yield current_event
+        if current_event:
+            yield current_event
     else:
         snapshot_data_list = list(flatten([event["properties"]["$snapshot_data"] for event in events], max_depth=1))
 
@@ -226,11 +235,13 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
                     yield event
 
 
-def _process_windowed_events(events: List[Event], fn: Callable[[List[Event], Any], List[Event]]) -> List[Event]:
+def _process_windowed_events(
+    events: List[Event], fn: Callable[[List[Any]], Generator[Event, None, None]]
+) -> List[Event]:
     """
     Helper method to simplify grouping events by window_id and session_id, processing them with the given function, and then returning the flattened list
     """
-    result = []
+    result: List[Event] = []
     snapshots_by_session_and_window_id = defaultdict(list)
 
     for event in events:
@@ -315,7 +326,7 @@ def decompress_chunked_snapshot_data(
                     event["snapshot_data"]["events_summary"] if return_only_activity_data else decompressed_items
                 )
             else:
-                # Really old format where the event is just a single raw rrweb event
+                # Old format where the event is just a single raw rrweb event
                 snapshot_data_by_window_id[event["window_id"]].append(
                     get_events_summary_from_snapshot_data([event["snapshot_data"]])[0]
                     if return_only_activity_data
@@ -339,7 +350,7 @@ def decompress_chunked_snapshot_data(
 
             if len(chunks) == event["snapshot_data"]["chunk_count"]:
                 count += 1
-                chunks_collector[event["snapshot_data"]["chunk_id"]] = None
+                chunks_collector[event["snapshot_data"]["chunk_id"]] = []
 
                 # Somehow mark this chunk_id as processed...
                 processed_chunk_ids.add(event["snapshot_data"]["chunk_id"])
@@ -395,7 +406,9 @@ def convert_to_timestamp(source: str) -> int:
     return int(parse(source).timestamp() * 1000)
 
 
-def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
+def get_events_summary_from_snapshot_data(
+    snapshot_data: List[SnapshotData | None],
+) -> List[SessionRecordingEventSummary]:
     """
     Extract a minimal representation of the snapshot data events for easier querying.
     'data' and 'data.payload' values are included as long as they are strings or numbers

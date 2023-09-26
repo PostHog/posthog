@@ -88,7 +88,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _run_lifecycle_query(self, date_from, date_to, interval):
-        return self._create_query_runner(date_from, date_to, interval).run()
+        return self._create_query_runner(date_from, date_to, interval).calculate()
 
     def test_lifecycle_query_whole_range(self):
         self._create_test_events()

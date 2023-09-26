@@ -28,6 +28,7 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useState } from 'react'
+import clsx from 'clsx'
 
 export enum Language {
     Text = 'text',
@@ -83,6 +84,7 @@ export interface CodeSnippetProps {
     children: string
     language?: Language
     wrap?: boolean
+    compact?: boolean
     actions?: Action[]
     style?: React.CSSProperties
     /** What is being copied. @example 'link' */
@@ -95,6 +97,7 @@ export function CodeSnippet({
     children: text,
     language = Language.Text,
     wrap = false,
+    compact = false,
     style,
     actions,
     thing = 'snippet',
@@ -109,15 +112,20 @@ export function CodeSnippet({
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div className="CodeSnippet" style={style}>
+        <div className={clsx('CodeSnippet', compact && 'CodeSnippet--compact')} style={style}>
             <div className="CodeSnippet__actions">
                 {actions &&
                     actions.map(({ icon, callback, popconfirmProps, title }, index) =>
                         !popconfirmProps ? (
-                            <LemonButton key={`snippet-action-${index}`} onClick={callback} title={title} />
+                            <LemonButton
+                                key={`snippet-action-${index}`}
+                                onClick={callback}
+                                title={title}
+                                size={compact ? 'small' : 'medium'}
+                            />
                         ) : (
                             <Popconfirm key={`snippet-action-${index}`} {...popconfirmProps} onConfirm={callback}>
-                                <LemonButton icon={icon} title={title} />
+                                <LemonButton icon={icon} title={title} size={compact ? 'small' : 'medium'} />
                             </Popconfirm>
                         )
                     )}
@@ -127,6 +135,7 @@ export function CodeSnippet({
                     onClick={async () => {
                         text && (await copyToClipboard(text, thing))
                     }}
+                    size={compact ? 'small' : 'medium'}
                 />
             </div>
             <SyntaxHighlighter
