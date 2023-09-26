@@ -2012,10 +2012,7 @@
                     },
                     "type": "array"
                 },
-                "show_legend": {
-                    "type": "boolean"
-                },
-                "show_values_on_series": {
+                "showValuesOnSeries": {
                     "type": "boolean"
                 },
                 "shown_as": {

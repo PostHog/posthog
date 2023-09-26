@@ -170,17 +170,17 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isTrendsFilter(filters) && isTrendsQuery(query)) {
         query.trendsFilter = objectCleanWithEmpty({
             smoothing_intervals: filters.smoothing_intervals,
-            show_legend: filters.show_legend,
+            showLegend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             compare: filters.compare,
-            aggregation_axis_format: filters.aggregation_axis_format,
-            aggregation_axis_prefix: filters.aggregation_axis_prefix,
-            aggregation_axis_postfix: filters.aggregation_axis_postfix,
+            aggregationAxisFormat: filters.aggregation_axis_format,
+            aggregationAxisPrefix: filters.aggregation_axis_prefix,
+            aggregationAxisPostfix: filters.aggregation_axis_postfix,
             formula: filters.formula,
             shown_as: filters.shown_as,
             display: filters.display,
-            show_values_on_series: filters.show_values_on_series,
-            show_percent_stack_view: filters.show_percent_stack_view,
+            showValuesOnSeries: filters.show_values_on_series,
+            showPercentStackView: filters.show_percent_stack_view,
         })
     }
 
@@ -190,7 +190,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             funnel_viz_type: filters.funnel_viz_type,
             funnel_from_step: filters.funnel_from_step,
             funnel_to_step: filters.funnel_to_step,
-            funnel_step_reference: filters.funnel_step_reference,
+            funnelStepReference: filters.funnel_step_reference,
             breakdown_attribution_type: filters.breakdown_attribution_type,
             breakdown_attribution_value: filters.breakdown_attribution_value,
             bin_count: filters.bin_count,
@@ -243,10 +243,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.stickinessFilter = objectCleanWithEmpty({
             display: filters.display,
             compare: filters.compare,
-            show_legend: filters.show_legend,
-            hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             shown_as: filters.shown_as,
-            show_values_on_series: filters.show_values_on_series,
+            showValuesOnSeries: filters.show_values_on_series,
         })
     }
 
@@ -255,7 +253,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.lifecycleFilter = objectCleanWithEmpty({
             shown_as: filters.shown_as,
             toggledLifecycles: filters.toggledLifecycles,
-            show_values_on_series: filters.show_values_on_series,
+            showValuesOnSeries: filters.show_values_on_series,
         })
     }
 

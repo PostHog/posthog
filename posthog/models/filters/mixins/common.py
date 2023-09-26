@@ -618,3 +618,15 @@ class FrontendSettingMixin(BaseParamMixin):
     @cached_property
     def retention_reference(self) -> Optional[str]:
         return self._data.get("retention_reference", None)
+
+    @cached_property
+    def show_values_on_series(self) -> Optional[str]:
+        return self._data.get("show_values_on_series", None)
+
+    @cached_property
+    def show_legend(self) -> Optional[str]:
+        return self._data.get("show_legend", None)
+
+    @cached_property
+    def show_percent_stack_view(self) -> Optional[str]:
+        return self._data.get("show_percent_stack_view", None)

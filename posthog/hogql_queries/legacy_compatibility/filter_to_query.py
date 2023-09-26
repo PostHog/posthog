@@ -135,17 +135,17 @@ def _insight_filter(filter: AnyInsightFilter):
         return {
             "trendsFilter": TrendsFilter(
                 smoothing_intervals=filter.smoothing_intervals,
-                # show_legend=filter.show_legend,
+                showLegend=filter.show_legend,
                 # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.hidden_legend_keys),
                 compare=filter.compare,
-                aggregation_axis_format=filter.aggregation_axis_format,
-                aggregation_axis_prefix=filter.aggregation_axis_prefix,
-                aggregation_axis_postfix=filter.aggregation_axis_postfix,
+                aggregationAxisFormat=filter.aggregation_axis_format,
+                aggregationAxisPrefix=filter.aggregation_axis_prefix,
+                aggregationAxisPostfix=filter.aggregation_axis_postfix,
                 formula=filter.formula,
                 shown_as=filter.shown_as,
                 display=filter.display,
-                # show_values_on_series=filter.show_values_on_series,
-                # show_percent_stack_view=filter.show_percent_stack_view,
+                showValuesOnSeries=filter.show_values_on_series,
+                showPercentStackView=filter.show_percent_stack_view,
             )
         }
     elif filter.insight == "FUNNELS" and isinstance(filter, LegacyFilter):
@@ -157,7 +157,7 @@ def _insight_filter(filter: AnyInsightFilter):
                 funnel_to_step=filter.funnel_to_step,
                 funnel_window_interval_unit=filter.funnel_window_interval_unit,
                 funnel_window_interval=filter.funnel_window_interval,
-                # funnel_step_reference=filter.funnel_step_reference,
+                funnelStepReference=filter.funnel_step_reference,
                 breakdown_attribution_type=filter.breakdown_attribution_type,
                 breakdown_attribution_value=filter.breakdown_attribution_value,
                 bin_count=filter.bin_count,
@@ -210,7 +210,7 @@ def _insight_filter(filter: AnyInsightFilter):
             "lifecycleFilter": LifecycleFilter(
                 shown_as=filter.shown_as,
                 # toggledLifecycles=filter.toggledLifecycles,
-                # show_values_on_series=filter.show_values_on_series,
+                showValuesOnSeries=filter.show_values_on_series,
             )
         }
     elif filter.insight == "STICKINESS" and isinstance(filter, LegacyStickinessFilter):
@@ -218,9 +218,7 @@ def _insight_filter(filter: AnyInsightFilter):
             "stickinessFilter": StickinessFilter(
                 compare=filter.compare,
                 shown_as=filter.shown_as,
-                # show_legend=filter.show_legend,
-                # hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-                # show_values_on_series=filter.show_values_on_series,
+                showValuesOnSeries=filter.show_values_on_series,
             )
         }
     else:

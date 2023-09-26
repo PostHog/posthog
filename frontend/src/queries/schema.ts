@@ -467,11 +467,17 @@ export interface PathsQuery extends InsightsQueryBase {
 
 type StickinessPersonsFilters = 'stickiness_days'
 
+type StickinessFrontendFilters = 'show_values_on_series'
+
+type StickinessFrontendSettings = {
+    showValuesOnSeries: StickinessFilterType['show_values_on_series']
+}
+
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
  * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type StickinessFilter = Omit<
-    StickinessFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | StickinessPersonsFilters | 'hidden_legend_keys'
+    StickinessFilterType & StickinessFrontendSettings & { hidden_legend_indexes?: number[] },
+    keyof FilterType | StickinessFrontendFilters | StickinessPersonsFilters | 'hidden_legend_keys'
 >
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
