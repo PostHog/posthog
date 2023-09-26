@@ -97,7 +97,7 @@ export function Surveys(): JSX.Element {
                             }}
                         >
                             {usingSurveysSiteApp
-                                ? 'Survey site apps are now deprecated. Enable surveys popup in settings to move to the new system.'
+                                ? 'Survey site apps are now deprecated. Configure and enable surveys popup in the settings here to move to the new system.'
                                 : 'Survey popups are currently disabled for this project.'}
                         </LemonBanner>
                     ) : null}
