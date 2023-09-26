@@ -467,9 +467,10 @@ export interface PathsQuery extends InsightsQueryBase {
 
 type StickinessPersonsFilters = 'stickiness_days'
 
-type StickinessFrontendFilters = 'show_values_on_series'
+type StickinessFrontendFilters = 'show_legend' | 'show_values_on_series'
 
 type StickinessFrontendSettings = {
+    showLegend?: StickinessFilterType['show_legend']
     showValuesOnSeries?: StickinessFilterType['show_values_on_series']
 }
 

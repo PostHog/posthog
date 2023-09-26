@@ -2012,6 +2012,9 @@
                     },
                     "type": "array"
                 },
+                "showLegend": {
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },

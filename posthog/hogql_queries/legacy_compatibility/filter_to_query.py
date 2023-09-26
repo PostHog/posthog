@@ -218,6 +218,8 @@ def _insight_filter(filter: AnyInsightFilter):
             "stickinessFilter": StickinessFilter(
                 compare=filter.compare,
                 shown_as=filter.shown_as,
+                showLegend=filter.show_legend,
+                # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.hidden_legend_keys),
                 showValuesOnSeries=filter.show_values_on_series,
             )
         }
