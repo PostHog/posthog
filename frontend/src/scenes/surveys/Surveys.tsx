@@ -1,4 +1,4 @@
-import { LemonButton, LemonTable, LemonDivider, Link, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonDivider, Link, LemonTag, LemonTagType, Spinner } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -29,7 +29,14 @@ export enum SurveysTabs {
 }
 
 export function Surveys(): JSX.Element {
-    const { nonArchivedSurveys, archivedSurveys, surveys, surveysLoading } = useValues(surveysLogic)
+    const {
+        nonArchivedSurveys,
+        archivedSurveys,
+        surveys,
+        surveysLoading,
+        surveysResponsesCount,
+        surveysResponsesCountLoading,
+    } = useValues(surveysLogic)
     const { deleteSurvey, updateSurvey } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
@@ -97,7 +104,10 @@ export function Surveys(): JSX.Element {
                                 {
                                     title: 'Responses',
                                     render: function RenderResponses(_, survey) {
-                                        return <div>{survey.responses_count}</div>
+                                        if (surveysResponsesCountLoading) {
+                                            return <Spinner />
+                                        }
+                                        return <div>{surveysResponsesCount[survey.id]}</div>
                                     },
                                 },
                                 {

@@ -36,12 +36,12 @@ export const surveysLogic = kea<surveysLogicType>([
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
                 return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
             },
+        },
+        surveysResponsesCount: {
+            __default: {} as { [key: string]: number },
             loadResponsesCount: async () => {
                 const surveysResponsesCount = await api.surveys.getResponsesCount()
-                return values.surveys.map((survey) => ({
-                    ...survey,
-                    responses_count: surveysResponsesCount[survey.id] || 0,
-                }))
+                return surveysResponsesCount
             },
         },
     })),
