@@ -26,13 +26,6 @@ export const surveysLogic = kea<surveysLogicType>([
             __default: [] as Survey[],
             loadSurveys: async () => {
                 const responseSurveys = await api.surveys.list()
-                const surveysResponsesCount = await api.surveys.getResponsesCount()
-
-                responseSurveys.results.forEach((survey) => {
-                    survey.responses_count = 0
-                    survey.responses_count = surveysResponsesCount[survey.id] ?? survey.responses_count
-                })
-
                 return responseSurveys.results
             },
             deleteSurvey: async (id) => {
@@ -42,6 +35,13 @@ export const surveysLogic = kea<surveysLogicType>([
             updateSurvey: async ({ id, updatePayload }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
                 return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
+            },
+            loadResponsesCount: async () => {
+                const surveysResponsesCount = await api.surveys.getResponsesCount()
+                return values.surveys.map((survey) => ({
+                    ...survey,
+                    responses_count: surveysResponsesCount[survey.id] || 0,
+                }))
             },
         },
     })),
@@ -79,5 +79,6 @@ export const surveysLogic = kea<surveysLogicType>([
     }),
     afterMount(async ({ actions }) => {
         await actions.loadSurveys()
+        await actions.loadResponsesCount()
     }),
 ])
