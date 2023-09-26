@@ -2696,13 +2696,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["short_id"], "xyz123")
-        self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
+        self.assertEqual(response.json()["results"][0]["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
         # cached response
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=xyz123")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["short_id"], "xyz123")
-        self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
+        self.assertEqual(response.json()["results"][0]["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])

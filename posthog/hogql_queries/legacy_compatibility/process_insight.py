@@ -32,7 +32,7 @@ def _insight_to_query(insight: Insight, team: Team) -> InsightQueryNode:
 
 
 def _cached_response_to_insight_result(response: CachedQueryResponse) -> InsightResult:
-    result = InsightResult(**response, cache_key="todo", timezone="UTC")  # TODO cache_key, timezone
+    result = InsightResult(**response.model_dump())
     return result
 
 
