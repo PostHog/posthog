@@ -210,13 +210,15 @@ class SurveyViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def responses_count(self, request: request.Request, **kwargs):
-        query = f"""
+        data = sync_execute(
+            f"""
             SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
             FROM events
-            WHERE event = 'survey sent' AND team_id = {self.team_id}
+            WHERE event = 'survey sent' AND team_id = %(team_id)s
             GROUP BY survey_id
-        """
-        data = sync_execute(query)
+        """,
+            {"team_id": self.team_id},
+        )
 
         counts = {}
         for survey_id, count in data:
