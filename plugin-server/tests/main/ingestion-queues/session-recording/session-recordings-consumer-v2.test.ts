@@ -458,52 +458,8 @@ describe('ingester', () => {
          * It is really hard to actually do rebalance tests against kafka, so we instead simulate the various methods and ensure the correct logic occurs
          */
         it('rebalances new consumers', async () => {
-            const partitionMsgs1 = [
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 1,
-                        offset: 1,
-                    },
-                    {
-                        $session_id: 'session_id_1',
-                    }
-                ),
-
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 1,
-                        offset: 2,
-                    },
-                    {
-                        $session_id: 'session_id_2',
-                    }
-                ),
-            ]
-
-            const partitionMsgs2 = [
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 2,
-                        offset: 1,
-                    },
-                    {
-                        $session_id: 'session_id_3',
-                    }
-                ),
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 2,
-                        offset: 2,
-                    },
-                    {
-                        $session_id: 'session_id_4',
-                    }
-                ),
-            ]
+            const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
+            const partitionMsgs2 = [createMessage('session_id_3', 2), createMessage('session_id_4', 2)]
 
             await ingester.onAssignPartitions([createTP(1), createTP(2), createTP(3)])
             await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
@@ -524,20 +480,7 @@ describe('ingester', () => {
 
             // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
             // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
-            await otherIngester.handleEachBatch([
-                ...partitionMsgs2,
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 2,
-                        offset: 3,
-                    },
-                    {
-                        $session_id: 'session_id_4',
-                    }
-                ),
-            ])
-
+            await otherIngester.handleEachBatch([...partitionMsgs2, createMessage('session_id_4', 2)])
             await Promise.all(rebalancePromises)
 
             // Should still have the partition 1 sessions that didnt move
@@ -554,30 +497,7 @@ describe('ingester', () => {
 
     describe('stop()', () => {
         const setup = async (): Promise<void> => {
-            const partitionMsgs1 = [
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 1,
-                        offset: 1,
-                    },
-                    {
-                        $session_id: 'session_id_1',
-                    }
-                ),
-
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 1,
-                        offset: 2,
-                    },
-                    {
-                        $session_id: 'session_id_2',
-                    }
-                ),
-            ]
-
+            const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
             await ingester.onAssignPartitions([createTP(1)])
             await ingester.handleEachBatch(partitionMsgs1)
         }
