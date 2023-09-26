@@ -1,13 +1,29 @@
+from datetime import datetime, timedelta
+
 from unittest.mock import ANY
 
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
 
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    BaseTest,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+    snapshot_clickhouse_queries,
+    _create_event,
+    flush_persons_and_events,
+)
 
-from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.models import FeatureFlag, User
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
+
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 
 class TestSurvey(APIBaseTest):
@@ -728,3 +744,31 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                 response.json()["detail"]
                 == "API key not provided. You can find your project API key in your PostHog project settings."
             )
+
+
+class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
+    @snapshot_clickhouse_queries
+    def test_responses_count(self):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+        )
+
+        for _ in range(10):
+            _create_event(
+                event="survey sent",
+                team=self.team,
+                distinct_id=self.user.id,
+                properties={"$survey_id": "01896748-aa18-0000-b6f6-32a46d43382c"},
+                timestamp=datetime.now() - timedelta(days=10),
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/responses_count?personal_api_key={personal_api_key}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
