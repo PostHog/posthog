@@ -22,21 +22,18 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
     const { insertAfter, setActions } = useActions(notebookNodeLogic)
 
     useEffect(() => {
-        if (survey.linked_flag) {
-            const actions = [
-                {
-                    text: 'View linked flag',
-                    onClick: () => {
-                        if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
-                            insertAfter(buildFlagContent((survey.linked_flag as FeatureFlagBasicType).id))
-                        }
-                    },
-                },
-            ]
-            setActions(actions)
-        } else {
-            setActions([])
-        }
+        setActions([
+            survey.linked_flag
+                ? {
+                      text: 'View linked flag',
+                      onClick: () => {
+                          if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
+                              insertAfter(buildFlagContent((survey.linked_flag as FeatureFlagBasicType).id))
+                          }
+                      },
+                  }
+                : undefined,
+        ])
     }, [survey])
 
     useEffect(() => {

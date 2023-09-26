@@ -8,7 +8,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeAction, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -24,10 +24,8 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
         featureFlagLoading,
         recordingFilterForFlag,
         hasEarlyAccessFeatures,
-        newEarlyAccessFetureLoading,
         canCreateEarlyAccessFeature,
         hasSurveys,
-        newSurveyLoading,
     } = useValues(featureFlagLogic({ id }))
     const { createEarlyAccessFeature, createSurvey } = useActions(featureFlagLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
@@ -38,7 +36,9 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
     )
 
     useEffect(() => {
-        const actions: NotebookNodeAction[] = [
+        props.updateAttributes({ title: featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag' })
+
+        setActions([
             {
                 icon: <IconSurveys />,
                 text: `${hasSurveys ? 'View' : 'Create'} survey`,
@@ -72,29 +72,25 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
                     }
                 },
             },
-        ]
-
-        if (canCreateEarlyAccessFeature) {
-            actions.push({
-                text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
-                icon: <IconRocketLaunch />,
-                onClick: () => {
-                    if (!hasEarlyAccessFeatures) {
-                        createEarlyAccessFeature()
-                    } else {
-                        if ((featureFlag?.features?.length || 0) <= 0) {
-                            return
-                        }
-                        if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
-                            insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
-                        }
-                    }
-                },
-            })
-        }
-
-        setActions(actions)
-        props.updateAttributes({ title: featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag' })
+            canCreateEarlyAccessFeature
+                ? {
+                      text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
+                      icon: <IconRocketLaunch />,
+                      onClick: () => {
+                          if (!hasEarlyAccessFeatures) {
+                              createEarlyAccessFeature()
+                          } else {
+                              if ((featureFlag?.features?.length || 0) <= 0) {
+                                  return
+                              }
+                              if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
+                                  insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
+                              }
+                          }
+                      },
+                  }
+                : undefined,
+        ])
     }, [featureFlag])
 
     return (

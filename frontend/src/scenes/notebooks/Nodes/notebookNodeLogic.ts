@@ -51,7 +51,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     actions({
         setExpanded: (expanded: boolean) => ({ expanded }),
         setResizeable: (resizeable: boolean) => ({ resizeable }),
-        setActions: (actions: NotebookNodeAction[]) => ({ actions }),
+        setActions: (actions: (NotebookNodeAction | undefined)[]) => ({ actions }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
@@ -98,7 +98,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         actions: [
             [] as NotebookNodeAction[],
             {
-                setActions: (_, { actions }) => actions,
+                setActions: (_, { actions }) => actions.filter((x) => !!x) as NotebookNodeAction[],
             },
         ],
     })),
