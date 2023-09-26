@@ -33,7 +33,7 @@ synchronization_ignore_list = (
         "sharded_session_recording_events",
         "writable_session_recording_events",
     ]
-    if is_cloud() or settings.DEBUG or settings.TEST
+    if is_cloud() or settings.DEBUG or settings.TEST or settings.E2E_TESTING
     else []
 )
 
