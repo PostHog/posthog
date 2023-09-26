@@ -389,6 +389,9 @@
                         },
                         {
                             "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/WebTopSourcesQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -2268,6 +2271,18 @@
                 }
             },
             "required": ["result"],
+            "type": "object"
+        },
+        "WebTopSourcesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "WebTopSourcesQuery",
+                    "type": "string"
+                },
+                "query": {}
+            },
+            "required": ["kind", "query"],
             "type": "object"
         }
     }

@@ -468,6 +468,14 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
+class WebTopSourcesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
+    query: Any
+
+
 class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -982,9 +990,9 @@ class DataTableNode(BaseModel):
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
-    source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
-        ..., description="Source of the events"
-    )
+    source: Union[
+        EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery, WebTopSourcesQuery
+    ] = Field(..., description="Source of the events")
 
 
 class PropertyGroupFilter(BaseModel):
