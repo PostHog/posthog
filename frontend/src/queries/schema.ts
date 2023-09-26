@@ -195,6 +195,7 @@ export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
 }
+
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string
@@ -374,6 +375,11 @@ export type TrendsFilter = Omit<
     TrendsFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys'
 >
+
+export interface TrendsQueryResponse extends QueryResponse {
+    result: Record<string, any>[]
+}
+
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -384,6 +390,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdown?: BreakdownFilter
+    response?: TrendsQueryResponse
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and
@@ -442,9 +449,16 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
 
-export interface LifecycleQueryResponse {
-    result: Record<string, any>[]
+export interface QueryResponse {
+    result: unknown
     timings?: QueryTiming[]
+    is_cached?: boolean
+    last_refresh?: string
+    next_allowed_client_refresh?: string
+}
+
+export interface LifecycleQueryResponse extends QueryResponse {
+    result: Record<string, any>[]
 }
 
 export interface LifecycleQuery extends InsightsQueryBase {

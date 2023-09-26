@@ -5,7 +5,7 @@ import {
     ActionFilter,
     EntityType,
     EntityTypes,
-    FunnelStepRangeEntityFilter,
+    FunnelExclusion,
     PropertyFilterValue,
     BaseMathType,
     PropertyMathType,
@@ -30,7 +30,6 @@ import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
-import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
@@ -40,12 +39,16 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { entityFilterLogicType } from '../entityFilterLogicType'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { LocalFilter } from '../entityFilterLogic'
+import { DraggableSyntheticListeners } from '@dnd-kit/core'
 
-const DragHandle = sortableHandle(() => (
-    <span className="ActionFilterRowDragHandle">
+const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
+    <span className="ActionFilterRowDragHandle" {...props}>
         <SortableDragIcon />
     </span>
-))
+)
 
 export enum MathAvailability {
     All,
@@ -68,7 +71,7 @@ const getValue = (
 
 export interface ActionFilterRowProps {
     logic: BuiltLogic<entityFilterLogicType>
-    filter: ActionFilter
+    filter: LocalFilter
     index: number
     typeKey: string
     mathAvailability: MathAvailability
@@ -86,11 +89,7 @@ export interface ActionFilterRowProps {
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((props: {
-              filter: ActionFilterType | FunnelStepRangeEntityFilter
-              index: number
-              onClose: () => void
-          }) => JSX.Element) // Custom suffix element to show in each row
+        | ((props: { filter: ActionFilterType | FunnelExclusion; index: number; onClose: () => void }) => JSX.Element) // Custom suffix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
@@ -148,6 +147,8 @@ export function ActionFilterRow({
     const { mathDefinitions } = useValues(mathsLogic)
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
+
+    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -302,7 +303,7 @@ export function ActionFilterRow({
     )
 
     const rowStartElements = [
-        sortable && filterCount > 1 ? <DragHandle /> : null,
+        sortable && filterCount > 1 ? <DragHandle {...listeners} /> : null,
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
@@ -316,7 +317,17 @@ export function ActionFilterRow({
         : []
 
     return (
-        <div className={'ActionFilterRow'}>
+        <li
+            className={'ActionFilterRow'}
+            ref={setNodeRef}
+            {...attributes}
+            style={{
+                position: 'relative',
+                zIndex: isDragging ? 1 : undefined,
+                transform: CSS.Translate.toString(transform),
+                transition,
+            }}
+        >
             <div className="ActionFilterRow-content">
                 {renderRow ? (
                     renderRow({
@@ -461,7 +472,7 @@ export function ActionFilterRow({
                     />
                 </div>
             )}
-        </div>
+        </li>
     )
 }
 

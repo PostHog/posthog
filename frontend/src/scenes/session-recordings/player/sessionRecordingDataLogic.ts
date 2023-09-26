@@ -29,6 +29,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -208,7 +209,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return
             }
             if (!values.sessionPlayerSnapshotData?.snapshots) {
-                if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
+                // if `getCurrentExporterData` has a value then we're embedded/exported
+                // so, we always want to use blob replay
+                if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY] || getCurrentExporterData()) {
                     actions.loadRecordingSnapshotsV2()
                 } else {
                     actions.loadRecordingSnapshotsV1()

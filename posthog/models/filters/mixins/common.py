@@ -592,3 +592,21 @@ class SampleMixin(BaseParamMixin):
     @include_dict
     def sampling_factor_to_dict(self):
         return {SAMPLING_FACTOR: self.sampling_factor or ""}
+
+
+class AggregationAxisMixin(BaseParamMixin):
+    """
+    Aggregation Axis. Only used frontend side.
+    """
+
+    @cached_property
+    def aggregation_axis_format(self) -> Optional[str]:
+        return self._data.get("aggregation_axis_format", None)
+
+    @cached_property
+    def aggregation_axis_prefix(self) -> Optional[str]:
+        return self._data.get("aggregation_axis_prefix", None)
+
+    @cached_property
+    def aggregation_axis_postfix(self) -> Optional[str]:
+        return self._data.get("aggregation_axis_postfix", None)

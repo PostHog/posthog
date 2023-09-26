@@ -124,13 +124,10 @@ class ElementType(BaseModel):
 
 
 class EmptyPropertyFilter(BaseModel):
+    pass
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Optional[Any] = None
-    operator: Optional[Any] = None
-    type: Optional[Any] = None
-    value: Optional[Any] = None
 
 
 class EntityType(str, Enum):
@@ -185,18 +182,7 @@ class FunnelConversionWindowTimeUnit(str, Enum):
     month = "month"
 
 
-class FunnelLayout(str, Enum):
-    horizontal = "horizontal"
-    vertical = "vertical"
-
-
-class FunnelPathType(str, Enum):
-    funnel_path_before_step = "funnel_path_before_step"
-    funnel_path_between_steps = "funnel_path_between_steps"
-    funnel_path_after_step = "funnel_path_after_step"
-
-
-class FunnelStepRangeEntityFilter(BaseModel):
+class FunnelExclusion(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -208,6 +194,17 @@ class FunnelStepRangeEntityFilter(BaseModel):
     name: Optional[str] = None
     order: Optional[float] = None
     type: Optional[EntityType] = None
+
+
+class FunnelLayout(str, Enum):
+    horizontal = "horizontal"
+    vertical = "vertical"
+
+
+class FunnelPathType(str, Enum):
+    funnel_path_before_step = "funnel_path_before_step"
+    funnel_path_between_steps = "funnel_path_between_steps"
+    funnel_path_after_step = "funnel_path_after_step"
 
 
 class FunnelStepReference(str, Enum):
@@ -469,6 +466,17 @@ class TrendsFilter(BaseModel):
     smoothing_intervals: Optional[float] = None
 
 
+class TrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    result: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -543,7 +551,7 @@ class FunnelsFilter(BaseModel):
     breakdown_attribution_value: Optional[float] = None
     drop_off: Optional[bool] = None
     entrance_period_start: Optional[str] = None
-    exclusions: Optional[List[FunnelStepRangeEntityFilter]] = None
+    exclusions: Optional[List[FunnelExclusion]] = None
     funnel_advanced: Optional[bool] = None
     funnel_aggregate_by_hogql: Optional[str] = None
     funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted] = None
@@ -623,6 +631,9 @@ class LifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
     result: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
 
@@ -1108,6 +1119,7 @@ class TrendsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(default=None, description="Property filters for all series")
+    response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")

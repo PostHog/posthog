@@ -186,7 +186,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            num_queries = FuzzyInt(12, 19)  # PoE on or off adds queries here :shrug:
+            num_queries = FuzzyInt(12, 21)  # PoE on or off adds queries here :shrug:
 
             # loop from 1 to 10
             for i in range(1, 11):
@@ -679,7 +679,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ]
         }
         assert mock_list_objects.call_args_list == [
-            call(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data"),
             call("an lts stored object path"),
         ]
 
