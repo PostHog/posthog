@@ -36,7 +36,8 @@ export enum SurveysTabs {
 }
 
 export function Surveys(): JSX.Element {
-    const { nonArchivedSurveys, archivedSurveys, surveys, surveysLoading } = useValues(surveysLogic)
+    const { nonArchivedSurveys, archivedSurveys, surveys, surveysLoading, usingSurveysSiteApp } =
+        useValues(surveysLogic)
     const { deleteSurvey, updateSurvey } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -59,9 +60,18 @@ export function Surveys(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    <LemonButton type="primary" to={urls.survey('new')} data-attr="new-survey">
-                        New survey
-                    </LemonButton>
+                    <>
+                        <LemonButton type="primary" to={urls.survey('new')} data-attr="new-survey">
+                            New survey
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconSettings />}
+                            onClick={() => openSurveysSettingsDialog()}
+                        >
+                            Configure
+                        </LemonButton>
+                    </>
                 }
             />
             <LemonTabs
@@ -86,7 +96,9 @@ export function Surveys(): JSX.Element {
                                 children: 'Configure',
                             }}
                         >
-                            Survey popups are currently disabled for this project.
+                            {usingSurveysSiteApp
+                                ? 'Survey site apps are now deprecated. Enable surveys popup in settings to move to the new system.'
+                                : 'Survey popups are currently disabled for this project.'}
                         </LemonBanner>
                     ) : null}
                 </div>
