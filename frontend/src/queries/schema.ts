@@ -379,12 +379,12 @@ type TrendsFrontendFilters =
     | 'show_percent_stack_view'
 
 type TrendsFrontendSettings = {
-    showLegend: TrendsFilterType['show_legend']
-    aggregationAxisFormat: TrendsFilterType['aggregation_axis_format']
-    aggregationAxisPrefix: TrendsFilterType['aggregation_axis_prefix']
-    aggregationAxisPostfix: TrendsFilterType['aggregation_axis_postfix']
-    showValuesOnSeries: TrendsFilterType['show_values_on_series']
-    showPercentStackView: TrendsFilterType['show_percent_stack_view']
+    showLegend?: TrendsFilterType['show_legend']
+    aggregationAxisFormat?: TrendsFilterType['aggregation_axis_format']
+    aggregationAxisPrefix?: TrendsFilterType['aggregation_axis_prefix']
+    aggregationAxisPostfix?: TrendsFilterType['aggregation_axis_postfix']
+    showValuesOnSeries?: TrendsFilterType['show_values_on_series']
+    showPercentStackView?: TrendsFilterType['show_percent_stack_view']
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
@@ -426,7 +426,7 @@ type FunnelsFrontendFilters =
     'funnel_step_reference'
 
 type FunnelsFrontendSettings = {
-    funnelStepReference: FunnelsFilterType['funnel_step_reference']
+    funnelStepReference?: FunnelsFilterType['funnel_step_reference']
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
@@ -470,7 +470,7 @@ type StickinessPersonsFilters = 'stickiness_days'
 type StickinessFrontendFilters = 'show_values_on_series'
 
 type StickinessFrontendSettings = {
-    showValuesOnSeries: StickinessFilterType['show_values_on_series']
+    showValuesOnSeries?: StickinessFilterType['show_values_on_series']
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
@@ -492,7 +492,7 @@ export interface StickinessQuery extends InsightsQueryBase {
 type LifecycleFrontendFilters = 'show_values_on_series'
 
 type LifecycleFrontendSettings = {
-    showValuesOnSeries: LifecycleFilterType['show_values_on_series']
+    showValuesOnSeries?: LifecycleFilterType['show_values_on_series']
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
