@@ -28,7 +28,14 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
-import { isEventsQuery, isHogQlAggregation, isHogQLQuery, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isHogQlAggregation,
+    isHogQLQuery,
+    isPersonsNode,
+    isWebTopSourcesQuery,
+    taxonomicFilterToHogQl,
+} from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -115,7 +122,10 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const isReadOnly = setQuery === undefined
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
-    const columnsInLemonTable = isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery
+    const columnsInLemonTable =
+        isHogQLQuery(query.source) || isWebTopSourcesQuery(query.source)
+            ? columnsInResponse ?? columnsInQuery
+            : columnsInQuery
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
@@ -132,7 +142,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         return { props: { colSpan: 0 } }
                     }
                 } else if (result) {
-                    if (isEventsQuery(query.source) || isHogQLQuery(query.source)) {
+                    if (
+                        isEventsQuery(query.source) ||
+                        isHogQLQuery(query.source) ||
+                        isWebTopSourcesQuery(query.source)
+                    ) {
                         return renderColumn(key, result[index], result, query, setQuery, context)
                     }
                     return renderColumn(key, result[key], result, query, setQuery, context)

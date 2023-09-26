@@ -95,6 +95,9 @@
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebTopSourcesQuery"
                 }
             ]
         },
@@ -2273,16 +2276,28 @@
             "required": ["result"],
             "type": "object"
         },
+        "WebAnalyticsFilters": {
+            "additionalProperties": false,
+            "type": "object"
+        },
         "WebTopSourcesQuery": {
             "additionalProperties": false,
             "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filters": {
+                    "$ref": "#/definitions/WebAnalyticsFilters"
+                },
                 "kind": {
                     "const": "WebTopSourcesQuery",
                     "type": "string"
                 },
-                "query": {}
+                "response": {
+                    "$ref": "#/definitions/HogQLQueryResponse"
+                }
             },
-            "required": ["kind", "query"],
+            "required": ["kind", "filters"],
             "type": "object"
         }
     }

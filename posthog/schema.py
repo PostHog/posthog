@@ -468,12 +468,11 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
-class WebTopSourcesQuery(BaseModel):
+class WebAnalyticsFilters(BaseModel):
+    pass
     model_config = ConfigDict(
         extra="forbid",
     )
-    kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
-    query: Any
 
 
 class Breakdown(BaseModel):
@@ -660,6 +659,16 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
     response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(default=None, description="Cached query response")
     teamId: Optional[float] = Field(default=None, description="Project to filter on. Defaults to current project")
+
+
+class WebTopSourcesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filters: WebAnalyticsFilters
+    kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
+    response: Optional[HogQLQueryResponse] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -1261,7 +1270,16 @@ class Model(RootModel):
         LifecycleQuery,
         TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, HogQLMetadata, TimeToSeeDataSessionsQuery],
+        Union[
+            EventsNode,
+            EventsQuery,
+            ActionsNode,
+            PersonsNode,
+            HogQLQuery,
+            HogQLMetadata,
+            TimeToSeeDataSessionsQuery,
+            WebTopSourcesQuery,
+        ],
     ]
 
 
