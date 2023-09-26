@@ -18,6 +18,25 @@ TableName = str
 Query = str
 HostName = str
 
+# These tables are deprecated and should no longer be synchronised.
+# They are kept here since the migration operations fail as we create and then drop them.
+# TODO: Remove these tables from the CREATE_TABLE_QUERIES list
+# That will require the original migrations being converted to no-ops so that these tables are not added
+# when migrating from scratch
+synchronization_ignore_list = (
+    [
+        "kafka_session_recording_events_partition_statistics",
+        "session_recording_events",
+        "kafka_session_recording_events",
+        "session_recording_events_mv",
+        "session_recording_events_partition_statistics_mv",
+        "sharded_session_recording_events",
+        "writable_session_recording_events",
+    ]
+    if is_cloud() or settings.DEBUG or settings.TEST
+    else []
+)
+
 
 class Command(BaseCommand):
     help = "Synchronize schema across clickhouse cluster, creating missing tables on new nodes"
@@ -45,7 +64,10 @@ class Command(BaseCommand):
         logger.info("✅ All ClickHouse nodes schema in sync")
 
     def analyze_cluster_tables(self):
-        table_names = list(map(get_table_name, CREATE_TABLE_QUERIES))
+        table_names = [
+            x for x in list(map(get_table_name, CREATE_TABLE_QUERIES)) if x not in synchronization_ignore_list
+        ]
+
         rows = sync_execute(
             """
             SELECT hostName() as host, name, create_table_query
@@ -70,7 +92,10 @@ class Command(BaseCommand):
         return host_tables, create_table_queries, self.get_out_of_sync_hosts(host_tables)
 
     def get_out_of_sync_hosts(self, host_tables: Dict[HostName, Set[TableName]]) -> Dict[HostName, Set[TableName]]:
-        table_names = list(map(get_table_name, CREATE_TABLE_QUERIES))
+        table_names = [
+            x for x in list(map(get_table_name, CREATE_TABLE_QUERIES)) if x not in synchronization_ignore_list
+        ]
+
         out_of_sync = {}
 
         for host, tables in host_tables.items():

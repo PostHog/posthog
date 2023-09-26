@@ -17,10 +17,10 @@ logger = structlog.get_logger(__name__)
 
 
 def no_op_migration(sql: str):
-    logger.debug("Skipping drop_session_recording_tables migration as not on cloud", sql=sql)
+    logger.debug("Skipping drop_session_recording_tables migration as not on cloud, nor in DEBUG or TEST mode", sql=sql)
 
 
-def run_sql_on_cloud(sql: str) -> None:
+def run_sql_on_cloud(sql: str):
     if is_cloud() or DEBUG or TEST:
         return run_sql_with_exceptions(sql)
     else:
