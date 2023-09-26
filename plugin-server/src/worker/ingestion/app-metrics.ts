@@ -2,9 +2,10 @@ import * as Sentry from '@sentry/node'
 import { Message } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { configure } from 'safe-stable-stringify'
+import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
-import { Hub, TeamId, TimestampFormat } from '../../types'
+import { TeamId, TimestampFormat } from '../../types'
 import { cleanErrorStackTrace } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
@@ -61,52 +62,43 @@ const safeJSONStringify = configure({
 })
 
 export class AppMetrics {
-    hub: Hub
+    kafkaProducer: KafkaProducerWrapper
     queuedData: Record<string, QueuedMetric>
 
     flushFrequencyMs: number
+    maxQueueSize: number
 
-    timer: NodeJS.Timeout | null
+    lastFlushTime: number
+    // For quick access to queueSize instead of using Object.keys(queuedData).length every time
+    queueSize: number
 
-    constructor(hub: Hub) {
-        this.hub = hub
+    constructor(kafkaProducer: KafkaProducerWrapper, flushFrequencyMs: number, maxQueueSize: number) {
         this.queuedData = {}
 
-        this.flushFrequencyMs = hub.APP_METRICS_FLUSH_FREQUENCY_MS
-        this.timer = null
-    }
-
-    async isAvailable(metric: AppMetric, errorWithContext?: ErrorWithContext): Promise<boolean> {
-        if (this.hub.APP_METRICS_GATHERED_FOR_ALL) {
-            return true
-        }
-
-        // :TRICKY: If postgres connection is down, we ignore this metric
-        try {
-            return await this.hub.organizationManager.hasAvailableFeature(metric.teamId, 'app_metrics')
-        } catch (err) {
-            status.warn(
-                '⚠️',
-                'Error querying whether app_metrics is available. Ignoring this metric',
-                metric,
-                errorWithContext,
-                err
-            )
-            return false
-        }
+        this.kafkaProducer = kafkaProducer
+        this.flushFrequencyMs = flushFrequencyMs
+        this.maxQueueSize = maxQueueSize
+        this.lastFlushTime = Date.now()
+        this.queueSize = 0
     }
 
     async queueMetric(metric: AppMetric, timestamp?: number): Promise<void> {
-        timestamp = timestamp || Date.now()
-        const key = this._key(metric)
-
-        if (!(await this.isAvailable(metric))) {
-            return
+        // We don't want to immediately flush all the metrics every time as we can internally
+        // aggregate them quite a bit and reduce the message count by a lot.
+        // However, we also don't want to wait too long, nor have the queue grow too big resulting in
+        // the flush taking a long time.
+        const now = Date.now()
+        if (now - this.lastFlushTime > this.flushFrequencyMs || this.queueSize > this.maxQueueSize) {
+            await this.flush()
         }
+
+        timestamp = timestamp || now
+        const key = this._key(metric)
 
         const { successes, successesOnRetry, failures, errorUuid, errorType, errorDetails, ...metricInfo } = metric
 
         if (!this.queuedData[key]) {
+            this.queueSize += 1
             this.queuedData[key] = {
                 successes: 0,
                 successesOnRetry: 0,
@@ -131,33 +123,29 @@ export class AppMetrics {
             this.queuedData[key].failures += failures
         }
         this.queuedData[key].lastTimestamp = timestamp
-
-        if (this.timer === null) {
-            this.timer = setTimeout(() => {
-                this.hub.promiseManager.trackPromise(this.flush(), 'app metrics')
-                this.timer = null
-            }, this.flushFrequencyMs)
-        }
     }
 
     async queueError(metric: AppMetric, errorWithContext: ErrorWithContext, timestamp?: number) {
-        if (await this.isAvailable(metric, errorWithContext)) {
-            await this.queueMetric(
-                {
-                    ...metric,
-                    ...this._metricErrorParameters(errorWithContext),
-                },
-                timestamp
-            )
-        }
+        await this.queueMetric(
+            {
+                ...metric,
+                ...this._metricErrorParameters(errorWithContext),
+            },
+            timestamp
+        )
     }
 
     async flush(): Promise<void> {
+        console.log(`Flushing app metrics`)
+        const startTime = Date.now()
+        this.lastFlushTime = startTime
         if (Object.keys(this.queuedData).length === 0) {
             return
         }
 
+        // TODO: We might be dropping some metrics here if someone wrote between queue assigment and queuedData={} assignment
         const queue = this.queuedData
+        this.queueSize = 0
         this.queuedData = {}
 
         const kafkaMessages: Message[] = Object.values(queue).map((value) => ({
@@ -178,10 +166,11 @@ export class AppMetrics {
             }),
         }))
 
-        await this.hub.kafkaProducer.queueMessage({
+        await this.kafkaProducer.queueMessage({
             topic: KAFKA_APP_METRICS,
             messages: kafkaMessages,
         })
+        console.log(`Finisehd flushing app metrics, took ${Date.now() - startTime}ms`)
     }
 
     _metricErrorParameters(errorWithContext: ErrorWithContext): Partial<AppMetric> {

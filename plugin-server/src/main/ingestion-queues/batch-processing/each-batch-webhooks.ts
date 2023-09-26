@@ -155,10 +155,12 @@ export async function eachMessageWebhooksHandlers(
     convertToProcessedPluginEvent(event)
 
     await runInstrumentedFunction({
-        event: event,
         func: () => runWebhooks(statsd, actionMatcher, hookCannon, event),
         statsKey: `kafka_queue.process_async_handlers_webhooks`,
         timeoutMessage: 'After 30 seconds still running runWebhooksHandlersEventPipeline',
+        timeoutContext: () => ({
+            event: JSON.stringify(event),
+        }),
         teamId: event.teamId,
     })
 }

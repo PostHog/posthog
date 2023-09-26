@@ -64,6 +64,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     const logic = notebookSelectButtonLogic({ ...props })
 
     const { resource, newNotebookTitle } = props
+    const notebookResource = resource && typeof resource !== 'boolean' ? resource : null
     const { notebooksLoading, notebooksContainingResource, notebooksNotContainingResource, searchQuery } =
         useValues(logic)
     const { setShowPopover, setSearchQuery, loadNotebooksContainingResource, loadAllNotebooks } = useActions(logic)
@@ -81,10 +82,15 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     const openNewNotebook = (): void => {
         const title = newNotebookTitle ?? `Notes ${dayjs().format('DD/MM')}`
 
-        createNotebook(title, NotebookTarget.Popover, resource ? [resource] : undefined, (theNotebookLogic) => {
-            props.onNotebookOpened?.(theNotebookLogic)
-            loadNotebooksContainingResource()
-        })
+        createNotebook(
+            title,
+            NotebookTarget.Popover,
+            notebookResource ? [notebookResource] : undefined,
+            (theNotebookLogic) => {
+                props.onNotebookOpened?.(theNotebookLogic)
+                loadNotebooksContainingResource()
+            }
+        )
 
         setShowPopover(false)
     }
@@ -139,7 +145,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                                 <LemonDivider />
                             </>
                         ) : null}
-                        <h5>Add to</h5>
+                        {resource ? <h5>Add to</h5> : null}
                         <NotebooksChoiceList
                             notebooks={notebooksNotContainingResource}
                             emptyState={searchQuery.length ? 'No matching notebooks' : "You don't have any notebooks"}

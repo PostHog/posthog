@@ -27,6 +27,7 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.trends_query_runner import TrendsQueryRunner
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
@@ -227,6 +228,10 @@ def process_query(
         refresh_requested = refresh_requested_by_client(request) if request else False
         lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
         return _unwrap_pydantic_dict(lifecycle_query_runner.run(refresh_requested=refresh_requested))
+    elif query_kind == "TrendsQuery":
+        refresh_requested = refresh_requested_by_client(request) if request else False
+        trends_query_runner = TrendsQueryRunner(query_json, team)
+        return _unwrap_pydantic_dict(trends_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)

@@ -45,7 +45,10 @@ class RetentionFilter(
     BaseFilter,
 ):
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:
-        data["insight"] = INSIGHT_RETENTION
+        if data:
+            data["insight"] = INSIGHT_RETENTION
+        else:
+            data = {"insight": INSIGHT_RETENTION}
         super().__init__(data, request, **kwargs)
 
     @cached_property

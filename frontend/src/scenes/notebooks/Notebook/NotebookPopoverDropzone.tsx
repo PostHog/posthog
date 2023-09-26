@@ -67,7 +67,7 @@ export function NotebookPopoverDropzone(): JSX.Element | null {
                             Cancel
                         </LemonButton>
                     </div>
-                    <NotebookSelectList onNotebookOpened={onNotebookOpened} />
+                    <NotebookSelectList onNotebookOpened={onNotebookOpened} resource />
                 </div>
             ) : (
                 <div className="NotebookPopoverDropzone__message">Drop here for a different Notebook</div>
