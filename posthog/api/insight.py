@@ -53,6 +53,7 @@ from posthog.constants import (
 from posthog.decorators import cached_by_filters
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql.errors import HogQLException
+from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
 from posthog.hogql_queries.legacy_compatibility.process_insight import is_insight_with_hogql_support, process_insight
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
@@ -504,7 +505,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
         target = insight if dashboard is None else dashboard_tile
 
-        if insight.team.hogql_insights_enabled and is_insight_with_hogql_support(target or insight):
+        if hogql_insights_enabled(self.context.get("request").user) and is_insight_with_hogql_support(
+            target or insight
+        ):
             return process_insight(target or insight, insight.team)
 
         is_shared = self.context.get("is_shared", False)
