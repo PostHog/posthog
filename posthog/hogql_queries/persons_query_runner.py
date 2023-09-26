@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Optional, Any, Dict, List
 
 from posthog.hogql import ast
@@ -11,15 +12,16 @@ from posthog.schema import PersonsQuery, PersonsQueryResponse, LifecycleQuery
 
 class PersonsQueryRunner(QueryRunner):
     query: PersonsQuery
+    query_type = PersonsQuery
 
     def __init__(self, query: PersonsQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
-        super().__init__(team, timings)
+        super().__init__(query, team, timings)
         if isinstance(query, PersonsQuery):
             self.query = query
         else:
             self.query = PersonsQuery.model_validate(query)
 
-    def run(self) -> PersonsQueryResponse:
+    def calculate(self) -> PersonsQueryResponse:
         response = execute_hogql_query(
             query_type="PersonsQuery",
             query=self.to_query(),
@@ -96,7 +98,7 @@ class PersonsQueryRunner(QueryRunner):
             stmt = ast.SelectQuery(
                 select=[],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-                where=self.get_where(),
+                where=self.filter_conditions(),
                 # having=having,
                 # group_by=group_by if has_any_aggregation else None,
                 # order_by=order_by,
@@ -108,3 +110,9 @@ class PersonsQueryRunner(QueryRunner):
 
     def to_persons_query(self) -> ast.SelectQuery:
         return self.to_query()
+
+    def _is_stale(self, cached_result_package):
+        return True
+
+    def _refresh_frequency(self):
+        return timedelta(minutes=1)
