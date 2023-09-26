@@ -90,6 +90,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_opt_in",
             "recording_domains",
             "inject_web_apps",
+            "surveys_opt_in",
         ]
 
 
@@ -139,6 +140,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "inject_web_apps",
             "extra_settings",
             "has_completed_onboarding_for",
+            "surveys_opt_in",
         )
         read_only_fields = (
             "id",

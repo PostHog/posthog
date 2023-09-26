@@ -8,3 +8,4 @@ cp node_modules/posthog-js/dist/array.js* frontend/dist/
 cp node_modules/posthog-js/dist/array.full.js* frontend/dist/
 cp node_modules/posthog-js/dist/recorder.js* frontend/dist/
 cp node_modules/posthog-js/dist/recorder-v2.js* frontend/dist/
+cp node_modules/posthog-js/dist/surveys.js* frontend/dist/

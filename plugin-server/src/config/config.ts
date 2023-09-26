@@ -62,6 +62,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
+        APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
@@ -150,7 +151,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: 1.2,
         SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024 * 50, // 50MB
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
-        SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
+        SESSION_RECORDING_REDIS_PREFIX: '@posthog/replay/',
+        SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: false,
+        SESSION_RECORDING_PARALLEL_CONSUMPTION: false,
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
     }

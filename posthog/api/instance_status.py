@@ -2,6 +2,8 @@ from typing import Any, Dict, List, Union
 
 from django.conf import settings
 from django.db import connection
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -33,6 +35,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
 
+    @method_decorator(cache_page(60))
     def list(self, request: Request) -> Response:
         redis_alive = is_redis_alive()
         postgres_alive = is_postgres_alive()

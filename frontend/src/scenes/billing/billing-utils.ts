@@ -144,14 +144,15 @@ export const convertAmountToUsage = (
     return Math.round(usage)
 }
 
-export const getUpgradeAllProductsLink = (
+export const getUpgradeProductLink = (
     product: BillingProductV2Type,
     upgradeToPlanKey: string,
-    redirectPath?: string
+    redirectPath?: string,
+    includeAddons: boolean = true
 ): string => {
     let url = '/api/billing-v2/activation?products='
     url += `${product.type}:${upgradeToPlanKey},`
-    if (product.addons?.length) {
+    if (includeAddons && product.addons?.length) {
         for (const addon of product.addons) {
             if (addon.plans?.[0]?.plan_key) {
                 url += `${addon.type}:${addon.plans[0].plan_key},`
