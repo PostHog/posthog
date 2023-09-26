@@ -1,7 +1,7 @@
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ChartDisplayType, ChartParams, GraphType, NotebookNodeType } from '~/types'
+import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
@@ -9,35 +9,10 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { trendsDataLogic } from '../trendsDataLogic'
-import { DataTableNode, Node, NodeKind, PersonsQuery } from '~/queries/schema'
+import { DataTableNode, NodeKind, PersonsQuery } from '~/queries/schema'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isInsightVizNode } from '~/queries/utils'
-import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-
-function appendNotebookQuery(query: Node, fallback?: (query: Node) => void): void {
-    // This functionn is here, and not in `notebookPopoverLogic` to avoid circular imports
-    if (notebookPopoverLogic.isMounted()) {
-        const { selectedNotebook } = notebookPopoverLogic.values
-        const logic = notebookLogic({ shortId: selectedNotebook })
-
-        if (!logic.isMounted()) {
-            const unmount = logic.mount()
-            window.setTimeout(() => {
-                unmount()
-            }, 1000)
-        }
-        logic.actions.insertAfterLastNode({
-            type: NotebookNodeType.Query,
-            attrs: {
-                query: query,
-            },
-        })
-        notebookPopoverLogic.actions.setVisibility('visible')
-    } else if (fallback) {
-        fallback(query)
-    }
-}
+import { appendQueryToActiveNotebook } from 'scenes/notebooks/Notebook/appendQueryToActiveNotebook'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -118,7 +93,7 @@ export function ActionsLineGraph({
                                   full: true,
                                   source: personsQuery,
                               }
-                              appendNotebookQuery(dataTable, setQuery)
+                              appendQueryToActiveNotebook(dataTable, setQuery)
                               return
                           }
 

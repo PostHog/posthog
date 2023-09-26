@@ -25,6 +25,8 @@ import { ChartDisplayType } from '~/types'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { appendQueryToActiveNotebook } from 'scenes/notebooks/Notebook/appendQueryToActiveNotebook'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -160,7 +162,14 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                         <LemonButton
                             size="small"
                             onClick={() => {
-                                router.actions.push(urls.insightNewHogQL(hogQL))
+                                appendQueryToActiveNotebook(
+                                    {
+                                        kind: NodeKind.DataTableNode,
+                                        full: true,
+                                        source: { kind: NodeKind.HogQLQuery, query: hogQL },
+                                    } as DataTableNode,
+                                    () => router.actions.push(urls.insightNewHogQL(hogQL))
+                                )
                             }}
                         >
                             <span className="font-medium whitespace-nowrap">Edit SQL</span>
