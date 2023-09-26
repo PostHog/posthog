@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { NewSurvey, defaultSurveyAppearance, surveyLogic } from './surveyLogic'
+import { NewSurvey, defaultSurveyAppearance, defaultSurveyFieldValues, surveyLogic } from './surveyLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -60,7 +60,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, setSurveyValue } = useActions(surveyLogic)
+    const { loadSurvey, editingSurvey, setSurveyValue, setDefaultForQuestionType } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
@@ -119,6 +119,16 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             <Group name={`questions.${index}`} key={index}>
                                 <Field name="type" label="Question type" className="max-w-60">
                                     <LemonSelect
+                                        onSelect={(newType) => {
+                                            const stateObj = survey.questions[0]
+                                            const isEditingQuestion =
+                                                defaultSurveyFieldValues[stateObj.type].questions[0].question !==
+                                                stateObj.question
+                                            const isEditingDescription =
+                                                defaultSurveyFieldValues[stateObj.type].questions[0].description !==
+                                                stateObj.description
+                                            setDefaultForQuestionType(newType, isEditingQuestion, isEditingDescription)
+                                        }}
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
                                             { label: 'Link', value: SurveyQuestionType.Link },
@@ -376,6 +386,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         className="w-max"
                                         onClick={() => {
                                             setSurveyValue('targeting_flag_filters', { groups: [] })
+                                            setSurveyValue('remove_targeting_flag', false)
                                         }}
                                     >
                                         Add user targeting
@@ -386,19 +397,18 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         <div className="mt-2">
                                             <FeatureFlagReleaseConditions excludeTitle={true} />
                                         </div>
-                                        {id === 'new' && (
-                                            <LemonButton
-                                                type="secondary"
-                                                status="danger"
-                                                className="w-max"
-                                                onClick={() => {
-                                                    setSurveyValue('targeting_flag_filters', undefined)
-                                                    setSurveyValue('targeting_flag', null)
-                                                }}
-                                            >
-                                                Remove all user properties
-                                            </LemonButton>
-                                        )}
+                                        <LemonButton
+                                            type="secondary"
+                                            status="danger"
+                                            className="w-max"
+                                            onClick={() => {
+                                                setSurveyValue('targeting_flag_filters', null)
+                                                setSurveyValue('targeting_flag', null)
+                                                setSurveyValue('remove_targeting_flag', true)
+                                            }}
+                                        >
+                                            Remove all user properties
+                                        </LemonButton>
                                     </>
                                 )}
                             </BindLogic>

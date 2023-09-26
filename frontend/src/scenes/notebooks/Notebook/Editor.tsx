@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { useCallback, useRef } from 'react'
 
 import { Editor as TTEditor } from '@tiptap/core'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { EditorContent, useEditor } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
@@ -25,11 +25,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
-import { JSONContent, NotebookEditor, EditorFocusPosition, EditorRange, Node } from './utils'
+import { EditorFocusPosition, EditorRange, JSONContent, Node, NotebookEditor, textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
+import { InlineMenu } from './InlineMenu'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -182,6 +183,8 @@ export function Editor({
 
             onCreate({
                 getJSON: () => editor.getJSON(),
+                getText: () => textContent(editor.state.doc),
+                getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
@@ -189,7 +192,6 @@ export function Editor({
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 destroy: () => editor.destroy(),
-                isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
@@ -198,6 +200,10 @@ export function Editor({
                         editor.chain().focus().insertContentAt(endPosition, content).run()
                         editor.commands.scrollIntoView()
                     }
+                },
+                pasteContent: (position: number, text: string) => {
+                    editor?.chain().focus().setTextSelection(position).run()
+                    editor?.view.pasteText(text)
                 },
                 findNode: (position: number) => findNode(editor, position),
                 findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
@@ -218,6 +224,7 @@ export function Editor({
         <>
             <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
             {_editor && <FloatingSuggestions editor={_editor} />}
+            {_editor && <InlineMenu editor={_editor} />}
         </>
     )
 }

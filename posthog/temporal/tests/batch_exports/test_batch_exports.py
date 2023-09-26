@@ -12,6 +12,9 @@ import pytest
 import pytest_asyncio
 from django.conf import settings
 
+from posthog.temporal.tests.batch_exports.base import (
+    to_isoformat,
+)
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
     get_data_interval,
@@ -267,7 +270,7 @@ async def test_get_results_iterator(client):
             "elements_chain": "this that and the other",
             "elements": json.dumps("this that and the other"),
             "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
+            "site_url": "",
             "set": None,
             "set_once": None,
         }
@@ -288,8 +291,13 @@ async def test_get_results_iterator(client):
 
     for expected, result in zip(all_expected, all_result):
         for key, value in result.items():
+            if key in ("timestamp", "inserted_at", "created_at"):
+                expected_value = to_isoformat(expected[key])
+            else:
+                expected_value = expected[key]
+
             # Some keys will be missing from result, so let's only check the ones we have.
-            assert value == expected[key], f"{key} value in {result} didn't match value in {expected}"
+            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
 
 
 @pytest.mark.django_db
@@ -319,7 +327,7 @@ async def test_get_results_iterator_handles_duplicates(client):
             "elements_chain": "this that and the other",
             "elements": json.dumps("this that and the other"),
             "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
+            "site_url": "",
             "set": None,
             "set_once": None,
         }
@@ -343,8 +351,13 @@ async def test_get_results_iterator_handles_duplicates(client):
 
     for expected, result in zip(all_expected, all_result):
         for key, value in result.items():
+            if key in ("timestamp", "inserted_at", "created_at"):
+                expected_value = to_isoformat(expected[key])
+            else:
+                expected_value = expected[key]
+
             # Some keys will be missing from result, so let's only check the ones we have.
-            assert value == expected[key], f"{key} value in {result} didn't match value in {expected}"
+            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
 
 
 @pytest.mark.django_db
@@ -374,7 +387,7 @@ async def test_get_results_iterator_can_exclude_events(client):
             "elements_chain": "this that and the other",
             "elements": json.dumps("this that and the other"),
             "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
+            "site_url": "",
             "set": None,
             "set_once": None,
         }
@@ -400,8 +413,13 @@ async def test_get_results_iterator_can_exclude_events(client):
 
     for expected, result in zip(all_expected, all_result):
         for key, value in result.items():
+            if key in ("timestamp", "inserted_at", "created_at"):
+                expected_value = to_isoformat(expected[key])
+            else:
+                expected_value = expected[key]
+
             # Some keys will be missing from result, so let's only check the ones we have.
-            assert value == expected[key], f"{key} value in {result} didn't match value in {expected}"
+            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
 
 
 @pytest.mark.parametrize(

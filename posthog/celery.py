@@ -6,14 +6,14 @@ from uuid import UUID
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
+from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init, task_success, task_failure
 from django.conf import settings
 from django.db import connection
 from django.dispatch import receiver
 from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
-from prometheus_client import Gauge
+from prometheus_client import Gauge, Counter
 
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
@@ -24,6 +24,24 @@ from posthog.utils import get_crontab, get_instance_region
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
 app = Celery("posthog")
+
+CELERY_TASK_PRE_RUN_COUNTER = Counter(
+    "posthog_celery_task_pre_run",
+    "task prerun signal is dispatched before a task is executed.",
+    labelnames=["task_name"],
+)
+
+CELERY_TASK_SUCCESS_COUNTER = Counter(
+    "posthog_celery_task_success",
+    "task success signal is dispatched when a task succeeds.",
+    labelnames=["task_name"],
+)
+
+CELERY_TASK_FAILURE_COUNTER = Counter(
+    "posthog_celery_task_failure",
+    "task failure signal is dispatched when a task succeeds.",
+    labelnames=["task_name"],
+)
 
 # Using a string here means the worker doesn't have to serialize
 # the configuration object to child processes.
@@ -63,8 +81,10 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
     from posthog.settings import sentry_init
+    from prometheus_client import start_http_server
 
     sentry_init()
+    start_http_server(8001)
 
 
 @app.on_after_configure.connect
@@ -208,6 +228,18 @@ def pre_run_signal_handler(task_id, task, **kwargs):
     statsd.incr("celery_tasks_metrics.pre_run", tags={"name": task.name})
     tag_queries(kind="celery", id=task.name)
     set_default_clickhouse_workload_type(Workload.OFFLINE)
+
+    CELERY_TASK_PRE_RUN_COUNTER.labels(task_name=task.name).inc()
+
+
+@task_success.connect
+def success_signal_handler(sender, **kwargs):
+    CELERY_TASK_SUCCESS_COUNTER.labels(task_name=sender.name).inc()
+
+
+@task_failure.connect
+def failure_signal_handler(sender, **kwargs):
+    CELERY_TASK_FAILURE_COUNTER.labels(task_name=sender.name).inc()
 
 
 @task_postrun.connect
@@ -866,7 +898,7 @@ def check_flags_to_rollback():
 @app.task(ignore_result=True)
 def ee_persist_single_recording(id: str, team_id: int):
     try:
-        from ee.tasks.session_recording.persistence import persist_single_recording
+        from ee.session_recordings.persistence_tasks import persist_single_recording
 
         persist_single_recording(id, team_id)
     except ImportError:
@@ -876,7 +908,7 @@ def ee_persist_single_recording(id: str, team_id: int):
 @app.task(ignore_result=True)
 def ee_persist_finished_recordings():
     try:
-        from ee.tasks.session_recording.persistence import persist_finished_recordings
+        from ee.session_recordings.persistence_tasks import persist_finished_recordings
     except ImportError:
         pass
     else:

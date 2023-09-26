@@ -6,20 +6,24 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { defaultSurveyAppearance, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { StatusTag } from 'scenes/surveys/Surveys'
 import { SurveyResult } from 'scenes/surveys/SurveyView'
 import { SurveyAppearance } from 'scenes/surveys/SurveyAppearance'
 import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
-import api from 'lib/api'
+import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = props.attributes
     const { survey, surveyLoading, hasTargetingFlag } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        props.updateAttributes({ title: survey.name ? `Survey: ${survey.name}` : 'Survey' })
+    }, [survey.name])
 
     return (
         <div>
@@ -115,17 +119,7 @@ type NotebookNodeSurveyAttributes = {
 
 export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttributes>({
     nodeType: NotebookNodeType.Survey,
-    title: async (attributes) => {
-        const mountedLogic = surveyLogic.findMounted({ id: attributes.id })
-        let title = mountedLogic?.values.survey.name || null
-        if (title === null) {
-            const retrievedSurvey: Survey = await api.surveys.get(attributes.id)
-            if (retrievedSurvey) {
-                title = retrievedSurvey.name
-            }
-        }
-        return title ? `Survey: ${title}` : 'Survey'
-    },
+    defaultTitle: 'Survey',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.survey(attrs.id),
@@ -140,3 +134,10 @@ export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttr
         },
     },
 })
+
+export function buildSurveyContent(id: string): JSONContent {
+    return {
+        type: NotebookNodeType.Survey,
+        attrs: { id },
+    }
+}

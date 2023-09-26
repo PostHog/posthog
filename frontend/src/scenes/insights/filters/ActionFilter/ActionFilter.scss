@@ -1,5 +1,6 @@
 .ActionFilter {
-    > * + * {
+    > * + *,
+    ul > li + li {
         margin-top: 0.5rem;
     }
 

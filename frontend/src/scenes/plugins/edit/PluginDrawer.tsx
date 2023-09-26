@@ -7,7 +7,6 @@ import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
 import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
-import ReactMarkdown from 'react-markdown'
 import { PluginSource } from '../source/PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
@@ -18,6 +17,7 @@ import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PluginTags } from '../tabs/apps/components'
 
 window.process = MOCK_NODE_PROCESS
@@ -314,9 +314,7 @@ export function PluginDrawer(): JSX.Element {
                             ) : null}
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
-                                    {fieldConfig.markdown && (
-                                        <ReactMarkdown source={fieldConfig.markdown} linkTarget="_blank" />
-                                    )}
+                                    {fieldConfig.markdown && <LemonMarkdown>{fieldConfig.markdown}</LemonMarkdown>}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
                                             hidden={!!fieldConfig.key && invisibleFields.includes(fieldConfig.key)}
@@ -329,8 +327,9 @@ export function PluginDrawer(): JSX.Element {
                                             extra={
                                                 fieldConfig.hint && (
                                                     <small>
-                                                        <div className="h-0.5" />
-                                                        <ReactMarkdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                        <LemonMarkdown className="mt-0.5">
+                                                            {fieldConfig.hint}
+                                                        </LemonMarkdown>
                                                     </small>
                                                 )
                                             }

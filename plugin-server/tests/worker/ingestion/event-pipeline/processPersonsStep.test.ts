@@ -85,6 +85,7 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
                 $browser: 'Chrome',
                 $set: {
                     someProp: 'value',
+                    $browser: 'Chrome',
                 },
                 $set_once: {
                     $initial_browser: 'Chrome',
@@ -95,7 +96,12 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: expect.any(String),
-                properties: { $initial_browser: 'Chrome', someProp: 'value', $creator_event_uuid: expect.any(String) },
+                properties: {
+                    $initial_browser: 'Chrome',
+                    someProp: 'value',
+                    $creator_event_uuid: expect.any(String),
+                    $browser: 'Chrome',
+                },
                 version: 0,
                 is_identified: false,
             })

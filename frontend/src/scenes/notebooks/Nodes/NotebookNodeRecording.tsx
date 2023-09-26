@@ -15,7 +15,6 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 
 const HEIGHT = 500
@@ -78,7 +77,7 @@ type NotebookNodeRecordingAttributes = {
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
-    title: 'Session replay',
+    defaultTitle: 'Session replay',
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
@@ -102,10 +101,12 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         {
             key: 'settings',
             label: 'Settings',
-            icon: <IconSettings />,
             Component: Settings,
         },
     ],
+    serializedText: (attrs) => {
+        return attrs.id
+    },
 })
 
 export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {

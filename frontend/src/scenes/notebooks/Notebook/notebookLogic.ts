@@ -73,17 +73,22 @@ export const notebookLogic = kea<notebookLogicType>([
         clearLocalContent: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
-        setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
+        setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
         exportJSON: true,
         showConflictWarning: true,
         onUpdateEditor: true,
+        setIsShowingSidebar: (showing: boolean) => ({ showing }),
         registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
         scrollToSelection: true,
+        pasteAfterLastNode: (content: string) => ({
+            content,
+        }),
         insertAfterLastNode: (content: JSONContent) => ({
             content,
         }),
+
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
             content,
             nodeType,
@@ -128,10 +133,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 loadNotebookSuccess: () => false,
             },
         ],
-        selectedNodeId: [
+        editingNodeId: [
             null as string | null,
             {
-                setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
+                setEditingNodeId: (_, { editingNodeId }) => editingNodeId,
             },
         ],
         nodeLogics: [
@@ -162,6 +167,13 @@ export const notebookLogic = kea<notebookLogicType>([
                 setEditable: (_, { editable }) => editable,
             },
         ],
+        isShowingSidebar: [
+            false,
+            {
+                setEditingNodeId: (_, { editingNodeId }) => (editingNodeId ? true : false),
+                setIsShowingSidebar: (_, { showing }) => showing,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         notebook: [
@@ -174,6 +186,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         response = {
                             ...values.scratchpadNotebook,
                             content: {},
+                            text_content: null,
                             version: 0,
                         }
                     } else if (props.shortId.startsWith('template-')) {
@@ -206,6 +219,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
                             content: notebook.content,
+                            text_content: values.editor?.getText() || '',
                             title: notebook.title,
                         })
 
@@ -238,6 +252,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
                     const response = await api.notebooks.create({
                         content: values.content || values.notebook.content,
+                        text_content: values.editor?.getText() || '',
                         title: values.title || values.notebook.title,
                     })
 
@@ -277,12 +292,6 @@ export const notebookLogic = kea<notebookLogicType>([
                 return contentTitle || notebook?.title || 'Untitled'
             },
         ],
-        isEmpty: [
-            (s) => [s.editor, s.content],
-            (editor: NotebookEditor): boolean => {
-                return editor?.isEmpty() || false
-            },
-        ],
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
             (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus => {
@@ -304,10 +313,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 return 'unsaved'
             },
         ],
-        selectedNodeLogic: [
-            (s) => [s.selectedNodeId, s.nodeLogics],
-            (selectedNodeId, nodeLogics) =>
-                Object.values(nodeLogics).find((nodeLogic) => nodeLogic.props.nodeId === selectedNodeId),
+        editingNodeLogic: [
+            (s) => [s.editingNodeId, s.nodeLogics],
+            (editingNodeId, nodeLogics) =>
+                Object.values(nodeLogics).find((nodeLogic) => nodeLogic.props.nodeId === editingNodeId),
         ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
@@ -326,10 +335,6 @@ export const notebookLogic = kea<notebookLogicType>([
                     )
                 }
             },
-        ],
-        isShowingSidebar: [
-            (s) => [s.selectedNodeLogic],
-            (selectedNodeLogic) => selectedNodeLogic?.values.isShowingWidgets,
         ],
     }),
     sharedListeners(({ values, actions }) => ({
@@ -353,6 +358,15 @@ export const notebookLogic = kea<notebookLogicType>([
                     }
 
                     values.editor?.insertContentAfterNode(insertionPosition, content)
+                }
+            )
+        },
+        pasteAfterLastNode: async ({ content }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    const endPosition = values.editor?.getEndPosition() || 0
+                    values.editor?.pasteContent(endPosition, content)
                 }
             )
         },
@@ -417,6 +431,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
             const jsonContent = values.editor.getJSON()
+
             actions.setLocalContent(jsonContent)
             actions.onUpdateEditor()
         },
@@ -446,7 +461,6 @@ export const notebookLogic = kea<notebookLogicType>([
         onEditorSelectionUpdate: () => {
             if (values.editor) {
                 const node = values.editor.getSelectedNode()
-                actions.setSelectedNodeId(node?.attrs.nodeId ?? null)
 
                 if (node?.attrs.nodeId) {
                     actions.scrollToSelection()

@@ -528,20 +528,6 @@
         },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "not": {}
-                },
-                "operator": {
-                    "not": {}
-                },
-                "type": {
-                    "not": {}
-                },
-                "value": {
-                    "not": {}
-                }
-            },
             "type": "object"
         },
         "EntityType": {
@@ -860,15 +846,7 @@
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
-        "FunnelLayout": {
-            "enum": ["horizontal", "vertical"],
-            "type": "string"
-        },
-        "FunnelPathType": {
-            "enum": ["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"],
-            "type": "string"
-        },
-        "FunnelStepRangeEntityFilter": {
+        "FunnelExclusion": {
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
@@ -897,6 +875,14 @@
                 }
             },
             "type": "object"
+        },
+        "FunnelLayout": {
+            "enum": ["horizontal", "vertical"],
+            "type": "string"
+        },
+        "FunnelPathType": {
+            "enum": ["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"],
+            "type": "string"
         },
         "FunnelStepReference": {
             "enum": ["total", "previous"],
@@ -927,7 +913,7 @@
                 },
                 "exclusions": {
                     "items": {
-                        "$ref": "#/definitions/FunnelStepRangeEntityFilter"
+                        "$ref": "#/definitions/FunnelExclusion"
                     },
                     "type": "array"
                 },
@@ -1411,6 +1397,9 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/LifecycleQueryResponse"
+                },
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
@@ -1431,6 +1420,34 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "LifecycleQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "result": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["result"],
             "type": "object"
         },
         "LifecycleToggle": {
@@ -1888,8 +1905,16 @@
         "SavedInsightNode": {
             "additionalProperties": false,
             "properties": {
+                "allowSorting": {
+                    "description": "Can the user click on column headers to sort the table? (default: true)",
+                    "type": "boolean"
+                },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",
+                    "type": "boolean"
+                },
+                "expandable": {
+                    "description": "Can expand row to show raw event data (default: true)",
                     "type": "boolean"
                 },
                 "full": {
@@ -1900,10 +1925,38 @@
                     "const": "SavedInsightNode",
                     "type": "string"
                 },
+                "propertiesViaUrl": {
+                    "description": "Link properties via the URL (default: false)",
+                    "type": "boolean"
+                },
                 "shortId": {
                     "$ref": "#/definitions/InsightShortId"
                 },
+                "showActions": {
+                    "description": "Show the kebab menu at the end of the row",
+                    "type": "boolean"
+                },
+                "showColumnConfigurator": {
+                    "description": "Show a button to configure the table's columns if possible",
+                    "type": "boolean"
+                },
                 "showCorrelationTable": {
+                    "type": "boolean"
+                },
+                "showDateRange": {
+                    "description": "Show date range selector",
+                    "type": "boolean"
+                },
+                "showElapsedTime": {
+                    "description": "Show the time it takes to run a query",
+                    "type": "boolean"
+                },
+                "showEventFilter": {
+                    "description": "Include an event filter above the table (EventsNode only)",
+                    "type": "boolean"
+                },
+                "showExport": {
+                    "description": "Show the export button",
                     "type": "boolean"
                 },
                 "showFilters": {
@@ -1912,16 +1965,52 @@
                 "showHeader": {
                     "type": "boolean"
                 },
+                "showHogQLEditor": {
+                    "description": "Include a HogQL query editor above HogQL tables",
+                    "type": "boolean"
+                },
                 "showLastComputation": {
                     "type": "boolean"
                 },
                 "showLastComputationRefresh": {
                     "type": "boolean"
                 },
+                "showOpenEditorButton": {
+                    "description": "Show a button to open the current query as a new insight. (default: true)",
+                    "type": "boolean"
+                },
+                "showPersistentColumnConfigurator": {
+                    "description": "Show a button to configure and persist the table's default columns if possible",
+                    "type": "boolean"
+                },
+                "showPropertyFilter": {
+                    "description": "Include a property filter above the table",
+                    "type": "boolean"
+                },
+                "showReload": {
+                    "description": "Show a reload button",
+                    "type": "boolean"
+                },
                 "showResults": {
                     "type": "boolean"
                 },
+                "showResultsTable": {
+                    "description": "Show a results table",
+                    "type": "boolean"
+                },
+                "showSavedQueries": {
+                    "description": "Shows a list of saved queries",
+                    "type": "boolean"
+                },
+                "showSearch": {
+                    "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
                 "showTable": {
+                    "type": "boolean"
+                },
+                "showTimings": {
+                    "description": "Show a detailed query timing breakdown",
                     "type": "boolean"
                 }
             },
@@ -2180,6 +2269,9 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/TrendsQueryResponse"
+                },
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
@@ -2204,6 +2296,34 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "TrendsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "result": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["result"],
             "type": "object"
         }
     }

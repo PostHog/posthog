@@ -302,23 +302,20 @@ def parse_bool(value: Union[str, List[str]]) -> bool:
 
 
 def raise_if_user_provided_url_unsafe(url: str):
-    """Raise if the provided URL seems unsafe, otherwise do nothing."""
-    parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)
+    """Raise if the provided URL seems unsafe, otherwise do nothing.
+
+    Equivalent of plugin server raiseIfUserProvidedUrlUnsafe.
+    """
+    parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)  # urlparse never raises errors
     if not parsed_url.hostname:
         raise ValueError("No hostname")
-    if parsed_url.scheme == "http":
-        port = 80
-    elif parsed_url.scheme == "https":
-        port = 443
-    else:
+    if parsed_url.scheme not in ("http", "https"):
         raise ValueError("Scheme must be either HTTP or HTTPS")
-    if parsed_url.port is not None and parsed_url.port != port:
-        raise ValueError("Port does not match scheme")
     # Disallow if hostname resolves to a private (internal) IP address
     try:
-        addrinfo = socket.getaddrinfo(parsed_url.hostname, port)
+        addrinfo = socket.getaddrinfo(parsed_url.hostname, None)
     except socket.gaierror:
         raise ValueError("Invalid hostname")
     for _, _, _, _, sockaddr in addrinfo:
         if ip_address(sockaddr[0]).is_private:  # Prevent addressing internal services
-            raise ValueError("Invalid hostname")
+            raise ValueError("Internal hostname")

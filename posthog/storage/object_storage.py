@@ -1,5 +1,5 @@
 import abc
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Dict
 
 import structlog
 from boto3 import client
@@ -38,7 +38,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
+    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+        pass
+
+    @abc.abstractmethod
+    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
         pass
 
     @abc.abstractmethod
@@ -65,7 +69,10 @@ class UnavailableStorage(ObjectStorageClient):
     def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
         pass
 
-    def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
+    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+        pass
+
+    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
@@ -125,10 +132,22 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("read failed") from e
 
-    def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
+    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+        try:
+            self.aws_client.put_object_tagging(
+                Bucket=bucket,
+                Key=key,
+                Tagging={"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]},
+            )
+        except Exception as e:
+            logger.error("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("tag failed") from e
+
+    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
         s3_response = {}
         try:
-            s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key)
+            s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key, **(extras or {}))
         except Exception as e:
             logger.error("object_storage.write_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
             capture_exception(e)
@@ -175,8 +194,14 @@ def object_storage_client() -> ObjectStorageClient:
     return _client
 
 
-def write(file_name: str, content: Union[str, bytes]) -> None:
-    return object_storage_client().write(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content)
+def write(file_name: str, content: Union[str, bytes], extras: Dict | None = None) -> None:
+    return object_storage_client().write(
+        bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content, extras=extras
+    )
+
+
+def tag(file_name: str, tags: Dict[str, str]) -> None:
+    return object_storage_client().tag(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, tags=tags)
 
 
 def read(file_name: str) -> Optional[str]:

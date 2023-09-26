@@ -47,8 +47,8 @@ import {
     DataWarehouseViewLink,
     BatchExportConfiguration,
     BatchExportRun,
-    NotebookNodeType,
     UserBasicType,
+    NotebookNodeResource,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -1321,12 +1321,12 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Pick<NotebookType, 'version' | 'content' | 'title'>
+            data: Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(
-            contains?: { type: NotebookNodeType; attrs: Record<string, string> }[],
+            contains?: NotebookNodeResource[],
             createdBy?: UserBasicType['uuid'],
             search?: string
         ): Promise<PaginatedResponse<NotebookType>> {
@@ -1348,11 +1348,11 @@ const api = {
                 q = { ...q, created_by: createdBy }
             }
             if (search) {
-                q = { ...q, s: search }
+                q = { ...q, search: search }
             }
             return await apiRequest.withQueryString(q).get()
         },
-        async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
+        async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
@@ -1583,7 +1583,8 @@ const api = {
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         options?: ApiMethodOptions,
-        queryId?: string
+        queryId?: string,
+        refresh?: boolean
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1591,7 +1592,9 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({ ...options, data: { query, client_query_id: queryId } })
+        return await new ApiRequest()
+            .query()
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

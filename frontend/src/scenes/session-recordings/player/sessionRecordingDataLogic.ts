@@ -29,6 +29,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -208,7 +209,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return
             }
             if (!values.sessionPlayerSnapshotData?.snapshots) {
-                if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
+                // if `getCurrentExporterData` has a value then we're embedded/exported
+                // so, we always want to use blob replay
+                if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY] || getCurrentExporterData()) {
                     actions.loadRecordingSnapshotsV2()
                 } else {
                     actions.loadRecordingSnapshotsV1()
@@ -239,8 +242,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             if (nextSourceToLoad) {
                 actions.loadRecordingSnapshotsV2(nextSourceToLoad)
-            } else {
-                actions.reportUsageIfFullyLoaded()
             }
         },
         loadRecordingSnapshotsV1Success: ({ sessionPlayerSnapshotData }) => {
@@ -254,8 +255,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             if (values.sessionPlayerSnapshotData?.next) {
                 actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
-            } else {
-                actions.reportUsageIfFullyLoaded()
             }
             if (values.chunkPaginationIndex === 1 || values.loadedFromBlobStorage) {
                 // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
@@ -265,9 +264,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
-
-                actions.reportViewed()
             }
+        },
+        loadRecordingSnapshotsSuccess: () => {
+            actions.reportViewed()
+            actions.reportUsageIfFullyLoaded()
         },
         loadRecordingSnapshotsV1Failure: () => {
             actions.loadRecordingSnapshotsFailure()
@@ -489,7 +490,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 ],
                                 orderBy: ['timestamp ASC'],
                                 limit: 1000000,
-                                personId: person.id,
+                                personId: String(person.id),
                                 after: start.subtract(BUFFER_MS, 'ms').format(),
                                 before: end.add(BUFFER_MS, 'ms').format(),
                                 properties: [properties],
@@ -543,7 +544,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             select: ['properties', 'timestamp'],
                             orderBy: ['timestamp ASC'],
                             limit: 100,
-                            personId: person?.id,
+                            personId: String(person?.id),
                             after: dayjs(event.timestamp).subtract(1000, 'ms').format(),
                             before: dayjs(event.timestamp).add(1000, 'ms').format(),
                             event: existingEvent.event,

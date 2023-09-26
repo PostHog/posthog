@@ -52,6 +52,8 @@ class S3BatchExportInputs:
     data_interval_end: str | None = None
     compression: str | None = None
     exclude_events: list[str] | None = None
+    encryption: str | None = None
+    kms_key_id: str | None = None
 
 
 @dataclass

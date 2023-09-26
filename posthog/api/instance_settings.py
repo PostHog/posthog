@@ -83,7 +83,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
             from posthog.client import sync_execute
-            from posthog.models.session_recording_event.sql import UPDATE_RECORDINGS_TABLE_TTL_SQL
+            from posthog.session_recordings.sql.session_recording_event_sql import UPDATE_RECORDINGS_TABLE_TTL_SQL
 
             sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 

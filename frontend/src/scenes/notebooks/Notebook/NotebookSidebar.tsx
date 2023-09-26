@@ -3,9 +3,11 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { notebookLogic } from './notebookLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconEyeVisible } from 'lib/lemon-ui/icons'
 
 export const NotebookSidebar = (): JSX.Element | null => {
-    const { selectedNodeLogic, isShowingSidebar, isEditable } = useValues(notebookLogic)
+    const { editingNodeLogic, isShowingSidebar, isEditable } = useValues(notebookLogic)
 
     if (!isEditable) {
         return null
@@ -17,23 +19,40 @@ export const NotebookSidebar = (): JSX.Element | null => {
                 'NotebookSidebar--showing': isShowingSidebar,
             })}
         >
-            <div className="NotebookSidebar__content">{selectedNodeLogic && <Widgets logic={selectedNodeLogic} />}</div>
+            <div className="NotebookSidebar__padding" />
+            <div className="NotebookSidebar__content">
+                {editingNodeLogic && isShowingSidebar && <Widgets logic={editingNodeLogic} />}
+            </div>
         </div>
     )
 }
 
-export const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element | null => {
-    const { widgets, nodeAttributes, isShowingWidgets } = useValues(logic)
-    const { updateAttributes, setWidgetsVisible } = useActions(logic)
-
-    if (!isShowingWidgets) {
-        return null
-    }
+const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element | null => {
+    const { setEditingNodeId } = useActions(notebookLogic)
+    const { widgets, nodeAttributes } = useValues(logic)
+    const { updateAttributes, selectNode } = useActions(logic)
 
     return (
         <div className="NotebookNodeSettings__widgets space-y-2 w-full">
             {widgets.map(({ key, label, Component }) => (
-                <LemonWidget key={key} title={label} onClose={() => setWidgetsVisible(false)}>
+                <LemonWidget
+                    key={key}
+                    title={label ?? `Editing '${nodeAttributes.title}'`}
+                    collapsible={false}
+                    actions={
+                        <>
+                            <LemonButton
+                                icon={<IconEyeVisible />}
+                                size="small"
+                                status="primary"
+                                onClick={() => selectNode()}
+                            />
+                            <LemonButton size="small" status="primary" onClick={() => setEditingNodeId(null)}>
+                                Done
+                            </LemonButton>
+                        </>
+                    }
+                >
                     <div className="NotebookNodeSettings__widgets__content">
                         <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
                     </div>

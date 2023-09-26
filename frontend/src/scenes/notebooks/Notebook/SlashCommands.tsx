@@ -3,7 +3,19 @@ import Suggestion from '@tiptap/suggestion'
 
 import { ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { IconCohort, IconQueryEditor, IconRecording, IconTableChart, IconUploadFile } from 'lib/lemon-ui/icons'
+import {
+    IconCohort,
+    IconRecording,
+    IconTableChart,
+    IconUploadFile,
+    InsightSQLIcon,
+    InsightsFunnelsIcon,
+    InsightsLifecycleIcon,
+    InsightsPathsIcon,
+    InsightsRetentionIcon,
+    InsightsStickinessIcon,
+    InsightsTrendsIcon,
+} from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { EditorCommands, EditorRange } from './utils'
 import { NotebookNodeType } from '~/types'
@@ -58,9 +70,178 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
 
 const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
+        title: 'Trend',
+        search: 'trend insight',
+        icon: <InsightsTrendsIcon noBackground color="currentColor" />,
+        command: (chain) =>
+            chain.insertContent({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'TrendsQuery',
+                            filterTestAccounts: false,
+                            series: [
+                                {
+                                    kind: 'EventsNode',
+                                    event: '$pageview',
+                                    name: '$pageview',
+                                    math: 'total',
+                                },
+                            ],
+                            interval: 'day',
+                            trendsFilter: {
+                                display: 'ActionsLineGraph',
+                            },
+                        },
+                    },
+                },
+            }),
+    },
+    {
+        title: 'Funnel',
+        search: 'funnel insight',
+        icon: <InsightsFunnelsIcon noBackground color="currentColor" />,
+        command: (chain) =>
+            chain.insertContent({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'FunnelsQuery',
+                            series: [
+                                {
+                                    kind: 'EventsNode',
+                                    name: '$pageview',
+                                    event: '$pageview',
+                                },
+                                {
+                                    kind: 'EventsNode',
+                                    name: '$pageview',
+                                    event: '$pageview',
+                                },
+                            ],
+                            funnelsFilter: {
+                                funnel_viz_type: 'steps',
+                            },
+                        },
+                    },
+                },
+            }),
+    },
+    {
+        title: 'Retention',
+        search: 'retention insight',
+        icon: <InsightsRetentionIcon noBackground color="currentColor" />,
+        command: (chain) =>
+            chain.insertContent({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'RetentionQuery',
+                            retentionFilter: {
+                                period: 'Day',
+                                total_intervals: 11,
+                                target_entity: {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: 'events',
+                                },
+                                returning_entity: {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: 'events',
+                                },
+                                retention_type: 'retention_first_time',
+                            },
+                        },
+                    },
+                },
+            }),
+    },
+    {
+        title: 'Paths',
+        search: 'paths insight',
+        icon: <InsightsPathsIcon noBackground color="currentColor" />,
+        command: (chain) =>
+            chain.insertContent({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'PathsQuery',
+                            pathsFilter: {
+                                include_event_types: ['$pageview'],
+                            },
+                        },
+                    },
+                },
+            }),
+    },
+    {
+        title: 'Stickiness',
+        search: 'stickiness insight',
+        icon: <InsightsStickinessIcon noBackground color="currentColor" />,
+        command: (chain) =>
+            chain.insertContent({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'StickinessQuery',
+                            series: [
+                                {
+                                    kind: 'EventsNode',
+                                    name: '$pageview',
+                                    event: '$pageview',
+                                    math: 'total',
+                                },
+                            ],
+                            stickinessFilter: {},
+                        },
+                    },
+                },
+            }),
+    },
+    {
+        title: 'Lifecycle',
+        search: 'lifecycle insight',
+        icon: <InsightsLifecycleIcon noBackground color="currentColor" />,
+        command: (chain) =>
+            chain.insertContent({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'LifecycleQuery',
+                            series: [
+                                {
+                                    kind: 'EventsNode',
+                                    name: '$pageview',
+                                    event: '$pageview',
+                                    math: 'total',
+                                },
+                            ],
+                            lifecycleFilter: {
+                                shown_as: 'Lifecycle',
+                            },
+                        },
+                        full: true,
+                    },
+                },
+            }),
+    },
+    {
         title: 'HogQL',
         search: 'sql',
-        icon: <IconQueryEditor />,
+        icon: <InsightSQLIcon noBackground color="currentColor" />,
         command: (chain) =>
             chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['HogQLTable'] } }),
     },
