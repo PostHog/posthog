@@ -250,6 +250,10 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                         # Raised on errors that are related to database operation.
                         # For example: unexpected disconnect, database or other object not found.
                         "OperationalError"
+                        # The schema name provided is invalid (usually because it doesn't exist).
+                        "InvalidSchemaName"
+                        # Missing permissions to, e.g., insert into table.
+                        "InsufficientPrivilege"
                     ],
                 ),
             )
