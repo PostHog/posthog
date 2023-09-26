@@ -398,11 +398,7 @@ export class SessionRecordingIngesterV2 {
                     },
                 })
 
-                for (const message of messages) {
-                    // Now that we have consumed everything, attempt to commit all messages in this batch
-                    const { partition, offset } = message
-                    await this.commitOffset(message.topic, partition, offset)
-                }
+                await this.commitAllOffsets(this.partitionAssignments, Object.values(this.sessions))
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
@@ -563,6 +559,7 @@ export class SessionRecordingIngesterV2 {
         }
 
         const sessionsToDrop: SessionManager[] = []
+        const partitionsToDrop: Record<number, PartitionMetrics> = {}
 
         // First we pull out all sessions that are being dropped. This way if we get reassigned and start consuming, we don't accidentally destroy them
         Object.entries(this.sessions).forEach(([key, sessionManager]) => {
@@ -575,7 +572,7 @@ export class SessionRecordingIngesterV2 {
         // Reset all metrics for the revoked partitions
         topicPartitions.forEach((topicPartition: TopicPartition) => {
             const partition = topicPartition.partition
-
+            partitionsToDrop[partition] = this.partitionAssignments[partition]
             delete this.partitionAssignments[partition]
             gaugeLag.remove({ partition })
             gaugeLagMilliseconds.remove({ partition })
@@ -605,19 +602,21 @@ export class SessionRecordingIngesterV2 {
                     await runInstrumentedFunction({
                         statsKey: `recordingingester.onRevokePartitions.flushSessions`,
                         logExecutionTime: true,
-                        func: async () => {
+                        func: async () =>
                             await Promise.allSettled(
                                 sessionsToDrop
                                     .sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
                                     .map((x) => x.flush('partition_shutdown'))
-                            )
-                        },
+                            ),
                     })
 
+                    // TODO: Remove all sessions that are empty...
+                    await this.commitAllOffsets(partitionsToDrop, sessionsToDrop)
                     await this.partitionLocker.release(topicPartitions)
                 }
 
                 await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
+                // TODO: If the above works, all sessions are removed. Can we drop?
                 await this.offsetsRefresher.refresh()
             },
         })
@@ -666,57 +665,63 @@ export class SessionRecordingIngesterV2 {
         )
     }
 
-    // Given a topic and partition and a list of offsets, commit the highest offset
-    // that is no longer found across any of the existing sessions.
-    // This approach is fault-tolerant in that if anything goes wrong, the next commit on that partition will work
-    public async commitOffset(topic: string, partition: number, offset: number): Promise<void> {
-        const topicPartition = { topic, partition }
-        let potentiallyBlockingSession: SessionManager | undefined
-
-        for (const sessionManager of Object.values(this.sessions)) {
-            if (sessionManager.partition === partition && sessionManager.topic === topic) {
-                const lowestOffset = sessionManager.getLowestOffset()
-                if (
-                    lowestOffset !== null &&
-                    lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
-                ) {
-                    potentiallyBlockingSession = sessionManager
+    public async commitAllOffsets(
+        partitions: Record<number, PartitionMetrics>,
+        blockingSessions: SessionManager[]
+    ): Promise<void> {
+        await Promise.all(
+            Object.entries(partitions).map(async ([p, metrics]) => {
+                /**
+                 * For each partition we want to commit either:
+                 * The lowest blocking session (one we haven't flushed yet on that partition)
+                 * OR the latest offset we have consumed for that partition
+                 */
+                const partition = parseInt(p)
+                const tp = {
+                    topic: this.topic,
+                    partition,
                 }
-            }
-        }
 
-        const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset() ?? null
+                let potentiallyBlockingSession: SessionManager | undefined
 
-        // If we have any other session for this topic-partition then we can only commit offsets that are lower than it
-        const highestOffsetToCommit =
-            potentiallyBlockingOffset !== null && potentiallyBlockingOffset < offset
-                ? potentiallyBlockingOffset
-                : offset
+                for (const sessionManager of Object.values(blockingSessions)) {
+                    if (sessionManager.partition === partition) {
+                        const lowestOffset = sessionManager.getLowestOffset()
+                        if (
+                            lowestOffset !== null &&
+                            lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
+                        ) {
+                            potentiallyBlockingSession = sessionManager
+                        }
+                    }
+                }
 
-        const lastKnownCommit = this.partitionAssignments[partition]?.lastKnownCommit || 0
-        // TODO: Check how long we have been blocked by any individual session and if it is too long then we should
-        // capture an exception to figure out why
-        if (lastKnownCommit >= highestOffsetToCommit) {
-            // If we have already commited this offset then we don't need to do it again
-            return
-        }
+                const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset() ?? null
 
-        if (this.partitionAssignments[partition]) {
-            this.partitionAssignments[partition].lastKnownCommit = highestOffsetToCommit
-        }
+                // We will either try to commit the lowest blocking offset OR whatever we know to be the latest offset we have consumed
+                const highestOffsetToCommit = potentiallyBlockingOffset ?? metrics.lastMessageOffset ?? 0
 
-        this.batchConsumer?.consumer.commit({
-            ...topicPartition,
-            // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
-            // for some reason you commit the next offset you expect to read and not the one you actually have
-            offset: highestOffsetToCommit + 1,
-        })
+                // If we have any other session for this topic-partition then we can only commit offsets that are lower than it
+                if ((metrics.lastKnownCommit ?? 0) >= highestOffsetToCommit) {
+                    return
+                }
 
-        // Store the committed offset to the persistent store to avoid rebalance issues
-        await this.persistentHighWaterMarker.add(topicPartition, KAFKA_CONSUMER_GROUP_ID, highestOffsetToCommit)
-        // Clear all session offsets below the committed offset (as we know they have been flushed)
-        await this.sessionHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
-        gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
+                this.batchConsumer?.consumer.commit({
+                    ...tp,
+                    // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+                    // for some reason you commit the next offset you expect to read and not the one you actually have
+                    offset: highestOffsetToCommit + 1,
+                })
+
+                metrics.lastKnownCommit = highestOffsetToCommit
+
+                // Store the committed offset to the persistent store to avoid rebalance issues
+                await this.persistentHighWaterMarker.add(tp, KAFKA_CONSUMER_GROUP_ID, highestOffsetToCommit)
+                // Clear all session offsets below the committed offset (as we know they have been flushed)
+                await this.sessionHighWaterMarker.clear(tp, highestOffsetToCommit)
+                gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
+            })
+        )
     }
 
     public async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
