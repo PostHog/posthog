@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message } from 'node-rdkafka-acosom'
 import path from 'path'
 
@@ -492,6 +492,38 @@ describe('ingester', () => {
             expect(
                 Object.values(otherIngester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
             ).toEqual(['2:session_id_4:1'])
+        })
+
+        it("flushes and commits as it's revoked", async () => {
+            await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid3', 2)])
+            const revokePromise = ingester.onRevokePartitions([createTP(1)])
+
+            expect(Object.keys(ingester.sessions)).toEqual([`${team.id}-sid3`])
+
+            expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
+                expect.stringContaining(`${team.id}.sid1.`), // gz
+                expect.stringContaining(`${team.id}.sid1.`), // json
+                expect.stringContaining(`${team.id}.sid2.`), // gz
+                expect.stringContaining(`${team.id}.sid2.`), // json
+                expect.stringContaining(`${team.id}.sid3.`), // gz
+                expect.stringContaining(`${team.id}.sid3.`), // json
+            ])
+
+            await revokePromise
+
+            // Only files left on the system should be the sid3 ones
+            expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
+                expect.stringContaining(`${team.id}.sid3.`), // gz
+                expect.stringContaining(`${team.id}.sid3.`), // json
+            ])
+
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockCommit).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    offset: 2 + 1,
+                    partition: 1,
+                })
+            )
         })
     })
 
