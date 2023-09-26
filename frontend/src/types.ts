@@ -1668,36 +1668,40 @@ export interface TrendsFilterType extends FilterType {
     // number of intervals, e.g. for a day interval, we may want to smooth over
     // 7 days to remove weekly variation. Smoothing is performed as a moving average.
     smoothing_intervals?: number
-    show_legend?: boolean // used to show/hide legend next to insights graph
-    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     compare?: boolean
-    aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
-    aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
-    aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     formula?: string
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+
+    // frontend only
+    show_legend?: boolean // used to show/hide legend next to insights graph
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
+    aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
+    aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     show_values_on_series?: boolean
     show_percent_stack_view?: boolean
-    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
-    show_legend?: boolean // used to show/hide legend next to insights graph
-    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
-    stickiness_days?: number
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    // frontend only
+    show_legend?: boolean // used to show/hide legend next to insights graph
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     show_values_on_series?: boolean
+
+    // persons only
+    stickiness_days?: number
 }
 
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
-    funnel_step_reference?: FunnelStepReference // whether conversion shown in graph should be across all steps or just from the previous step
-    funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
@@ -1705,16 +1709,21 @@ export interface FunnelsFilterType extends FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelExclusion[] // used in funnel exclusion filters
-    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
-    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
-    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
-    funnel_advanced?: boolean // used to toggle advanced options on or off
+    funnel_aggregate_by_hogql?: string
+
+    // frontend only
     layout?: FunnelLayout // used only for funnels
-    funnel_step?: number
+    funnel_step_reference?: FunnelStepReference // whether conversion shown in graph should be across all steps or just from the previous step
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+
+    // persons only
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
-    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
-    funnel_aggregate_by_hogql?: string
+    funnel_step?: number
+    funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
+    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
+    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
@@ -1727,14 +1736,16 @@ export interface PathsFilterType extends FilterType {
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
-    path_start_key?: string // Paths People Start Key
-    path_end_key?: string // Paths People End Key
-    path_dropoff_key?: string // Paths People Dropoff Key
     path_replacements?: boolean
     local_path_cleaning_filters?: PathCleaningFilter[]
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
+
+    // persons only
+    path_start_key?: string // Paths People Start Key
+    path_end_key?: string // Paths People End Key
+    path_dropoff_key?: string // Paths People Dropoff Key
 }
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
@@ -1746,6 +1757,8 @@ export interface RetentionFilterType extends FilterType {
 }
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
+
+    // frontend only
     show_values_on_series?: boolean
     toggledLifecycles?: LifecycleToggle[]
 }
