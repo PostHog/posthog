@@ -63,6 +63,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     )
     result: DataT
     timings: Optional[List[QueryTiming]] = None
+    hogql: Optional[str] = None
 
 
 class CachedQueryResponse(QueryResponse):
