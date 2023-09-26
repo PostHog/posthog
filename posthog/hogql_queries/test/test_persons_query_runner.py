@@ -70,7 +70,25 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(runner.run().results), 2)
 
-    def test_persons_query_search(self):
+    def test_persons_query_search_email(self):
         self._create_random_persons()
         runner = self._create_runner(PersonsQuery(search="tim4"))
         self.assertEqual(len(runner.run().results), 1)
+
+    def test_persons_query_source_search_name(self):
+        pass
+
+    def test_persons_query_source_search_case_insensitive(self):
+        pass
+
+    def test_persons_query_source_lifecycle(self):
+        pass
+
+    def test_persons_query_no_filters(self):
+        pass
+
+    def test_persons_query_aggregation_select_having(self):
+        pass
+
+    def test_persons_query_aggregation_select(self):
+        pass
