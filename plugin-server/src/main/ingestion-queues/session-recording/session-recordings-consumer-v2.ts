@@ -24,15 +24,15 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, now } from './utils'
+import { bufferFileDir, now, queryWatermarkOffsets } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-const groupId = 'session-recordings-blob'
-const sessionTimeout = 30000
+// WARNING: Do not change this - it will essentially reset the consumer
+const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
+const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
 const PARTITION_LOCK_INTERVAL_MS = 10000
-const PARTITION_WATERMARK_KEY = 'session_replay_blob_ingester'
 
 // const flushIntervalTimeoutMs = 30000
 
@@ -151,25 +151,9 @@ export class SessionRecordingIngesterV2 {
 
         this.offsetsRefresher = new BackgroundRefresher(async () => {
             const results = await Promise.all(
-                this.assignedTopicPartitions.map(async ({ partition }) => {
-                    return new Promise<[number, number]>((resolve, reject) => {
-                        if (!this.batchConsumer) {
-                            return reject('Not connected')
-                        }
-                        this.batchConsumer.consumer.queryWatermarkOffsets(
-                            KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-                            partition,
-                            (err, offsets) => {
-                                if (err) {
-                                    status.error('🔥', 'Failed to query kafka watermark offsets', err)
-                                    return reject()
-                                }
-
-                                resolve([partition, offsets.highOffset])
-                            }
-                        )
-                    })
-                })
+                this.assignedTopicPartitions.map(({ partition }) =>
+                    queryWatermarkOffsets(this.batchConsumer, partition)
+                )
             )
 
             return results.reduce((acc, [partition, highOffset]) => {
@@ -213,7 +197,7 @@ export class SessionRecordingIngesterV2 {
 
         // Check that we are not below the high water mark for this partition (another consumer may have flushed further than us when revoking)
         if (
-            await this.persistentHighWaterMarker.isBelowHighWaterMark(event.metadata, PARTITION_WATERMARK_KEY, offset)
+            await this.persistentHighWaterMarker.isBelowHighWaterMark(event.metadata, KAFKA_CONSUMER_GROUP_ID, offset)
         ) {
             eventDroppedCounter
                 .labels({
@@ -407,6 +391,13 @@ export class SessionRecordingIngesterV2 {
                     },
                 })
 
+                await runInstrumentedFunction({
+                    statsKey: `recordingingester.handleEachBatch.flushAllReadySessions`,
+                    func: async () => {
+                        await this.flushAllReadySessions()
+                    },
+                })
+
                 for (const message of messages) {
                     // Now that we have consumed everything, attempt to commit all messages in this batch
                     const { partition, offset } = message
@@ -417,12 +408,6 @@ export class SessionRecordingIngesterV2 {
                     statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
                     func: async () => {
                         await this.replayEventsIngester.consumeBatch(recordingMessages)
-                    },
-                })
-                await runInstrumentedFunction({
-                    statsKey: `recordingingester.handleEachBatch.flushAllReadySessions`,
-                    func: async () => {
-                        await this.flushAllReadySessions()
                     },
                 })
             },
@@ -452,7 +437,6 @@ export class SessionRecordingIngesterV2 {
         await this.realtimeManager.subscribe()
         // Load teams into memory
         await this.teamsRefresher.refresh()
-
         await this.replayEventsIngester.start()
 
         if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
@@ -468,9 +452,9 @@ export class SessionRecordingIngesterV2 {
 
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
-            groupId,
+            groupId: KAFKA_CONSUMER_GROUP_ID,
             topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-            sessionTimeout,
+            sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             // the largest size of a message that can be fetched by the consumer.
             // the largest size our MSK cluster allows is 20MB
             // we only use 9 or 10MB but there's no reason to limit this 🤷️
@@ -729,7 +713,7 @@ export class SessionRecordingIngesterV2 {
         })
 
         // Store the committed offset to the persistent store to avoid rebalance issues
-        await this.persistentHighWaterMarker.add(topicPartition, PARTITION_WATERMARK_KEY, highestOffsetToCommit)
+        await this.persistentHighWaterMarker.add(topicPartition, KAFKA_CONSUMER_GROUP_ID, highestOffsetToCommit)
         // Clear all session offsets below the committed offset (as we know they have been flushed)
         await this.sessionHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
         gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
