@@ -4,6 +4,8 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Cannot create index concurrently atomically
+
     dependencies = [
         ("posthog", "0351_team_surveys_opt_in"),
     ]
