@@ -15,7 +15,7 @@ export function BatchExportBackfillModal(): JSX.Element {
 
     return (
         <LemonModal
-            title="Create historic export"
+            title="Export historical data"
             onClose={closeBackfillModal}
             isOpen={isBackfillModalOpen}
             width={'30rem'}
