@@ -1,6 +1,14 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
 
-import { AvailableFeature, ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode } from '~/types'
+import {
+    AvailableFeature,
+    ExporterFormat,
+    InsightLogicProps,
+    InsightModel,
+    InsightShortId,
+    ItemMode,
+    NotebookNodeType,
+} from '~/types'
 import { IconLock } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -33,6 +41,8 @@ import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NodeKind } from '~/queries/schema'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -246,7 +256,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
-                            <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
+                            <>
+                                <NotebookSelectButton
+                                    resource={{
+                                        attrs: {
+                                            query: { kind: NodeKind.SavedInsightNode, shortId: insight.short_id },
+                                        },
+                                        type: NotebookNodeType.Query,
+                                    }}
+                                    type="secondary"
+                                />
+                                <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
+                            </>
                         )}
 
                         {insightMode !== ItemMode.Edit ? (

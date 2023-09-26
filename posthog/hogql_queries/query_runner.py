@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Generic, List, Optional, Type, Dict, TypeVar
 
 from prometheus_client import Counter
@@ -50,6 +50,10 @@ def get_query_runner(
         from .persons_query_runner import PersonsQueryRunner
 
         return PersonsQueryRunner(query=query, team=team, timings=timings)
+    if kind == "TrendsQuery":
+        from .trends_query_runner import TrendsQueryRunner
+
+        return TrendsQueryRunner(query=query, team=team, timings=timings)
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
@@ -139,9 +143,9 @@ class QueryRunner(ABC):
         return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}_{self.team.timezone}")
 
     @abstractmethod
-    def _is_stale(self, cached_result_package) -> bool:
+    def _is_stale(self, cached_result_package):
         raise NotImplementedError()
 
     @abstractmethod
-    def _refresh_frequency(self) -> timedelta:
+    def _refresh_frequency(self):
         raise NotImplementedError()
