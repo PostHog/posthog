@@ -27,6 +27,7 @@ import {
     DatabaseSchemaQuery,
     SavedInsightNode,
     PersonsQuery,
+    HogQLMetadata,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -34,11 +35,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return (
-        isEventsQuery(node) ||
+        isEventsNode(node) ||
+        isActionsNode(node) ||
         isPersonsNode(node) ||
         isTimeToSeeDataSessionsQuery(node) ||
+        isEventsQuery(node) ||
+        isPersonsQuery(node) ||
         isHogQLQuery(node) ||
-        isPersonsQuery(node)
+        isHogQLMetadata(node)
     )
 }
 
@@ -99,6 +103,10 @@ export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
 
 export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
+}
+
+export function isHogQLMetadata(node?: Node | null): node is HogQLMetadata {
+    return node?.kind === NodeKind.HogQLMetadata
 }
 
 export function containsHogQLQuery(node?: Node | null): boolean {

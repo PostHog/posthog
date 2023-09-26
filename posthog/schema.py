@@ -1301,17 +1301,16 @@ class Model(RootModel):
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
-        TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
         Union[
             EventsNode,
-            EventsQuery,
             ActionsNode,
             PersonsNode,
+            TimeToSeeDataSessionsQuery,
+            EventsQuery,
+            PersonsQuery,
             HogQLQuery,
             HogQLMetadata,
-            TimeToSeeDataSessionsQuery,
-            PersonsQuery,
         ],
     ]
 

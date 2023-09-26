@@ -70,15 +70,16 @@ export enum NodeKind {
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
 
+// sync with isDataNode() in utils.ts
 export type AnyDataNode =
-    | EventsNode
+    | EventsNode // never queried directly
+    | ActionsNode // old actions API endpoint
+    | PersonsNode // old persons API endpoint
+    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
-    | ActionsNode
-    | PersonsNode
+    | PersonsQuery
     | HogQLQuery
     | HogQLMetadata
-    | TimeToSeeDataSessionsQuery
-    | PersonsQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -98,7 +99,6 @@ export type QuerySchema =
     | LifecycleQuery
 
     // Misc
-    | TimeToSeeDataSessionsQuery
     | DatabaseSchemaQuery
 
 /** Node base class, everything else inherits from here */
@@ -489,6 +489,7 @@ export interface PersonsQueryResponse {
 
 export interface PersonsQuery extends DataNode {
     kind: NodeKind.PersonsQuery
+    select?: HogQLExpression[]
     source?: InsightQueryNode
     sourceDay?: string
     sourceGroup?: string

@@ -79,25 +79,25 @@
                     "$ref": "#/definitions/EventsNode"
                 },
                 {
-                    "$ref": "#/definitions/EventsQuery"
-                },
-                {
                     "$ref": "#/definitions/ActionsNode"
                 },
                 {
                     "$ref": "#/definitions/PersonsNode"
                 },
                 {
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PersonsQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
                     "$ref": "#/definitions/HogQLMetadata"
-                },
-                {
-                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
-                },
-                {
-                    "$ref": "#/definitions/PersonsQuery"
                 }
             ]
         },
@@ -1880,9 +1880,6 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleQuery"
-                },
-                {
-                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"
