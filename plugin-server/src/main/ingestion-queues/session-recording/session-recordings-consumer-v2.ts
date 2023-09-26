@@ -346,8 +346,9 @@ export class SessionRecordingIngesterV2 {
 
                                 // For some reason timestamp can be null. If it isn't, update our ingestion metrics
                                 metrics.lastMessageTimestamp = timestamp
-                                // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-                                metrics.lastKnownCommit = metrics.lastKnownCommit ?? offset
+
+                                // If we don't have a last known commit then set it to the offset before as that must be the last commit
+                                metrics.lastKnownCommit = metrics.lastKnownCommit ?? offset - 1
                                 metrics.lastMessageOffset = offset
 
                                 counterKafkaMessageReceived.inc({ partition })
@@ -610,7 +611,6 @@ export class SessionRecordingIngesterV2 {
                             ),
                     })
 
-                    // TODO: Remove all sessions that are empty...
                     await this.commitAllOffsets(partitionsToDrop, sessionsToDrop)
                     await this.partitionLocker.release(topicPartitions)
                 }
@@ -684,7 +684,7 @@ export class SessionRecordingIngesterV2 {
 
                 let potentiallyBlockingSession: SessionManager | undefined
 
-                for (const sessionManager of Object.values(blockingSessions)) {
+                for (const sessionManager of blockingSessions) {
                     if (sessionManager.partition === partition) {
                         const lowestOffset = sessionManager.getLowestOffset()
                         if (
@@ -699,10 +699,17 @@ export class SessionRecordingIngesterV2 {
                 const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset() ?? null
 
                 // We will either try to commit the lowest blocking offset OR whatever we know to be the latest offset we have consumed
-                const highestOffsetToCommit = potentiallyBlockingOffset ?? metrics.lastMessageOffset ?? 0
+                const highestOffsetToCommit = potentiallyBlockingOffset
+                    ? potentiallyBlockingOffset - 1 // TRICKY: We want to commit the offset before the lowest blocking offset
+                    : metrics.lastMessageOffset // Or the last message we have seen as it is no longer blocked
+                const lastKnownCommit = metrics.lastKnownCommit ?? -1
 
-                // If we have any other session for this topic-partition then we can only commit offsets that are lower than it
-                if ((metrics.lastKnownCommit ?? 0) >= highestOffsetToCommit) {
+                if (!highestOffsetToCommit) {
+                    return
+                }
+
+                // If the last known commit is more than or equal to the highest offset we want to commit then we don't need to do anything
+                if (lastKnownCommit >= highestOffsetToCommit) {
                     return
                 }
 
