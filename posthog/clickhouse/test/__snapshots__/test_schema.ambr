@@ -158,7 +158,7 @@
       -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
       -- Examples: A batch export id, a cronjob id, a plugin id.
       log_source_id String,
-      -- An id for the instance of log_source that generated this log.
+      -- A secondary id e.g. for the instance of log_source that generated this log.
       -- This may be ommitted if log_source is a singleton.
       -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
       instance_id String,
@@ -775,7 +775,7 @@
       -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
       -- Examples: A batch export id, a cronjob id, a plugin id.
       log_source_id String,
-      -- An id for the instance of log_source that generated this log.
+      -- A secondary id e.g. for the instance of log_source that generated this log.
       -- This may be ommitted if log_source is a singleton.
       -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
       instance_id String,
@@ -1002,7 +1002,7 @@
       -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
       -- Examples: A batch export id, a cronjob id, a plugin id.
       log_source_id String,
-      -- An id for the instance of log_source that generated this log.
+      -- A secondary id e.g. for the instance of log_source that generated this log.
       -- This may be ommitted if log_source is a singleton.
       -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
       instance_id String,
@@ -1018,7 +1018,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_entries', '{replica}-{shard}', _timestamp)
-  ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+  PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
   
   SETTINGS index_granularity=512
   
@@ -1966,7 +1966,7 @@
       -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
       -- Examples: A batch export id, a cronjob id, a plugin id.
       log_source_id String,
-      -- An id for the instance of log_source that generated this log.
+      -- A secondary id e.g. for the instance of log_source that generated this log.
       -- This may be ommitted if log_source is a singleton.
       -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
       instance_id String,
@@ -1982,7 +1982,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_entries', '{replica}-{shard}', _timestamp)
-  ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+  PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
   
   SETTINGS index_granularity=512
   
