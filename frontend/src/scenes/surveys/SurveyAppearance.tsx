@@ -9,7 +9,10 @@ import {
 } from '~/types'
 import { defaultSurveyAppearance } from './surveyLogic'
 import {
+    cancel,
+    check,
     dissatisfiedEmoji,
+    getTextColor,
     neutralEmoji,
     posthogLogoSVG,
     satisfiedEmoji,
@@ -18,8 +21,7 @@ import {
 } from './SurveyAppearanceUtils'
 import { surveysLogic } from './surveysLogic'
 import { useValues } from 'kea'
-import { IconClose } from 'lib/lemon-ui/icons'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
@@ -31,6 +33,46 @@ interface SurveyAppearanceProps {
     readOnly?: boolean
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
+
+const Button = ({
+    link,
+    type,
+    onSubmit,
+    appearance,
+    children,
+}: {
+    link?: string | null
+    type?: SurveyQuestionType
+    onSubmit: () => void
+    appearance: SurveyAppearanceType
+    children: React.ReactNode
+}): JSX.Element => {
+    const [textColor, setTextColor] = useState('black')
+    const ref = useRef(null)
+
+    useEffect(() => {
+        if (ref.current) {
+            const textColor = getTextColor(ref.current)
+            setTextColor(textColor)
+        }
+    }, [appearance.submitButtonColor])
+
+    return (
+        <button
+            ref={ref}
+            className="form-submit"
+            type="button"
+            onClick={() => {
+                link && type === SurveyQuestionType.Link ? window.open(link) : null
+                onSubmit()
+            }}
+            style={{ color: textColor, backgroundColor: appearance.submitButtonColor }}
+        >
+            {children || 'Submit'}
+        </button>
+    )
+}
+
 export function SurveyAppearance({
     type,
     question,
@@ -48,10 +90,8 @@ export function SurveyAppearance({
     useEffect(() => {
         if (appearance.displayThankYouMessage && showThankYou) {
             setHideSubmittedSurvey(true)
-            setTimeout(() => {
-                setShowThankYou(false)
-                setHideSubmittedSurvey(false)
-            }, 2000)
+        } else {
+            setHideSubmittedSurvey(false)
         }
     }, [showThankYou])
 
@@ -92,7 +132,7 @@ export function SurveyAppearance({
                     )}
                 </>
             )}
-            {showThankYou && <SurveyThankYou appearance={appearance} />}
+            {showThankYou && <SurveyThankYou appearance={appearance} setShowThankYou={setShowThankYou} />}
             {!readOnly && (
                 <div className="flex flex-col">
                     <div className="mt-2">Background color</div>
@@ -203,51 +243,160 @@ function BaseAppearance({
     description?: string | null
     link?: string | null
 }): JSX.Element {
+    const [textColor, setTextColor] = useState('black')
+    const ref = useRef(null)
+
+    useEffect(() => {
+        if (ref.current) {
+            const textColor = getTextColor(ref.current)
+            setTextColor(textColor)
+        }
+    }, [appearance.backgroundColor])
+
     return (
-        <form className="survey-form" style={{ backgroundColor: appearance.backgroundColor }}>
+        <form
+            ref={ref}
+            className="survey-form"
+            style={{
+                backgroundColor: appearance.backgroundColor,
+                border: `1.5px solid ${appearance.borderColor}`,
+                color: textColor,
+            }}
+        >
             <div className="survey-box">
-                <div className="cancel-btn-wrapper">
-                    <button
-                        className="form-cancel"
-                        type="button"
-                        style={{ backgroundColor: appearance.backgroundColor }}
-                    >
-                        <IconClose />
+                <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                    <button className="form-cancel" type="button">
+                        {cancel}
                     </button>
                 </div>
                 <div className="question-textarea-wrapper">
-                    <div className="survey-question" style={{ color: appearance.textColor }}>
-                        {question}
-                    </div>
-                    {description && (
-                        <div className="description" style={{ color: appearance.descriptionTextColor }}>
-                            {description}
-                        </div>
-                    )}
+                    <div className="survey-question">{question}</div>
+                    {description && <div className="description">{description}</div>}
                     {type === SurveyQuestionType.Open && (
-                        <textarea className="survey-textarea" name="survey" rows={4} />
+                        <textarea
+                            style={{ border: `1px solid ${appearance.borderColor}` }}
+                            className="survey-textarea"
+                            name="survey"
+                            rows={4}
+                            placeholder={appearance.placeholder}
+                        />
                     )}
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
-                        <button
-                            className="form-submit"
-                            type="button"
-                            onClick={() => {
-                                link && type === SurveyQuestionType.Link ? window.open(link) : null
-                                onSubmit()
-                            }}
-                            style={{ backgroundColor: appearance.submitButtonColor }}
-                        >
-                            {appearance.submitButtonText || 'Submit'}
-                        </button>
+                        <Button appearance={appearance} link={link} onSubmit={onSubmit} type={type}>
+                            {appearance.submitButtonText}
+                        </Button>
                     </div>
-                    <div className="footer-branding" style={{ display: appearance.whiteLabel ? 'none' : '' }}>
-                        powered by {posthogLogoSVG} PostHog
-                    </div>
+                    {!appearance.whiteLabel && (
+                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                            Survey by {posthogLogoSVG}
+                        </a>
+                    )}
                 </div>
             </div>
         </form>
+    )
+}
+
+const RatingButton = ({
+    num,
+    active,
+    appearance,
+    setActiveNumber,
+}: {
+    num: number
+    active: boolean
+    appearance: SurveyAppearanceType
+    setActiveNumber: (num: number) => void
+}): JSX.Element => {
+    const [textColor, setTextColor] = useState('black')
+    const ref = useRef(null)
+
+    useEffect(() => {
+        if (ref.current) {
+            const textColor = getTextColor(ref.current)
+            setTextColor(textColor)
+        }
+    }, [appearance.ratingButtonActiveColor, appearance.ratingButtonColor, active])
+
+    return (
+        <button
+            ref={ref}
+            className="ratings-number"
+            type="button"
+            onClick={() => setActiveNumber(num)}
+            style={{
+                color: textColor,
+                backgroundColor: active ? appearance.ratingButtonActiveColor : appearance.ratingButtonColor,
+                borderColor: appearance.borderColor,
+            }}
+        >
+            {num}
+        </button>
+    )
+}
+
+const NumberRating = ({
+    appearance,
+    ratingSurveyQuestion,
+}: {
+    appearance: SurveyAppearanceType
+    ratingSurveyQuestion: RatingSurveyQuestion
+}): JSX.Element => {
+    const [activeNumber, setActiveNumber] = useState<number | undefined>()
+    return (
+        <div
+            style={{
+                border: `1.5px solid ${appearance.borderColor}`,
+                gridTemplateColumns: `repeat(${ratingSurveyQuestion.scale}, minmax(0, 1fr))`,
+            }}
+            className={`rating-options-buttons ${ratingSurveyQuestion.scale === 5 ? '' : 'max-numbers'}`}
+        >
+            {(ratingSurveyQuestion.scale === 5 ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map((num, idx) => {
+                const active = activeNumber === num
+                return (
+                    <RatingButton
+                        key={idx}
+                        active={active}
+                        appearance={appearance}
+                        num={num}
+                        setActiveNumber={setActiveNumber}
+                    />
+                )
+            })}
+        </div>
+    )
+}
+
+const EmojiRating = ({
+    ratingSurveyQuestion,
+    appearance,
+}: {
+    ratingSurveyQuestion: RatingSurveyQuestion
+    appearance: SurveyAppearanceType
+}): JSX.Element => {
+    const [activeIndex, setActiveIndex] = useState<number | undefined>()
+    const threeEmojis = [dissatisfiedEmoji, neutralEmoji, satisfiedEmoji]
+    const fiveEmojis = [veryDissatisfiedEmoji, dissatisfiedEmoji, neutralEmoji, satisfiedEmoji, verySatisfiedEmoji]
+
+    return (
+        <div className="rating-options-emoji">
+            {(ratingSurveyQuestion.scale === 3 ? threeEmojis : fiveEmojis).map((emoji, idx) => {
+                const active = idx === activeIndex
+                return (
+                    <button
+                        className="ratings-emoji"
+                        type="button"
+                        key={idx}
+                        style={{ fill: active ? appearance.ratingButtonActiveColor : appearance.ratingButtonColor }}
+                        onClick={() => setActiveIndex(idx)}
+                    >
+                        {emoji}
+                    </button>
+                )
+            })}
+        </div>
     )
 }
 
@@ -264,87 +413,58 @@ function SurveyRatingAppearance({
     onSubmit: () => void
     description?: string | null
 }): JSX.Element {
-    const threeEmojis = [dissatisfiedEmoji, neutralEmoji, satisfiedEmoji]
-    const fiveEmojis = [veryDissatisfiedEmoji, dissatisfiedEmoji, neutralEmoji, satisfiedEmoji, verySatisfiedEmoji]
+    const [textColor, setTextColor] = useState('black')
+    const ref = useRef(null)
+
+    useEffect(() => {
+        if (ref.current) {
+            const textColor = getTextColor(ref.current)
+            setTextColor(textColor)
+        }
+    }, [appearance.backgroundColor])
 
     return (
-        <form className="survey-form" style={{ backgroundColor: appearance.backgroundColor }}>
+        <form
+            ref={ref}
+            className="survey-form"
+            style={{
+                backgroundColor: appearance.backgroundColor,
+                border: `1.5px solid ${appearance.borderColor}`,
+                color: textColor,
+            }}
+        >
             <div className="survey-box">
-                <div className="cancel-btn-wrapper">
-                    <button
-                        className="form-cancel"
-                        type="button"
-                        style={{ backgroundColor: appearance.backgroundColor }}
-                    >
-                        X
+                <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                    <button className="form-cancel" type="button">
+                        {cancel}
                     </button>
                 </div>
-                <div className="survey-question" style={{ color: appearance.textColor }}>
-                    {question}
-                </div>
-                {description && (
-                    <div className="description" style={{ color: appearance.descriptionTextColor }}>
-                        {description}
-                    </div>
-                )}
+                <div className="survey-question">{question}</div>
+                {description && <div className="description">{description}</div>}
                 <div className="rating-section">
                     <div className="rating-options">
                         {ratingSurveyQuestion.display === 'emoji' && (
-                            <div className="rating-options-emoji">
-                                {(ratingSurveyQuestion.scale === 3 ? threeEmojis : fiveEmojis).map((emoji, idx) => (
-                                    <button
-                                        className="ratings-emoji"
-                                        type="button"
-                                        key={idx}
-                                        style={{ fill: appearance.ratingButtonColor }}
-                                        onMouseEnter={(val) => {
-                                            val.currentTarget.style.fill = appearance.ratingButtonHoverColor || 'coral'
-                                        }}
-                                        onMouseLeave={(val) => {
-                                            val.currentTarget.style.fill = appearance.ratingButtonColor || 'black'
-                                        }}
-                                        onClick={() => onSubmit()}
-                                    >
-                                        {emoji}
-                                    </button>
-                                ))}
-                            </div>
-                        )}{' '}
+                            <EmojiRating appearance={appearance} ratingSurveyQuestion={ratingSurveyQuestion} />
+                        )}
                         {ratingSurveyQuestion.display === 'number' && (
-                            <div>
-                                {
-                                    <div
-                                        className={`rating-options-buttons ${
-                                            ratingSurveyQuestion.scale === 5 ? '' : 'max-numbers'
-                                        }`}
-                                    >
-                                        {(ratingSurveyQuestion.scale === 5
-                                            ? [1, 2, 3, 4, 5]
-                                            : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-                                        ).map((num, idx) => {
-                                            return (
-                                                <button
-                                                    className="ratings-number"
-                                                    type="button"
-                                                    key={idx}
-                                                    onClick={() => onSubmit()}
-                                                    style={{ backgroundColor: appearance.ratingButtonColor }}
-                                                >
-                                                    {num}
-                                                </button>
-                                            )
-                                        })}
-                                    </div>
-                                }
-                            </div>
+                            <NumberRating appearance={appearance} ratingSurveyQuestion={ratingSurveyQuestion} />
                         )}
                     </div>
                     <div className="rating-text">
                         <div>{ratingSurveyQuestion.lowerBoundLabel}</div>
                         <div>{ratingSurveyQuestion.upperBoundLabel}</div>
                     </div>
-                    <div className="footer-branding" style={{ display: appearance.whiteLabel ? 'none' : '' }}>
-                        powered by {posthogLogoSVG} PostHog
+                    <div className="bottom-section">
+                        <div className="buttons">
+                            <Button appearance={appearance} onSubmit={onSubmit}>
+                                {appearance.submitButtonText}
+                            </Button>
+                        </div>
+                        {!appearance.whiteLabel && (
+                            <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                                Survey by {posthogLogoSVG}
+                            </a>
+                        )}
                     </div>
                 </div>
             </div>
@@ -365,68 +485,104 @@ function SurveyMultipleChoiceAppearance({
     onSubmit: () => void
     description?: string | null
 }): JSX.Element {
+    const [textColor, setTextColor] = useState('black')
+    const ref = useRef(null)
     const inputType = multipleChoiceQuestion.type === SurveyQuestionType.SingleChoice ? 'radio' : 'checkbox'
+
+    useEffect(() => {
+        if (ref.current) {
+            const textColor = getTextColor(ref.current)
+            setTextColor(textColor)
+        }
+    }, [appearance.backgroundColor])
+
     return (
-        <form className="survey-form" style={{ backgroundColor: appearance.backgroundColor }}>
+        <form
+            ref={ref}
+            className="survey-form"
+            style={{
+                backgroundColor: appearance.backgroundColor,
+                border: `1.5px solid ${appearance.borderColor}`,
+                color: textColor,
+            }}
+        >
             <div className="survey-box">
-                <div className="cancel-btn-wrapper">
-                    <button
-                        className="form-cancel"
-                        type="button"
-                        style={{ backgroundColor: appearance.backgroundColor }}
-                    >
-                        X
+                <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                    <button className="form-cancel" type="button">
+                        {cancel}
                     </button>
                 </div>
-                <div className="survey-question" style={{ color: appearance.textColor }}>
-                    {question}
-                </div>
-                {description && (
-                    <div className="description" style={{ color: appearance.descriptionTextColor }}>
-                        {description}
-                    </div>
-                )}
+                <div className="survey-question">{question}</div>
+                {description && <div className="description">{description}</div>}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
                         <div className="choice-option" key={idx}>
                             <input type={inputType} name="choice" value={choice} />
                             <label>{choice}</label>
+                            <span className="choice-check">{check}</span>
                         </div>
                     ))}
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
-                        <button
-                            className="form-submit"
-                            type="button"
-                            onClick={() => onSubmit()}
-                            style={{ backgroundColor: appearance.submitButtonColor }}
-                        >
-                            {appearance.submitButtonText || 'Submit'}
-                        </button>
+                        <Button appearance={appearance} onSubmit={onSubmit}>
+                            {appearance.submitButtonText}
+                        </Button>
                     </div>
-                    <div className="footer-branding" style={{ display: appearance.whiteLabel ? 'none' : '' }}>
-                        powered by {posthogLogoSVG} PostHog
-                    </div>
+                    {!appearance.whiteLabel && (
+                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                            Survey by {posthogLogoSVG}
+                        </a>
+                    )}
                 </div>
             </div>
         </form>
     )
 }
 
-function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceType }): JSX.Element {
+function SurveyThankYou({
+    appearance,
+    setShowThankYou,
+}: {
+    appearance: SurveyAppearanceType
+    setShowThankYou: (show: boolean) => void
+}): JSX.Element {
+    const [textColor, setTextColor] = useState('black')
+    const ref = useRef(null)
+
+    useEffect(() => {
+        if (ref.current) {
+            const textColor = getTextColor(ref.current)
+            setTextColor(textColor)
+        }
+    }, [appearance.backgroundColor])
+
     return (
-        <div className="thank-you-message">
-            <div className="thank-you-message-container" style={{ backgroundColor: appearance.backgroundColor }}>
-                <h3 className="thank-you-message-header" style={{ color: appearance.textColor }}>
-                    {appearance.thankYouMessageHeader || 'Thank you!'}{' '}
-                </h3>
-                <div className="thank-you-message-description" style={{ color: appearance.descriptionTextColor }}>
-                    {appearance.thankYouMessageDescription || ''}
+        <div
+            ref={ref}
+            className="thank-you-message"
+            style={{
+                backgroundColor: appearance.backgroundColor,
+                border: `1.5px solid ${appearance.borderColor}`,
+                color: textColor,
+            }}
+        >
+            <div className="thank-you-message-container">
+                <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                    <button className="form-cancel" type="button" onClick={() => setShowThankYou(false)}>
+                        {cancel}
+                    </button>
                 </div>
-                <div className="footer-branding" style={{ display: appearance.whiteLabel ? 'none' : '' }}>
-                    powered by {posthogLogoSVG} PostHog
-                </div>
+                <h3 className="thank-you-message-header">{appearance?.thankYouMessageHeader || 'Thank you!'}</h3>
+                <div className="thank-you-message-body">{appearance?.thankYouMessageDescription || ''}</div>
+                <Button appearance={appearance} onSubmit={() => setShowThankYou(false)}>
+                    Close
+                </Button>
+                {!appearance.whiteLabel && (
+                    <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                        Survey by {posthogLogoSVG}
+                    </a>
+                )}
             </div>
         </div>
     )
