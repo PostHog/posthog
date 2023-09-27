@@ -1,5 +1,6 @@
 from .base_filter import BaseFilter
 from .mixins.common import (
+    AggregationAxisMixin,
     BreakdownMixin,
     BreakdownValueMixin,
     ClientQueryIdMixin,
@@ -88,6 +89,7 @@ class Filter(
     UpdatedAfterMixin,
     ClientQueryIdMixin,
     SampleMixin,
+    AggregationAxisMixin,
     BaseFilter,
 ):
     """

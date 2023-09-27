@@ -10,8 +10,11 @@ export async function processOnEventStep(runner: EventPipelineRunner, event: Pos
     const processedPluginEvent = convertToProcessedPluginEvent(event)
 
     await runInstrumentedFunction({
-        event: processedPluginEvent,
-        func: (event) => runOnEvent(runner.hub, event),
+        timeoutContext: () => ({
+            team_id: event.teamId,
+            event_uuid: event.eventUuid,
+        }),
+        func: () => runOnEvent(runner.hub, processedPluginEvent),
         statsKey: `kafka_queue.single_on_event`,
         timeoutMessage: `After 30 seconds still running onEvent`,
         teamId: event.teamId,

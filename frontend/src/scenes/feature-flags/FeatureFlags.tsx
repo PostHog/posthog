@@ -29,6 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -90,9 +91,9 @@ export function OverViewTab({
                         </div>
 
                         {featureFlag.name && (
-                            <span className="row-description" style={{ maxWidth: '24rem' }}>
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
                                 {featureFlag.name}
-                            </span>
+                            </LemonMarkdown>
                         )}
                     </>
                 )

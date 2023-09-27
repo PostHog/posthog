@@ -7,10 +7,10 @@ import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import clsx from 'clsx'
 import { useState } from 'react'
 
-import { DndContext, closestCenter } from '@dnd-kit/core'
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { useSortable, SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { restrictToHorizontalAxis } from '@dnd-kit/modifiers'
+import { restrictToHorizontalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
 
 export interface PersonPropertySelectProps {
     addText: string
@@ -53,6 +53,7 @@ export const PersonPropertySelect = ({
     sortable = false,
 }: PersonPropertySelectProps): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 1 } }))
 
     const handleChange = (name: string): void => {
         onChange(Array.from(new Set(selectedProperties.concat([name]))))
@@ -71,35 +72,38 @@ export const PersonPropertySelect = ({
 
     return (
         <div className="flex items-center flex-wrap gap-2">
-            <DndContext
-                onDragEnd={({ active, over }) => {
-                    if (over && active.id !== over.id) {
-                        handleSort({
-                            oldIndex: selectedProperties.indexOf(active.id.toString()),
-                            newIndex: selectedProperties.indexOf(over.id.toString()),
-                        })
-                    }
-                }}
-                collisionDetection={closestCenter}
-                modifiers={[restrictToHorizontalAxis]}
-            >
-                <SortableContext
-                    disabled={!sortable}
-                    items={selectedProperties}
-                    strategy={horizontalListSortingStrategy}
+            {selectedProperties.length > 0 && (
+                <DndContext
+                    onDragEnd={({ active, over }) => {
+                        if (over && active.id !== over.id) {
+                            handleSort({
+                                oldIndex: selectedProperties.indexOf(active.id.toString()),
+                                newIndex: selectedProperties.indexOf(over.id.toString()),
+                            })
+                        }
+                    }}
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    modifiers={[restrictToHorizontalAxis, restrictToParentElement]}
                 >
-                    <div className="flex items-center gap-2">
-                        {selectedProperties.map((value) => (
-                            <SortableProperty
-                                key={`item-${value}`}
-                                name={value}
-                                onRemove={handleRemove}
-                                sortable={sortable}
-                            />
-                        ))}
-                    </div>
-                </SortableContext>
-            </DndContext>
+                    <SortableContext
+                        disabled={!sortable}
+                        items={selectedProperties}
+                        strategy={horizontalListSortingStrategy}
+                    >
+                        <div className="flex items-center gap-2">
+                            {selectedProperties.map((value) => (
+                                <SortableProperty
+                                    key={`item-${value}`}
+                                    name={value}
+                                    onRemove={handleRemove}
+                                    sortable={sortable}
+                                />
+                            ))}
+                        </div>
+                    </SortableContext>
+                </DndContext>
+            )}
 
             <Popover
                 visible={open}

@@ -24,6 +24,7 @@ import {
     IconSurveys,
     IconTools,
     IconUnverifiedEvent,
+    IconWeb,
 } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
@@ -44,7 +45,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -188,6 +189,15 @@ function Pages(): JSX.Element {
                             title={'Surveys'}
                             to={urls.surveys()}
                             highlight="beta"
+                        />
+                    )}
+
+                    {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS] && (
+                        <PageButton
+                            icon={<IconWeb />}
+                            identifier={Scene.WebAnalytics}
+                            to={urls.webAnalytics()}
+                            highlight="alpha"
                         />
                     )}
 

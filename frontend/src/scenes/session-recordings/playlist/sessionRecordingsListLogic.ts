@@ -419,7 +419,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 acc[`partial_filter_chosen_${key}`] = filters[key]
                 return acc
             }, {})
-            posthog.capture('recording list filters changed', { ...partialFilters })
+
+            posthog.capture('recording list filters changed', {
+                ...partialFilters,
+                showing_advanced_filters: values.showAdvancedFilters,
+            })
 
             actions.loadEventsHaveSessionId()
         },

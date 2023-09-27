@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import useSize from '@react-hook/size'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FunnelStepRangeEntityFilter, EntityTypes, FilterType } from '~/types'
+import { FunnelExclusion, EntityTypes, FilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -22,7 +22,7 @@ export function FunnelExclusionsFilter(): JSX.Element {
     const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
 
     const setFilters = (filters: Partial<FilterType>): void => {
-        const exclusions = (filters.events as FunnelStepRangeEntityFilter[]).map((e) => ({
+        const exclusions = (filters.events as FunnelExclusion[]).map((e) => ({
             ...e,
             funnel_from_step: e.funnel_from_step || exclusionDefaultStepRange.funnel_from_step,
             funnel_to_step: e.funnel_to_step || exclusionDefaultStepRange.funnel_to_step,

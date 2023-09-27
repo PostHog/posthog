@@ -9,7 +9,13 @@ import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
 import { IconArrowLeft, IconCheckCircleOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-export const OnboardingProductIntro = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+export const OnboardingProductIntro = ({
+    product,
+    onStart,
+}: {
+    product: BillingProductV2Type
+    onStart?: () => void
+}): JSX.Element => {
     const { currentAndUpgradePlans, isPricingModalOpen } = useValues(billingProductLogic({ product }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product }))
     const { setCurrentOnboardingStepNumber } = useActions(onboardingLogic)
@@ -52,7 +58,10 @@ export const OnboardingProductIntro = ({ product }: { product: BillingProductV2T
                         <div className="flex gap-x-2">
                             <LemonButton
                                 type="primary"
-                                onClick={() => setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)}
+                                onClick={() => {
+                                    onStart && onStart()
+                                    setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
+                                }}
                             >
                                 Get started
                             </LemonButton>

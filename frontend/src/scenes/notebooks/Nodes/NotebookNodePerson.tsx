@@ -3,7 +3,7 @@ import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { PersonDisplay } from '@posthog/apps-common'
+import { PersonDisplay, TZLabel } from '@posthog/apps-common'
 import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -14,9 +14,31 @@ import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id } = props.attributes
+
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
     const { expanded } = useValues(notebookNodeLogic)
+    // const { setActions, insertAfter } = useActions(notebookNodeLogic)
+
+    const title = person ? `Person: ${asDisplay(person)}` : 'Person'
+
+    useEffect(() => {
+        setTimeout(() => {
+            props.updateAttributes({ title })
+        }, 0)
+    }, [title])
+
+    // useEffect(() => {
+    //     setActions([
+    //         {
+    //             text: "Events",
+    //             onClick: () => {
+    //                 insertAfter({
+    //                     type: NotebookNodeType.Events,
+    //                 })
+    //         }
+    //     ])
+    // }, [person])
 
     useEffect(() => {
         props.updateAttributes({
@@ -26,11 +48,22 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className="p-4 flex-0 font-semibold">
+            <div className="p-4 flex-0 flex gap-2 justify-between">
                 {personLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (
-                    <PersonDisplay withIcon person={person} noLink noPopover />
+                    <>
+                        <span className="font-semibold">
+                            <PersonDisplay withIcon person={person} noLink noPopover />
+                        </span>
+
+                        {person ? (
+                            <div>
+                                <span className="text-muted">First seen:</span>{' '}
+                                {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
+                            </div>
+                        ) : null}
+                    </>
                 )}
             </div>
 
