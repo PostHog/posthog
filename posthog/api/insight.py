@@ -505,7 +505,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
         target = insight if dashboard is None else dashboard_tile
 
-        if hogql_insights_enabled(self.context.get("request").user) and is_insight_with_hogql_support(
+        if hogql_insights_enabled(self.context.get("request", None).user) and is_insight_with_hogql_support(
             target or insight
         ):
             return process_insight(target or insight, insight.team)
