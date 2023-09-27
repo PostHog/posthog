@@ -213,8 +213,8 @@ export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaC
     })
 
     if (topicPartitionOffsets.length > 0) {
-        status.debug('📝', 'Committing offsets', { topicPartitionOffsets })
-        consumer.commit(topicPartitionOffsets)
+        status.debug('📝', 'Storing offsets', { topicPartitionOffsets })
+        consumer.offsetsStore(topicPartitionOffsets)
     }
 }
 

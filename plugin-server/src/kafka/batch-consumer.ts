@@ -76,9 +76,8 @@ export const startBatchConsumer = async ({
         ...connectionConfig,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
-        // We disable auto commit and rather we commit after one batch has
-        // completed.
-        'enable.auto.commit': false,
+        'enable.auto.commit': autoCommit,
+        'enable.auto.offset.store': false,
         /**
          * max.partition.fetch.bytes
          * The maximum amount of data per-partition the server will return.
