@@ -468,6 +468,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 insert_into_s3_activity,
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=120),
