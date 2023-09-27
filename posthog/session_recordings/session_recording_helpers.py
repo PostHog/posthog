@@ -5,12 +5,11 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Generator, List, Tuple
 
-from dateutil.parser import ParserError, parse
+from dateutil.parser import parse
 from sentry_sdk.api import capture_exception
 
 from posthog.session_recordings.models.metadata import (
     SessionRecordingEventSummary,
-    SnapshotData,
 )
 from posthog.utils import flatten
 
@@ -215,11 +214,6 @@ def _process_windowed_events(
     return result
 
 
-def chunk_string(string: str, chunk_length: int) -> List[str]:
-    """Split a string into chunk_length-sized elements. Reversal operation: `''.join()`."""
-    return [string[0 + offset : chunk_length + offset] for offset in range(0, len(string), chunk_length)]
-
-
 def is_unprocessed_snapshot_event(event: Dict) -> bool:
     try:
         is_snapshot = event["event"] == "$snapshot"
@@ -234,6 +228,8 @@ def is_unprocessed_snapshot_event(event: Dict) -> bool:
         raise ValueError('$snapshot events must contain property "$snapshot_data"!')
 
 
+# this is kept around as we upgrade older recordings in long term storage on demand.
+# TODO: remove this once all recordings are upgraded
 def decompress(base64data: str) -> str:
     compressed_bytes = base64.b64decode(base64data)
     return gzip.decompress(compressed_bytes).decode("utf-16", "surrogatepass")
@@ -262,56 +258,6 @@ def parse_snapshot_timestamp(timestamp: int):
 
 def convert_to_timestamp(source: str) -> int:
     return int(parse(source).timestamp() * 1000)
-
-
-def get_events_summary_from_snapshot_data(
-    snapshot_data: List[SnapshotData | None],
-) -> List[SessionRecordingEventSummary]:
-    """
-    Extract a minimal representation of the snapshot data events for easier querying.
-    'data' and 'data.payload' values are included as long as they are strings or numbers
-    and in the inclusion list to keep the payload minimal
-    """
-    events_summary = []
-
-    for event in snapshot_data:
-        if not event or "timestamp" not in event or "type" not in event:
-            continue
-
-        # Get all top level data values
-        data = {
-            key: value
-            for key, value in event.get("data", {}).items()
-            if type(value) in [str, int] and key in EVENT_SUMMARY_DATA_INCLUSIONS
-        }
-        # Some events have a payload, some values of which we want
-        if event.get("data", {}).get("payload"):
-            # Make sure the payload is a dict before we access it
-            if isinstance(event["data"]["payload"], dict):
-                data["payload"] = {
-                    key: value
-                    for key, value in event["data"]["payload"].items()
-                    if type(value) in [str, int] and f"payload.{key}" in EVENT_SUMMARY_DATA_INCLUSIONS
-                }
-
-        # noinspection PyBroadException
-        try:
-            events_summary.append(
-                SessionRecordingEventSummary(
-                    timestamp=int(event["timestamp"])
-                    if isinstance(event["timestamp"], (int, float))
-                    else convert_to_timestamp(event["timestamp"]),
-                    type=event["type"],
-                    data=data,
-                )
-            )
-        except ParserError:
-            capture_exception()
-
-    # No guarantees are made about order so, we sort here to be sure
-    events_summary.sort(key=lambda x: x["timestamp"])
-
-    return events_summary
 
 
 def byte_size_dict(x: Dict | List) -> int:

@@ -373,7 +373,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "created_at": "2023-01-01T12:00:00Z",
                 "uuid": ANY,
             },
-            "storage": "clickhouse",
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):
@@ -785,6 +784,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": [event_id]}
 
+    # checks that we 404 without patching the "exists" check
+    # that is patched in other tests or freezing time doesn't work
     def test_404_when_no_snapshots(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings/1/snapshots?version=2",

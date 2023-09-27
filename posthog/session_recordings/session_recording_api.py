@@ -74,7 +74,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "person",
-            "storage",
             "pinned_count",
         ]
 
@@ -94,7 +93,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "storage",
             "pinned_count",
         ]
 

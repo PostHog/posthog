@@ -11,8 +11,6 @@ from pytest_mock import MockerFixture
 from posthog.session_recordings.session_recording_helpers import (
     RRWEB_MAP_EVENT_TYPE,
     SessionRecordingEventSummary,
-    SnapshotData,
-    get_events_summary_from_snapshot_data,
     is_active_event,
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
@@ -44,91 +42,6 @@ def mock_capture_flow(events: List[dict], max_size_bytes=512 * 1024) -> Tuple[Li
 def test_preprocess_with_no_recordings():
     events = [{"event": "$pageview"}, {"event": "$pageleave"}]
     assert mock_capture_flow(events)[0] == events
-
-
-def test_get_events_summary_from_snapshot_data():
-    timestamp = round(datetime.now().timestamp() * 1000)
-
-    snapshot_events: List[SnapshotData | None] = [
-        # ignore malformed events
-        {"type": 2, "foo": "bar"},
-        # ignore other props
-        {"type": 2, "timestamp": timestamp, "foo": "bar"},
-        # include standard properties
-        {"type": 1, "timestamp": timestamp, "data": {"source": 3}},
-        # Payload as list when we expect a dict
-        {"type": 1, "timestamp": timestamp, "data": {"source": 3, "payload": [1, 2, 3]}},
-        # include only allowed values
-        {
-            "type": 1,
-            "timestamp": timestamp,
-            "data": {
-                # Large values we dont want
-                "node": {},
-                "text": "long-useless-text",
-                # Standard core values we want
-                "source": 3,
-                "type": 1,
-                # Values for initial render meta event
-                "href": "https://app.posthog.com/events?foo=bar",
-                "width": 2056,
-                "height": 1120,
-                # Special case for custom pageview events
-                "tag": "$pageview",
-                "plugin": "rrweb/console@1",
-                "payload": {
-                    "href": "https://app.posthog.com/events?eventFilter=",  # from pageview
-                    "level": "log",  # from console plugin
-                    # random
-                    "dont-want": "this",
-                    "or-this": {"foo": "bar"},
-                },
-            },
-        },
-        # payload has iso string timestamp instead of number and is out of order by timestamp sort
-        # in https://posthog.sentry.io/issues/4089255349/?project=1899813&referrer=slack we saw a client
-        # send this event, which caused the backend sorting to fail because we treat the rrweb timestamp
-        # as if it is always a number
-        {
-            "type": 1,
-            "timestamp": "1987-04-28T17:17:17.590Z",
-            "data": {"source": 3},
-        },
-        # safely ignore string timestamps that aren't timestamps
-        {
-            "type": 1,
-            "timestamp": "it was about a hundred years ago, that I remember this happening",
-            "data": {"source": 3},
-        },
-        # we can see malformed packets
-        {"data": {}},
-        {},
-        None,
-    ]
-
-    assert get_events_summary_from_snapshot_data(snapshot_events) == [
-        {"data": {"source": 3}, "timestamp": 546628637590, "type": 1},
-        {"timestamp": timestamp, "type": 2, "data": {}},
-        {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
-        {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
-        {
-            "timestamp": timestamp,
-            "type": 1,
-            "data": {
-                "source": 3,
-                "type": 1,
-                "href": "https://app.posthog.com/events?foo=bar",
-                "width": 2056,
-                "height": 1120,
-                "tag": "$pageview",
-                "plugin": "rrweb/console@1",
-                "payload": {
-                    "href": "https://app.posthog.com/events?eventFilter=",
-                    "level": "log",
-                },
-            },
-        },
-    ]
 
 
 @pytest.fixture

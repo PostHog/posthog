@@ -18,7 +18,13 @@ class SessionReplayEvents:
         # TODO we could cache this result when its result is True.
         # Once we know that session exists we don't need to check again (until the end of the day since TTL might apply)
         result = sync_execute(
-            "SELECT count(1) FROM session_replay_events WHERE team_id = %(team_id)s AND session_id = %(session_id)s AND min_first_timestamp >= now() - INTERVAL %(recording_ttl_days)s DAY",
+            """
+            SELECT count(1)
+            FROM session_replay_events
+            WHERE team_id = %(team_id)s
+            AND session_id = %(session_id)s
+            AND min_first_timestamp >= now() - INTERVAL %(recording_ttl_days)s DAY
+            """,
             {"team_id": team.pk, "session_id": session_id, "recording_ttl_days": ttl_days(team)},
         )
         return result[0][0] > 0
