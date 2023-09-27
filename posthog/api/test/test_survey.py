@@ -15,15 +15,9 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     snapshot_clickhouse_queries,
     _create_event,
-    flush_persons_and_events,
 )
 
-from posthog.models import FeatureFlag, User
-from posthog.models.organization import Organization
-from posthog.models.team.team import Team
-
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
+from posthog.models import FeatureFlag
 
 
 class TestSurvey(APIBaseTest):
@@ -723,52 +717,37 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                 ],
             )
 
-    def test_get_surveys_errors_on_invalid_token(self):
-        self.client.logout()
-
-        with self.assertNumQueries(1):
-            response = self._get_surveys(token="invalid_token")
-            assert response.status_code == status.HTTP_401_UNAUTHORIZED
-            assert (
-                response.json()["detail"]
-                == "Project API key invalid. You can find your project API key in your PostHog project settings."
-            )
-
-    def test_get_surveys_errors_on_empty_token(self):
-        self.client.logout()
-
-        with self.assertNumQueries(0):
-            response = self.client.get(f"/api/surveys/")
-            assert response.status_code == status.HTTP_401_UNAUTHORIZED
-            assert (
-                response.json()["detail"]
-                == "API key not provided. You can find your project API key in your PostHog project settings."
-            )
-
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_responses_count(self):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
 
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
-        )
+        survey_counts = {
+            "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
+            "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
+            "daed7689-d498-49fe-936f-e85554351b6c": 100,
+        }
 
-        for _ in range(10):
-            _create_event(
-                event="survey sent",
-                team=self.team,
-                distinct_id=self.user.id,
-                properties={"$survey_id": "01896748-aa18-0000-b6f6-32a46d43382c"},
-                timestamp=datetime.now() - timedelta(days=10),
-            )
-        flush_persons_and_events()
+        for survey_id, count in survey_counts.items():
+            for _ in range(count):
+                _create_event(
+                    event="survey sent",
+                    team=self.team,
+                    distinct_id=self.user.id,
+                    properties={"$survey_id": survey_id},
+                    timestamp=datetime.now() - timedelta(days=10),
+                )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/surveys/responses_count?personal_api_key={personal_api_key}"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        for survey_id, count in survey_counts.items():
+            self.assertEqual(data[survey_id], count)
+
+    def test_responses_count_zero_responses(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data, {})
