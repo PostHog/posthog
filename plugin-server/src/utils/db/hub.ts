@@ -129,15 +129,7 @@ export async function createHub(
 
     const promiseManager = new PromiseManager(serverConfig, statsd)
 
-    const db = new DB(
-        postgres,
-        redisPool,
-        kafkaProducer,
-        clickhouse,
-        statsd,
-        promiseManager,
-        serverConfig.PERSON_INFO_CACHE_TTL
-    )
+    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd, serverConfig.PERSON_INFO_CACHE_TTL)
     const teamManager = new TeamManager(postgres, serverConfig, statsd)
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
