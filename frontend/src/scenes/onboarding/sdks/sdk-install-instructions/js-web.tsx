@@ -26,7 +26,7 @@ export function JSSetupSnippet(): JSX.Element {
     )
 }
 
-export function JSWebInstructions(): JSX.Element {
+export function SDKInstallJSWebInstructions(): JSX.Element {
     return (
         <>
             <h3>Option 1. Code snippet</h3>

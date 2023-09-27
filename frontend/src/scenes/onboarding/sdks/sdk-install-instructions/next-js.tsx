@@ -2,8 +2,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { SessionReplayFinalSteps } from '../shared-snippets'
-import { JSInstallSnippet } from '../sdk-install-instructions'
+import { JSInstallSnippet } from './js-web'
 
 function NextEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -59,7 +58,7 @@ if (typeof window !== 'undefined') {
     )
 }
 
-export function NextJSInstructions(): JSX.Element {
+export function SDKInstallNextJSInstructions(): JSX.Element {
     return (
         <>
             <h3>Install posthog-js using your package manager</h3>
@@ -93,7 +92,6 @@ export function NextJSInstructions(): JSX.Element {
                 integrate PostHog at the root of your app (pages/_app.js).
             </p>
             <NextPagesRouterCodeSnippet />
-            <SessionReplayFinalSteps />
         </>
     )
 }

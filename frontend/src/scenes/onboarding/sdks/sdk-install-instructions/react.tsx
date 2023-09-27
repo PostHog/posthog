@@ -1,8 +1,7 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { JSInstallSnippet } from '../sdk-install-instructions'
-import { SessionReplayFinalSteps } from '../shared-snippets'
+import { JSInstallSnippet } from './js-web'
 
 function ReactEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -46,7 +45,7 @@ root.render(
     )
 }
 
-export function ReactInstructions(): JSX.Element {
+export function SDKInstallReactInstructions(): JSX.Element {
     return (
         <>
             <h3>Install the package</h3>
@@ -59,7 +58,6 @@ export function ReactInstructions(): JSX.Element {
                 <code>create-react-app</code>).
             </p>
             <ReactSetupSnippet />
-            <SessionReplayFinalSteps />
         </>
     )
 }

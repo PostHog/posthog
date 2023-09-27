@@ -2,7 +2,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
-function NodeInstallSnippet(): JSX.Element {
+export function NodeInstallSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Bash}>
             {`npm install posthog-node
@@ -14,7 +14,7 @@ pnpm add posthog-node`}
     )
 }
 
-function NodeSetupSnippet(): JSX.Element {
+export function NodeSetupSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
