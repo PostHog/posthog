@@ -2,11 +2,12 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Generic, List, Optional, Type, Dict, TypeVar
 
-from prometheus_client import Counter
-from django.core.cache import cache
 from django.conf import settings
+from django.core.cache import cache
+from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -15,7 +16,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import QueryTiming
-from posthog.types import InsightQueryNode
+from posthog.types import InsightOrWebAnalyticsQueryNode
 from posthog.utils import generate_cache_key, get_safe_cache
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
@@ -39,6 +40,8 @@ class QueryResponse(BaseModel, Generic[DataT]):
     )
     result: DataT
     timings: Optional[List[QueryTiming]] = None
+    types: Optional[Any] = None
+    columns: Optional[Any] = None
 
 
 class CachedQueryResponse(QueryResponse):
@@ -50,13 +53,15 @@ class CachedQueryResponse(QueryResponse):
     next_allowed_client_refresh: str
 
 
-class QueryRunner(ABC):
-    query: InsightQueryNode
-    query_type: Type[InsightQueryNode]
+class BaseQueryRunner(ABC):
+    query: InsightOrWebAnalyticsQueryNode
+    query_type: Type[InsightOrWebAnalyticsQueryNode]
     team: Team
     timings: HogQLTimings
 
-    def __init__(self, query: InsightQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
+    def __init__(
+        self, query: InsightOrWebAnalyticsQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None
+    ):
         self.team = team
         self.timings = timings or HogQLTimings()
         if isinstance(query, self.query_type):
@@ -99,11 +104,6 @@ class QueryRunner(ABC):
     def to_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    @abstractmethod
-    def to_persons_query(self) -> str:
-        # TODO: add support for selecting and filtering by breakdowns
-        raise NotImplementedError()
-
     def to_hogql(self) -> str:
         with self.timings.measure("to_hogql"):
             return print_ast(
@@ -116,7 +116,9 @@ class QueryRunner(ABC):
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
     def _cache_key(self) -> str:
-        return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}_{self.team.timezone}")
+        return generate_cache_key(
+            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}"
+        )
 
     @abstractmethod
     def _is_stale(self, cached_result_package):
@@ -125,3 +127,18 @@ class QueryRunner(ABC):
     @abstractmethod
     def _refresh_frequency(self):
         raise NotImplementedError()
+
+
+class InsightQueryRunner(BaseQueryRunner):
+    @abstractmethod
+    def to_persons_query(self) -> str:
+        # TODO: add support for selecting and filtering by breakdowns
+        raise NotImplementedError()
+
+
+class WebAnalyticsQueryRunner(BaseQueryRunner):
+    def _is_stale(self, cached_result_package):
+        return True
+
+    def _refresh_frequency(self):
+        return BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL

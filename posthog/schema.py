@@ -468,11 +468,43 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
-class WebAnalyticsFilters(BaseModel):
-    pass
+class WebTopClicksQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[List] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    result: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class WebTopPagesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    result: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class WebTopSourcesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    result: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
 
 
 class Breakdown(BaseModel):
@@ -661,14 +693,34 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     teamId: Optional[float] = Field(default=None, description="Project to filter on. Defaults to current project")
 
 
+class WebTopClicksQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filters: Any
+    kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
+    response: Optional[WebTopClicksQueryResponse] = None
+
+
+class WebTopPagesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filters: Any
+    kind: Literal["WebTopPagesQuery"] = "WebTopPagesQuery"
+    response: Optional[WebTopPagesQueryResponse] = None
+
+
 class WebTopSourcesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: WebAnalyticsFilters
+    filters: Any
     kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
-    response: Optional[HogQLQueryResponse] = None
+    response: Optional[WebTopSourcesQueryResponse] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -1000,7 +1052,14 @@ class DataTableNode(BaseModel):
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
     source: Union[
-        EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery, WebTopSourcesQuery
+        EventsNode,
+        EventsQuery,
+        PersonsNode,
+        HogQLQuery,
+        TimeToSeeDataSessionsQuery,
+        WebTopSourcesQuery,
+        WebTopClicksQuery,
+        WebTopPagesQuery,
     ] = Field(..., description="Source of the events")
 
 
@@ -1279,6 +1338,8 @@ class Model(RootModel):
             HogQLMetadata,
             TimeToSeeDataSessionsQuery,
             WebTopSourcesQuery,
+            WebTopClicksQuery,
+            WebTopPagesQuery,
         ],
     ]
 

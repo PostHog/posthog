@@ -34,6 +34,8 @@ import {
     isHogQLQuery,
     isPersonsNode,
     isWebTopSourcesQuery,
+    isWebTopClicksQuery,
+    isWebTopPagesQuery,
     taxonomicFilterToHogQl,
 } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
@@ -123,7 +125,10 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
     const columnsInLemonTable =
-        isHogQLQuery(query.source) || isWebTopSourcesQuery(query.source)
+        isHogQLQuery(query.source) ||
+        isWebTopSourcesQuery(query.source) ||
+        isWebTopClicksQuery(query.source) ||
+        isWebTopPagesQuery(query.source)
             ? columnsInResponse ?? columnsInQuery
             : columnsInQuery
 
@@ -145,7 +150,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                     if (
                         isEventsQuery(query.source) ||
                         isHogQLQuery(query.source) ||
-                        isWebTopSourcesQuery(query.source)
+                        isWebTopSourcesQuery(query.source) ||
+                        isWebTopClicksQuery(query.source) ||
+                        isWebTopPagesQuery(query.source)
                     ) {
                         return renderColumn(key, result[index], result, query, setQuery, context)
                     }
@@ -506,9 +513,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             }
                             footer={
                                 canLoadNextData &&
-                                ((response as any).results.length > 0 || !responseLoading) && (
-                                    <LoadNext query={query.source} />
-                                )
+                                ((response as any).results.length > 0 ||
+                                    (response as any).result.length > 0 ||
+                                    !responseLoading) && <LoadNext query={query.source} />
                             }
                         />
                     )}

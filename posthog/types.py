@@ -12,10 +12,21 @@ from posthog.schema import (
     StickinessQuery,
     TrendsQuery,
     WebTopSourcesQuery,
+    WebTopClicksQuery,
+    WebTopPagesQuery,
 )
 
 FilterType = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
 
 InsightQueryNode = Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
-
-WebAnalyticsQueryNode = Union[WebTopSourcesQuery]
+InsightOrWebAnalyticsQueryNode = Union[
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
+    WebTopSourcesQuery,
+    WebTopClicksQuery,
+    WebTopPagesQuery,
+]
