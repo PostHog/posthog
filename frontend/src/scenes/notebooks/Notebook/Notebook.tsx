@@ -15,6 +15,7 @@ import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
 import { NotebookSidebar } from './NotebookSidebar'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export type NotebookProps = {
     shortId: string
@@ -88,19 +89,22 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                 )}
 
                 {editable && showHistory ? (
-                    <LemonBanner
-                        type="info"
-                        action={{
-                            onClick: () => setShowHistory(false),
-                            children: 'Close history',
-                        }}
-                    >
-                        <b>Editing is disabled</b>. Close the history panel or choose an older version to revert to.
+                    <LemonBanner type="info" className="my-4">
+                        <span className="flex items-center">
+                            <span className="flex-1">
+                                <b>Hello time traveller!</b> You are viewing an older revision of this Notebook. You can
+                            </span>
+
+                            <LemonButton>Discard</LemonButton>
+
+                            <LemonButton status="danger">Revert to this version</LemonButton>
+                        </span>
                     </LemonBanner>
                 ) : null}
                 {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
                     <LemonBanner
                         type="info"
+                        className="my-4"
                         action={{
                             children: 'Convert to Notebook',
                             onClick: duplicateNotebook,
