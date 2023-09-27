@@ -665,12 +665,8 @@ export interface SessionRecordingSnapshotSource {
 }
 
 export interface SessionRecordingSnapshotResponse {
-    // Future interface
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
-
-    // legacy interface
-    next?: string
 }
 
 export type RecordingSnapshot = eventWithTime & {
@@ -680,7 +676,6 @@ export type RecordingSnapshot = eventWithTime & {
 export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
-    next?: string
     blob_keys?: string[]
 }
 

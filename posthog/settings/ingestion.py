@@ -30,7 +30,5 @@ PARTITION_KEY_BUCKET_REPLENTISH_RATE = get_from_env(
     "PARTITION_KEY_BUCKET_REPLENTISH_RATE", type_cast=float, default=1.0
 )
 
-REPLAY_EVENT_MAX_SIZE = get_from_env("REPLAY_EVENT_MAX_SIZE", type_cast=int, default=1024 * 512)  # 512kb
-
-REPLAY_RETENTION_DAYS_MIN = 30
-REPLAY_RETENTION_DAYS_MAX = 90
+REPLAY_RETENTION_DAYS_MIN = get_from_env("REPLAY_RETENTION_DAYS_MIN", type_cast=int, default=30)
+REPLAY_RETENTION_DAYS_MAX = get_from_env("REPLAY_RETENTION_DAYS_MAX", type_cast=int, default=90)
