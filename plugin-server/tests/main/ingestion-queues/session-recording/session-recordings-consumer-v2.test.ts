@@ -496,9 +496,6 @@ describe('ingester', () => {
 
         it("flushes and commits as it's revoked", async () => {
             await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid3', 2)])
-            const revokePromise = ingester.onRevokePartitions([createTP(1)])
-
-            expect(Object.keys(ingester.sessions)).toEqual([`${team.id}-sid3`])
 
             expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
                 expect.stringContaining(`${team.id}.sid1.`), // gz
@@ -508,6 +505,10 @@ describe('ingester', () => {
                 expect.stringContaining(`${team.id}.sid3.`), // gz
                 expect.stringContaining(`${team.id}.sid3.`), // json
             ])
+
+            const revokePromise = ingester.onRevokePartitions([createTP(1)])
+
+            expect(Object.keys(ingester.sessions)).toEqual([`${team.id}-sid3`])
 
             await revokePromise
 
