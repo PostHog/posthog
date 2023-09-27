@@ -17,7 +17,6 @@ import {
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
     [SDKKey.REACT]: ReactInstructions,
-    // next needs updating
     [SDKKey.NEXT_JS]: NextJSInstructions,
     [SDKKey.IOS]: ProductAnalyticsIOSInstructions,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructions,
@@ -28,5 +27,5 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PHP]: ProductAnalyticsPHPInstructions,
     [SDKKey.GO]: ProductAnalyticsGoInstructions,
     [SDKKey.API]: ProductAnalyticsAPIInstructions,
-    // add flutter, rust, gatsby, nuxt, vue, and others here
+    // add flutter, rust, gatsby, nuxt, vue, svelte, and others here
 }

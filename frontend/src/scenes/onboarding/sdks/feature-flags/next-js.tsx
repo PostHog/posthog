@@ -3,6 +3,9 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { JSInstallSnippet } from '../shared-snippets'
+import { SDKKey } from '~/types'
+import { FlagImplementationSnippet } from './flagImplementationSnippet'
+import { NodeInstallSnippet, NodeSetupSnippet } from './nodejs'
 
 function NextEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -92,7 +95,14 @@ export function NextJSInstructions(): JSX.Element {
                 integrate PostHog at the root of your app (pages/_app.js).
             </p>
             <NextPagesRouterCodeSnippet />
-            {/* TODO: Add details on how to use feature flags with Next */}
+            <h3>Client-side rendering</h3>
+            <FlagImplementationSnippet sdkKey={SDKKey.REACT} />
+            <h3>Server-side rendering</h3>
+            <h4>Install</h4>
+            <NodeInstallSnippet />
+            <h4>Configure</h4>
+            <NodeSetupSnippet />
+            <FlagImplementationSnippet sdkKey={SDKKey.NODE_JS} />
         </>
     )
 }

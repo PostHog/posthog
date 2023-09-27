@@ -4,7 +4,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKKey } from '~/types'
 
-function NodeInstallSnippet(): JSX.Element {
+export function NodeInstallSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Bash}>
             {`npm install posthog-node
@@ -16,7 +16,7 @@ pnpm add posthog-node`}
     )
 }
 
-function NodeSetupSnippet(): JSX.Element {
+export function NodeSetupSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
