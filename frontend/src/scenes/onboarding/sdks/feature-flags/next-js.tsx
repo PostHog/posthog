@@ -2,7 +2,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { JSInstallSnippet, SessionReplayFinalSteps } from '../shared-snippets'
+import { JSInstallSnippet } from '../shared-snippets'
 
 function NextEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -92,7 +92,7 @@ export function NextJSInstructions(): JSX.Element {
                 integrate PostHog at the root of your app (pages/_app.js).
             </p>
             <NextPagesRouterCodeSnippet />
-            <SessionReplayFinalSteps />
+            {/* TODO: Add details on how to use feature flags with Next */}
         </>
     )
 }

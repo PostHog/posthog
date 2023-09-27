@@ -1,6 +1,7 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
 import {
     JSWebInstructions,
+    NextJSInstructions,
     ProductAnalyticsAPIInstructions,
     ProductAnalyticsAndroidInstructions,
     ProductAnalyticsGoInstructions,
@@ -10,13 +11,14 @@ import {
     ProductAnalyticsPythonInstructions,
     ProductAnalyticsRNInstructions,
     ProductAnalyticsRubyInstructions,
+    ReactInstructions,
 } from '.'
-import { ReactInstructions } from './react'
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
     [SDKKey.REACT]: ReactInstructions,
-    // add next, gatsby, and others here
+    // next needs updating
+    [SDKKey.NEXT_JS]: NextJSInstructions,
     [SDKKey.IOS]: ProductAnalyticsIOSInstructions,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructions,
     [SDKKey.ANDROID]: ProductAnalyticsAndroidInstructions,
@@ -26,4 +28,5 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PHP]: ProductAnalyticsPHPInstructions,
     [SDKKey.GO]: ProductAnalyticsGoInstructions,
     [SDKKey.API]: ProductAnalyticsAPIInstructions,
+    // add flutter, rust, gatsby, nuxt, vue, and others here
 }
