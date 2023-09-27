@@ -2,9 +2,10 @@ import posthoganalytics
 from django.conf import settings
 from posthog.cloud_utils import is_cloud
 from posthog.models.user import User
+from django.contrib.auth.models import AnonymousUser
 
 
-def hogql_insights_enabled(user: User) -> bool:
+def hogql_insights_enabled(user: User | AnonymousUser) -> bool:
     if settings.HOGQL_INSIGHTS_OVERRIDE is not None:
         return settings.HOGQL_INSIGHTS_OVERRIDE
 
