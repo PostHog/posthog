@@ -100,10 +100,12 @@ export function humanize(
 
     for (const logItem of results) {
         const describer = describerFor?.(logItem)
+
         if (!describer) {
             continue
         }
         const { description, extendedDescription } = describer(logItem, asNotification)
+
         if (description !== null) {
             logLines.push({
                 email: logItem.user.email,

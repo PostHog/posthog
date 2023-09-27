@@ -17,6 +17,7 @@ export interface ActivityLogProps {
     id?: number | string
     startingPage?: number
     caption?: string | JSX.Element
+    renderSideAction?: (logItem: HumanizedActivityLogItem) => JSX.Element
 }
 
 const Empty = ({ scope }: { scope: string }): JSX.Element => {
@@ -62,9 +63,11 @@ const Loading = (): JSX.Element => {
 export const ActivityLogRow = ({
     logItem,
     showExtendedDescription,
+    renderSideAction,
 }: {
     logItem: HumanizedActivityLogItem
     showExtendedDescription?: boolean
+    renderSideAction?: ActivityLogProps['renderSideAction']
 }): JSX.Element => {
     return (
         <div className={clsx('activity-log-row', logItem.unread && 'unread')}>
@@ -84,11 +87,18 @@ export const ActivityLogRow = ({
                     <TZLabel time={logItem.created_at} />
                 </div>
             </div>
+            {renderSideAction?.(logItem)}
         </div>
     )
 }
 
-export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
+export const ActivityLog = ({
+    scope,
+    id,
+    caption,
+    startingPage = 1,
+    renderSideAction,
+}: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id, caption, startingPage })
     const { humanizedActivity, nextPageLoading, pagination } = useValues(logic)
 
@@ -102,7 +112,12 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
             ) : humanizedActivity.length > 0 ? (
                 <>
                     {humanizedActivity.map((logItem, index) => (
-                        <ActivityLogRow key={index} logItem={logItem} showExtendedDescription={true} />
+                        <ActivityLogRow
+                            key={index}
+                            logItem={logItem}
+                            showExtendedDescription={true}
+                            renderSideAction={renderSideAction}
+                        />
                     ))}
                     <LemonDivider />
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />

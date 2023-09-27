@@ -77,7 +77,6 @@ export const notebookLogic = kea<notebookLogicType>([
         exportJSON: true,
         showConflictWarning: true,
         onUpdateEditor: true,
-        setIsShowingSidebar: (showing: boolean) => ({ showing }),
         registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
@@ -104,6 +103,7 @@ export const notebookLogic = kea<notebookLogicType>([
             // if operating on a particular instance of a replay comment, we can pass the known starting position
             knownStartingPosition,
         }),
+        setShowHistory: (showHistory: boolean) => ({ showHistory }),
     }),
     reducers({
         localContent: [
@@ -167,11 +167,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 setEditable: (_, { editable }) => editable,
             },
         ],
-        isShowingSidebar: [
-            false,
+        showHistory: [
+            true,
             {
-                setEditingNodeId: (_, { editingNodeId }) => (editingNodeId ? true : false),
-                setIsShowingSidebar: (_, { showing }) => showing,
+                setShowHistory: (_, { showHistory }) => showHistory,
             },
         ],
     }),
@@ -335,6 +334,11 @@ export const notebookLogic = kea<notebookLogicType>([
                     )
                 }
             },
+        ],
+
+        isShowingSidebar: [
+            (s) => [s.editingNodeId, s.showHistory],
+            (editingNodeId, showHistory) => !!editingNodeId || showHistory,
         ],
     }),
     sharedListeners(({ values, actions }) => ({

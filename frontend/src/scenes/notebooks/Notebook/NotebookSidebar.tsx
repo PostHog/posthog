@@ -5,9 +5,10 @@ import { notebookLogic } from './notebookLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconEyeVisible } from 'lib/lemon-ui/icons'
+import { NotebookHistory } from './NotebookHistory'
 
 export const NotebookSidebar = (): JSX.Element | null => {
-    const { editingNodeLogic, isShowingSidebar, isEditable } = useValues(notebookLogic)
+    const { editingNodeLogic, isShowingSidebar, isEditable, showHistory } = useValues(notebookLogic)
 
     if (!isEditable) {
         return null
@@ -21,7 +22,13 @@ export const NotebookSidebar = (): JSX.Element | null => {
         >
             <div className="NotebookSidebar__padding" />
             <div className="NotebookSidebar__content">
-                {editingNodeLogic && isShowingSidebar && <Widgets logic={editingNodeLogic} />}
+                {isShowingSidebar ? (
+                    editingNodeLogic ? (
+                        <Widgets logic={editingNodeLogic} />
+                    ) : showHistory ? (
+                        <NotebookHistory />
+                    ) : null
+                ) : null}
             </div>
         </div>
     )

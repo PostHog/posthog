@@ -711,8 +711,7 @@ const api = {
                     return new ApiRequest().dataManagementActivity()
                 },
                 [ActivityScope.NOTEBOOK]: () => {
-                    // not implemented
-                    return null
+                    return new ApiRequest().notebooks().withAction('activity')
                 },
             }
 

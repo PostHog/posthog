@@ -29,6 +29,7 @@
         max-width: 50rem;
         overflow-wrap: anywhere;
         padding: 0.5rem;
+        gap: 0.5rem;
 
         &.unread {
             background-color: var(--primary-highlight);
@@ -44,7 +45,6 @@
 
         .details {
             flex-grow: 1;
-            margin-left: 0.5rem;
 
             .highlighted-activity {
                 background-color: var(--mark);
