@@ -146,6 +146,7 @@ export function Surveys(): JSX.Element {
                                 },
                                 {
                                     title: 'Responses',
+                                    dataIndex: 'id',
                                     render: function RenderResponses(_, survey) {
                                         return (
                                             <>
@@ -156,6 +157,11 @@ export function Surveys(): JSX.Element {
                                                 )}
                                             </>
                                         )
+                                    },
+                                    sorter: (surveyA, surveyB) => {
+                                        const countA = surveysResponsesCount[surveyA.id] ?? 0
+                                        const countB = surveysResponsesCount[surveyB.id] ?? 0
+                                        return countA - countB
                                     },
                                 },
                                 {
