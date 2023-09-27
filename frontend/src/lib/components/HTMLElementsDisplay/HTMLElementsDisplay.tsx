@@ -6,7 +6,6 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import { LemonButton } from '@posthog/lemon-ui'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -94,8 +93,15 @@ export function HTMLElementsDisplay({
     const [key] = useState(() => `HtmlElementsDisplay.${uniqueNode++}`)
 
     const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key, startingSelector, providedElements })
-    const { parsedSelectors, chosenSelector, chosenSelectorMatchCount, messageStatus, elements, parsedElements } =
-        useValues(logic)
+    const {
+        parsedSelectors,
+        chosenSelector,
+        chosenSelectorMatchCount,
+        messageStatus,
+        elements,
+        elementsToShowDepth,
+        parsedElements,
+    } = useValues(logic)
     const { setParsedSelectors, showAdditionalElements } = useActions(logic)
 
     return (
@@ -116,11 +122,16 @@ export function HTMLElementsDisplay({
                 </LemonBanner>
             )}
             <div className="px-4 rounded bg-default">
-                <LemonButton fullWidth onClick={showAdditionalElements}>
-                    Click to see hidden elements
-                </LemonButton>
                 {elements.length ? (
                     <>
+                        {elementsToShowDepth ? (
+                            <pre
+                                className="p-1 m-0 opacity-50 text-white text-sm cursor-pointer"
+                                onClick={showAdditionalElements}
+                            >
+                                click to see {elementsToShowDepth} hidden element{elementsToShowDepth > 1 ? 's' : null}
+                            </pre>
+                        ) : null}
                         <Tags
                             elements={parsedElements}
                             highlight={highlight}
