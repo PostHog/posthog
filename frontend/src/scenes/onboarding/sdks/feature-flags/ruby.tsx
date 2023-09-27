@@ -1,0 +1,35 @@
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useValues } from 'kea'
+import { teamLogic } from 'scenes/teamLogic'
+import { FlagImplementationSnippet } from './flagImplementationSnippet'
+import { SDKKey } from '~/types'
+
+function RubyInstallSnippet(): JSX.Element {
+    return <CodeSnippet language={Language.Bash}>{'gem "posthog-ruby"'}</CodeSnippet>
+}
+
+function RubySetupSnippet(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    return (
+        <CodeSnippet language={Language.Ruby}>
+            {`posthog = PostHog::Client.new({
+    api_key: "${currentTeam?.api_token}",
+    host: "${window.location.origin}",
+    on_error: Proc.new { |status, msg| print msg }
+})`}
+        </CodeSnippet>
+    )
+}
+
+export function ProductAnalyticsRubyInstructions(): JSX.Element {
+    return (
+        <>
+            <h3>Install</h3>
+            <RubyInstallSnippet />
+            <h3>Configure</h3>
+            <RubySetupSnippet />
+            <FlagImplementationSnippet sdkKey={SDKKey.RUBY} />
+        </>
+    )
+}
