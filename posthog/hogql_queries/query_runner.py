@@ -129,14 +129,14 @@ class BaseQueryRunner(ABC):
         raise NotImplementedError()
 
 
-class InsightQueryRunner(BaseQueryRunner):
+class InsightQueryRunner(BaseQueryRunner, ABC):
     @abstractmethod
     def to_persons_query(self) -> str:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
 
-class WebAnalyticsQueryRunner(BaseQueryRunner):
+class WebAnalyticsQueryRunner(BaseQueryRunner, ABC):
     def _is_stale(self, cached_result_package):
         return True
 
