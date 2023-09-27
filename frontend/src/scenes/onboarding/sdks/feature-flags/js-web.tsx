@@ -1,8 +1,8 @@
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { JSInstallSnippet, JSSetupSnippet } from '../shared-snippets'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKKey } from '~/types'
+import { JSInstallSnippet, JSSetupSnippet } from '../sdk-install-instructions'
 
 export function FeatureFlagsJSWebInstructions(): JSX.Element {
     return (

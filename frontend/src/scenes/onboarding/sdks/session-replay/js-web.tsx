@@ -1,23 +1,7 @@
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { JSInstallSnippet, SessionReplayFinalSteps } from '../shared-snippets'
-
-function JSSetupSnippet(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    return (
-        <CodeSnippet language={Language.JavaScript}>
-            {[
-                "import posthog from 'posthog-js'",
-                '',
-                `posthog.init('${currentTeam?.api_token}', { api_host: '${window.location.origin}' })`,
-            ].join('\n')}
-        </CodeSnippet>
-    )
-}
+import { SessionReplayFinalSteps } from '../shared-snippets'
+import { JSInstallSnippet, JSSetupSnippet } from '../sdk-install-instructions'
 
 export function JSWebInstructions(): JSX.Element {
     return (
