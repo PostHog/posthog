@@ -2813,11 +2813,11 @@ test('$unset person empty set ignored', async () => {
     expect((await hub.db.fetchEvents()).length).toBe(1)
 
     const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$unset']).toEqual([])
+    expect(event.properties['$unset']).toEqual({})
 
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ b: 2 })
+    expect(person.properties).toEqual({ a: 1, b: 2, c: 3 })
 })
 
 describe('ingestion in any order', () => {
