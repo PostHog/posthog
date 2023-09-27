@@ -19,8 +19,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Create a new team each time to ensure no clashing between tests
         self.team = Team.objects.create(organization=self.organization, name="New Team")
 
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_2023_08_01_version_stored_snapshots_can_be_gathered(self, mock_list_objects: MagicMock) -> None:
+    def test_2023_08_01_version_stored_snapshots_can_be_gathered(
+        self, mock_list_objects: MagicMock, _mock_exists: MagicMock
+    ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
 
@@ -69,8 +72,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ],
         }
 
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_original_version_stored_snapshots_can_be_gathered(self, mock_list_objects: MagicMock) -> None:
+    def test_original_version_stored_snapshots_can_be_gathered(
+        self, mock_list_objects: MagicMock, _mock_exists: MagicMock
+    ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
 
@@ -106,11 +112,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ],
         }
 
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.requests.get")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_2023_08_01_version_stored_snapshots_can_be_loaded(
-        self, mock_list_objects: MagicMock, mock_get_presigned_url: MagicMock, mock_requests: MagicMock
+        self,
+        mock_list_objects: MagicMock,
+        mock_get_presigned_url: MagicMock,
+        mock_requests: MagicMock,
+        _mock_exists: MagicMock,
     ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
@@ -162,6 +173,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert response_data == "the file contents"
 
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.requests.get")
     @patch("posthog.session_recordings.session_recording_api.object_storage.tag")
     @patch("posthog.session_recordings.session_recording_api.object_storage.write")
@@ -176,6 +188,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_write: MagicMock,
         mock_tag: MagicMock,
         mock_requests: MagicMock,
+        _mock_exists: MagicMock,
     ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
