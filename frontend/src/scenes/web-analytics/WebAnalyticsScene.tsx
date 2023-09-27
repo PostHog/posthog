@@ -6,7 +6,7 @@ import { NodeKind } from '~/queries/schema'
 export function WebAnalyticsScene(): JSX.Element {
     return (
         <div>
-            Top pages
+            Top sources
             <Query
                 query={{
                     full: true,
@@ -14,6 +14,30 @@ export function WebAnalyticsScene(): JSX.Element {
                     source: {
                         kind: NodeKind.WebTopSourcesQuery,
                         filters: {},
+                    },
+                }}
+                readOnly={true}
+            />
+            Top clicks
+            <Query
+                query={{
+                    full: true,
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebTopClicksQuery,
+                        filters: {},
+                    },
+                }}
+                readOnly={true}
+            />
+            Top pages
+            <Query
+                query={{
+                    full: true,
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebTopPagesQuery,
+                        filters: { x: 1 },
                     },
                 }}
                 readOnly={true}

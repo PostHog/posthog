@@ -13,7 +13,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import InsightQueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -31,7 +31,7 @@ class SeriesWithExtras:
         self.is_previous_period_series = is_previous_period_series
 
 
-class TrendsQueryRunner(QueryRunner):
+class TrendsQueryRunner(InsightQueryRunner):
     query: TrendsQuery
     query_type = TrendsQuery
     series: List[SeriesWithExtras]

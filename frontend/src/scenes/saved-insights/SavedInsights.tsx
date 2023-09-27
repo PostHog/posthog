@@ -248,6 +248,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
+    [NodeKind.WebTopPagesQuery]: {
+        name: 'Top Pages',
+        description: 'View top pages for a website',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
+    [NodeKind.WebTopClicksQuery]: {
+        name: 'Top Clicks',
+        description: 'View top clicks for a website',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [

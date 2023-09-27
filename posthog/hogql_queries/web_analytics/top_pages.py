@@ -6,18 +6,39 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import WebAnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import WebTopSourcesQuery, WebTopSourcesQueryResponse
+from posthog.schema import WebTopPagesQuery, WebTopPagesQueryResponse
 
 
-class TopSourcesQueryRunner(WebAnalyticsQueryRunner):
-    query: WebTopSourcesQuery
-    query_type = WebTopSourcesQuery
+class TopPagesQueryRunner(WebAnalyticsQueryRunner):
+    query: WebTopPagesQuery
+    query_type = WebTopPagesQuery
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        with self.timings.measure("top_sources_query"):
+        with self.timings.measure("top_pages_query"):
             top_sources_query = parse_select(
                 """
 WITH
+
+scroll_depth_cte AS (
+SELECT
+    events.properties.`$prev_pageview_pathname` AS pathname,
+    countIf(events.event == '$pageview') as total_pageviews,
+    COUNT(DISTINCT events.properties.distinct_id) as unique_visitors, -- might want to use person id? have seen a small number of pages where unique > total
+    avg(CASE
+        WHEN events.properties.`$prev_pageview_max_content_percentage` IS NULL THEN NULL
+        WHEN events.properties.`$prev_pageview_max_content_percentage` > 0.8 THEN 100
+        ELSE 0
+    END) AS scroll_gt80_percentage,
+    avg(events.properties.$prev_pageview_max_scroll_percentage) * 100 as average_scroll_percentage
+FROM
+    events
+WHERE
+    (event = '$pageview' OR event = '$pageleave') AND events.properties.`$prev_pageview_pathname` IS NOT NULL
+    AND events.timestamp >= now() - INTERVAL 7 DAY
+GROUP BY pathname
+)
+
+,
 
 session_cte AS (
 SELECT
@@ -87,21 +108,27 @@ HAVING
     min_timestamp >= now() - INTERVAL 7 DAY
 )
 
+,
+
+bounce_rate_cte AS (
+SELECT session_cte.earliest_pathname,
+       avg(session_cte.is_bounce) as bounce_rate
+FROM session_cte
+GROUP BY earliest_pathname
+)
 
 
-SELECT
-    blended_source,
-    count(num_pageviews) as total_pageviews,
-    count(DISTINCT person_id) as unique_visitors,
-    avg(is_bounce) AS bounce_rate
+
+SELECT scroll_depth_cte.pathname as pathname,
+scroll_depth_cte.total_pageviews as total_pageviews,
+scroll_depth_cte.unique_visitors as unique_visitors,
+scroll_depth_cte.scroll_gt80_percentage as scroll_gt80_percentage,
+scroll_depth_cte.average_scroll_percentage as average_scroll_percentage,
+bounce_rate_cte.bounce_rate as bounce_rate
 FROM
-    session_cte
-WHERE
-    blended_source IS NOT NULL
-GROUP BY blended_source
-
+    scroll_depth_cte LEFT OUTER JOIN bounce_rate_cte
+ON scroll_depth_cte.pathname = bounce_rate_cte.earliest_pathname
 ORDER BY total_pageviews DESC
-LIMIT 100
                 """,
                 timings=self.timings,
             )
@@ -115,7 +142,7 @@ LIMIT 100
             timings=self.timings,
         )
 
-        return WebTopSourcesQueryResponse(
+        return WebTopPagesQueryResponse(
             columns=response.columns, result=response.results, timings=response.timings, types=response.types
         )
 
