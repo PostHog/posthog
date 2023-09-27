@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
     -- Examples: A batch export id, a cronjob id, a plugin id.
     log_source_id String,
-    -- An id for the instance of log_source that generated this log.
+    -- A secondary id e.g. for the instance of log_source that generated this log.
     -- This may be ommitted if log_source is a singleton.
     -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
     instance_id String,
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 LOG_ENTRIES_TABLE_ENGINE = lambda: ReplacingMergeTree(LOG_ENTRIES_TABLE, ver="_timestamp")
 LOG_ENTRIES_TABLE_SQL = lambda: (
     LOG_ENTRIES_TABLE_BASE_SQL
-    + """ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+    + """PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
 {ttl_period}
 SETTINGS index_granularity=512
 """
