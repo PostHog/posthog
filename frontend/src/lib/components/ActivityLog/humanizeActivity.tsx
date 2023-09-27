@@ -49,7 +49,7 @@ export enum ActivityScope {
     NOTEBOOK = 'Notebook',
 }
 
-export interface ActivityLogItem {
+export type ActivityLogItem = {
     user: ActivityUser
     activity: string
     created_at: string
@@ -71,7 +71,7 @@ export type ChangeMapping = {
 }
 export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
 
-export interface HumanizedActivityLogItem {
+export type HumanizedActivityLogItem = {
     email?: string | null
     name?: string
     isSystem?: boolean
@@ -79,6 +79,7 @@ export interface HumanizedActivityLogItem {
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
     unread?: boolean
+    activity: ActivityLogItem
 }
 
 export type Describer = (logItem: ActivityLogItem, asNotification?: boolean) => HumanizedChange
@@ -115,6 +116,7 @@ export function humanize(
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
                 unread: logItem.unread,
+                activity: logItem,
             })
         }
     }

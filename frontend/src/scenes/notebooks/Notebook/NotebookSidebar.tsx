@@ -8,11 +8,7 @@ import { IconEyeVisible } from 'lib/lemon-ui/icons'
 import { NotebookHistory } from './NotebookHistory'
 
 export const NotebookSidebar = (): JSX.Element | null => {
-    const { editingNodeLogic, isShowingSidebar, isEditable, showHistory } = useValues(notebookLogic)
-
-    if (!isEditable) {
-        return null
-    }
+    const { editingNodeLogic, isShowingSidebar, showHistory } = useValues(notebookLogic)
 
     return (
         <div

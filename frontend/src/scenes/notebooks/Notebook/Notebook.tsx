@@ -26,9 +26,17 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, editor, conflictWarningVisible } = useValues(logic)
-    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
-        useActions(logic)
+    const { notebook, content, notebookLoading, editor, conflictWarningVisible, isEditable, showHistory } =
+        useValues(logic)
+    const {
+        setEditor,
+        onEditorUpdate,
+        duplicateNotebook,
+        loadNotebook,
+        setEditable,
+        onEditorSelectionUpdate,
+        setShowHistory,
+    } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
@@ -42,6 +50,10 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
     useEffect(() => {
         setEditable(editable)
     }, [editable])
+
+    useEffect(() => {
+        editor?.setEditable(isEditable)
+    }, [isEditable, editor])
 
     useEffect(() => {
         if (editor) {
@@ -75,6 +87,17 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     </LemonBanner>
                 )}
 
+                {editable && showHistory ? (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            onClick: () => setShowHistory(false),
+                            children: 'Close history',
+                        }}
+                    >
+                        <b>Editing is disabled</b>. Close the history panel or choose an older version to revert to.
+                    </LemonBanner>
+                ) : null}
                 {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
                     <LemonBanner
                         type="info"
@@ -88,7 +111,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     </LemonBanner>
                 ) : null}
 
-                <div className="flex flex-1 justify-center space-x-2">
+                <div className="flex flex-1 justify-center">
                     <NotebookSidebar />
                     <ErrorBoundary>
                         <Editor

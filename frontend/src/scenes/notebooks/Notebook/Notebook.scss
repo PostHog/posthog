@@ -125,6 +125,12 @@
         width: 0px;
         transition: width var(--notebook-popover-transition-properties);
 
+        --notebook-sidebar-height: calc(100vh - 9rem);
+
+        .NotebookScene & {
+            --notebook-sidebar-height: calc(100vh - 11rem);
+        }
+
         .NotebookSidebar__padding {
             height: 3.5rem;
         }
@@ -145,10 +151,17 @@
 
         &--showing {
             width: var(--notebook-sidebar-width);
+            margin-right: 1rem;
 
             .NotebookSidebar__content {
                 transform: translateX(0);
             }
+        }
+
+        .NotebookHistory {
+            padding: 0.5rem;
+            overflow-y: auto;
+            height: var(--notebook-sidebar-height);
         }
     }
 
