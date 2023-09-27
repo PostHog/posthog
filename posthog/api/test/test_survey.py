@@ -735,15 +735,14 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     distinct_id=self.user.id,
                     properties={"$survey_id": survey_id},
-                    timestamp=datetime.now() - timedelta(days=10),
+                    timestamp=datetime.now() - timedelta(days=count),
                 )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        for survey_id, count in survey_counts.items():
-            self.assertEqual(data[survey_id], count)
+        self.assertEqual(data, survey_counts)
 
     def test_responses_count_zero_responses(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
