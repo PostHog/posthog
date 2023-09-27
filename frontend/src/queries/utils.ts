@@ -125,6 +125,7 @@ export function isLifecycleQuery(node?: Node | null): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
+// sync with posthog/hogql_queries/legacy_compatibility/process_insight.py
 export function isQueryWithHogQLSupport(node?: Node | null): node is LifecycleQuery {
     return isLifecycleQuery(node) || isTrendsQuery(node)
 }

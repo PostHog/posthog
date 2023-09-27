@@ -299,6 +299,30 @@ insight_17 = {
     "funnel_viz_type": "steps",
     "filter_test_accounts": True,
 }
+insight_18 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": None,
+            "name": "$pageview",
+            "type": "events",
+            "order": None,
+            "math_hogql": None,
+            "properties": {},
+            "custom_name": None,
+            "math_property": None,
+            "math_group_type_index": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "date_from": "-7d",
+    "sampling_factor": "",
+    "smoothing_intervals": 1,
+    "breakdown_normalize_url": False,
+    "breakdown_attribution_type": "first_touch",
+}
 
 test_insights = [
     insight_0,
@@ -319,6 +343,7 @@ test_insights = [
     insight_15,
     insight_16,
     insight_17,
+    insight_18,
 ]
 
 
