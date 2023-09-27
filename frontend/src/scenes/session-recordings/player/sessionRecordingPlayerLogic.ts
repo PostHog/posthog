@@ -1018,3 +1018,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         })
     }),
 ])
+
+export const getCurrentPlayerTime = (logicProps: SessionRecordingLogicProps): number => {
+    // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
+    const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+    return Math.floor(playerTime / 1000)
+}

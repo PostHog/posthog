@@ -1,4 +1,4 @@
-import { LemonButton, LemonTable, LemonDivider, Link, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonDivider, Link, LemonTag, LemonTagType, Spinner } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -36,7 +36,16 @@ export enum SurveysTabs {
 }
 
 export function Surveys(): JSX.Element {
-    const { nonArchivedSurveys, archivedSurveys, surveys, surveysLoading } = useValues(surveysLogic)
+    const {
+        nonArchivedSurveys,
+        archivedSurveys,
+        surveys,
+        surveysLoading,
+        surveysResponsesCount,
+        surveysResponsesCountLoading,
+        usingSurveysSiteApp,
+    } = useValues(surveysLogic)
+
     const { deleteSurvey, updateSurvey } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -59,9 +68,18 @@ export function Surveys(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    <LemonButton type="primary" to={urls.survey('new')} data-attr="new-survey">
-                        New survey
-                    </LemonButton>
+                    <>
+                        <LemonButton type="primary" to={urls.survey('new')} data-attr="new-survey">
+                            New survey
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconSettings />}
+                            onClick={() => openSurveysSettingsDialog()}
+                        >
+                            Configure
+                        </LemonButton>
+                    </>
                 }
             />
             <LemonTabs
@@ -78,7 +96,7 @@ export function Surveys(): JSX.Element {
 
                     {surveysPopupDisabled ? (
                         <LemonBanner
-                            type="info"
+                            type="warning"
                             action={{
                                 type: 'secondary',
                                 icon: <IconSettings />,
@@ -86,7 +104,9 @@ export function Surveys(): JSX.Element {
                                 children: 'Configure',
                             }}
                         >
-                            Survey popups are currently disabled for this project.
+                            {usingSurveysSiteApp
+                                ? 'Survey site apps are now deprecated. Configure and enable surveys popup in the settings here to move to the new system.'
+                                : 'Survey popups are currently disabled for this project.'}
                         </LemonBanner>
                     ) : null}
                 </div>
@@ -124,14 +144,26 @@ export function Surveys(): JSX.Element {
                                         )
                                     },
                                 },
-                                // TODO: add responses count later
-                                // {
-                                //     title: 'Responses',
-                                //     render: function RenderResponses() {
-                                //         // const responsesCount = getResponsesCount(survey)
-                                //         return <div>{0}</div>
-                                //     },
-                                // },
+                                {
+                                    title: 'Responses',
+                                    dataIndex: 'id',
+                                    render: function RenderResponses(_, survey) {
+                                        return (
+                                            <>
+                                                {surveysResponsesCountLoading ? (
+                                                    <Spinner />
+                                                ) : (
+                                                    <div>{surveysResponsesCount[survey.id] ?? 0}</div>
+                                                )}
+                                            </>
+                                        )
+                                    },
+                                    sorter: (surveyA, surveyB) => {
+                                        const countA = surveysResponsesCount[surveyA.id] ?? 0
+                                        const countB = surveysResponsesCount[surveyB.id] ?? 0
+                                        return countA - countB
+                                    },
+                                },
                                 {
                                     dataIndex: 'type',
                                     title: 'Type',
