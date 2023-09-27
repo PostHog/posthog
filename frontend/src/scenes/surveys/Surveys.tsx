@@ -153,7 +153,7 @@ export function Surveys(): JSX.Element {
                                                 {surveysResponsesCountLoading ? (
                                                     <Spinner />
                                                 ) : (
-                                                    <div>{surveysResponsesCount[survey.id]}</div>
+                                                    <div>{surveysResponsesCount[survey.id] ?? 0}</div>
                                                 )}
                                             </>
                                         )
