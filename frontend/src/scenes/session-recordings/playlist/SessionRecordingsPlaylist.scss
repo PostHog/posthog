@@ -31,7 +31,9 @@
     &--wide {
         flex-direction: row;
         justify-content: flex-start;
-        height: calc(100vh - 5rem);
+        // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
+        height: calc(100vh - 14rem);
+        min-height: 30rem;
 
         .SessionRecordingsPlaylist__left-column {
             max-width: 350px;

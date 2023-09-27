@@ -41,6 +41,7 @@ from posthog.temporal.tests.batch_exports.fixtures import (
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.s3_batch_export import (
+    HeartbeatDetails,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
@@ -439,7 +440,7 @@ async def test_s3_export_workflow_with_minio_bucket(
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(minutes=10),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
@@ -1371,3 +1372,171 @@ def test_get_s3_key(inputs, expected):
     """Test the get_s3_key function renders the expected S3 key given inputs."""
     result = get_s3_key(inputs)
     assert result == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_insert_into_s3_activity_heartbeats(bucket_name, s3_client, activity_environment):
+    """Test that the insert_into_s3_activity sends heartbeats."""
+
+    data_interval_start = "2023-04-20 14:00:00"
+    data_interval_end = "2023-04-25 15:00:00"
+
+    # Generate a random team id integer. There's still a chance of a collision,
+    # but it's very small.
+    team_id = randint(1, 1000000)
+
+    client = ClickHouseClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    # Add a materialized column such that we can verify that it is NOT included
+    # in the export.
+    await amaterialize("events", "$browser")
+
+    # Create enough events to ensure we span more than 5MB, the smallest
+    # multipart chunk size for multipart uploads to S3.
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team_id,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "elements_chain": "this that and the other",
+        }
+        # NOTE: we have to do a lot here, otherwise we do not trigger a
+        # multipart upload, and the minimum part chunk size is 5MB.
+        for i in range(50000)
+    ]
+
+    events += [
+        # Insert an events with an empty string in `properties` and
+        # `person_properties` to ensure that we handle empty strings correctly.
+        EventValues(
+            {
+                "uuid": str(uuid4()),
+                "event": "test-exclude",
+                "_timestamp": "2023-04-20 14:29:00",
+                "timestamp": "2023-04-20 14:29:00.000000",
+                "inserted_at": "2023-04-20 14:30:00.000000",
+                "created_at": "2023-04-20 14:29:00.000000",
+                "distinct_id": str(uuid4()),
+                "person_id": str(uuid4()),
+                "person_properties": None,
+                "team_id": team_id,
+                "properties": None,
+                "elements_chain": "",
+            }
+        )
+    ]
+
+    # Insert some data into the `sharded_events` table.
+    await insert_events(
+        client=client,
+        events=events,
+    )
+
+    # Insert some events before the hour and after the hour, as well as some
+    # events from another team to ensure that we only export the events from
+    # the team that the batch export is for.
+    other_team_id = team_id + 1
+    await insert_events(
+        client=client,
+        events=[
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 13:30:00",
+                "_timestamp": "2023-04-20 13:30:00",
+                "inserted_at": "2023-04-20 13:30:00.000000",
+                "created_at": "2023-04-20 13:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": team_id,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 15:30:00",
+                "_timestamp": "2023-04-20 13:30:00",
+                "inserted_at": "2023-04-20 13:30:00.000000",
+                "created_at": "2023-04-20 13:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": team_id,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 14:30:00",
+                "_timestamp": "2023-04-20 14:30:00",
+                "inserted_at": "2023-04-20 14:30:00.000000",
+                "created_at": "2023-04-20 14:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": other_team_id,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            },
+        ],
+    )
+
+    # Make a random string to prefix the S3 keys with. This allows us to ensure
+    # isolation of the test, and also to check that the data is being written.
+    prefix = str(uuid4())
+
+    current_part_number = 1
+
+    def assert_heartbeat_details(*details):
+        nonlocal current_part_number
+
+        details = HeartbeatDetails.from_activity_details(details)
+
+        last_uploaded_part_dt = dt.datetime.fromisoformat(details.last_uploaded_part_timestamp)
+        assert last_uploaded_part_dt.year == 2023
+        assert last_uploaded_part_dt.month == 4
+        assert last_uploaded_part_dt.day == 20
+        assert last_uploaded_part_dt.hour == 14
+        assert last_uploaded_part_dt.minute == 30
+        assert last_uploaded_part_dt.second == 0
+
+        assert len(details.upload_state.parts) == current_part_number
+        current_part_number = len(details.upload_state.parts) + 1
+
+    activity_environment.on_heartbeat = assert_heartbeat_details
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=prefix,
+        team_id=team_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+    )
+
+    with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+        with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+            await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+    # This checks that the assert_heartbeat_details function was actually called
+    assert current_part_number > 1
+    assert_events_in_s3(s3_client, bucket_name, prefix, events, None, None)

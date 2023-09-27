@@ -218,11 +218,6 @@ class FunnelVizType(str, Enum):
     trends = "trends"
 
 
-class FunnelCorrelationPersonConverted(str, Enum):
-    true = "true"
-    false = "false"
-
-
 class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -275,11 +270,8 @@ class PathsFilter(BaseModel):
     local_path_cleaning_filters: Optional[List[PathCleaningFilter]] = None
     max_edge_weight: Optional[float] = None
     min_edge_weight: Optional[float] = None
-    path_dropoff_key: Optional[str] = None
-    path_end_key: Optional[str] = None
     path_groupings: Optional[List[str]] = None
     path_replacements: Optional[bool] = None
-    path_start_key: Optional[str] = None
     path_type: Optional[PathType] = None
     paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
@@ -437,7 +429,6 @@ class StickinessFilter(BaseModel):
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
-    stickiness_days: Optional[float] = None
 
 
 class TimeToSeeDataSessionsQueryResponse(BaseModel):
@@ -549,18 +540,10 @@ class FunnelsFilter(BaseModel):
     bin_count: Optional[Union[float, str]] = None
     breakdown_attribution_type: Optional[BreakdownAttributionType] = None
     breakdown_attribution_value: Optional[float] = None
-    drop_off: Optional[bool] = None
-    entrance_period_start: Optional[str] = None
     exclusions: Optional[List[FunnelExclusion]] = None
-    funnel_advanced: Optional[bool] = None
     funnel_aggregate_by_hogql: Optional[str] = None
-    funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted] = None
-    funnel_correlation_person_entity: Optional[Dict[str, Any]] = None
-    funnel_custom_steps: Optional[List[float]] = None
     funnel_from_step: Optional[float] = None
     funnel_order_type: Optional[StepOrderValue] = None
-    funnel_step: Optional[float] = None
-    funnel_step_breakdown: Optional[Union[str, List[float], float]] = None
     funnel_step_reference: Optional[FunnelStepReference] = None
     funnel_to_step: Optional[float] = None
     funnel_viz_type: Optional[FunnelVizType] = None
