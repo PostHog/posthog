@@ -17,7 +17,7 @@ import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createRedisPool, delay } from '../utils/utils'
+import { delay } from '../utils/utils'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
@@ -420,27 +420,18 @@ export async function startPluginsServer(
             const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
             const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
-            const redisPool = hub?.db.redisPool ?? createRedisPool(recordingConsumerConfig)
 
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngesterV2(serverConfig, postgres, s3, redisPool)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, postgres, s3)
             await ingester.start()
 
             const batchConsumer = ingester.batchConsumer
 
             if (batchConsumer) {
-                stopSessionRecordingBlobConsumer = async () => {
-                    // Tricky - in some cases the hub is responsible, in which case it will drain and clear. Otherwise we are responsible.
-                    if (!hub?.db.redisPool) {
-                        await redisPool.drain()
-                        await redisPool.clear()
-                    }
-
-                    await ingester.stop()
-                }
+                stopSessionRecordingBlobConsumer = () => ingester.stop()
                 joinSessionRecordingBlobConsumer = () => batchConsumer.join()
                 healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
             }

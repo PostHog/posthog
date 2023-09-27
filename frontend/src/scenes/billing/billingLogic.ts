@@ -77,7 +77,7 @@ export const billingLogic = kea<billingLogicType>([
                     return window.location.pathname.includes('/ingestion')
                         ? urls.ingestion() + '/billing'
                         : window.location.pathname.includes('/onboarding')
-                        ? window.location.pathname
+                        ? window.location.pathname + window.location.search
                         : ''
                 },
             },

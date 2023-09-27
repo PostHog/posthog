@@ -27,6 +27,7 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.trends_query_runner import TrendsQueryRunner
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
@@ -197,11 +198,20 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 
 
 def process_query(
-    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
+    team: Team,
+    query_json: Dict,
+    default_limit: Optional[int] = None,
+    request: Optional[Request] = None,
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
-    query_kind = query_json.get("kind")
+    if isinstance(query_json, dict):
+        query_kind = query_json.get("kind")
+    else:
+        # we can have a pydantic model for a query as well
+        # this isn't typed accordingly, as type narrowing
+        # below would get complicated
+        query_kind = query_json.kind  # type: ignore
 
     tag_queries(query=query_json)
 
@@ -227,6 +237,10 @@ def process_query(
         refresh_requested = refresh_requested_by_client(request) if request else False
         lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
         return _unwrap_pydantic_dict(lifecycle_query_runner.run(refresh_requested=refresh_requested))
+    elif query_kind == "TrendsQuery":
+        refresh_requested = refresh_requested_by_client(request) if request else False
+        trends_query_runner = TrendsQueryRunner(query_json, team)
+        return _unwrap_pydantic_dict(trends_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)

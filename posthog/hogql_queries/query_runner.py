@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Generic, List, Optional, Type, Dict, TypeVar
 
 from prometheus_client import Counter
@@ -48,6 +48,8 @@ class CachedQueryResponse(QueryResponse):
     is_cached: bool
     last_refresh: str
     next_allowed_client_refresh: str
+    cache_key: str
+    timezone: str
 
 
 class QueryRunner(ABC):
@@ -90,6 +92,8 @@ class QueryRunner(ABC):
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
+        fresh_response_dict["cache_key"] = cache_key
+        fresh_response_dict["timezone"] = self.team.timezone
         fresh_response = CachedQueryResponse(**fresh_response_dict)
         cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
@@ -119,9 +123,9 @@ class QueryRunner(ABC):
         return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}_{self.team.timezone}")
 
     @abstractmethod
-    def _is_stale(self, cached_result_package) -> bool:
+    def _is_stale(self, cached_result_package):
         raise NotImplementedError()
 
     @abstractmethod
-    def _refresh_frequency(self) -> timedelta:
+    def _refresh_frequency(self):
         raise NotImplementedError()

@@ -50,7 +50,7 @@ export const OnboardingBillingStep = ({ product }: { product: BillingProductV2Ty
                                     <IconCheckCircleOutline className="text-success text-3xl mb-6" />
                                     <div>
                                         <h3 className="text-lg font-bold mb-1 text-left">Subscribe successful</h3>
-                                        <p className="mx-0 mb-0">You're all ready to use PostHog.</p>
+                                        <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
                                     </div>
                                 </div>
                                 <div className="h-20">
