@@ -198,20 +198,11 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 
 
 def process_query(
-    team: Team,
-    query_json: Dict,
-    default_limit: Optional[int] = None,
-    request: Optional[Request] = None,
+    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
-    if isinstance(query_json, dict):
-        query_kind = query_json.get("kind")
-    else:
-        # we can have a pydantic model for a query as well
-        # this isn't typed accordingly, as type narrowing
-        # below would get complicated
-        query_kind = query_json.kind  # type: ignore
+    query_kind = query_json.get("kind")
 
     tag_queries(query=query_json)
 
