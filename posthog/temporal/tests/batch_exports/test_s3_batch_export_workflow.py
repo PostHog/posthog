@@ -41,6 +41,7 @@ from posthog.temporal.tests.batch_exports.fixtures import (
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.s3_batch_export import (
+    HeartbeatDetails,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
@@ -1503,10 +1504,12 @@ async def test_insert_into_s3_activity_heartbeats(bucket_name, s3_client, activi
 
     current_part_number = 1
 
-    def assert_heartbeat_details(last_uploaded_part_timestamp, s3_upload_state):
+    def assert_heartbeat_details(*details):
         nonlocal current_part_number
 
-        last_uploaded_part_dt = dt.datetime.fromisoformat(last_uploaded_part_timestamp)
+        details = HeartbeatDetails.from_activity_details(details)
+
+        last_uploaded_part_dt = dt.datetime.fromisoformat(details.last_uploaded_part_timestamp)
         assert last_uploaded_part_dt.year == 2023
         assert last_uploaded_part_dt.month == 4
         assert last_uploaded_part_dt.day == 20
@@ -1514,8 +1517,8 @@ async def test_insert_into_s3_activity_heartbeats(bucket_name, s3_client, activi
         assert last_uploaded_part_dt.minute == 30
         assert last_uploaded_part_dt.second == 0
 
-        assert len(s3_upload_state.parts) == current_part_number
-        current_part_number = len(s3_upload_state.parts) + 1
+        assert len(details.upload_state.parts) == current_part_number
+        current_part_number = len(details.upload_state.parts) + 1
 
     activity_environment.on_heartbeat = assert_heartbeat_details
 
