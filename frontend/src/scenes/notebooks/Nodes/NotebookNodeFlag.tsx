@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 import { IconFlag, IconRecording, IconRocketLaunch, IconSurveys } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -24,14 +24,12 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
         featureFlagLoading,
         recordingFilterForFlag,
         hasEarlyAccessFeatures,
-        newEarlyAccessFeatureLoading,
         canCreateEarlyAccessFeature,
         hasSurveys,
-        newSurveyLoading,
     } = useValues(featureFlagLogic({ id }))
     const { createEarlyAccessFeature, createSurvey } = useActions(featureFlagLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
 
     const { shouldDisableInsertEarlyAccessFeature, shouldDisableInsertSurvey } = useValues(
         notebookNodeFlagLogic({ id, insertAfter })
@@ -39,7 +37,61 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
 
     useEffect(() => {
         props.updateAttributes({ title: featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag' })
-    }, [featureFlag.key])
+
+        setActions([
+            {
+                icon: <IconSurveys />,
+                text: `${hasSurveys ? 'View' : 'Create'} survey`,
+                onClick: () => {
+                    if (!hasSurveys) {
+                        return createSurvey()
+                    }
+                    if ((featureFlag?.surveys?.length || 0) <= 0) {
+                        return
+                    }
+                    if (!shouldDisableInsertSurvey(nextNode) && featureFlag.surveys) {
+                        insertAfter(buildSurveyContent(featureFlag.surveys[0].id))
+                    }
+                },
+            },
+            {
+                icon: <IconFlag />,
+                text: 'Show implementation',
+                onClick: () => {
+                    if (nextNode?.type.name !== NotebookNodeType.FeatureFlagCodeExample) {
+                        insertAfter(buildCodeExampleContent(id))
+                    }
+                },
+            },
+            {
+                icon: <IconRecording />,
+                text: 'View Replays',
+                onClick: () => {
+                    if (nextNode?.type.name !== NotebookNodeType.RecordingPlaylist) {
+                        insertAfter(buildPlaylistContent(recordingFilterForFlag))
+                    }
+                },
+            },
+            canCreateEarlyAccessFeature
+                ? {
+                      text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
+                      icon: <IconRocketLaunch />,
+                      onClick: () => {
+                          if (!hasEarlyAccessFeatures) {
+                              createEarlyAccessFeature()
+                          } else {
+                              if ((featureFlag?.features?.length || 0) <= 0) {
+                                  return
+                              }
+                              if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
+                                  insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
+                              }
+                          }
+                      },
+                  }
+                : undefined,
+        ])
+    }, [featureFlag])
 
     return (
         <div>
@@ -72,7 +124,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
                     </>
                 ) : null}
 
-                <LemonDivider className="my-0" />
+                {/* <LemonDivider className="my-0" />
                 <div className="p-2 mr-1 flex justify-end gap-2">
                     {canCreateEarlyAccessFeature && (
                         <LemonButton
@@ -165,7 +217,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
                     >
                         View Replays
                     </LemonButton>
-                </div>
+                </div> */}
             </BindLogic>
         </div>
     )
