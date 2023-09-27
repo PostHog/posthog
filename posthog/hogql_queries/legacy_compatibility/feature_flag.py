@@ -10,6 +10,9 @@ def hogql_insights_enabled(user: User) -> bool:
 
     # on PostHog Cloud, use the feature flag
     if is_cloud():
+        if not hasattr(user, "distinct_id"):  # exclude api endpoints that don't have auth from the flag
+            return False
+
         return posthoganalytics.feature_enabled(
             "hogql-insights",
             user.distinct_id,
