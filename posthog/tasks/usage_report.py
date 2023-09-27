@@ -16,6 +16,7 @@ from typing import (
 )
 
 import requests
+from retry import retry
 import structlog
 from dateutil import parser
 from django.conf import settings
@@ -51,6 +52,10 @@ TableSizes = TypedDict("TableSizes", {"posthog_event": int, "posthog_sessionreco
 CH_BILLING_SETTINGS = {
     "max_execution_time": 5 * 60,  # 5 minutes
 }
+
+QUERY_RETRIES = 3
+QUERY_RETRY_DELAY = 1
+QUERY_RETRY_BACKOFF = 2
 
 
 @dataclasses.dataclass
@@ -320,6 +325,7 @@ def capture_event(
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -334,6 +340,7 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> List[Tuple[int, int]]:
@@ -363,6 +370,7 @@ def get_teams_with_billable_event_count_in_period(
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -380,6 +388,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -396,6 +405,7 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -412,6 +422,7 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     previous_begin = begin - (end - begin)
 
@@ -442,6 +453,7 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -456,6 +468,7 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_hogql_metric(
     begin: datetime,
     end: datetime,
@@ -488,6 +501,7 @@ def get_teams_with_hogql_metric(
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_feature_flag_requests_count_in_period(
     begin: datetime, end: datetime, request_type: FlagRequestType
 ) -> List[Tuple[int, int]]:
