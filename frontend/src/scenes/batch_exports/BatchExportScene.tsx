@@ -1,7 +1,7 @@
 import { Checkbox } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonInput, LemonTableColumns } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
@@ -21,7 +21,6 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { ResizableTable, ResizableColumnType } from 'lib/components/ResizableTable'
 import { dayjs } from 'lib/dayjs'
 import { BatchExportLogEntryLevel, BatchExportLogEntry } from '~/types'
 import { pluralize } from 'lib/utils'
@@ -269,27 +268,34 @@ function BatchExportLogEntryLevelDisplay(type: BatchExportLogEntryLevel): JSX.El
     return <span style={{ color }}>{type}</span>
 }
 
-const columns: ResizableColumnType<BatchExportLogEntry>[] = [
+const columns: LemonTableColumns<BatchExportLogEntry> = [
     {
         title: 'Timestamp',
         key: 'timestamp',
         dataIndex: 'timestamp',
-        span: 3,
-        render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
+        width: 1,
+        render: (_, entry: BatchExportLogEntry) => dayjs(entry.timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
     },
     {
         title: 'Level',
         key: 'level',
         dataIndex: 'level',
-        span: 1,
-        render: BatchExportLogEntryLevelDisplay,
-    } as ResizableColumnType<BatchExportLogEntry>,
+        width: 1,
+        render: (_, entry: BatchExportLogEntry) => BatchExportLogEntryLevelDisplay(entry.level),
+    },
+    {
+        title: 'Run ID',
+        key: 'run_id',
+        dataIndex: 'run_id',
+        width: 1,
+        render: (_, entry) => entry.run_id,
+    },
     {
         title: 'Message',
         key: 'message',
         dataIndex: 'message',
-        span: 6,
-    } as ResizableColumnType<BatchExportLogEntry>,
+        width: 6,
+    },
 ]
 
 export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
@@ -339,14 +345,12 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
                     ? `Load ${pluralize(batchExportLogsBackground.length, 'newer entry', 'newer entries')}`
                     : 'No new entries'}
             </LemonButton>
-            <ResizableTable
+            <LemonTable
                 dataSource={batchExportLogs}
                 columns={columns}
                 loading={batchExportLogsLoading}
                 size="small"
                 className="ph-no-capture"
-                rowKey="id"
-                style={{ flexGrow: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!batchExportLogs.length && (
