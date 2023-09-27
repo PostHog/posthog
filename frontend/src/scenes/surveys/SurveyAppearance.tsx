@@ -178,27 +178,16 @@ export function SurveyAppearance({
                             />
                         </>
                     )}
-                    {[
-                        SurveyQuestionType.Open,
-                        SurveyQuestionType.Link,
-                        SurveyQuestionType.SingleChoice,
-                        SurveyQuestionType.MultipleChoice,
-                    ].includes(type) && (
-                        <>
-                            <div className="mt-2">Button color</div>
-                            <LemonInput
-                                value={appearance?.submitButtonColor}
-                                onChange={(submitButtonColor) =>
-                                    onAppearanceChange({ ...appearance, submitButtonColor })
-                                }
-                            />
-                            <div className="mt-2">Button text</div>
-                            <LemonInput
-                                value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
-                                onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
-                            />
-                        </>
-                    )}
+                    <div className="mt-2">Button color</div>
+                    <LemonInput
+                        value={appearance?.submitButtonColor}
+                        onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
+                    />
+                    <div className="mt-2">Button text</div>
+                    <LemonInput
+                        value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
+                        onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
+                    />
                     {surveyQuestionItem.type === SurveyQuestionType.Open && (
                         <>
                             <div className="mt-2">Placeholder</div>
