@@ -32,7 +32,7 @@ function IOS_SWIFT_SetupSnippet(): JSX.Element {
     )
 }
 
-export function ProductAnalyticsIOSInstructions(): JSX.Element {
+export function FeatureFlagsIOSInstructions(): JSX.Element {
     return (
         <>
             <h3>Install</h3>

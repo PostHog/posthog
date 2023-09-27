@@ -25,7 +25,7 @@ func main() {
     )
 }
 
-export function ProductAnalyticsGoInstructions(): JSX.Element {
+export function FeatureFlagsGoInstructions(): JSX.Element {
     return (
         <>
             <h3>Install</h3>

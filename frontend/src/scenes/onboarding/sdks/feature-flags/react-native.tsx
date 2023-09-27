@@ -5,7 +5,7 @@ import { Link } from '@posthog/lemon-ui'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKKey } from '~/types'
 
-export function ProductAnalyticsRNInstructions(): JSX.Element {
+export function FeatureFlagsRNInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const url = window.location.origin
 

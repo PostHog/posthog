@@ -22,7 +22,7 @@ posthog = Posthog(project_api_key='${currentTeam?.api_token}', host='${window.lo
     )
 }
 
-export function ProductAnalyticsPythonInstructions(): JSX.Element {
+export function FeatureFlagsPythonInstructions(): JSX.Element {
     return (
         <>
             <h3>Install</h3>

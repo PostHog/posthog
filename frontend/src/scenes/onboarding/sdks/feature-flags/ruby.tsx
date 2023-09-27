@@ -22,7 +22,7 @@ function RubySetupSnippet(): JSX.Element {
     )
 }
 
-export function ProductAnalyticsRubyInstructions(): JSX.Element {
+export function FeatureFlagsRubyInstructions(): JSX.Element {
     return (
         <>
             <h3>Install</h3>

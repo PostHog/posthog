@@ -4,7 +4,7 @@ import { JSInstallSnippet, JSSetupSnippet } from '../shared-snippets'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKKey } from '~/types'
 
-export function JSWebInstructions(): JSX.Element {
+export function FeatureFlagsJSWebInstructions(): JSX.Element {
     return (
         <>
             <h3>Option 1. Code snippet</h3>

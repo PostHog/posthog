@@ -41,7 +41,7 @@ function AndroidSetupSnippet(): JSX.Element {
     )
 }
 
-export function ProductAnalyticsAndroidInstructions(): JSX.Element {
+export function FeatureFlagsAndroidInstructions(): JSX.Element {
     return (
         <>
             <h3>Install</h3>

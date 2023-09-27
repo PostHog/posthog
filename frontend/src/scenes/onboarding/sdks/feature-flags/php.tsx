@@ -32,7 +32,7 @@ function PHPSetupSnippet(): JSX.Element {
     )
 }
 
-export function ProductAnalyticsPHPInstructions(): JSX.Element {
+export function FeatureFlagsPHPInstructions(): JSX.Element {
     return (
         <>
             <h3>Dependency Setup</h3>

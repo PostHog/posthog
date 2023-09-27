@@ -1,7 +1,7 @@
 import { SDKKey } from '~/types'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 
-export function ProductAnalyticsAPIInstructions(): JSX.Element {
+export function FeatureFlagsAPIInstructions(): JSX.Element {
     return (
         <>
             <FlagImplementationSnippet sdkKey={SDKKey.API} />

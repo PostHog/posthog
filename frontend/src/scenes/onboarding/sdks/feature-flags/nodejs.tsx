@@ -31,7 +31,7 @@ const client = new PostHog(
     )
 }
 
-export function ProductAnalyticsNodeInstructions(): JSX.Element {
+export function FeatureFlagsNodeInstructions(): JSX.Element {
     return (
         <>
             <h3>Install</h3>

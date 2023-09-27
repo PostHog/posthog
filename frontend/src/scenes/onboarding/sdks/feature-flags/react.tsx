@@ -47,7 +47,7 @@ root.render(
     )
 }
 
-export function ReactInstructions(): JSX.Element {
+export function FeatureFlagsReactInstructions(): JSX.Element {
     return (
         <>
             <h3>Install the package</h3>

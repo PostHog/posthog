@@ -61,7 +61,7 @@ if (typeof window !== 'undefined') {
     )
 }
 
-export function NextJSInstructions(): JSX.Element {
+export function FeatureFlagsNextJSInstructions(): JSX.Element {
     return (
         <>
             <h3>Install posthog-js using your package manager</h3>
