@@ -27,6 +27,7 @@ from sentry_sdk import capture_exception
 
 from posthog import version_requirement
 from posthog.celery import app
+from posthog.clickhouse.client.connection import Workload
 from posthog.client import sync_execute
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import FlagRequestType
@@ -45,6 +46,11 @@ logger = structlog.get_logger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
 TableSizes = TypedDict("TableSizes", {"posthog_event": int, "posthog_sessionrecordingevent": int})
+
+
+CH_BILLING_SETTINGS = {
+    "max_execution_time": 5 * 60,  # 5 minutes
+}
 
 
 @dataclasses.dataclass
@@ -320,7 +326,9 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
         SELECT team_id, count(1) as count
         FROM events
         GROUP BY team_id
-    """
+    """,
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
@@ -348,6 +356,8 @@ def get_teams_with_billable_event_count_in_period(
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
@@ -363,6 +373,8 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
@@ -377,6 +389,8 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
         GROUP BY lib, team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return results
 
@@ -391,6 +405,8 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
         GROUP BY event, team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return results
 
@@ -418,6 +434,8 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
         GROUP BY team_id
     """,
         {"previous_begin": previous_begin, "begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
 
     return result
@@ -430,7 +448,9 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
         SELECT team_id, count(distinct session_id) as count
         FROM session_replay_events
         GROUP BY team_id
-    """
+    """,
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
@@ -461,6 +481,8 @@ def get_teams_with_hogql_metric(
         GROUP BY team_id
     """,
         {"begin": begin, "end": end, "query_types": query_types, "access_method": access_method},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
@@ -490,6 +512,8 @@ def get_teams_with_feature_flag_requests_count_in_period(
             "validity_token": validity_token,
             "target_event": target_event,
         },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
 
     return result
