@@ -32,7 +32,7 @@ export function SDKInstallJSWebInstructions(): JSX.Element {
             <h3>Option 1. Code snippet</h3>
             <p>
                 Just add this snippet to your website within the <code>&lt;head&gt;</code> tag and you'll be ready to
-                start using feature flags.{' '}
+                start using PostHog.{' '}
             </p>
             <JSSnippet />
             <LemonDivider thick dashed className="my-4" />
