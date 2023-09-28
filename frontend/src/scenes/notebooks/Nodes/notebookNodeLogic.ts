@@ -149,11 +149,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
             const insertionPosition = props.getPos()
-            values.notebookLogic.actions.insertReplayCommentByTimestamp(
+            values.notebookLogic.actions.insertReplayCommentByTimestamp({
                 timestamp,
                 sessionRecordingId,
-                insertionPosition
-            )
+                knownStartingPosition: insertionPosition,
+                nodeId: props.nodeId,
+            })
         },
 
         setExpanded: ({ expanded }) => {
