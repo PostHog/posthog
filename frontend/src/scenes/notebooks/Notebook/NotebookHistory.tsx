@@ -15,8 +15,12 @@ import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { TZLabel } from '@posthog/apps-common'
 import { useMemo } from 'react'
 
+const getFieldChange = (logItem: ActivityLogItem, field: string): any => {
+    return logItem.detail.changes?.find((x) => x.field === field)?.after
+}
+
 function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityLogItem) => void }): JSX.Element {
-    const { shortId } = useValues(notebookLogic)
+    const { shortId, notebook } = useValues(notebookLogic)
 
     const logic = activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: shortId })
     const { activity, pagination } = useValues(logic)
@@ -24,7 +28,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
 
     const activityWithChangedContent = useMemo(() => {
         return activity?.results?.filter((logItem) => {
-            return !!logItem.detail.changes?.find((x) => x.field === 'content')?.after
+            return !!getFieldChange(logItem, 'content') || logItem.activity === 'created'
         })
     }, [activity])
 
@@ -33,6 +37,8 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
             <ul className="flex-1 overflow-y-auto p-2 space-y-px">
                 {activityWithChangedContent?.map((logItem: ActivityLogItem) => {
                     const name = logItem.user.is_system ? 'System' : logItem.user.first_name
+                    const isCurrent = getFieldChange(logItem, 'version') === notebook?.version
+                    const changedContent = getFieldChange(logItem, 'content')
                     return (
                         <li key={logItem.created_at}>
                             <LemonButton
@@ -46,13 +52,16 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                         size={'md'}
                                     />
                                 }
-                                onClick={() => onItemClick(logItem)}
+                                onClick={changedContent ? () => onItemClick(logItem) : undefined}
                             >
-                                <span className="flex-1">
-                                    <b>{name}</b> made changes
-                                </span>
-                                <span className="text-muted-alt">
-                                    <TZLabel time={logItem.created_at} />
+                                <span className="flex flex-1 gap-2">
+                                    <span className="flex-1">
+                                        <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
+                                    </span>
+                                    <span className="text-muted-alt">
+                                        <TZLabel time={logItem.created_at} />
+                                    </span>
+                                    {isCurrent ? <span className="text-muted-alt">(Current)</span> : null}
                                 </span>
                             </LemonButton>
                         </li>
@@ -77,7 +86,6 @@ export function NotebookHistory(): JSX.Element {
             return
         }
         setPreviewContent(content as JSONContent)
-        // setShowHistory(false)
     }
 
     return (
