@@ -47,8 +47,9 @@ charset-normalizer==2.1.0
     # via
     #   -c requirements.txt
     #   requests
-click==8.0.3
+click==8.1.7
     # via
+    #   -c requirements.txt
     #   black
     #   pip-tools
 colorama==0.4.4
