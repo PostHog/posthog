@@ -1,8 +1,8 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FeatureFlagBasicType, NotebookNodeType, Survey, SurveyQuestionType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { IconFlag, IconSurveys } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { IconSurveys } from 'lib/lemon-ui/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -19,7 +19,22 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
     const { id } = props.attributes
     const { survey, surveyLoading, hasTargetingFlag } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        setActions([
+            survey.linked_flag
+                ? {
+                      text: 'View linked flag',
+                      onClick: () => {
+                          if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
+                              insertAfter(buildFlagContent((survey.linked_flag as FeatureFlagBasicType).id))
+                          }
+                      },
+                  }
+                : undefined,
+        ])
+    }, [survey])
 
     useEffect(() => {
         props.updateAttributes({ title: survey.name ? `Survey: ${survey.name}` : 'Survey' })
@@ -84,7 +99,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
                         )}
                     </>
                 ) : null}
-
+                {/* 
                 <LemonDivider className="my-0" />
                 <div className="p-2 mr-1 flex justify-end gap-2">
                     {survey.linked_flag && (
@@ -107,7 +122,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
                             View Linked Flag
                         </LemonButton>
                     )}
-                </div>
+                </div> */}
             </BindLogic>
         </div>
     )

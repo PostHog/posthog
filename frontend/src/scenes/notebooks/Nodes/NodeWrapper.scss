@@ -4,28 +4,54 @@
     --border-color: var(--border);
 
     transform: translate3d(0, 0, 0);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
     margin: 0px 0px 1rem 0px;
-    background-color: var(--bg-light);
-    transition: border 150ms linear;
 
-    .NotebookNode__meta {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: var(--muted-alt-3000);
-        padding: var(--notebook-node-meta-padding);
-        border-bottom: 1px solid var(--border);
-        height: var(--notebook-node-meta-height);
-        transition: height 150ms ease-out;
-        overflow: hidden;
+    .NotebookNode__box {
+        transform: translate3d(0, 0, 0);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        background-color: var(--bg-light);
+        transition: border 150ms linear, margin-bottom 150ms linear;
+
+        .NotebookNode__meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--muted-alt-3000);
+            padding: var(--notebook-node-meta-padding);
+            border-bottom: 1px solid var(--border);
+            height: var(--notebook-node-meta-height);
+            transition: height 150ms ease-out;
+            overflow: hidden;
+        }
+
+        .NotebookNode__content {
+            transition: box-shadow 150ms ease-out;
+            z-index: 1;
+        }
     }
 
-    .NotebookNode__content {
-        transition: box-shadow 150ms ease-out;
+    .NotebookNode__actions {
+        display: flex;
+        gap: 0.25rem;
+        overflow: hidden;
+
+        transition: all 150ms linear 1000ms;
+        opacity: 0;
+        height: 0;
+        margin-top: 0;
+    }
+
+    &:hover,
+    &--selected {
+        .NotebookNode__actions {
+            opacity: 1;
+            height: 2rem;
+            margin-top: 0.5rem;
+            transition: all 150ms linear;
+        }
     }
 
     &--selected {
@@ -33,7 +59,7 @@
     }
 
     &--auto-hide-metadata {
-        border-color: transparent;
+        --border-color: transparent;
 
         .NotebookNode__meta {
             height: 0;
@@ -54,6 +80,10 @@
                     visibility: visible;
                 }
             }
+        }
+
+        &:hover {
+            --border-color: var(--border);
         }
     }
 }

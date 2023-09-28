@@ -15,27 +15,6 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         padding-right: 1rem;
     }
 
-    .ant-popover {
-        .ant-popover-content {
-            background: #fafafa;
-            border-radius: var(--radius);
-            border: 1px solid var(--border);
-        }
-
-        .ant-popover-inner {
-            background: #fafafa;
-        }
-
-        .ant-popover-inner-content {
-            padding: 8px 0;
-            min-width: 300px;
-        }
-
-        .ant-popover-arrow {
-            background: #fafafa;
-        }
-    }
-
     .funnel-step {
         position: relative;
         padding-left: $series_container_width + 0.5rem;
