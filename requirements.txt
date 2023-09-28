@@ -8,6 +8,8 @@ aioboto3==11.1
     # via -r requirements.in
 aiobotocore[boto3]==2.5.0
     # via aioboto3
+./posthog/hogql/grammar/parser
+    # via -r requirements.in
 aiohttp==3.8.5
     # via
     #   -r requirements.in
