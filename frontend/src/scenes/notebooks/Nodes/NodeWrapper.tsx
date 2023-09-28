@@ -306,11 +306,9 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 options: extension.options,
                 storage: extension.storage,
             }
-            return serializedText
-                ? {
-                      serializedText: getExtensionField(extension, 'serializedText', context),
-                  }
-                : {}
+            return {
+                serializedText: getExtensionField(extension, 'serializedText', context),
+            }
         },
 
         addAttributes() {
