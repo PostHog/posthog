@@ -32,7 +32,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
         relatedNodeInNotebook?.values.sendMessage('play-replay', {
             sessionRecordingId,
-            timestamp: playbackTime ?? 0,
+            time: playbackTime ?? 0,
         })
     }
 

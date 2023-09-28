@@ -88,12 +88,13 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
 
     useEffect(() => {
         setMessageListeners({
-            'play-replay': ({ timestamp }) => {
+            'play-replay': ({ time }) => {
                 if (!expanded) {
                     setExpanded(true)
                 }
                 setPlay()
-                seekToTime(timestamp)
+
+                seekToTime(time)
                 scrollIntoView()
             },
         })

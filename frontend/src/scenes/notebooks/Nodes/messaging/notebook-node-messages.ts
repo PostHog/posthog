@@ -8,7 +8,7 @@
 export type NotebookNodeMessages = {
     'play-replay': {
         sessionRecordingId: string
-        timestamp: number
+        time: number
     }
     // Not used yet but as a future idea - you could "ping" a node to have it highlight or something.
     ping: {
