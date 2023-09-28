@@ -21,6 +21,7 @@ from posthog.temporal.workflows.batch_exports import (
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    heartbeat,
     update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
@@ -353,6 +354,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         result = None
         last_uploaded_part_timestamp = None
+        task_token = activity.info().task_token
 
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
@@ -360,7 +362,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             logger.warn(
                 f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}",
             )
-            activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
+            await heartbeat(task_token, last_uploaded_part_timestamp, s3_upload.to_state())
 
         asyncio.create_task(worker_shutdown_handler())
 
@@ -393,7 +395,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         s3_upload.upload_part(local_results_file)
 
                         last_uploaded_part_timestamp = result["inserted_at"]
-                        activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
+                        await heartbeat(task_token, last_uploaded_part_timestamp, s3_upload.to_state())
 
                         local_results_file.reset()
 
@@ -408,7 +410,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     s3_upload.upload_part(local_results_file)
 
                     last_uploaded_part_timestamp = result["inserted_at"]
-                    activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
+                    await heartbeat(task_token, last_uploaded_part_timestamp, s3_upload.to_state())
 
 
 @workflow.defn(name="s3-export")
