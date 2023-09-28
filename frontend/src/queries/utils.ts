@@ -261,7 +261,7 @@ export function escapePropertyAsHogQlIdentifier(identifier: string): string {
     return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
 }
 
-export function taxonomicFilterToHogQl(
+export function taxonomicEventFilterToHogQl(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue
 ): string | null {
@@ -272,6 +272,18 @@ export function taxonomicFilterToHogQl(
         return `person.properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+export function taxonomicPersonFilterToHogQl(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
         return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {

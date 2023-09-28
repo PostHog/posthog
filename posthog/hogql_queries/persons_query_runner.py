@@ -82,9 +82,14 @@ class PersonsQueryRunner(QueryRunner):
                             left=ast.Field(chain=["properties", "name"]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
+                            right=ast.Constant(value=f"%{self.query.search}%"),
+                        ),
                         # ast.CompareOperation(
                         #     op=ast.CompareOperationOp.Like,
-                        #     left=ast.Field(chain=["distinct_id"]),
+                        #     left=ast.Field(chain=["distinct_ids", "distinct_id"]),
                         #     right=ast.Constant(value=f"%{self.query.search}%"),
                         # ),
                     ]
