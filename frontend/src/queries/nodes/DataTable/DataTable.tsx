@@ -146,7 +146,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             },
             sorter: undefined, // using custom sorting code
             more:
-                !isReadOnly && showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) ? (
+                !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                     <>
                         <div className="px-2 py-1">
                             <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
