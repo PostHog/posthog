@@ -136,6 +136,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             validated_data["targeting_flag_id"] = targeting_feature_flag.id
             validated_data.pop("targeting_flag_filters")
 
+        if "targeting_flag_filters" in validated_data:
+            validated_data.pop("targeting_flag_filters")
+
         validated_data["created_by"] = self.context["request"].user
         return super().create(validated_data)
 

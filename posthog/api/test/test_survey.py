@@ -29,6 +29,7 @@ class TestSurvey(APIBaseTest):
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "questions": [{"type": "open", "question": "What do you think of the new notebooks feature?"}],
+                "targeting_flag_filters": None,
             },
             format="json",
         )
