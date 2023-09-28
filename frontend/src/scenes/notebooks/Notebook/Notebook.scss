@@ -131,10 +131,6 @@
             --notebook-sidebar-height: calc(100vh - 11rem);
         }
 
-        .NotebookSidebar__padding {
-            height: 3.5rem;
-        }
-
         .NotebookSidebar__content {
             position: sticky;
             align-self: flex-start;
