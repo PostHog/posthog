@@ -4,6 +4,7 @@ import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/human
 import {
     LemonBanner,
     LemonButton,
+    LemonSkeleton,
     LemonWidget,
     PaginationControl,
     ProfilePicture,
@@ -15,49 +16,74 @@ import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { TZLabel } from '@posthog/apps-common'
 import { useMemo } from 'react'
 
+const getFieldChange = (logItem: ActivityLogItem, field: string): any => {
+    return logItem.detail.changes?.find((x) => x.field === field)?.after
+}
+
 function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityLogItem) => void }): JSX.Element {
-    const { shortId } = useValues(notebookLogic)
+    const { shortId, notebook, previewContent } = useValues(notebookLogic)
 
     const logic = activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: shortId })
-    const { activity, pagination } = useValues(logic)
+    const { activity, pagination, activityLoading } = useValues(logic)
     const paginationState = usePagination(activity.results || [], pagination)
 
     const activityWithChangedContent = useMemo(() => {
         return activity?.results?.filter((logItem) => {
-            return !!logItem.detail.changes?.find((x) => x.field === 'content')?.after
+            return !!getFieldChange(logItem, 'content') || logItem.activity === 'created'
         })
     }, [activity])
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
             <ul className="flex-1 overflow-y-auto p-2 space-y-px">
-                {activityWithChangedContent?.map((logItem: ActivityLogItems) => {
-                    const name = logItem.user.is_system ? 'System' : logItem.user.first_name
-                    return (
-                        <li key={logItem.created_at}>
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                icon={
-                                    <ProfilePicture
-                                        name={logItem.user.is_system ? logItem.user.first_name : undefined}
-                                        type={logItem.user.is_system ? 'system' : 'person'}
-                                        email={logItem.user.email ?? undefined}
-                                        size={'md'}
-                                    />
-                                }
-                                onClick={() => onItemClick(logItem)}
-                            >
+                {activityLoading ? (
+                    <div className="space-y-px">
+                        <LemonSkeleton className="w-full h-10" repeat={10} />
+                    </div>
+                ) : (
+                    activityWithChangedContent?.map((logItem: ActivityLogItem) => {
+                        const name = logItem.user.is_system ? 'System' : logItem.user.first_name
+                        const isCurrent = getFieldChange(logItem, 'version') === notebook?.version
+                        const changedContent = getFieldChange(logItem, 'content')
+                        const isButton = changedContent && !isCurrent
+
+                        const buttonContent = (
+                            <span className="flex flex-1 gap-2 items-center p-2">
+                                <ProfilePicture
+                                    name={logItem.user.is_system ? logItem.user.first_name : undefined}
+                                    type={logItem.user.is_system ? 'system' : 'person'}
+                                    email={logItem.user.email ?? undefined}
+                                    size={'md'}
+                                />
                                 <span className="flex-1">
-                                    <b>{name}</b> made changes
+                                    <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
                                 </span>
                                 <span className="text-muted-alt">
                                     <TZLabel time={logItem.created_at} />
                                 </span>
-                            </LemonButton>
-                        </li>
-                    )
-                })}
+                                {isCurrent ? <span className="text-muted-alt">(Current)</span> : null}
+                            </span>
+                        )
+
+                        return (
+                            <li key={logItem.created_at}>
+                                {isButton ? (
+                                    <LemonButton
+                                        fullWidth
+                                        size="small"
+                                        active={previewContent === changedContent}
+                                        onClick={() => onItemClick(logItem)}
+                                        noPadding
+                                    >
+                                        {buttonContent}
+                                    </LemonButton>
+                                ) : (
+                                    buttonContent
+                                )}
+                            </li>
+                        )
+                    })
+                )}
             </ul>
             <div className="p-2">
                 <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
@@ -77,13 +103,12 @@ export function NotebookHistory(): JSX.Element {
             return
         }
         setPreviewContent(content as JSONContent)
-        // setShowHistory(false)
     }
 
     return (
-        <LemonWidget title="Notebook History" onClose={() => setShowHistory(false)}>
+        <LemonWidget title="Notebook History" collapsible={false} onClose={() => setShowHistory(false)}>
             <div className="NotebookHistory">
-                <p className="m-2">
+                <p className="m-3">
                     Below is the history of all persisted changes. You can select any version to view how it was at that
                     point in time and then choose to <b>revert to that version</b>, or <b>create a copy</b> of it.
                 </p>
@@ -106,8 +131,8 @@ export function NotebookHistoryWarning(): JSX.Element | null {
         duplicateNotebook()
     }
     const onRevert = (): void => {
-        setLocalContent(previewContent)
         clearPreviewContent()
+        setLocalContent(previewContent)
         setShowHistory(false)
     }
 

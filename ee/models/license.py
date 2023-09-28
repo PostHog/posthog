@@ -52,7 +52,7 @@ class License(models.Model):
     SCALE_FEATURES = [
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
-        AvailableFeature.GOOGLE_LOGIN,
+        AvailableFeature.SOCIAL_SSO,
         AvailableFeature.DASHBOARD_COLLABORATION,
         AvailableFeature.INGESTION_TAXONOMY,
         AvailableFeature.PATHS_ADVANCED,

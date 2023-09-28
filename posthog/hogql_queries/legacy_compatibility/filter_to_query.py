@@ -28,14 +28,10 @@ from posthog.types import InsightQueryNode
 
 
 def entity_to_node(entity: BackendEntity) -> EventsNode | ActionsNode:
-    properties = entity._data.get("properties", None)
-    if isinstance(properties, dict) and len(properties) == 0:
-        properties = None
-
     shared = {
         "name": entity.name,
         "custom_name": entity.custom_name,
-        "properties": properties,
+        "properties": entity._data.get("properties", None),
         "math": entity.math,
         "math_property": entity.math_property,
         "math_hogql": entity.math_hogql,
@@ -81,7 +77,7 @@ def _interval(filter: AnyInsightFilter):
 def _series(filter: AnyInsightFilter):
     if filter.insight == "RETENTION" or filter.insight == "PATHS":
         return {}
-    return {"series": list(map(entity_to_node, filter.entities))}
+    return {"series": map(entity_to_node, filter.entities)}
 
 
 def _sampling_factor(filter: AnyInsightFilter):

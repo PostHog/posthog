@@ -69,6 +69,7 @@ export const defaultSurveyFieldValues = {
         ],
         appearance: {
             submitButtonText: 'Submit',
+            thankYouMessageHeader: 'Thank you for your feedback!',
         },
     },
     [SurveyQuestionType.Link]: {
@@ -94,7 +95,9 @@ export const defaultSurveyFieldValues = {
                 upperBoundLabel: 'Very likely',
             },
         ],
-        appearance: {},
+        appearance: {
+            thankYouMessageHeader: 'Thank you for your feedback!',
+        },
     },
     [SurveyQuestionType.SingleChoice]: {
         questions: [
@@ -106,6 +109,7 @@ export const defaultSurveyFieldValues = {
         ],
         appearance: {
             submitButtonText: 'Submit',
+            thankYouMessageHeader: 'Thank you for your feedback!',
         },
     },
     [SurveyQuestionType.MultipleChoice]: {
@@ -118,6 +122,7 @@ export const defaultSurveyFieldValues = {
         ],
         appearance: {
             submitButtonText: 'Submit',
+            thankYouMessageHeader: 'Thank you for your feedback!',
         },
     },
 }
@@ -189,11 +194,13 @@ export const surveyLogic = kea<surveyLogicType>([
         setDefaultForQuestionType: (
             type: SurveyQuestionType,
             isEditingQuestion: boolean,
-            isEditingDescription: boolean
+            isEditingDescription: boolean,
+            isEditingThankYouMessage: boolean
         ) => ({
             type,
             isEditingQuestion,
             isEditingDescription,
+            isEditingThankYouMessage,
         }),
         launchSurvey: true,
         stopSurvey: true,
@@ -268,13 +275,19 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
-                setDefaultForQuestionType: (state, { type, isEditingQuestion, isEditingDescription }) => {
+                setDefaultForQuestionType: (
+                    state,
+                    { type, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
+                ) => {
                     const question = isEditingQuestion
                         ? state.questions[0].question
                         : defaultSurveyFieldValues[type].questions[0].question
                     const description = isEditingDescription
                         ? state.questions[0].description
                         : defaultSurveyFieldValues[type].questions[0].description
+                    const thankYouMessageHeader = isEditingThankYouMessage
+                        ? state.appearance.thankYouMessageHeader
+                        : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
 
                     return {
                         ...state,
@@ -289,6 +302,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         appearance: {
                             ...state.appearance,
                             ...defaultSurveyFieldValues[type].appearance,
+                            thankYouMessageHeader,
                         },
                     }
                 },

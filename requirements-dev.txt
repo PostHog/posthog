@@ -315,6 +315,8 @@ types-redis==4.3.20
     # via -r requirements-dev.in
 types-requests==2.26.1
     # via -r requirements-dev.in
+types-retry==0.9.9.4
+    # via -r requirements-dev.in
 typing-extensions==4.7.1
     # via
     #   -c requirements.txt

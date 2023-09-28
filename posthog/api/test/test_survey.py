@@ -1,13 +1,23 @@
+from datetime import datetime, timedelta
+
 from unittest.mock import ANY
 
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
 
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    BaseTest,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+    snapshot_clickhouse_queries,
+    _create_event,
+)
 
-from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.models import FeatureFlag
 
 
 class TestSurvey(APIBaseTest):
@@ -19,6 +29,7 @@ class TestSurvey(APIBaseTest):
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "questions": [{"type": "open", "question": "What do you think of the new notebooks feature?"}],
+                "targeting_flag_filters": None,
             },
             format="json",
         )
@@ -707,24 +718,36 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                 ],
             )
 
-    def test_get_surveys_errors_on_invalid_token(self):
-        self.client.logout()
 
-        with self.assertNumQueries(1):
-            response = self._get_surveys(token="invalid_token")
-            assert response.status_code == status.HTTP_401_UNAUTHORIZED
-            assert (
-                response.json()["detail"]
-                == "Project API key invalid. You can find your project API key in your PostHog project settings."
-            )
+class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
+    @snapshot_clickhouse_queries
+    def test_responses_count(self):
 
-    def test_get_surveys_errors_on_empty_token(self):
-        self.client.logout()
+        survey_counts = {
+            "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
+            "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
+            "daed7689-d498-49fe-936f-e85554351b6c": 100,
+        }
 
-        with self.assertNumQueries(0):
-            response = self.client.get(f"/api/surveys/")
-            assert response.status_code == status.HTTP_401_UNAUTHORIZED
-            assert (
-                response.json()["detail"]
-                == "API key not provided. You can find your project API key in your PostHog project settings."
-            )
+        for survey_id, count in survey_counts.items():
+            for _ in range(count):
+                _create_event(
+                    event="survey sent",
+                    team=self.team,
+                    distinct_id=self.user.id,
+                    properties={"$survey_id": survey_id},
+                    timestamp=datetime.now() - timedelta(days=count),
+                )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data, survey_counts)
+
+    def test_responses_count_zero_responses(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data, {})

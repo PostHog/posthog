@@ -39,7 +39,9 @@ export const scene: SceneExport = {
 
 export function NotebookScene(): JSX.Element {
     const { notebookId } = useValues(notebookSceneLogic)
-    const { notebook, notebookLoading, conflictWarningVisible } = useValues(notebookLogic({ shortId: notebookId }))
+    const { notebook, notebookLoading, conflictWarningVisible, showHistory } = useValues(
+        notebookLogic({ shortId: notebookId })
+    )
     const { exportJSON, setShowHistory } = useActions(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setVisibility } = useActions(notebookPopoverLogic)
     const { selectedNotebook, visibility } = useValues(notebookPopoverLogic)
@@ -95,7 +97,7 @@ export function NotebookScene(): JSX.Element {
                                     {
                                         label: 'History',
                                         icon: <IconNotification />,
-                                        onClick: () => setShowHistory(true),
+                                        onClick: () => setShowHistory(!showHistory),
                                     },
                                     !isTemplate && {
                                         label: 'Delete',
