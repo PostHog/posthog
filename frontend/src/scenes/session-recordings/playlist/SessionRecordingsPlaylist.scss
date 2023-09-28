@@ -53,9 +53,9 @@
 .SessionRecordingsPlaylist__lists {
     display: flex;
     flex-direction: column;
-    flex: 1;
     overflow: hidden;
     gap: 0.5rem;
+    flex-grow: 1;
 }
 
 .SessionRecordingPreview {

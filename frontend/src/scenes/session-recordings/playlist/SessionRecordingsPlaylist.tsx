@@ -64,7 +64,6 @@ export type SessionRecordingsPlaylistProps = SessionRecordingListLogicProps & {
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
     autoPlay?: boolean
-    mode?: 'standard' | 'notebook'
 }
 
 export function RecordingsLists({

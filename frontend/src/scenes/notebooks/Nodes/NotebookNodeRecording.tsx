@@ -153,7 +153,7 @@ export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionReco
 
 export function buildRecordingContent(sessionRecordingId: string): JSONContent {
     return {
-        type: 'ph-recording',
+        type: NotebookNodeType.Recording,
         attrs: {
             id: sessionRecordingId,
         },
