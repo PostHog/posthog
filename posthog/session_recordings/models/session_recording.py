@@ -203,7 +203,7 @@ class SessionRecording(UUIDModel):
 
     @staticmethod
     def get_or_build_from_clickhouse(team: Team, ch_recordings: List[dict]) -> "List[SessionRecording]":
-        session_ids = [recording["session_id"] for recording in ch_recordings]
+        session_ids = sorted([recording["session_id"] for recording in ch_recordings])
 
         recordings_by_id = {
             recording.session_id: recording
