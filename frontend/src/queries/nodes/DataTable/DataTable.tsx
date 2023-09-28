@@ -42,7 +42,7 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { QueryFeature } from '~/queries/nodes/DataTable/features'
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 
 interface DataTableProps {
     uniqueKey?: string | number

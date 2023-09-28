@@ -17,7 +17,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dayjs } from 'lib/dayjs'
 import equal from 'fast-deep-equal'
-import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/features'
+import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 
 export interface DataTableLogicProps {
     vizKey: string

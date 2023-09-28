@@ -19,7 +19,7 @@ export enum QueryFeature {
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
     const features = new Set<QueryFeature>()
 
-    if (isHogQLQuery(query)) {
+    if (isHogQLQuery(query) || isEventsQuery(query)) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.eventPropertyFilters)
@@ -28,16 +28,11 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     }
 
     if (isEventsQuery(query)) {
-        features.add(QueryFeature.dateRangePicker)
-        features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.eventActionsColumn)
         features.add(QueryFeature.eventNameFilter)
-        features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.savedEventsQueries)
         features.add(QueryFeature.columnConfigurator)
-        features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.selectAndOrderByColumns)
-        features.add(QueryFeature.displayResponseError)
     }
 
     if (isPersonsNode(query)) {
