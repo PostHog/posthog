@@ -142,7 +142,8 @@ class ObjectStorage(ObjectStorageClient):
         except Exception as e:
             logger.error("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
             capture_exception(e)
-            raise ObjectStorageError("tag failed") from e
+            # swallow the exception until we've sorted out permissions
+            # raise ObjectStorageError("tag failed") from e
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
         s3_response = {}
