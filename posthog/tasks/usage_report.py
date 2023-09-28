@@ -537,6 +537,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
@@ -550,6 +551,8 @@ def get_teams_with_survey_responses_count_in_period(
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
 
     return results
