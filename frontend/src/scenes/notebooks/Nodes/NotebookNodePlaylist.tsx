@@ -41,7 +41,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     )
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter, setMessageListeners, selectNode } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, scrollIntoView } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
     const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType, sessionRecordings } =
@@ -72,7 +72,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
         setMessageListeners({
             'play-replay': ({ sessionRecordingId }) => {
                 setSelectedRecordingId(sessionRecordingId)
-                selectNode()
+                scrollIntoView()
 
                 // TODO: Handle seek to in the selected recording...
             },

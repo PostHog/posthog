@@ -39,8 +39,14 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
     }
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, setExpanded, selectNode } =
-        useActions(notebookNodeLogic)
+    const {
+        setActions,
+        insertAfter,
+        insertReplayCommentByTimestamp,
+        setMessageListeners,
+        setExpanded,
+        scrollIntoView,
+    } = useActions(notebookNodeLogic)
 
     const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
@@ -88,7 +94,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
                 }
                 setPlay()
                 seekToTime(timestamp)
-                selectNode()
+                scrollIntoView()
             },
         })
     }, [])

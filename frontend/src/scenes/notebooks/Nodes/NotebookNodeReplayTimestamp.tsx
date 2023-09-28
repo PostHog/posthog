@@ -34,20 +34,6 @@ const Component = (props: NodeViewProps): JSX.Element => {
             sessionRecordingId,
             timestamp: playbackTime ?? 0,
         })
-
-        // // TODO: Move all of the above into the logic / Node context for the recording node
-        // const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)
-        // const logic = sessionRecordingPlayerLogic(logicProps)
-
-        // logic.actions.seekToTime(playbackTime ?? 0)
-        // logic.actions.setPlay()
-
-        // const recordingNodePosition = findPositionOfClosestNodeMatchingAttrs(props.editor, props.getPos(), {
-        //     id: sessionRecordingId,
-        // })
-
-        // const domEl = props.editor.view.nodeDOM(recordingNodePosition) as HTMLElement
-        // domEl.scrollIntoView()
     }
 
     return (

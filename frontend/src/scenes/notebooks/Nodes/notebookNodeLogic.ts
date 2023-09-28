@@ -65,6 +65,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
+        scrollIntoView: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
     }),
 
@@ -166,6 +167,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 editor.setSelection(props.getPos())
                 editor.scrollToSelection()
             }
+        },
+
+        scrollIntoView: () => {
+            values.editor?.scrollToPosition(props.getPos())
         },
 
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
