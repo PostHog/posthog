@@ -41,10 +41,11 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     )
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, selectNode } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType, sessionRecordings } =
+        useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
     useEffect(() => {
@@ -67,8 +68,19 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
         )
     }, [activeSessionRecording])
 
+    useEffect(() => {
+        setMessageListeners({
+            'play-replay': ({ sessionRecordingId }) => {
+                setSelectedRecordingId(sessionRecordingId)
+                selectNode()
+
+                // TODO: Handle seek to in the selected recording...
+            },
+        })
+    }, [])
+
     if (!expanded) {
-        return <div className="p-4">20+ recordings </div>
+        return <div className="p-4">{sessionRecordings.length}+ recordings </div>
     }
 
     const content = !activeSessionRecording?.id ? (
