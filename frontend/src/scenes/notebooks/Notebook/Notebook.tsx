@@ -15,7 +15,6 @@ import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
 import { NotebookSidebar } from './NotebookSidebar'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { LemonButton } from '@posthog/lemon-ui'
 import { NotebookHistoryWarning } from './NotebookHistory'
 
 export type NotebookProps = {
@@ -28,17 +27,9 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, editor, conflictWarningVisible, isEditable, showHistory } =
-        useValues(logic)
-    const {
-        setEditor,
-        onEditorUpdate,
-        duplicateNotebook,
-        loadNotebook,
-        setEditable,
-        onEditorSelectionUpdate,
-        setShowHistory,
-    } = useActions(logic)
+    const { notebook, content, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
+    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
+        useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])

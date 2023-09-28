@@ -1,16 +1,69 @@
 import { useActions, useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonBanner, LemonButton, LemonWidget, lemonToast } from '@posthog/lemon-ui'
+import { ActivityLogItem, ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonWidget,
+    PaginationControl,
+    ProfilePicture,
+    lemonToast,
+    usePagination,
+} from '@posthog/lemon-ui'
 import { JSONContent } from '@tiptap/core'
+import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { TZLabel } from '@posthog/apps-common'
+
+function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityLogItem) => void }): JSX.Element {
+    const { shortId } = useValues(notebookLogic)
+
+    const logic = activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: shortId })
+    const { activity, pagination } = useValues(logic)
+    const paginationState = usePagination(activity.results || [], pagination)
+
+    return (
+        <div className="flex flex-col flex-1 overflow-hidden">
+            <ul className="flex-1 overflow-y-auto p-2 space-y-px">
+                {activity?.results?.map((logItem: ActivityLogItem, i) => {
+                    const name = logItem.user.is_system ? 'System' : logItem.user.first_name
+                    return (
+                        <li key={i}>
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                icon={
+                                    <ProfilePicture
+                                        name={logItem.user.is_system ? logItem.user.first_name : undefined}
+                                        type={logItem.user.is_system ? 'system' : 'person'}
+                                        email={logItem.user.email ?? undefined}
+                                        size={'md'}
+                                    />
+                                }
+                                onClick={() => onItemClick(logItem)}
+                            >
+                                <span className="flex-1">
+                                    <b>{name}</b> made changes
+                                </span>
+                                <span className="text-muted-alt">
+                                    <TZLabel time={logItem.created_at} />
+                                </span>
+                            </LemonButton>
+                        </li>
+                    )
+                })}
+            </ul>
+            <div className="p-2">
+                <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+            </div>
+        </div>
+    )
+}
 
 export function NotebookHistory(): JSX.Element {
-    const { notebook } = useValues(notebookLogic)
     const { setShowHistory, setPreviewContent } = useActions(notebookLogic)
 
-    const onRevert = (logItem: HumanizedActivityLogItem): void => {
-        const content = logItem.activity.detail.changes?.find((x) => x.field === 'content')?.before
+    const onRevert = (logItem: ActivityLogItem): void => {
+        const content = logItem.detail.changes?.find((x) => x.field === 'content')?.after
 
         if (!content) {
             lemonToast.error('Could not revert to this version')
@@ -23,18 +76,12 @@ export function NotebookHistory(): JSX.Element {
     return (
         <LemonWidget title="Notebook History" onClose={() => setShowHistory(false)}>
             <div className="NotebookHistory">
-                <ActivityLog
-                    scope={ActivityScope.NOTEBOOK}
-                    // TODO: Fix typing
-                    id={(notebook as any)?.id}
-                    renderSideAction={(logItem) => (
-                        <div>
-                            <LemonButton type="primary" size="small" onClick={() => onRevert(logItem)}>
-                                Revert
-                            </LemonButton>
-                        </div>
-                    )}
-                />
+                <p className="p-2">
+                    Below is the history of all persisted changes. You can select any version to view how it was at that
+                    point in time and then choose to <b>revert to that version</b>, or <b>create a copy</b> of it.
+                </p>
+
+                <NotebookHistoryList onItemClick={onRevert} />
             </div>
         </LemonWidget>
     )
@@ -42,11 +89,21 @@ export function NotebookHistory(): JSX.Element {
 
 export function NotebookHistoryWarning(): JSX.Element | null {
     const { previewContent } = useValues(notebookLogic)
-    const { clearPreviewContent } = useActions(notebookLogic)
+    const { setLocalContent, clearPreviewContent, duplicateNotebook, setShowHistory } = useActions(notebookLogic)
 
     if (!previewContent) {
         return null
     }
+
+    const onCopy = (): void => {
+        duplicateNotebook()
+    }
+    const onRevert = (): void => {
+        setLocalContent(previewContent)
+        clearPreviewContent()
+        setShowHistory(false)
+    }
+
     return (
         <LemonBanner type="info" className="my-4">
             <span className="flex items-center gap-2">
@@ -61,8 +118,12 @@ export function NotebookHistoryWarning(): JSX.Element | null {
                         Cancel
                     </LemonButton>
 
-                    <LemonButton type="primary">Revert to this version</LemonButton>
-                    <LemonButton type="primary">Create a copy</LemonButton>
+                    <LemonButton type="primary" onClick={onRevert}>
+                        Revert to this version
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={onCopy}>
+                        Create a copy
+                    </LemonButton>
                 </span>
             </span>
         </LemonBanner>

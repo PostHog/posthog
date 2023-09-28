@@ -159,9 +159,11 @@
         }
 
         .NotebookHistory {
-            padding: 0.5rem;
-            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
             height: var(--notebook-sidebar-height);
+            overflow: hidden;
         }
     }
 

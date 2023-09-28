@@ -177,7 +177,7 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         showHistory: [
-            true,
+            false,
             {
                 setShowHistory: (_, { showHistory }) => showHistory,
             },

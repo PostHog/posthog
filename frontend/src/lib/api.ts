@@ -711,7 +711,9 @@ const api = {
                     return new ApiRequest().dataManagementActivity()
                 },
                 [ActivityScope.NOTEBOOK]: () => {
-                    return new ApiRequest().notebooks().withAction('activity')
+                    return activityLogProps.id
+                        ? new ApiRequest().notebook(`${activityLogProps.id}`).withAction('activity')
+                        : new ApiRequest().notebooks().withAction('activity')
                 },
             }
 
