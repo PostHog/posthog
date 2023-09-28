@@ -20,7 +20,7 @@ const getFieldChange = (logItem: ActivityLogItem, field: string): any => {
 }
 
 function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityLogItem) => void }): JSX.Element {
-    const { shortId, notebook } = useValues(notebookLogic)
+    const { shortId, notebook, previewContent } = useValues(notebookLogic)
 
     const logic = activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: shortId })
     const { activity, pagination } = useValues(logic)
@@ -39,31 +39,41 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                     const name = logItem.user.is_system ? 'System' : logItem.user.first_name
                     const isCurrent = getFieldChange(logItem, 'version') === notebook?.version
                     const changedContent = getFieldChange(logItem, 'content')
+                    const isButton = changedContent && !isCurrent
+
+                    const buttonContent = (
+                        <span className="flex flex-1 gap-2 items-center p-2">
+                            <ProfilePicture
+                                name={logItem.user.is_system ? logItem.user.first_name : undefined}
+                                type={logItem.user.is_system ? 'system' : 'person'}
+                                email={logItem.user.email ?? undefined}
+                                size={'md'}
+                            />
+                            <span className="flex-1">
+                                <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
+                            </span>
+                            <span className="text-muted-alt">
+                                <TZLabel time={logItem.created_at} />
+                            </span>
+                            {isCurrent ? <span className="text-muted-alt">(Current)</span> : null}
+                        </span>
+                    )
+
                     return (
                         <li key={logItem.created_at}>
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                icon={
-                                    <ProfilePicture
-                                        name={logItem.user.is_system ? logItem.user.first_name : undefined}
-                                        type={logItem.user.is_system ? 'system' : 'person'}
-                                        email={logItem.user.email ?? undefined}
-                                        size={'md'}
-                                    />
-                                }
-                                onClick={changedContent ? () => onItemClick(logItem) : undefined}
-                            >
-                                <span className="flex flex-1 gap-2">
-                                    <span className="flex-1">
-                                        <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
-                                    </span>
-                                    <span className="text-muted-alt">
-                                        <TZLabel time={logItem.created_at} />
-                                    </span>
-                                    {isCurrent ? <span className="text-muted-alt">(Current)</span> : null}
-                                </span>
-                            </LemonButton>
+                            {isButton ? (
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    active={previewContent === changedContent}
+                                    onClick={() => onItemClick(logItem)}
+                                    noPadding
+                                >
+                                    {buttonContent}
+                                </LemonButton>
+                            ) : (
+                                buttonContent
+                            )}
                         </li>
                     )
                 })}
