@@ -596,7 +596,7 @@ class HogQLQueryResponse(BaseModel):
     columns: Optional[List] = None
     hogql: Optional[str] = None
     query: Optional[str] = None
-    results: Optional[List] = None
+    result: Optional[List] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 

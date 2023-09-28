@@ -55,7 +55,7 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
-                    return (response.results || []).map(
+                    return (response.result || []).map(
                         (x: any): SessionRecordingPropertiesType => ({
                             id: x[0],
                             properties: JSON.parse(x[1] || '{}'),

@@ -54,7 +54,7 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                     const res = await api.query(query)
 
                     return (
-                        res.results?.map((x) => ({
+                        res.result?.map((x) => ({
                             version: x[0],
                             timestamp: x[1],
                         })) ?? null

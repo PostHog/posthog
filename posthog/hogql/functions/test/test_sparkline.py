@@ -14,7 +14,7 @@ class TestSparkline(BaseTest):
             response.hogql,
             f"SELECT tuple('__hogql_chart_type', 'sparkline', 'results', [1, 2, 3]) LIMIT 100",
         )
-        self.assertEqual(response.results[0][0], ("__hogql_chart_type", "sparkline", "results", [1, 2, 3]))
+        self.assertEqual(response.result[0][0], ("__hogql_chart_type", "sparkline", "results", [1, 2, 3]))
 
     def test_sparkline_error(self):
         with self.assertRaises(HogQLException) as e:

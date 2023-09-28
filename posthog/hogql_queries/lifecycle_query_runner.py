@@ -98,7 +98,7 @@ class LifecycleQueryRunner(QueryRunner):
 
         # ensure that the items are in a deterministic order
         order = {"new": 1, "returning": 2, "resurrecting": 3, "dormant": 4}
-        results = sorted(response.results, key=lambda result: order.get(result[2], 5))
+        results = sorted(response.result, key=lambda result: order.get(result[2], 5))
 
         res = []
         for val in results:

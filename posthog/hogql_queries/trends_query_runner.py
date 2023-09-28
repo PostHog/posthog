@@ -149,11 +149,11 @@ class TrendsQueryRunner(QueryRunner):
         return TrendsQueryResponse(result=res, timings=timings)
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras):
-        if response.results is None:
+        if response.result is None:
             return []
 
         res = []
-        for val in response.results:
+        for val in response.result:
             series_object = {
                 "data": val[1],
                 "labels": [item.strftime("%-d-%b-%Y") for item in val[0]],  # Add back in hour formatting

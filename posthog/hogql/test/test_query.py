@@ -673,7 +673,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT arrayMap(x -> x * 2, [1, 2, 3]), 1",
                 team=self.team,
             )
-            self.assertEqual(response.results, [([2, 4, 6], 1)])
+            self.assertEqual(response.result, [([2, 4, 6], 1)])
             self.assertEqual(
                 response.clickhouse,
                 f"SELECT arrayMap(x -> multiply(x, 2), [1, 2, 3]), 1 LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
@@ -686,7 +686,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
             # Following SQL tradition, ClickHouse array indexes start at 1, not from zero.
-            self.assertEqual(response.results, [([1, 2, 3], 10)])
+            self.assertEqual(response.result, [([1, 2, 3], 10)])
             self.assertEqual(
                 response.clickhouse,
                 f"SELECT [1, 2, 3], [10, 11, 12][1] LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
@@ -1432,7 +1432,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query("SELECT event_view.fake FROM events", team=self.team)
 
-        self.assertEqual(response.results, [("bla",), ("bla",), ("bla",), ("bla",)])
+        self.assertEqual(response.result, [("bla",), ("bla",), ("bla",), ("bla",)])
 
     def test_hogql_query_filters(self):
         with freeze_time("2020-01-10"):
@@ -1470,11 +1470,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.clickhouse,
                 f"SELECT events.event, events.distinct_id FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0), ifNull(less(toTimeZone(events.timestamp, %(hogql_val_3)s), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
             )
-            self.assertEqual(len(response.results), 0)
+            self.assertEqual(len(response.result), 0)
 
             filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-02-02")
             response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
-            self.assertEqual(len(response.results), 1)
+            self.assertEqual(len(response.result), 1)
 
     def test_hogql_query_filters_empty_true(self):
         query = "SELECT event from events where {filters}"
@@ -1508,7 +1508,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.clickhouse,
                 f"SELECT e.event, e.distinct_id FROM events AS e WHERE and(equals(e.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
             )
-            self.assertEqual(len(response.results), 2)
+            self.assertEqual(len(response.result), 2)
 
     def test_hogql_union_all_limits(self):
         query = "SELECT event FROM events UNION ALL SELECT event FROM events"

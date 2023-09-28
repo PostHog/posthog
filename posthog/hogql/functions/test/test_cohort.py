@@ -47,7 +47,7 @@ class TestCohort(BaseTest):
             response.hogql,
             f"SELECT event FROM events WHERE and(in(person_id, (SELECT person_id FROM cohort_people WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0))), equals(event, '{random_uuid}')) LIMIT 100",
         )
-        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.result), 1)
         self.assertEqual(response.results[0][0], random_uuid)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)

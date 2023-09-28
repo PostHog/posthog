@@ -120,7 +120,7 @@ export interface HogQLQueryResponse {
     query?: string
     hogql?: string
     clickhouse?: string
-    results?: any[]
+    result?: any[]
     types?: any[]
     columns?: any[]
     timings?: QueryTiming[]

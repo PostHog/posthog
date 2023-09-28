@@ -130,8 +130,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     }))
                 }
 
-                return response && 'results' in response && Array.isArray(response.results)
-                    ? response.results.map((result: any) => ({ result })) ?? null
+                return response && 'result' in response && Array.isArray(response.result)
+                    ? response.result.map((result: any) => ({ result })) ?? null
                     : null
             },
         ],

@@ -1204,7 +1204,7 @@
                 "query": {
                     "type": "string"
                 },
-                "results": {
+                "result": {
                     "items": {},
                     "type": "array"
                 },
