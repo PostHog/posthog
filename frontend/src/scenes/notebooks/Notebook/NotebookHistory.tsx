@@ -4,6 +4,7 @@ import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/human
 import {
     LemonBanner,
     LemonButton,
+    LemonSkeleton,
     LemonWidget,
     PaginationControl,
     ProfilePicture,
@@ -23,7 +24,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
     const { shortId, notebook, previewContent } = useValues(notebookLogic)
 
     const logic = activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: shortId })
-    const { activity, pagination } = useValues(logic)
+    const { activity, pagination, activityLoading } = useValues(logic)
     const paginationState = usePagination(activity.results || [], pagination)
 
     const activityWithChangedContent = useMemo(() => {
@@ -35,48 +36,54 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
             <ul className="flex-1 overflow-y-auto p-2 space-y-px">
-                {activityWithChangedContent?.map((logItem: ActivityLogItem) => {
-                    const name = logItem.user.is_system ? 'System' : logItem.user.first_name
-                    const isCurrent = getFieldChange(logItem, 'version') === notebook?.version
-                    const changedContent = getFieldChange(logItem, 'content')
-                    const isButton = changedContent && !isCurrent
+                {activityLoading ? (
+                    <div className="space-y-px">
+                        <LemonSkeleton className="w-full h-10" repeat={10} />
+                    </div>
+                ) : (
+                    activityWithChangedContent?.map((logItem: ActivityLogItem) => {
+                        const name = logItem.user.is_system ? 'System' : logItem.user.first_name
+                        const isCurrent = getFieldChange(logItem, 'version') === notebook?.version
+                        const changedContent = getFieldChange(logItem, 'content')
+                        const isButton = changedContent && !isCurrent
 
-                    const buttonContent = (
-                        <span className="flex flex-1 gap-2 items-center p-2">
-                            <ProfilePicture
-                                name={logItem.user.is_system ? logItem.user.first_name : undefined}
-                                type={logItem.user.is_system ? 'system' : 'person'}
-                                email={logItem.user.email ?? undefined}
-                                size={'md'}
-                            />
-                            <span className="flex-1">
-                                <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
+                        const buttonContent = (
+                            <span className="flex flex-1 gap-2 items-center p-2">
+                                <ProfilePicture
+                                    name={logItem.user.is_system ? logItem.user.first_name : undefined}
+                                    type={logItem.user.is_system ? 'system' : 'person'}
+                                    email={logItem.user.email ?? undefined}
+                                    size={'md'}
+                                />
+                                <span className="flex-1">
+                                    <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
+                                </span>
+                                <span className="text-muted-alt">
+                                    <TZLabel time={logItem.created_at} />
+                                </span>
+                                {isCurrent ? <span className="text-muted-alt">(Current)</span> : null}
                             </span>
-                            <span className="text-muted-alt">
-                                <TZLabel time={logItem.created_at} />
-                            </span>
-                            {isCurrent ? <span className="text-muted-alt">(Current)</span> : null}
-                        </span>
-                    )
+                        )
 
-                    return (
-                        <li key={logItem.created_at}>
-                            {isButton ? (
-                                <LemonButton
-                                    fullWidth
-                                    size="small"
-                                    active={previewContent === changedContent}
-                                    onClick={() => onItemClick(logItem)}
-                                    noPadding
-                                >
-                                    {buttonContent}
-                                </LemonButton>
-                            ) : (
-                                buttonContent
-                            )}
-                        </li>
-                    )
-                })}
+                        return (
+                            <li key={logItem.created_at}>
+                                {isButton ? (
+                                    <LemonButton
+                                        fullWidth
+                                        size="small"
+                                        active={previewContent === changedContent}
+                                        onClick={() => onItemClick(logItem)}
+                                        noPadding
+                                    >
+                                        {buttonContent}
+                                    </LemonButton>
+                                ) : (
+                                    buttonContent
+                                )}
+                            </li>
+                        )
+                    })
+                )}
             </ul>
             <div className="p-2">
                 <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
