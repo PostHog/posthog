@@ -10,7 +10,9 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     LazyTable,
     FieldOrTable,
+    LazyJoin,
 )
+from posthog.hogql.database.schema.distinct_ids import DistinctIdsTable, distinct_ids_join
 from posthog.hogql.errors import HogQLException
 
 PERSONS_FIELDS: Dict[str, FieldOrTable] = {
@@ -19,6 +21,11 @@ PERSONS_FIELDS: Dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "properties": StringJSONDatabaseField(name="properties"),
     "is_identified": BooleanDatabaseField(name="is_identified"),
+    "distinct_ids": LazyJoin(
+        from_field="id",
+        join_table=DistinctIdsTable(),
+        join_function=distinct_ids_join,
+    ),
 }
 
 
