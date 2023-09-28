@@ -71,7 +71,7 @@ export enum AvailableFeature {
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
     PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     ROLE_BASED_ACCESS = 'role_based_access',
-    GOOGLE_LOGIN = 'google_login',
+    SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',

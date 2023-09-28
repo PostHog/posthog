@@ -226,7 +226,10 @@ export class PersonState {
 
         const properties: Properties = this.eventProperties['$set'] || {}
         const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
-        const unsetProperties: Array<string> = this.eventProperties['$unset'] || []
+        const unsetProps = this.eventProperties['$unset']
+        const unsetProperties: Array<string> = Array.isArray(unsetProps)
+            ? unsetProps
+            : Object.keys(unsetProps || {}) || []
 
         // Figure out which properties we are actually setting
         Object.entries(propertiesOnce).map(([key, value]) => {

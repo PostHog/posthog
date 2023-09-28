@@ -4,12 +4,14 @@ from django.http import JsonResponse
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
+from posthog.client import sync_execute
 from posthog.exceptions import generate_exception_response
 from posthog.models.feedback.survey import Survey
 from rest_framework.response import Response
+from rest_framework.decorators import action
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, request
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework import status
@@ -138,7 +140,6 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return super().create(validated_data)
 
     def update(self, instance: Survey, validated_data):
-
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 instance.targeting_flag.delete()
@@ -206,6 +207,24 @@ class SurveyViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             related_targeting_flag.delete()
 
         return super().destroy(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def responses_count(self, request: request.Request, **kwargs):
+        data = sync_execute(
+            f"""
+            SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
+            FROM events
+            WHERE event = 'survey sent' AND team_id = %(team_id)s
+            GROUP BY survey_id
+        """,
+            {"team_id": self.team_id},
+        )
+
+        counts = {}
+        for survey_id, count in data:
+            counts[survey_id] = count
+
+        return Response(counts)
 
 
 class SurveyAPISerializer(serializers.ModelSerializer):

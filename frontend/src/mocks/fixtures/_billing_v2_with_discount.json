@@ -31,7 +31,7 @@
         "team_members",
         "organizations_projects",
         "api_access",
-        "google_login",
+        "social_sso",
         "project_based_permissioning",
         "sso_enforcement",
         "white_labeling",
@@ -302,9 +302,9 @@
             "note": null
         },
         {
-            "key": "google_login",
-            "name": "Google oAuth",
-            "description": "Use Google's oAuth to log in to PostHog.",
+            "key": "social_sso",
+            "name": "SSO via Google, Github, or Gitlab",
+            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
             "unit": null,
             "limit": null,
             "note": null
@@ -1016,9 +1016,9 @@
                             "note": null
                         },
                         {
-                            "key": "google_login",
-                            "name": "Google oAuth",
-                            "description": "Use Google's oAuth to log in to PostHog.",
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -1096,9 +1096,9 @@
                             "note": null
                         },
                         {
-                            "key": "google_login",
-                            "name": "Google oAuth",
-                            "description": "Use Google's oAuth to log in to PostHog.",
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -1394,9 +1394,9 @@
                                     "group": "platform"
                                 },
                                 {
-                                    "key": "google_login",
-                                    "name": "Google oAuth",
-                                    "description": "Use Google's oAuth to log in to PostHog.",
+                                    "key": "social_sso",
+                                    "name": "SSO via Google, Github, or Gitlab",
+                                    "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,
@@ -1920,9 +1920,9 @@
                                     "group": "platform"
                                 },
                                 {
-                                    "key": "google_login",
-                                    "name": "Google oAuth",
-                                    "description": "Use Google's oAuth to log in to PostHog.",
+                                    "key": "social_sso",
+                                    "name": "SSO via Google, Github, or Gitlab",
+                                    "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,
@@ -2455,9 +2455,9 @@
                                     "group": "platform"
                                 },
                                 {
-                                    "key": "google_login",
-                                    "name": "Google oAuth",
-                                    "description": "Use Google's oAuth to log in to PostHog.",
+                                    "key": "social_sso",
+                                    "name": "SSO via Google, Github, or Gitlab",
+                                    "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,

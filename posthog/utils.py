@@ -28,11 +28,11 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
 
 import lzstring
 import posthoganalytics
 import pytz
-from zoneinfo import ZoneInfo
 import structlog
 from celery.schedules import crontab
 from dateutil import parser
@@ -859,7 +859,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
         "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
         None,
     ):
-        if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
+        if bypass_license or (license is not None and AvailableFeature.SOCIAL_SSO in license.available_features):
             output["google-oauth2"] = True
         else:
             logger.warning("You have Google login set up, but not the required license!")
