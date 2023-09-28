@@ -3,7 +3,7 @@ from django.utils.timezone import datetime
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import WebAnalyticsQueryRunner
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import WebTopClicksQuery, WebTopClicksQueryResponse

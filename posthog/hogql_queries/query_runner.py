@@ -7,7 +7,6 @@ from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -53,7 +52,7 @@ class CachedQueryResponse(QueryResponse):
     next_allowed_client_refresh: str
 
 
-class BaseQueryRunner(ABC):
+class QueryRunner(ABC):
     query: InsightOrWebAnalyticsQueryNode
     query_type: Type[InsightOrWebAnalyticsQueryNode]
     team: Team
@@ -128,17 +127,6 @@ class BaseQueryRunner(ABC):
     def _refresh_frequency(self):
         raise NotImplementedError()
 
-
-class InsightQueryRunner(BaseQueryRunner, ABC):
-    @abstractmethod
     def to_persons_query(self) -> str:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
-
-
-class WebAnalyticsQueryRunner(BaseQueryRunner, ABC):
-    def _is_stale(self, cached_result_package):
-        return True
-
-    def _refresh_frequency(self):
-        return BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL

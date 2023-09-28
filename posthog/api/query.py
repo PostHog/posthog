@@ -26,8 +26,8 @@ from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.hogql_queries.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.insights.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.web_analytics.top_clicks import TopClicksQueryRunner
 from posthog.hogql_queries.web_analytics.top_pages import TopPagesQueryRunner
 from posthog.hogql_queries.web_analytics.top_sources import TopSourcesQueryRunner

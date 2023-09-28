@@ -11,14 +11,14 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_runner import InsightQueryRunner
+from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team, Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import LifecycleQuery, ActionsNode, EventsNode, LifecycleQueryResponse
 
 
-class LifecycleQueryRunner(InsightQueryRunner):
+class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
     query_type = LifecycleQuery
 
