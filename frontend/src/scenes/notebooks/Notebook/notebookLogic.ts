@@ -454,6 +454,11 @@ export const notebookLogic = kea<notebookLogicType>([
         clearPreviewContent: async () => {
             values.editor?.setContent(values.content)
         },
+        setShowHistory: async ({ showHistory }) => {
+            if (!showHistory) {
+                actions.clearPreviewContent()
+            }
+        },
 
         onEditorUpdate: () => {
             if (!values.editor || !values.notebook) {
@@ -480,12 +485,6 @@ export const notebookLogic = kea<notebookLogicType>([
 
         onEditorSelectionUpdate: () => {
             if (values.editor) {
-                const node = values.editor.getSelectedNode()
-
-                if (node?.attrs.nodeId) {
-                    actions.scrollToSelection()
-                }
-
                 actions.onUpdateEditor()
             }
         },
@@ -493,6 +492,9 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.editor) {
                 values.editor.scrollToSelection()
             }
+        },
+        setEditingNodeId: () => {
+            values.editingNodeLogic?.actions.selectNode()
         },
     })),
 ])
