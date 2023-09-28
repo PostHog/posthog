@@ -24,7 +24,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { asDisplay } from 'scenes/persons/person-utils'
 
 export function renderColumn(
     key: string,
@@ -224,28 +223,15 @@ export function renderColumn(
         } else if (key.startsWith('context.columns.')) {
             const Component = context?.columns?.[trimQuotes(key.substring(16))]?.render
             return Component ? <Component record={record} /> : ''
-        } else if (key === 'id' && isPersonsNode(query.source)) {
+        } else if (key === 'id' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
             return (
-                <CopyToClipboardInline
-                    explicitValue={String(value)}
-                    iconStyle={{ color: 'var(--primary)' }}
-                    description="person distinct ID"
-                >
+                <CopyToClipboardInline explicitValue={String(value)} iconStyle={{ color: 'var(--primary)' }}>
                     {String(value)}
                 </CopyToClipboardInline>
             )
         } else if (key.startsWith('user.') && isTimeToSeeDataSessionsQuery(query.source)) {
             const [parent, child] = key.split('.')
             return typeof record === 'object' ? record[parent][child] : 'unknown'
-        } else if (isPersonsQuery(query.source)) {
-            if (key === 'id') {
-                return <div>{String(record[0])}</div>
-            } else if (key === 'created_at') {
-                return <TZLabel time={record[1]} showSeconds />
-            } else if (key === 'person') {
-                return asDisplay({ properties: JSON.parse(record[2]) })
-            }
-            return <div>{String(value)}</div>
         } else {
             if (typeof value === 'object' && value !== null) {
                 return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

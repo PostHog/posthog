@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from typing import Optional, Any, Dict, List
 
@@ -9,6 +10,8 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Team
 from posthog.schema import PersonsQuery, PersonsQueryResponse, LifecycleQuery
+
+SELECT_STAR_FROM_PERSONS_FIELDS = ["id", "properties", "created_at", "is_identified"]
 
 
 class PersonsQueryRunner(QueryRunner):
@@ -29,12 +32,21 @@ class PersonsQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
         )
+        input_columns = self.input_columns()
+        if "*" in input_columns:
+            star_idx = input_columns.index("*")
+            for index, result in enumerate(response.results):
+                response.results[index] = list(result)
+                select = result[star_idx]
+                new_result = dict(zip(SELECT_STAR_FROM_PERSONS_FIELDS, select))
+                new_result["properties"] = json.loads(new_result["properties"])
+                response.results[index][star_idx] = new_result
         return PersonsQueryResponse(
             results=response.results,
             timings=response.timings,
             hogql=response.hogql,
-            columns=[],
-            types=[],
+            columns=self.input_columns(),
+            types=[type for _, type in response.types],
         )
 
     def filter_conditions(self) -> List[ast.Expr]:
@@ -80,18 +92,26 @@ class PersonsQueryRunner(QueryRunner):
             )
         return where_exprs
 
+    def input_columns(self) -> List[str]:
+        return self.query.select or ["*", "person", "id", "created_at", "person.$delete"]
+
     def to_query(self) -> ast.SelectQuery:
         # adding +1 to the limit to check if there's a "next page" after the requested results
         from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 
         with self.timings.measure("columns"):
-            columns = [
-                ast.Field(chain=["id"]),
-                ast.Field(chain=["properties"]),
-                ast.Field(chain=["created_at"]),
-                ast.Field(chain=["is_identified"]),
-                *[parse_expr(expr) for expr in self.query.select or []],
-            ]
+            columns = []
+            for expr in self.input_columns():
+                if expr == "person.$delete":
+                    columns.append(ast.Constant(value=1))
+                elif expr == "person":
+                    columns.append(ast.Constant(value=1))
+                elif expr == "*":
+                    columns.append(
+                        ast.Tuple(exprs=[ast.Field(chain=[field]) for field in SELECT_STAR_FROM_PERSONS_FIELDS])
+                    )
+                else:
+                    columns.append(parse_expr(expr))
             group_by: List[ast.Expr] = [column for column in columns if not has_aggregation(column)]
             aggregations: List[ast.Expr] = [column for column in columns if has_aggregation(column)]
             has_any_aggregation = len(aggregations) > 0

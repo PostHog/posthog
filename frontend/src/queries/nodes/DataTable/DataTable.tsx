@@ -30,7 +30,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
-import { isEventsQuery, isHogQlAggregation, isHogQLQuery, taxonomicFilterToHogQl } from '~/queries/utils'
+import { isHogQlAggregation, isHogQLQuery, taxonomicFilterToHogQl } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -481,7 +481,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                 expandable && columnsInResponse?.includes('*')
                                     ? {
                                           expandedRowRender: function renderExpand({ result }) {
-                                              if (isEventsQuery(query.source) && Array.isArray(result)) {
+                                              if (Array.isArray(result)) {
                                                   return (
                                                       <EventDetails
                                                           event={result[columnsInResponse.indexOf('*')] ?? {}}

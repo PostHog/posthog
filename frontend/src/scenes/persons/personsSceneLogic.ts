@@ -8,10 +8,11 @@ import { objectsEqual } from 'lib/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const getDefaultQuery = (): DataTableNode => ({
     kind: NodeKind.DataTableNode,
-    source: { kind: NodeKind.PersonsNode },
+    source: { kind: NodeKind.PersonsQuery, select: defaultDataTableColumns(NodeKind.PersonsQuery) },
     full: true,
     propertiesViaUrl: true,
 })

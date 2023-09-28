@@ -1659,6 +1659,12 @@
                 "search": {
                     "type": "string"
                 },
+                "select": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
                 },

@@ -1218,6 +1218,7 @@ class PersonsQuery(BaseModel):
     properties: Optional[List[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = None
     response: Optional[PersonsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
+    select: Optional[List[str]] = None
     source: Optional[
         Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
     ] = None
