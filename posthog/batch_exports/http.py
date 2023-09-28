@@ -1,15 +1,22 @@
 import datetime as dt
 from typing import Any
 
+from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated, NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
+from posthog.batch_exports.models import (
+    BATCH_EXPORT_INTERVALS,
+    BatchExportLogEntry,
+    BatchExportLogEntryLevel,
+    fetch_batch_export_log_entries,
+)
 from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportServiceError,
@@ -20,10 +27,11 @@ from posthog.batch_exports.service import (
     sync_batch_export,
     unpause_batch_export,
 )
-from django.db import transaction
-
 from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, User
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from posthog.temporal.client import sync_connect
 from posthog.utils import relative_date_parse
 
@@ -276,3 +284,46 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         temporal = sync_connect()
         delete_schedule(temporal, str(instance.pk))
         instance.save()
+
+
+class BatchExportLogEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BatchExportLogEntry
+
+
+class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    serializer_class = BatchExportLogEntrySerializer
+
+    def get_queryset(self):
+        limit_raw = self.request.GET.get("limit")
+        limit: int | None
+        if limit_raw:
+            try:
+                limit = int(limit_raw)
+            except ValueError:
+                raise ValidationError("Query param limit must be omitted or an integer!")
+        else:
+            limit = None
+
+        after_raw: str | None = self.request.GET.get("after")
+        after: dt.datetime | None = None
+        if after_raw is not None:
+            after = dt.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
+
+        before_raw: str | None = self.request.GET.get("before")
+        before: dt.datetime | None = None
+        if before_raw is not None:
+            before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
+
+        level_filter = [BatchExportLogEntryLevel[t] for t in (self.request.GET.getlist("level_filter", []))]
+        return fetch_batch_export_log_entries(
+            team_id=self.parents_query_dict["team_id"],
+            batch_export_id=self.parents_query_dict["batch_export_id"],
+            run_id=self.parents_query_dict.get("run_id", None),
+            after=after,
+            before=before,
+            search=self.request.GET.get("search"),
+            limit=limit,
+            level_filter=level_filter,
+        )
