@@ -834,7 +834,6 @@ test('capture bad team', async () => {
     await expect(
         eventsProcessor.processEvent(
             'asdfasdfasdf',
-            '',
             {
                 event: '$pageview',
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
@@ -2367,7 +2366,6 @@ test('throws with bad uuid', async () => {
     await expect(
         eventsProcessor.processEvent(
             'xxx',
-            '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             DateTime.utc(),
@@ -2378,7 +2376,6 @@ test('throws with bad uuid', async () => {
     await expect(
         eventsProcessor.processEvent(
             'xxx',
-            '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             DateTime.utc(),
