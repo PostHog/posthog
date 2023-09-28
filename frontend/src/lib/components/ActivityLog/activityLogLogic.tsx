@@ -62,8 +62,7 @@ export const activityLogLogic = kea<activityLogLogicType>({
         activity: [
             { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
-                fetchNextPage: async () => await api.activity.list(props, values.page),
-                fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
+                fetchActivity: async () => await api.activity.list(props, values.page),
             },
         ],
     }),
@@ -84,8 +83,8 @@ export const activityLogLogic = kea<activityLogLogicType>({
                     pageSize: ACTIVITY_PAGE_SIZE,
                     currentPage: page,
                     entryCount: totalCount || 0,
-                    onBackward: actions.fetchPreviousPage,
-                    onForward: actions.fetchNextPage,
+                    onBackward: () => actions.setPage(page - 1),
+                    onForward: () => actions.setPage(page + 1),
                 }
             },
         ],
@@ -105,7 +104,7 @@ export const activityLogLogic = kea<activityLogLogicType>({
     listeners: ({ actions }) => ({
         setPage: async (_, breakpoint) => {
             await breakpoint()
-            actions.fetchNextPage()
+            actions.fetchActivity()
         },
     }),
     urlToAction: ({ values, actions, props }) => {
@@ -157,7 +156,7 @@ export const activityLogLogic = kea<activityLogLogicType>({
     },
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.fetchNextPage()
+            actions.fetchActivity()
         },
     }),
 })

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
-import { ActivityLogItem, ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import {
     LemonBanner,
     LemonButton,
@@ -13,6 +13,7 @@ import {
 import { JSONContent } from '@tiptap/core'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { TZLabel } from '@posthog/apps-common'
+import { useMemo } from 'react'
 
 function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityLogItem) => void }): JSX.Element {
     const { shortId } = useValues(notebookLogic)
@@ -21,13 +22,19 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
     const { activity, pagination } = useValues(logic)
     const paginationState = usePagination(activity.results || [], pagination)
 
+    const activityWithChangedContent = useMemo(() => {
+        return activity?.results?.filter((logItem) => {
+            return !!logItem.detail.changes?.find((x) => x.field === 'content')?.after
+        })
+    }, [activity])
+
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
             <ul className="flex-1 overflow-y-auto p-2 space-y-px">
-                {activity?.results?.map((logItem: ActivityLogItem, i) => {
+                {activityWithChangedContent?.map((logItem: ActivityLogItem, i) => {
                     const name = logItem.user.is_system ? 'System' : logItem.user.first_name
                     return (
-                        <li key={i}>
+                        <li key={logItem.created_at}>
                             <LemonButton
                                 fullWidth
                                 size="small"
@@ -76,7 +83,7 @@ export function NotebookHistory(): JSX.Element {
     return (
         <LemonWidget title="Notebook History" onClose={() => setShowHistory(false)}>
             <div className="NotebookHistory">
-                <p className="p-2">
+                <p className="m-2">
                     Below is the history of all persisted changes. You can select any version to view how it was at that
                     point in time and then choose to <b>revert to that version</b>, or <b>create a copy</b> of it.
                 </p>
