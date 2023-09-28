@@ -210,9 +210,11 @@ export function Editor({
                 nextNode: (position: number) => nextNode(editor, position),
                 hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
                 scrollToSelection: () => {
-                    const position = editor.state.selection.$anchor.pos
-                    const domEl = editor.view.nodeDOM(position) as HTMLElement
-                    domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                    queueMicrotask(() => {
+                        const position = editor.state.selection.$anchor.pos
+                        const domEl = editor.view.nodeDOM(position) as HTMLElement
+                        domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                    })
                 },
             })
         },

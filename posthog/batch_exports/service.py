@@ -1,4 +1,5 @@
 import datetime as dt
+import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
@@ -23,6 +24,10 @@ from posthog.batch_exports.models import (
     BatchExportRun,
 )
 from posthog.temporal.client import sync_connect
+
+
+class BatchExportsInputsProtocol(typing.Protocol):
+    team_id: int
 
 
 @dataclass

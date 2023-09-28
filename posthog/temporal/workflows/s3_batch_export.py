@@ -11,18 +11,17 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import S3BatchExportInputs
-from posthog.temporal.workflows.base import (
-    CreateBatchExportRunInputs,
-    PostHogWorkflow,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
-    update_export_run_status,
-)
+from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
+    CreateBatchExportRunInputs,
+    UpdateBatchExportRunStatusInputs,
+    create_export_run,
+    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -252,6 +251,7 @@ class S3InsertInputs:
 
 def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
+    logger = get_batch_exports_logger(inputs=inputs)
     key = get_s3_key(inputs)
     s3_client = boto3.client(
         "s3",
@@ -268,20 +268,19 @@ def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3Mu
     except IndexError:
         # This is the error we expect when no details as the sequence will be empty.
         interval_start = inputs.data_interval_start
-        activity.logger.info(
+        logger.info(
             f"Did not receive details from previous activity Excecution. Export will start from the beginning: {interval_start}"
         )
-    except Exception as e:
+    except Exception:
         # We still start from the beginning, but we make a point to log unexpected errors.
         # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
         interval_start = inputs.data_interval_start
-        activity.logger.warning(
+        logger.warning(
             f"Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning: {interval_start}",
-            exc_info=e,
         )
     else:
-        activity.logger.info(
-            f"Received details from previous activity. Export will attempt to resume from: {interval_start}"
+        logger.info(
+            f"Received details from previous activity. Export will attempt to resume from: {interval_start}",
         )
         s3_upload.continue_from_state(upload_state)
 
@@ -289,8 +288,8 @@ def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3Mu
             # Even if we receive details we cannot resume a brotli compressed upload as we have lost the compressor state.
             interval_start = inputs.data_interval_start
 
-            activity.logger.info(
-                f"Export will start from the beginning as we are using brotli compression: {interval_start}"
+            logger.info(
+                f"Export will start from the beginning as we are using brotli compression: {interval_start}",
             )
             s3_upload.abort()
 
@@ -308,7 +307,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     runs, timing out after say 30 seconds or something and upload multiple
     files.
     """
-    activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    logger = get_batch_exports_logger(inputs=inputs)
+    logger.info(
+        "Running S3 export batch %s - %s",
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+    )
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -322,14 +326,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         )
 
         if count == 0:
-            activity.logger.info(
-                "Nothing to export in batch %s - %s. Exiting.",
+            logger.info(
+                "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
             return
 
-        activity.logger.info("BatchExporting %s rows to S3", count)
+        logger.info("BatchExporting %s rows to S3", count)
 
         s3_upload, interval_start = initialize_and_resume_multipart_upload(inputs)
 
@@ -353,8 +357,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
             await activity.wait_for_worker_shutdown()
-            activity.logger.warn(
-                f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}"
+            logger.warn(
+                f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}",
             )
             activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
@@ -379,7 +383,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     local_results_file.write_records_to_jsonl([record])
 
                     if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
-                        activity.logger.info(
+                        logger.info(
                             "Uploading part %s containing %s records with size %s bytes to S3",
                             s3_upload.part_number + 1,
                             local_results_file.records_since_last_reset,
@@ -394,7 +398,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
-                    activity.logger.info(
+                    logger.info(
                         "Uploading last part %s containing %s records with size %s bytes to S3",
                         s3_upload.part_number + 1,
                         local_results_file.records_since_last_reset,
@@ -425,9 +429,9 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        workflow.logger.info("Starting S3 export")
-
+        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        logger.info("Starting S3 export batch %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -467,8 +471,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 insert_into_s3_activity,
                 insert_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                heartbeat_timeout=dt.timedelta(minutes=10),
+                start_to_close_timeout=dt.timedelta(minutes=20),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=120),
@@ -484,20 +488,23 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
-                workflow.logger.exception("S3 BatchExport was cancelled.")
+                logger.error("S3 BatchExport was cancelled.")
                 update_inputs.status = "Cancelled"
             else:
-                workflow.logger.exception("S3 BatchExport failed.", exc_info=e)
+                logger.exception("S3 BatchExport failed.", exc_info=e.cause)
                 update_inputs.status = "Failed"
 
             update_inputs.latest_error = str(e.cause)
             raise
 
         except Exception as e:
-            workflow.logger.exception("S3 BatchExport failed with an unexpected exception.", exc_info=e)
+            logger.exception("S3 BatchExport failed with an unexpected error.", exc_info=e)
             update_inputs.status = "Failed"
             update_inputs.latest_error = "An unexpected error has ocurred"
             raise
+
+        else:
+            logger.info("Successfully finished S3 export batch %s - %s", data_interval_start, data_interval_end)
 
         finally:
             await workflow.execute_activity(

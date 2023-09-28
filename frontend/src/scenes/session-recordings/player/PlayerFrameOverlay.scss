@@ -18,11 +18,17 @@
         align-items: center;
         z-index: 1;
 
-        transition: background-color 100ms;
-        background-color: rgba(0, 0, 0, 0.08);
+        transition: opacity 100ms;
+        background-color: rgba(0, 0, 0, 0.15);
+        opacity: 0.8;
 
         &:hover {
-            background-color: rgba(0, 0, 0, 0.15);
+            opacity: 1;
+        }
+
+        &--only-hover {
+            // When paused only show on hover to allow people to take screenshots
+            opacity: 0;
         }
     }
 }

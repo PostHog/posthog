@@ -104,3 +104,11 @@ def patch_batch_export(client, team_id, batch_export_id, new_batch_export_data):
         new_batch_export_data,
         content_type="application/json",
     )
+
+
+def get_batch_export_log_entries(client: TestClient, team_id: int, batch_export_id: str):
+    return client.get(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/logs")
+
+
+def get_batch_export_run_log_entries(client: TestClient, team_id: int, batch_export_id: str, run_id):
+    return client.get(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/runs/{run_id}/logs")

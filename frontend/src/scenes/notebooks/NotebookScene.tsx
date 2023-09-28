@@ -8,7 +8,14 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { notebookPopoverLogic } from './Notebook/notebookPopoverLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconArrowRight, IconDelete, IconEllipsis, IconExport, IconHelpOutline } from 'lib/lemon-ui/icons'
+import {
+    IconArrowRight,
+    IconDelete,
+    IconEllipsis,
+    IconExport,
+    IconHelpOutline,
+    IconNotification,
+} from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { notebooksModel } from '~/models/notebooksModel'
 import { router } from 'kea-router'
@@ -32,8 +39,10 @@ export const scene: SceneExport = {
 
 export function NotebookScene(): JSX.Element {
     const { notebookId } = useValues(notebookSceneLogic)
-    const { notebook, notebookLoading, conflictWarningVisible } = useValues(notebookLogic({ shortId: notebookId }))
-    const { exportJSON } = useActions(notebookLogic({ shortId: notebookId }))
+    const { notebook, notebookLoading, conflictWarningVisible, showHistory } = useValues(
+        notebookLogic({ shortId: notebookId })
+    )
+    const { exportJSON, setShowHistory } = useActions(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setVisibility } = useActions(notebookPopoverLogic)
     const { selectedNotebook, visibility } = useValues(notebookPopoverLogic)
 
@@ -83,9 +92,12 @@ export function NotebookScene(): JSX.Element {
                                     {
                                         label: 'Export JSON',
                                         icon: <IconExport />,
-                                        onClick: () => {
-                                            exportJSON()
-                                        },
+                                        onClick: () => exportJSON(),
+                                    },
+                                    {
+                                        label: 'History',
+                                        icon: <IconNotification />,
+                                        onClick: () => setShowHistory(!showHistory),
                                     },
                                     !isTemplate && {
                                         label: 'Delete',
