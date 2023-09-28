@@ -36,8 +36,7 @@ describe('the activity log logic', () => {
 
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                nextPageLoading: false,
-                previousPageLoading: false,
+                activityLoading: false,
             })
 
             // react fragments confuse equality check so,
