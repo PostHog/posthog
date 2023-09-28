@@ -14,7 +14,6 @@ from string import Template
 
 import brotli
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from temporalio import activity, workflow
 
 from posthog.batch_exports.service import (
@@ -24,7 +23,6 @@ from posthog.batch_exports.service import (
 )
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.client import connect
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -296,6 +294,9 @@ class BatchExportTemporaryFile:
     def __exit__(self, exc, value, tb):
         """Context-manager protocol exit method."""
         return self._file.__exit__(exc, value, tb)
+
+    def __iter__(self):
+        yield from self._file
 
     @property
     def brotli_compressor(self):
@@ -609,17 +610,3 @@ class UpdateBatchExportRunStatusInputs:
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
     await sync_to_async(update_batch_export_run_status)(run_id=uuid.UUID(inputs.id), status=inputs.status, latest_error=inputs.latest_error)  # type: ignore
-
-
-async def heartbeat(task_token: bytes, *details):
-    """Async heartbeat function for batch export activities."""
-    client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
-        settings.TEMPORAL_CLIENT_CERT,
-        settings.TEMPORAL_CLIENT_KEY,
-    )
-    handle = client.get_async_activity_handle(task_token=task_token)
-    await handle.heartbeat(*details)

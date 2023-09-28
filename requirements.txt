@@ -4,11 +4,18 @@
 #
 #    pip-compile requirements.in
 #
+aioboto3==11.1
+    # via -r requirements.in
+aiobotocore[boto3]==2.5.0
+    # via aioboto3
 aiohttp==3.8.5
     # via
     #   -r requirements.in
+    #   aiobotocore
     #   geoip2
     #   openai
+aioitertools==0.11.0
+    # via aiobotocore
 aiosignal==1.2.0
     # via aiohttp
 amqp==5.1.1
@@ -43,12 +50,15 @@ backoff==2.2.1
     # via posthoganalytics
 billiard==4.1.0
     # via celery
-boto3==1.26.66
-    # via -r requirements.in
+boto3==1.26.76
+    # via
+    #   -r requirements.in
+    #   aiobotocore
 boto3-stubs[s3]==1.26.138
     # via -r requirements.in
-botocore==1.29.66
+botocore==1.29.76
     # via
+    #   aiobotocore
     #   boto3
     #   s3transfer
 botocore-stubs==1.29.130
@@ -539,6 +549,8 @@ webdriver-manager==4.0.1
     # via -r requirements.in
 whitenoise==6.5.0
     # via -r requirements.in
+wrapt==1.15.0
+    # via aiobotocore
 wsproto==1.1.0
     # via trio-websocket
 xmlsec==1.3.13
