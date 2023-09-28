@@ -102,6 +102,10 @@ class QueryRunner(ABC):
     def to_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
+    def to_persons_query(self) -> str:
+        # TODO: add support for selecting and filtering by breakdowns
+        raise NotImplementedError()
+
     def to_hogql(self) -> str:
         with self.timings.measure("to_hogql"):
             return print_ast(
@@ -124,8 +128,4 @@ class QueryRunner(ABC):
 
     @abstractmethod
     def _refresh_frequency(self):
-        raise NotImplementedError()
-
-    def to_persons_query(self) -> str:
-        # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
