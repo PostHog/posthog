@@ -24,7 +24,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
-from posthog.types import InsightQueryNode
+from posthog.types import Node
 
 
 def entity_to_node(entity: BackendEntity) -> EventsNode | ActionsNode:
@@ -227,7 +227,7 @@ def _insight_filter(filter: AnyInsightFilter):
         raise Exception(f"Invalid insight type {filter.insight}.")
 
 
-def filter_to_query(filter: AnyInsightFilter) -> InsightQueryNode:
+def filter_to_query(filter: AnyInsightFilter) -> Node:
     if (filter.insight == "TRENDS" or filter.insight == "FUNNELS" or filter.insight == "LIFECYCLE") and isinstance(
         filter, LegacyFilter
     ):

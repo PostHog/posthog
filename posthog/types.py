@@ -18,8 +18,7 @@ from posthog.schema import (
 
 FilterType = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
 
-InsightQueryNode = Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
-InsightOrWebAnalyticsQueryNode = Union[
+Node = Union[
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,

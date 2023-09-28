@@ -15,7 +15,8 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import QueryTiming
-from posthog.types import InsightOrWebAnalyticsQueryNode
+
+from posthog.types import Node
 from posthog.utils import generate_cache_key, get_safe_cache
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
@@ -53,14 +54,12 @@ class CachedQueryResponse(QueryResponse):
 
 
 class QueryRunner(ABC):
-    query: InsightOrWebAnalyticsQueryNode
-    query_type: Type[InsightOrWebAnalyticsQueryNode]
+    query: Node
+    query_type: Type[Node]
     team: Team
     timings: HogQLTimings
 
-    def __init__(
-        self, query: InsightOrWebAnalyticsQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None
-    ):
+    def __init__(self, query: Node | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
         self.team = team
         self.timings = timings or HogQLTimings()
         if isinstance(query, self.query_type):
