@@ -54,6 +54,10 @@ def save_recording_with_new_content(recording: SessionRecording, content: str) -
     return new_path
 
 
+class InvalidRecordingForPersisting(Exception):
+    pass
+
+
 def persist_recording(recording_id: str, team_id: int) -> None:
     """Persist a recording to the S3"""
 
@@ -88,10 +92,10 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.save()
         return
 
+    target_prefix = recording.build_object_storage_path("2023-08-01")
+    source_prefix = recording.build_blob_ingestion_storage_path()
     # if snapshots are already in blob storage, then we can just copy the files between buckets
     with SNAPSHOT_PERSIST_TIME_HISTOGRAM.labels(source="S3").time():
-        target_prefix = recording.build_object_storage_path("2023-08-01")
-        source_prefix = recording.build_blob_ingestion_storage_path()
         copied_count = object_storage.copy_objects(source_prefix, target_prefix)
 
     if copied_count > 0:
@@ -101,7 +105,14 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id, source="s3")
         return
     else:
-        raise NotImplementedError("ClickHouse backed recordings are not supported")
+        logger.error(
+            "No snapshots found to copy in S3 when persisting a recording",
+            recording_id=recording_id,
+            team_id=team_id,
+            target_prefix=target_prefix,
+            source_prefix=source_prefix,
+        )
+        raise InvalidRecordingForPersisting("Could not persist recording: " + recording_id)
 
 
 def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedRecordingV1]:
