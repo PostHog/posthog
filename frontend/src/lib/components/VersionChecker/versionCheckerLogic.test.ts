@@ -15,7 +15,7 @@ const useMockedVersions = (githubVersions: SDKVersion[], usedVersions: SDKVersio
             '/api/projects/:team/query': () => [
                 200,
                 {
-                    results: usedVersions.map((x) => [x.version, x.timestamp]),
+                    result: usedVersions.map((x) => [x.version, x.timestamp]),
                 },
             ],
         },

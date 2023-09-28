@@ -36,7 +36,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         useMocks({
             post: {
                 '/api/projects/:team/query': {
-                    results: [
+                    result: [
                         ['s1', JSON.stringify({ blah: 'blah1' })],
                         ['s2', JSON.stringify({ blah: 'blah2' })],
                     ],
