@@ -31,7 +31,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
             <ul className="flex-1 overflow-y-auto p-2 space-y-px">
-                {activityWithChangedContent?.map((logItem: ActivityLogItems) => {
+                {activityWithChangedContent?.map((logItem: ActivityLogItem) => {
                     const name = logItem.user.is_system ? 'System' : logItem.user.first_name
                     return (
                         <li key={logItem.created_at}>
