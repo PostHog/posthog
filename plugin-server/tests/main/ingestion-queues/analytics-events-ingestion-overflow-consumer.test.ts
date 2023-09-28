@@ -56,8 +56,6 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
                 db: 'database',
             },
             workerMethods: {
-                runAppsOnEventPipeline: jest.fn(),
-                runWebhooksHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
@@ -150,8 +148,6 @@ describe('eachBatchLegacyIngestion with overflow consume', () => {
                 db: 'database',
             },
             workerMethods: {
-                runAppsOnEventPipeline: jest.fn(),
-                runWebhooksHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
