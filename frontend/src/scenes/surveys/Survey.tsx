@@ -120,14 +120,23 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 <Field name="type" label="Question type" className="max-w-60">
                                     <LemonSelect
                                         onSelect={(newType) => {
-                                            const stateObj = survey.questions[0]
+                                            const questionObj = survey.questions[0]
                                             const isEditingQuestion =
-                                                defaultSurveyFieldValues[stateObj.type].questions[0].question !==
-                                                stateObj.question
+                                                defaultSurveyFieldValues[questionObj.type].questions[0].question !==
+                                                questionObj.question
                                             const isEditingDescription =
-                                                defaultSurveyFieldValues[stateObj.type].questions[0].description !==
-                                                stateObj.description
-                                            setDefaultForQuestionType(newType, isEditingQuestion, isEditingDescription)
+                                                defaultSurveyFieldValues[questionObj.type].questions[0].description !==
+                                                questionObj.description
+                                            const isEditingThankYouMessage =
+                                                defaultSurveyFieldValues[questionObj.type].appearance
+                                                    .thankYouMessageHeader !== survey.appearance.thankYouMessageHeader
+
+                                            setDefaultForQuestionType(
+                                                newType,
+                                                isEditingQuestion,
+                                                isEditingDescription,
+                                                isEditingThankYouMessage
+                                            )
                                         }}
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },

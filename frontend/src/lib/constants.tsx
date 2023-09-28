@@ -176,7 +176,7 @@ export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
 export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>> = {
     [AvailableFeature.ZAPIER]: LicensePlan.Scale,
     [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
-    [AvailableFeature.GOOGLE_LOGIN]: LicensePlan.Scale,
+    [AvailableFeature.SOCIAL_SSO]: LicensePlan.Scale,
     [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
     [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
     [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,

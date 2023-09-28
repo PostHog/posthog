@@ -2791,6 +2791,35 @@ test('$unset person property', async () => {
     expect(person.properties).toEqual({ b: 2 })
 })
 
+test('$unset person empty set ignored', async () => {
+    await createPerson(hub, team, ['distinct_id1'], { a: 1, b: 2, c: 3 })
+
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: 'some_event',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+                $unset: {},
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
+    expect((await hub.db.fetchEvents()).length).toBe(1)
+
+    const [event] = await hub.db.fetchEvents()
+    expect(event.properties['$unset']).toEqual({})
+
+    const [person] = await hub.db.fetchPersons()
+    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+    expect(person.properties).toEqual({ a: 1, b: 2, c: 3 })
+})
+
 describe('ingestion in any order', () => {
     const ts0: DateTime = now
     const ts1: DateTime = now.plus({ minutes: 1 })
