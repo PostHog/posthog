@@ -1,4 +1,9 @@
 import csv
+import json
+from posthog.queries.insight import insight_sync_execute
+import posthoganalytics
+from posthog.metrics import LABEL_TEAM_ID
+from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import Any, Dict, cast
 
@@ -34,7 +39,7 @@ from posthog.constants import (
 )
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
-from posthog.models import Cohort, FeatureFlag, User
+from posthog.models import Cohort, FeatureFlag, User, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.filters.filter import Filter
@@ -43,7 +48,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.actor_base_query import ActorBaseQuery, get_people
+from posthog.queries.actor_base_query import ActorBaseQuery, get_people, serialize_people
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.stickiness import StickinessActors
@@ -56,6 +61,14 @@ from posthog.tasks.calculate_cohort import (
     update_cohort,
 )
 from posthog.utils import format_query_params_absolute_url
+from prometheus_client import Counter
+
+
+API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
+    "api_cohort_person_bytes_read_from_postgres",
+    "An estimate of how many bytes we've read from postgres to service person cohort endpoint.",
+    labelnames=[LABEL_TEAM_ID],
+)
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -266,6 +279,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         cohort: Cohort = self.get_object()
         team = self.team
         filter = Filter(request=request, team=self.team)
+        assert request.user.is_authenticated
 
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
         if is_csv_request and not filter.limit:
@@ -273,13 +287,46 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: 100})
 
-        query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+        if posthoganalytics.feature_enabled(
+            "load-person-fields-from-clickhouse",
+            request.user.distinct_id,
+            person_properties={"email": request.user.email},
+        ):
+            person_query = PersonQuery(
+                filter,
+                team.pk,
+                cohort=cohort,
+                extra_fields=[
+                    "created_at",
+                    "properties",
+                    "is_identified",
+                ],
+                include_distinct_ids=True,
+            )
+            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+            serialized_actors = insight_sync_execute(
+                paginated_query,
+                {**paginated_params, **filter.hogql_context.values},
+                filter=filter,
+                query_type="cohort_persons",
+                team_id=team.pk,
+            )
+            persons = []
+            for p in serialized_actors:
+                person = Person(uuid=p[0], created_at=p[1], is_identified=p[2], properties=json.loads(p[3]))
+                person._distinct_ids = p[4]
+                persons.append(person)
 
-        raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
-        actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
+            serialized_actors = serialize_people(team, data=persons)
+            _should_paginate = len(serialized_actors) >= filter.limit
+        else:
+            query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+            raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
+            actor_ids = [row[0] for row in raw_result]
+            actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
 
-        _should_paginate = len(actor_ids) >= filter.limit
+            _should_paginate = len(actor_ids) >= filter.limit
+
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
             format_query_params_absolute_url(request, filter.offset - filter.limit)
@@ -291,12 +338,23 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             DELETE_KEYS = ["value_at_data_point", "uuid", "type", "is_identified", "matched_recordings"]
             for actor in serialized_actors:
                 if actor["properties"].get("email"):
-                    actor["email"] = actor["properties"]["email"]  # type: ignore
+                    actor["email"] = actor["properties"]["email"]
                     del actor["properties"]["email"]
             serialized_actors = [
-                {k: v for k, v in sorted(actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999) if k not in DELETE_KEYS}  # type: ignore
+                {
+                    k: v
+                    for k, v in sorted(
+                        actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999
+                    )
+                    if k not in DELETE_KEYS
+                }
                 for actor in serialized_actors
             ]
+
+        # TEMPORARY: Work out usage patterns of this endpoint
+        renderer = SafeJSONRenderer()
+        size = len(renderer.render(serialized_actors))
+        API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 

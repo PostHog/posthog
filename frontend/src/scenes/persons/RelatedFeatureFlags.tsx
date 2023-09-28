@@ -7,6 +7,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 import { FeatureFlagReleaseType } from '~/types'
 import { relatedFeatureFlagsLogic, RelatedFeatureFlag } from './relatedFeatureFlagsLogic'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 interface Props {
     distinctId: string
@@ -55,7 +56,11 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 {isExperiment ? 'Experiment' : 'Feature flag'}
                             </LemonTag>
                         </Link>
-                        {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
+                        {featureFlag.name && (
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
+                                {featureFlag.name}
+                            </LemonMarkdown>
+                        )}
                     </>
                 )
             },

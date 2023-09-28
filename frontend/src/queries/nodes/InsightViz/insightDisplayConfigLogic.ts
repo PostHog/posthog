@@ -33,6 +33,7 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
                 'breakdown',
                 'trendsFilter',
                 'hasLegend',
+                'showLegend',
             ],
             funnelDataLogic(props),
             ['isEmptyFunnel', 'isStepsFunnel', 'isTimeToConvertFunnel', 'isTrendsFunnel'],

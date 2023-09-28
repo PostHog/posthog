@@ -11,6 +11,7 @@ from posthog.api.utils import (
     format_paginated_url,
     get_data,
     get_target_entity,
+    raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
 )
 from posthog.models.filters.filter import Filter
@@ -144,3 +145,37 @@ class TestUtils(BaseTest):
         self.assertEqual(safe_clickhouse_string("✨"), "✨")
         self.assertEqual(safe_clickhouse_string("foo \u2728\ bar"), "foo \u2728\ bar")
         self.assertEqual(safe_clickhouse_string("💜 \u1f49c\ 💜"), "💜 \u1f49c\ 💜")
+
+    def test_raise_if_user_provided_url_unsafe(self):
+        # Sync test cases with plugin-server/src/utils/fetch.test.ts
+        raise_if_user_provided_url_unsafe("https://google.com?q=20")  # Safe
+        raise_if_user_provided_url_unsafe("https://posthog.com")  # Safe
+        raise_if_user_provided_url_unsafe("https://posthog.com/foo/bar")  # Safe, with path
+        raise_if_user_provided_url_unsafe("https://posthog.com:443")  # Safe, good port
+        raise_if_user_provided_url_unsafe("https://1.1.1.1")  # Safe, public IP
+        self.assertRaisesMessage(ValueError, "No hostname", lambda: raise_if_user_provided_url_unsafe(""))
+        self.assertRaisesMessage(ValueError, "No hostname", lambda: raise_if_user_provided_url_unsafe("@@@"))
+        self.assertRaisesMessage(ValueError, "No hostname", lambda: raise_if_user_provided_url_unsafe("posthog.com"))
+        self.assertRaisesMessage(
+            ValueError,
+            "Scheme must be either HTTP or HTTPS",
+            lambda: raise_if_user_provided_url_unsafe("ftp://posthog.com"),
+        )
+        self.assertRaisesMessage(
+            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://localhost")
+        )
+        self.assertRaisesMessage(
+            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://192.168.0.5")
+        )
+        self.assertRaisesMessage(
+            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://0.0.0.0")
+        )
+        self.assertRaisesMessage(
+            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://10.0.0.24")
+        )
+        self.assertRaisesMessage(
+            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://172.20.0.21")
+        )
+        self.assertRaisesMessage(
+            ValueError, "Invalid hostname", lambda: raise_if_user_provided_url_unsafe("http://fgtggggzzggggfd.com")
+        )  # Non-existent

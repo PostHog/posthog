@@ -186,7 +186,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
         },
     })),
 
-    selectors(({}) => ({
+    selectors(() => ({
         groupedRuns: [
             (s) => [s.batchExportRuns],
             (runs): GroupedBatchExportRuns[] => {

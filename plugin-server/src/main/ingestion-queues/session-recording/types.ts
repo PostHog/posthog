@@ -14,8 +14,6 @@ export type IncomingRecordingMessage = {
     session_id: string
     window_id?: string
     events: RRWebEvent[]
-    // NOTE: This is only for migrating from one consumer to the other
-    replayIngestionConsumer: 'v1' | 'v2'
 }
 
 // This is the incoming message from Kafka

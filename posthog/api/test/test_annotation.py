@@ -1,7 +1,7 @@
 from datetime import datetime
 from unittest.mock import patch
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.utils.timezone import now
 from rest_framework import status
 
@@ -111,7 +111,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 "team": team2.pk,  # make sure this is set automatically
             },
         )
-        date_marker: datetime = datetime(2020, 1, 1, 0, 0, 0).replace(tzinfo=pytz.UTC)
+        date_marker: datetime = datetime(2020, 1, 1, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = Annotation.objects.get(pk=response.json()["id"])
         self.assertEqual(instance.content, "Marketing campaign")

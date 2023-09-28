@@ -35,10 +35,12 @@ export function AdvancedTab(): JSX.Element {
                 type="warning"
                 showIcon
             />
-            <Subtitle subtitle="Advanced Options" />
-            <SourcePlugin />
-            <CustomPlugin />
-            {preflight && !preflight.cloud && <LocalPlugin />}
+            <div className="space-y-4">
+                <Subtitle subtitle="Advanced Options" />
+                <SourcePlugin />
+                <CustomPlugin />
+                {preflight && !preflight.cloud && <LocalPlugin />}
+            </div>
         </>
     )
 }

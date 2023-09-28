@@ -105,6 +105,10 @@ export const pluginsLogic = kea<pluginsLogicType>([
         setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
         toggleSectionOpen: (section: PluginSection) => ({ section }),
         syncFrontendAppState: (id: number) => ({ id }),
+        openAdvancedInstallModal: true,
+        closeAdvancedInstallModal: true,
+        openReorderModal: true,
+        closeReorderModal: true,
     }),
 
     loaders(({ actions, values }) => ({
@@ -132,6 +136,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
                         actions.loadPlugins()
                     }
                     capturePluginEvent(`plugin installed`, response, pluginType)
+
+                    actions.closeAdvancedInstallModal()
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
@@ -344,7 +350,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             PluginTab.Installed as PluginTab,
             {
                 setPluginTab: (_, { tab }) => tab,
-                installPluginSuccess: () => PluginTab.Installed,
+                installPluginSuccess: (state) => (state === PluginTab.Apps ? state : PluginTab.Installed),
             },
         ],
         updateStatus: [
@@ -438,6 +444,20 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 },
             },
         ],
+        advancedInstallModalOpen: [
+            false,
+            {
+                openAdvancedInstallModal: () => true,
+                closeAdvancedInstallModal: () => false,
+            },
+        ],
+        reorderModalOpen: [
+            false,
+            {
+                openReorderModal: () => true,
+                closeReorderModal: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -457,6 +477,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 }
 
                 const pluginValues = Object.values(plugins)
+
                 return pluginValues
                     .map((plugin, index) => {
                         let pluginConfig: PluginConfigType = { ...pluginConfigs[plugin.id] }
@@ -467,6 +488,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                                     config[key] = def
                                 }
                             )
+
                             pluginConfig = {
                                 id: undefined,
                                 team_id: currentTeam.id,
@@ -746,6 +768,10 @@ export const pluginsLogic = kea<pluginsLogicType>([
             ) {
                 form.setFieldsValue({ posthogHost: window.location.origin })
             }
+        },
+
+        savePluginOrdersSuccess: () => {
+            actions.closeReorderModal()
         },
     })),
     actionToUrl(({ values }) => {

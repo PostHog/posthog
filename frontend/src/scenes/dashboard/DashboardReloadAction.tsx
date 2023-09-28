@@ -57,24 +57,19 @@ export function DashboardReloadAction(): JSX.Element {
                                     data-attr="auto-refresh-picker"
                                     id="auto-refresh-picker"
                                 >
-                                    <div
-                                        id="auto-refresh-check"
-                                        key="auto-refresh-check"
-                                        onClick={(e) => {
-                                            e.preventDefault()
-                                            e.stopPropagation()
-                                            setAutoRefresh(!autoRefresh.enabled, autoRefresh.interval)
-                                        }}
+                                    <Tooltip
+                                        title="Auto-refresh will only work while this tab is open"
+                                        placement="topRight"
                                     >
-                                        <Tooltip title={`Refresh dashboard automatically`} placement="bottomLeft">
+                                        <div>
                                             <LemonSwitch
                                                 onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
                                                 label={'Auto refresh'}
                                                 checked={autoRefresh.enabled}
                                                 fullWidth={true}
                                             />
-                                        </Tooltip>
-                                    </div>
+                                        </div>
+                                    </Tooltip>
                                     <LemonDivider />
                                     <div className={'flex flex-col'}>
                                         <div role="heading" className="text-muted mb-2">

@@ -65,7 +65,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
 
     selectors: {
         filter: [
-            (s) => [s.filters, (_, props) => props.filterIndex],
+            (s, p) => [s.filters, p.filterIndex],
             (filters, filterIndex): AnyPropertyFilter | null =>
                 filters[filterIndex] ? sanitizePropertyFilter(filters[filterIndex]) : null,
         ],
@@ -77,10 +77,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             (s) => [s.filter, s.taxonomicGroups],
             (filter, groups): TaxonomicFilterGroup | undefined => {
                 if (isGroupPropertyFilter(filter)) {
-                    const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(
-                        filter.type,
-                        filter.group_type_index
-                    )
+                    const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(filter)
                     return groups.find((group) => group.type === taxonomicGroupType)
                 }
             },

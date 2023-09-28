@@ -10,6 +10,7 @@ from ..batch_exports.models import (
     BatchExportDestination,
     BatchExportRun,
 )
+from ..warehouse.models import DataWarehouseTable
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
@@ -36,13 +37,10 @@ from .organization import Organization, OrganizationInvite, OrganizationMembersh
 from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
-from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
+from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile, PluginLogEntry
 from .prompt.prompt import Prompt, PromptSequence, UserPromptState
 from .property import Property
 from .property_definition import PropertyDefinition
-from .session_recording import SessionRecording
-from .session_recording_playlist import SessionRecordingPlaylist
-from .session_recording_playlist_item import SessionRecordingPlaylistItem
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .feedback.survey import Survey
@@ -52,6 +50,9 @@ from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
+from ..session_recordings.models.session_recording import SessionRecording
+from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 
 __all__ = [
     "Action",

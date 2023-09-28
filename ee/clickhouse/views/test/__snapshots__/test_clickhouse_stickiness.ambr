@@ -5,7 +5,7 @@
          num_intervals
   FROM
     (SELECT e."$group_0" AS aggregation_target,
-            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -31,7 +31,7 @@
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
-            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -58,7 +58,7 @@
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
-            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -85,7 +85,7 @@
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
-            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -165,7 +165,7 @@
          num_intervals
   FROM
     (SELECT pdi.person_id AS aggregation_target,
-            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -198,7 +198,7 @@
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
-            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -231,7 +231,7 @@
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
-            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -264,7 +264,7 @@
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
-            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,

@@ -11,7 +11,7 @@ export const unsubscribeLogic = kea<unsubscribeLogicType>([
         attemptUnsubscribe: (token: string) => ({ token }),
     }),
 
-    loaders(({}) => ({
+    loaders(() => ({
         unsubscription: {
             __default: false as boolean,
             attemptUnsubscribe: async ({ token }) => {

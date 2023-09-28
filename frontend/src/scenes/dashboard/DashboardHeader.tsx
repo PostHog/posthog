@@ -332,6 +332,7 @@ export function DashboardHeader(): JSX.Element | null {
                             <EditableField
                                 multiline
                                 name="description"
+                                markdown
                                 value={dashboard.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) =>

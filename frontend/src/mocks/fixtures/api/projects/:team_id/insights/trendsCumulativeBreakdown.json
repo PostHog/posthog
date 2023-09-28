@@ -1,0 +1,532 @@
+{
+    "id": 51,
+    "short_id": "jEAIVJnM",
+    "name": "",
+    "derived_name": "Pageview count by event's Browser Version",
+    "filters": {
+        "events": [
+            {
+                "id": "$pageview",
+                "name": "$pageview",
+                "type": "events",
+                "order": 0
+            }
+        ],
+        "actions": [],
+        "display": "ActionsLineGraphCumulative",
+        "insight": "TRENDS",
+        "interval": "day",
+        "breakdown": "$browser_version",
+        "properties": {
+            "type": "AND",
+            "values": []
+        },
+        "breakdown_type": "event",
+        "filter_test_accounts": false
+    },
+    "filters_hash": "cache_31a060ddaf3ad137b7ae0f05afb06ce0",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - 100",
+            "count": 44182,
+            "data": [22750, 37782, 43114, 44182, 44182, 44182, 44182, 44182],
+            "labels": [
+                "8-Mar-2022",
+                "9-Mar-2022",
+                "10-Mar-2022",
+                "11-Mar-2022",
+                "12-Mar-2022",
+                "13-Mar-2022",
+                "14-Mar-2022",
+                "15-Mar-2022"
+            ],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "breakdown_value": "100",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-08",
+                        "breakdown_value": "100",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-08&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-09",
+                        "breakdown_value": "100",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-09&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-10",
+                        "breakdown_value": "100",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-10&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-11",
+                        "breakdown_value": "100",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-11&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-12",
+                        "breakdown_value": "100",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-12&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-13",
+                        "breakdown_value": "100",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-13&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-14",
+                        "breakdown_value": "100",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-14&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-15",
+                        "breakdown_value": "100",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-15&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser_version",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:38:59.745921+00:00",
+                "display": "ActionsLineGraphCumulative",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day"
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - 92",
+            "count": 598,
+            "data": [0, 0, 0, 544, 544, 544, 598, 598],
+            "labels": [
+                "8-Mar-2022",
+                "9-Mar-2022",
+                "10-Mar-2022",
+                "11-Mar-2022",
+                "12-Mar-2022",
+                "13-Mar-2022",
+                "14-Mar-2022",
+                "15-Mar-2022"
+            ],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "breakdown_value": "92",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-08",
+                        "breakdown_value": "92",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-08&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-09",
+                        "breakdown_value": "92",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-09&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-10",
+                        "breakdown_value": "92",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-10&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-11",
+                        "breakdown_value": "92",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-11&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-12",
+                        "breakdown_value": "92",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-12&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-13",
+                        "breakdown_value": "92",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-13&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-14",
+                        "breakdown_value": "92",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-14&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-15",
+                        "breakdown_value": "92",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-15&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser_version",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:38:59.745921+00:00",
+                "display": "ActionsLineGraphCumulative",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day"
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - 98",
+            "count": 2478,
+            "data": [120, 132, 1475, 2420, 2420, 2420, 2478, 2478],
+            "labels": [
+                "8-Mar-2022",
+                "9-Mar-2022",
+                "10-Mar-2022",
+                "11-Mar-2022",
+                "12-Mar-2022",
+                "13-Mar-2022",
+                "14-Mar-2022",
+                "15-Mar-2022"
+            ],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "breakdown_value": "98",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-08",
+                        "breakdown_value": "98",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-08&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-09",
+                        "breakdown_value": "98",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-09&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-10",
+                        "breakdown_value": "98",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-10&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-11",
+                        "breakdown_value": "98",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-11&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-12",
+                        "breakdown_value": "98",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-12&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-13",
+                        "breakdown_value": "98",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-13&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-14",
+                        "breakdown_value": "98",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-14&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08T00:00:00Z",
+                        "date_to": "2022-03-15",
+                        "breakdown_value": "98",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08+00%3A00%3A00%2B00%3A00&date_to=2022-03-15&display=ActionsLineGraphCumulative&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser_version",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:38:59.745921+00:00",
+                "display": "ActionsLineGraphCumulative",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day"
+            }
+        }
+    ],
+    "created_at": "2022-03-15T21:31:00.192917Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Marius",
+        "email": "marius@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-03-15T21:39:00.724595Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-03-15T21:39:00.720356Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Marius",
+        "email": "marius@posthog.com"
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37
+}

@@ -62,14 +62,14 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     )
 })
 
-interface LemonTextMarkdownProps {
+interface LemonTextAreaMarkdownProps {
     value?: string
     onChange?: (s: string) => void
     placeholder?: string
     'data-attr'?: string
 }
 
-export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
+export function LemonTextAreaMarkdown({ value, onChange, ...editAreaProps }: LemonTextAreaMarkdownProps): JSX.Element {
     const { objectStorageAvailable } = useValues(preflightLogic)
 
     const [isPreviewShown, setIsPreviewShown] = useState(false)
@@ -138,7 +138,11 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 {
                     key: 'preview',
                     label: 'Preview',
-                    content: value ? <TextContent text={value} /> : <i>Nothing to preview</i>,
+                    content: value ? (
+                        <TextContent text={value} className={'LemonTextArea--preview'} />
+                    ) : (
+                        <i>Nothing to preview</i>
+                    ),
                 },
             ]}
         />

@@ -10,7 +10,7 @@ import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
-import { defaultConfig } from '../../config/config'
+import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
@@ -28,13 +28,15 @@ import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
+import { isTestEnv } from '../env-utils'
 import { status } from '../status'
-import { createPostgresPool, createRedisPool, UUIDT } from '../utils'
+import { createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
+import { PostgresRouter } from './postgres'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -69,6 +71,10 @@ export async function createHub(
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
+    const fetchHostnameGuardTeams =
+        serverConfig.FETCH_HOSTNAME_GUARD_TEAMS === '*'
+            ? null
+            : new Set(serverConfig.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number))
 
     const statsd: StatsD | undefined = createStatsdClient(serverConfig, threadId)
 
@@ -90,7 +96,6 @@ export async function createHub(
             : undefined,
         rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
     })
-    await clickhouse.querying('SELECT 1') // test that the connection works
     status.info('👍', `ClickHouse ready`)
 
     status.info('🤔', `Connecting to Kafka...`)
@@ -102,9 +107,9 @@ export async function createHub(
     const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
     status.info('👍', `Kafka ready`)
 
-    status.info('🤔', `Connecting to Postgresql...`)
-    const postgres = createPostgresPool(serverConfig.DATABASE_URL)
-    status.info('👍', `Postgresql ready`)
+    const postgres = new PostgresRouter(serverConfig, statsd)
+    // TODO: assert tables are reachable (async calls that cannot be in a constructor)
+    status.info('👍', `Postgres Router ready`)
 
     status.info('🤔', `Connecting to Redis...`)
     const redisPool = createRedisPool(serverConfig)
@@ -181,16 +186,30 @@ export async function createHub(
         rootAccessManager,
         promiseManager,
         conversionBufferEnabledTeams,
+        fetchHostnameGuardTeams,
+        pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
     }
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-    hub.appMetrics = new AppMetrics(hub as Hub)
+    hub.appMetrics = new AppMetrics(
+        kafkaProducer,
+        serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+        serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+    )
 
     const closeHub = async () => {
+        if (!isTestEnv()) {
+            await hub.appMetrics?.flush()
+        }
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
+
+        // Break circular references to allow the hub to be GCed when running unit tests
+        // TODO: change these structs to not directly reference the hub
+        hub.eventsProcessor = undefined
+        hub.appMetrics = undefined
     }
 
     return [hub as Hub, closeHub]

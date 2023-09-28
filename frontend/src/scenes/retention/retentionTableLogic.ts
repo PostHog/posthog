@@ -73,7 +73,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                         ? results[rowIndex].label
                         : period === 'Hour'
                         ? dayjs(results[rowIndex].date).format('MMM D, h A')
-                        : dayjs.utc(results[rowIndex].date).format('MMM D'),
+                        : dayjs(results[rowIndex].date).format('MMM D'),
                     // Second column is the first value (which is essentially the total)
                     results[rowIndex].values[0].count,
                     // All other columns are rendered as percentage

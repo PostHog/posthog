@@ -12,7 +12,7 @@ export const hedgehogbuddyLogic = kea<hedgehogbuddyLogicType>([
         removeAccessory: (accessory: AccessoryInfo) => ({ accessory }),
     }),
 
-    reducers(({}) => ({
+    reducers(() => ({
         hedgehogModeEnabled: [
             false as boolean,
             { persist: true },
@@ -47,7 +47,7 @@ export const hedgehogbuddyLogic = kea<hedgehogbuddyLogicType>([
         ],
     }),
 
-    listeners(({}) => ({
+    listeners(() => ({
         setHedgehogModeEnabled: ({ enabled }) => {
             if (enabled) {
                 posthog.capture('hedgehog mode enabled')

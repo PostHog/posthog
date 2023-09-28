@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from posthog.api.person import PersonViewSet
 from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FUNNEL_CORRELATION_PERSON_OFFSET, INSIGHT_FUNNELS
-from posthog.decorators import cached_function
+from posthog.decorators import cached_by_filters
 from posthog.models import Filter
 from posthog.utils import format_query_params_absolute_url
 
@@ -19,7 +19,7 @@ class EnterprisePersonViewSet(PersonViewSet):
 
         return self._respond_with_cached_results(self.calculate_funnel_correlation_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_funnel_correlation_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:

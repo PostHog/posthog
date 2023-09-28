@@ -24,6 +24,7 @@ import { buildOnEventIngestionConsumer } from '../../../src/main/ingestion-queue
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import Piscina, { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
@@ -63,7 +64,7 @@ describe('workerTasks.runAppsOnEventPipeline()', () => {
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
         piscinaTaskRunner = createTaskRunner(hub)
-        await hub.postgres.query(POSTGRES_DELETE_TABLES_QUERY) // Need to clear the DB to avoid unique constraint violations on ids
+        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, null, 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
     })
 
     afterEach(() => {

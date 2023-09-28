@@ -1,4 +1,3 @@
-import MonacoEditor from '@monaco-editor/react'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { AnyResponseType, NodeKind, TimeToSeeDataNode } from '~/queries/schema'
@@ -7,6 +6,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { Trace } from './Trace/Trace'
 import { TimeToSeeSessionNode } from './types'
+import { CodeEditor } from 'lib/components/CodeEditors'
 
 let uniqueNode = 0
 
@@ -33,13 +33,11 @@ export function TimeToSeeData(props: { query: TimeToSeeDataNode; cachedResults?:
             {props.query.kind === NodeKind.TimeToSeeDataSessionsJSONNode ? (
                 <AutoSizer disableWidth>
                     {({ height }) => (
-                        <MonacoEditor
-                            theme="vs-light"
+                        <CodeEditor
                             className="border"
                             language={'json'}
                             value={JSON.stringify(response, null, 2)}
                             height={Math.max(height, 300)}
-                            loading={<Spinner />}
                         />
                     )}
                 </AutoSizer>

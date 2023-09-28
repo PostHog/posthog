@@ -638,6 +638,7 @@ class FunnelCorrelation:
             correlation, e.g. "watched video"
 
         """
+        self._filter.team = self._team
 
         event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
 

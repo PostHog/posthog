@@ -8,10 +8,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _expr(self, query: str) -> HogQLMetadataResponse:
-        return get_hogql_metadata(query=HogQLMetadata(expr=query), team=self.team)
+        return get_hogql_metadata(query=HogQLMetadata(kind="HogQLMetadata", expr=query, response=None), team=self.team)
 
     def _select(self, query: str) -> HogQLMetadataResponse:
-        return get_hogql_metadata(query=HogQLMetadata(select=query), team=self.team)
+        return get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", select=query, response=None), team=self.team
+        )
 
     def test_metadata_valid_expr_select(self):
         metadata = self._expr("select 1")
@@ -190,5 +192,55 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": None,
                     },
                 ],
+            },
+        )
+
+    def test_valid_view(self):
+        metadata = self._select("select event AS event FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "inputExpr": None,
+                "inputSelect": "select event AS event FROM events",
+                "errors": [],
+            },
+        )
+
+    def test_valid_view_nested_view(self):
+        self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event as event from events LIMIT 100",
+                },
+            },
+        )
+
+        metadata = self._select("select event AS event FROM event_view")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "inputExpr": None,
+                "inputSelect": "select event AS event FROM event_view",
+                "errors": [],
+            },
+        )
+
+    def test_union_all_does_not_crash(self):
+        metadata = self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "errors": [],
             },
         )

@@ -204,7 +204,6 @@ class Organization(UUIDModel):
         return {
             "member_count": self.members.count(),
             "project_count": self.teams.count(),
-            "person_count": sum(team.person_set.count() for team in self.teams.all()),
             "name": self.name,
         }
 

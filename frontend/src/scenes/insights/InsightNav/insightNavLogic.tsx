@@ -55,7 +55,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 // this gets much simpler once everything is using queries
 
                 if (userSelectedView === null) {
-                    if (!!query) {
+                    if (query) {
                         if (containsHogQLQuery(query)) {
                             return InsightType.SQL
                         } else if (isInsightVizNode(query)) {

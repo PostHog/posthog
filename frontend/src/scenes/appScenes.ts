@@ -8,6 +8,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
+    [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/events/EventDefinitionsTable'),
@@ -38,7 +39,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.EarlyAccessFeature]: () => import('./early-access-features/EarlyAccessFeature'),
     [Scene.Surveys]: () => import('./surveys/Surveys'),
     [Scene.Survey]: () => import('./surveys/Survey'),
-    [Scene.DataWarehouse]: () => import('./data-warehouse/posthog/DataWarehousePosthogScene'),
+    [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehousePosthog]: () => import('./data-warehouse/posthog/DataWarehousePosthogScene'),
     [Scene.DataWarehouseExternal]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehouseSavedQueries]: () => import('./data-warehouse/saved_queries/DataWarehouseSavedQueriesScene'),
@@ -77,4 +78,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Feedback]: () => import('./feedback/Feedback'),
     [Scene.Notebook]: () => import('./notebooks/NotebookScene'),
     [Scene.Products]: () => import('./products/Products'),
+    [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
 }

@@ -2,7 +2,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { batchExportsListLogic } from './batchExportsListLogic'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
@@ -13,8 +13,6 @@ export const scene: SceneExport = {
 }
 
 export function BatchExportsListScene(): JSX.Element {
-    const { batchExportConfigs, batchExportConfigsLoading, pagination } = useValues(batchExportsListLogic)
-
     return (
         <>
             <PageHeader
@@ -29,6 +27,17 @@ export function BatchExportsListScene(): JSX.Element {
             />
             <p>Batch exports allow you to export your data to a destination of your choice.</p>
 
+            <BatchExportsList />
+        </>
+    )
+}
+
+export function BatchExportsList(): JSX.Element {
+    const { batchExportConfigs, batchExportConfigsLoading, pagination } = useValues(batchExportsListLogic)
+    const { unpause, pause } = useActions(batchExportsListLogic)
+
+    return (
+        <>
             <LemonTable
                 dataSource={batchExportConfigs?.results ?? []}
                 loading={batchExportConfigsLoading}
@@ -106,7 +115,9 @@ export function BatchExportsListScene(): JSX.Element {
                                 {
                                     label: batchExport.paused ? 'Resume' : 'Pause',
                                     status: batchExport.paused ? 'primary' : 'danger',
-                                    onClick: () => {},
+                                    onClick: () => {
+                                        batchExport.paused ? unpause(batchExport) : pause(batchExport)
+                                    },
                                 },
                             ]
                             return (

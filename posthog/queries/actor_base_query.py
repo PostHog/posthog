@@ -98,6 +98,7 @@ class ActorBaseQuery:
         self,
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         """Get actors in data model and dict formats. Builds query and executes"""
+        self._filter.team = self._team
         query, params = self.actor_query()
         raw_result = insight_sync_execute(
             query,
@@ -262,7 +263,7 @@ def get_people(
 
 
 def serialize_people(
-    team: Team, data: QuerySet[Person], value_per_actor_id: Optional[Dict[str, float]]
+    team: Team, data: Union[QuerySet[Person], List[Person]], value_per_actor_id: Optional[Dict[str, float]] = None
 ) -> List[SerializedPerson]:
     from posthog.api.person import get_person_name
 

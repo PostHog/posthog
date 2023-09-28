@@ -756,7 +756,7 @@ body {
     *,
     *::before,
     *::after {
-        transition: none !important;
+        transition-duration: 0ms !important;
         animation-fill-mode: forwards !important;
         animation-duration: 0ms !important;
         animation-iteration-count: 1 !important;

@@ -1,5 +1,6 @@
-from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.mixins.common import (
+from .base_filter import BaseFilter
+from .mixins.common import (
+    AggregationAxisMixin,
     BreakdownMixin,
     BreakdownValueMixin,
     ClientQueryIdMixin,
@@ -26,7 +27,7 @@ from posthog.models.filters.mixins.common import (
     SmoothingIntervalsMixin,
     UpdatedAfterMixin,
 )
-from posthog.models.filters.mixins.funnel import (
+from .mixins.funnel import (
     FunnelCorrelationActorsMixin,
     FunnelCorrelationMixin,
     FunnelFromToStepsMixin,
@@ -40,10 +41,10 @@ from posthog.models.filters.mixins.funnel import (
     HistogramMixin,
     FunnelHogQLAggregationMixin,
 )
-from posthog.models.filters.mixins.groups import GroupsAggregationMixin
-from posthog.models.filters.mixins.interval import IntervalMixin
-from posthog.models.filters.mixins.property import PropertyMixin
-from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
+from .mixins.groups import GroupsAggregationMixin
+from .mixins.interval import IntervalMixin
+from .mixins.property import PropertyMixin
+from .mixins.simplify import SimplifyFilterMixin
 
 
 class Filter(
@@ -88,6 +89,7 @@ class Filter(
     UpdatedAfterMixin,
     ClientQueryIdMixin,
     SampleMixin,
+    AggregationAxisMixin,
     BaseFilter,
 ):
     """

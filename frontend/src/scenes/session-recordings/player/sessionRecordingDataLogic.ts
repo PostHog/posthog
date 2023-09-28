@@ -29,6 +29,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -208,7 +209,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return
             }
             if (!values.sessionPlayerSnapshotData?.snapshots) {
-                if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
+                // if `getCurrentExporterData` has a value then we're embedded/exported
+                // so, we always want to use blob replay
+                if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY] || getCurrentExporterData()) {
                     actions.loadRecordingSnapshotsV2()
                 } else {
                     actions.loadRecordingSnapshotsV1()
@@ -219,9 +222,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshotsV2Success: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
+                const canFallbackToClickHouse = values.canFallbackToClickHouseForData
                 // We got the snapshot response for realtime, and it was empty, so we fall back to the old API
                 // Until we migrate over we need to fall back to the old API if the new one returns no snapshots
-                actions.loadRecordingSnapshotsV1()
+                posthog.capture('recording_snapshots_v2_empty_response', {
+                    source: sources[0],
+                    canFallbackToClickHouse,
+                })
+
+                if (canFallbackToClickHouse) {
+                    actions.loadRecordingSnapshotsV1()
+                }
                 return
             }
 
@@ -231,12 +242,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             if (nextSourceToLoad) {
                 actions.loadRecordingSnapshotsV2(nextSourceToLoad)
-            } else {
-                actions.reportUsageIfFullyLoaded()
             }
         },
         loadRecordingSnapshotsV1Success: ({ sessionPlayerSnapshotData }) => {
-            if (!!sessionPlayerSnapshotData?.sources?.length) {
+            if (sessionPlayerSnapshotData?.sources?.length) {
                 // v1 request was force-upgraded to v2
                 actions.loadRecordingSnapshotsV2Success(sessionPlayerSnapshotData, undefined)
                 return
@@ -244,10 +253,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             actions.loadRecordingSnapshotsSuccess()
 
-            if (!!values.sessionPlayerSnapshotData?.next) {
+            if (values.sessionPlayerSnapshotData?.next) {
                 actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
-            } else {
-                actions.reportUsageIfFullyLoaded()
             }
             if (values.chunkPaginationIndex === 1 || values.loadedFromBlobStorage) {
                 // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
@@ -257,9 +264,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
-
-                actions.reportViewed()
             }
+        },
+        loadRecordingSnapshotsSuccess: () => {
+            actions.reportViewed()
+            actions.reportUsageIfFullyLoaded()
         },
         loadRecordingSnapshotsV1Failure: () => {
             actions.loadRecordingSnapshotsFailure()
@@ -481,7 +490,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 ],
                                 orderBy: ['timestamp ASC'],
                                 limit: 1000000,
-                                personId: person.id,
+                                personId: String(person.id),
                                 after: start.subtract(BUFFER_MS, 'ms').format(),
                                 before: end.add(BUFFER_MS, 'ms').format(),
                                 properties: [properties],
@@ -493,10 +502,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
                             // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
-                            let pathname = undefined
+                            let pathname: string | undefined
                             try {
                                 pathname = event[5] ? new URL(event[5]).pathname : undefined
-                            } catch {}
+                            } catch {
+                                pathname = undefined
+                            }
 
                             return {
                                 id: event[0],
@@ -533,7 +544,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             select: ['properties', 'timestamp'],
                             orderBy: ['timestamp ASC'],
                             limit: 100,
-                            personId: person?.id,
+                            personId: String(person?.id),
                             after: dayjs(event.timestamp).subtract(1000, 'ms').format(),
                             before: dayjs(event.timestamp).add(1000, 'ms').format(),
                             event: existingEvent.event,
@@ -557,6 +568,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     selectors({
+        canFallbackToClickHouseForData: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_ALLOW_V1_SNAPSHOTS]
+            },
+        ],
         sessionPlayerData: [
             (s) => [
                 s.sessionPlayerMetaData,

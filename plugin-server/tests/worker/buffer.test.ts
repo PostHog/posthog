@@ -52,6 +52,10 @@ describe('ExportEventsBuffer', () => {
         exportEventsBuffer = new ExportEventsBuffer(mockHub, pluginConfig39, { limit: 2 })
     })
 
+    afterEach(async () => {
+        await Promise.all(promiseManager.pendingPromises)
+    })
+
     test('add and flush work as expected', async () => {
         jest.spyOn(promiseManager, 'trackPromise')
         jest.spyOn(exportEventsBuffer, 'flush')

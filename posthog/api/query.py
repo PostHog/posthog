@@ -1,9 +1,7 @@
 import json
 import re
-from datetime import datetime
 from typing import Dict, Optional, cast, Any, List
 
-from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -27,6 +25,9 @@ from posthog.hogql.database.database import create_hogql_database, serialize_dat
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.trends_query_runner import TrendsQueryRunner
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
@@ -35,24 +36,12 @@ from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySeria
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
-from posthog.utils import relative_date_parse
+from posthog.utils import refresh_requested_by_client
 
 
 class QueryThrottle(TeamRateThrottle):
     scope = "query"
     rate = "120/hour"
-
-
-def parse_as_date_or(date_string: str | None, default: datetime) -> datetime:
-    if not date_string:
-        return default
-
-    try:
-        timestamp = isoparse(date_string)
-    except ValueError:
-        timestamp = relative_date_parse(date_string)
-
-    return timestamp or default
 
 
 class QuerySchemaParser(JSONParser):
@@ -63,7 +52,7 @@ class QuerySchemaParser(JSONParser):
     @staticmethod
     def validate_query(data) -> Dict:
         try:
-            schema.Model.parse_obj(data)
+            schema.Model.model_validate(data)
             # currently we have to return data not the parsed Model
             # because pydantic doesn't know to discriminate on 'kind'
             # if we can get this correctly typed we can return the parsed model
@@ -105,10 +94,9 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def list(self, request: Request, **kw) -> HttpResponse:
         self._tag_client_query_id(request.GET.get("client_query_id"))
         query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
-
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json), safe=False)
+            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -120,7 +108,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         self._tag_client_query_id(request_json.get("client_query_id"))
         # allow lists as well as dicts in response with safe=False
         try:
-            return JsonResponse(process_query(self.team, query_json), safe=False)
+            return JsonResponse(process_query(self.team, query_json, request=request), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
@@ -209,7 +197,9 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
     return cast(dict, _unwrap_pydantic(response))
 
 
-def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:
+def process_query(
+    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
+) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
@@ -217,19 +207,31 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     tag_queries(query=query_json)
 
     if query_kind == "EventsQuery":
-        events_query = EventsQuery.parse_obj(query_json)
-        response = run_events_query(query=events_query, team=team, default_limit=default_limit)
-        return _unwrap_pydantic_dict(response)
+        events_query = EventsQuery.model_validate(query_json)
+        events_response = run_events_query(query=events_query, team=team, default_limit=default_limit)
+        return _unwrap_pydantic_dict(events_response)
     elif query_kind == "HogQLQuery":
-        hogql_query = HogQLQuery.parse_obj(query_json)
-        response = execute_hogql_query(
-            query=hogql_query.query, team=team, query_type="HogQLQuery", default_limit=default_limit
+        hogql_query = HogQLQuery.model_validate(query_json)
+        hogql_response = execute_hogql_query(
+            query_type="HogQLQuery",
+            query=hogql_query.query,
+            team=team,
+            filters=hogql_query.filters,
+            default_limit=default_limit,
         )
-        return _unwrap_pydantic_dict(response)
+        return _unwrap_pydantic_dict(hogql_response)
     elif query_kind == "HogQLMetadata":
-        metadata_query = HogQLMetadata.parse_obj(query_json)
-        response = get_hogql_metadata(query=metadata_query, team=team)
-        return _unwrap_pydantic_dict(response)
+        metadata_query = HogQLMetadata.model_validate(query_json)
+        metadata_response = get_hogql_metadata(query=metadata_query, team=team)
+        return _unwrap_pydantic_dict(metadata_response)
+    elif query_kind == "LifecycleQuery":
+        refresh_requested = refresh_requested_by_client(request) if request else False
+        lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
+        return _unwrap_pydantic_dict(lifecycle_query_runner.run(refresh_requested=refresh_requested))
+    elif query_kind == "TrendsQuery":
+        refresh_requested = refresh_requested_by_client(request) if request else False
+        trends_query_runner = TrendsQueryRunner(query_json, team)
+        return _unwrap_pydantic_dict(trends_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)

@@ -24,7 +24,8 @@ class LifecycleFilter(Filter):
         if data:
             target_date = data.get("target_date", None)
             if target_date:
-                self.target_date = relative_date_parse(target_date)
+                assert self.team is not None
+                self.target_date = relative_date_parse(target_date, self.team.timezone_info)
             if self.target_date is None:
                 raise ValidationError("Must include specified target date")
 

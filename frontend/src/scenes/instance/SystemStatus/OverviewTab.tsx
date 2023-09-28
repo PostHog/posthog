@@ -45,7 +45,7 @@ export function OverviewTab(): JSX.Element {
             loading={systemStatusLoading}
             expandable={{
                 expandedRowRender: function renderExpand(row) {
-                    return !!row.subrows?.rows.length ? <Subrows {...row.subrows} /> : null
+                    return row.subrows?.rows.length ? <Subrows {...row.subrows} /> : null
                 },
                 rowExpandable: (row) => !!row.subrows?.rows.length,
             }}

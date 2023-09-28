@@ -207,7 +207,11 @@ export class GraphileWorker {
                 }
             }
 
-            const pool = createPostgresPool(this.hub.JOB_QUEUE_GRAPHILE_URL, onError)
+            const pool = createPostgresPool(
+                this.hub.JOB_QUEUE_GRAPHILE_URL,
+                this.hub.POSTGRES_CONNECTION_POOL_SIZE,
+                onError
+            )
             try {
                 await pool.query('select 1')
             } catch (error) {

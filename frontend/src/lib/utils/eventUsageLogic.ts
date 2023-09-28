@@ -550,7 +550,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportInsightSaved: async ({ filters, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
-            posthog.capture('insight saved', { ...filters, is_new_insight: isNewInsight })
+            posthog.capture('insight saved', {
+                ...filters,
+                is_new_insight: isNewInsight,
+            })
         },
         reportInsightViewed: ({
             insightModel,
@@ -657,7 +660,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
 
             for (const item of dashboard.tiles || []) {
-                if (!!item.insight) {
+                if (item.insight) {
                     const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                     if (!properties[key]) {
                         properties[key] = 1

@@ -69,7 +69,7 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
     const id = isEventsNode(node) ? node.event : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
-    return (isCustom ? customName : null) ?? name ?? (!!id ? `${id}` : null)
+    return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
 }
 
 export function extractObjectDiffKeys(

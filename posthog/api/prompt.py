@@ -15,7 +15,7 @@ from posthog.celery import app
 from posthog.exceptions import generate_exception_response
 from posthog.models.prompt import Prompt, PromptSequence, UserPromptState
 from posthog.models.user import User
-from posthog.utils import cors_response
+from posthog.utils_cors import cors_response
 
 
 class PromptButtonSerializer(serializers.Serializer):

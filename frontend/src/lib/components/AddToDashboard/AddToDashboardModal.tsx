@@ -70,12 +70,13 @@ const DashboardRelationRow = ({
             )}
             <span className="grow" />
             <LemonButton
-                type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
+                type="secondary"
+                status={isAlreadyOnDashboard ? 'danger' : 'primary'}
                 loading={dashboardWithActiveAPICall === dashboard.id}
                 disabledReason={
                     !canEditInsight
                         ? "You don't have permission to edit this dashboard"
-                        : !!dashboardWithActiveAPICall
+                        : dashboardWithActiveAPICall
                         ? 'Loading...'
                         : ''
                 }
@@ -87,7 +88,7 @@ const DashboardRelationRow = ({
                         : addToDashboard(insight, dashboard.id)
                 }}
             >
-                {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
+                {isAlreadyOnDashboard ? 'Remove from dashboard' : 'Add to dashboard'}
             </LemonButton>
         </div>
     )

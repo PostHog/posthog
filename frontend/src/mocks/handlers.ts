@@ -33,6 +33,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/@current/dashboard_templates/repository/': [],
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/groups_types/': [],
         '/api/projects/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/insights/:insight_id/sharing/': {
             enabled: false,
@@ -81,6 +82,10 @@ export const defaultMocks: Mocks = {
         },
         // We don't want to show the "new version available" banner in tests
         'https://api.github.com/repos/posthog/posthog-js/tags': () => [200, []],
+        'https://www.gravatar.com/avatar/:gravatar_id': () => [404, ''],
+        'https://app.posthog.com/api/early_access_features': {
+            earlyAccessFeatures: [],
+        },
     },
     post: {
         'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],

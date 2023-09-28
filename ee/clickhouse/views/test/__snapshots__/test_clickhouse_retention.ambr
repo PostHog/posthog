@@ -20,8 +20,8 @@
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -89,8 +89,8 @@
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -161,8 +161,8 @@
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -242,8 +242,8 @@
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -342,8 +342,8 @@
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -438,8 +438,8 @@
                [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
+                              toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')),
+                              toStartOfDay(toTimeZone(toDateTime(min(e.timestamp), 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e

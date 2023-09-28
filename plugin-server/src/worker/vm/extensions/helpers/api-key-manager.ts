@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 
 import { DB } from '../../../../utils/db/db'
+import { PostgresUse } from '../../../../utils/db/postgres'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { generateRandomToken, UUIDT } from '../../../../utils/utils'
 import { OrganizationMembershipLevel, RawOrganization } from './../../../../types'
@@ -45,7 +46,8 @@ export class PluginsApiKeyManager {
         const timeout = timeoutGuard(`Still running "fetchOrCreatePersonalApiKey". Timeout warning after 30 sec!`)
         try {
             let key: string | null = null
-            const userResult = await this.db.postgresQuery(
+            const userResult = await this.db.postgres.query(
+                PostgresUse.COMMON_WRITE, // Happens on redis cache miss, so let's use the master to reduce races between pods
                 `SELECT id FROM posthog_user WHERE current_organization_id = $1 AND email LIKE $2`,
                 [organizationId, `%@${POSTHOG_BOT_USER_EMAIL_DOMAIN}`],
                 'fetchPluginsUser'

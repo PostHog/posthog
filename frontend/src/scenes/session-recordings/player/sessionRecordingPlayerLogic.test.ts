@@ -242,67 +242,61 @@ describe('sessionRecordingPlayerLogic', () => {
             { uuid: '2', timestamp: '2022-06-01T12:01:00.000Z', session_id: '1', window_id: '1' },
             { uuid: '3', timestamp: '2022-06-01T12:02:00.000Z', session_id: '1', window_id: '1' },
         ]
-        it('starts as empty list', async () => {
-            await expectLogic(logic).toMatchValues({
-                matching: [],
-            })
-        })
+
         it('initialized through props', async () => {
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
                 playerKey: 'test',
-                matching: [
-                    {
-                        events: listOfMatchingEvents,
-                    },
-                ],
+                matchingEventsMatchType: {
+                    matchType: 'uuid',
+                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                },
             })
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                matching: [
-                    {
-                        events: listOfMatchingEvents,
+                logicProps: expect.objectContaining({
+                    matchingEventsMatchType: {
+                        matchType: 'uuid',
+                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
                     },
-                ],
+                }),
             })
         })
         it('changes when filter results change', async () => {
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '4',
                 playerKey: 'test',
-                matching: [
-                    {
-                        events: listOfMatchingEvents,
-                    },
-                ],
+                matchingEventsMatchType: {
+                    matchType: 'uuid',
+                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                },
             })
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                matching: [
-                    {
-                        events: listOfMatchingEvents,
+                logicProps: expect.objectContaining({
+                    matchingEventsMatchType: {
+                        matchType: 'uuid',
+                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
                     },
-                ],
+                }),
             })
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '4',
                 playerKey: 'test',
-                matching: [
-                    {
-                        events: [listOfMatchingEvents[0]],
-                    },
-                ],
+                matchingEventsMatchType: {
+                    matchType: 'uuid',
+                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                },
             })
             logic.mount()
-            await expectLogic(logic)
-                .toDispatchActions(['setMatching'])
-                .toMatchValues({
-                    matching: [
-                        {
-                            events: [listOfMatchingEvents[0]],
-                        },
-                    ],
-                })
+            await expectLogic(logic).toMatchValues({
+                logicProps: expect.objectContaining({
+                    matchingEventsMatchType: {
+                        matchType: 'uuid',
+                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                    },
+                }),
+            })
         })
     })
 })

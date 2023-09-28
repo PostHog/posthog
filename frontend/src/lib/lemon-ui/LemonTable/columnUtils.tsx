@@ -1,5 +1,4 @@
 import { TZLabel } from 'lib/components/TZLabel'
-import { Row } from 'antd'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonTableColumn } from './types'
 import { UserBasicType } from '~/types'
@@ -30,11 +29,11 @@ export function createdByColumn<T extends { created_by?: UserBasicType | null }>
         render: function Render(_: any, item) {
             const { created_by } = item
             return (
-                <Row align="middle" wrap={false}>
+                <div className={'flex flex-row items-center flex-nowrap'}>
                     {created_by && (
                         <ProfilePicture name={created_by.first_name} email={created_by.email} size="md" showName />
                     )}
-                </Row>
+                </div>
             )
         },
         sorter: (a, b) =>

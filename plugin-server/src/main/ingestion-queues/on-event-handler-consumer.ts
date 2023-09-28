@@ -1,10 +1,10 @@
 import { StatsD } from 'hot-shots'
 import { Consumer, Kafka } from 'kafkajs'
 import * as schedule from 'node-schedule'
-import { Pool } from 'pg'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub, PluginsServerConfig } from '../../types'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 import { ActionManager } from '../../worker/ingestion/action-manager'
@@ -13,7 +13,8 @@ import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import Piscina from '../../worker/piscina'
-import { eachBatchAppsOnEventHandlers, eachBatchWebhooksHandlers } from './batch-processing/each-batch-async-handlers'
+import { eachBatchAppsOnEventHandlers } from './batch-processing/each-batch-onevent'
+import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
 import { KafkaJSIngestionConsumer, setupEventHandlers } from './kafka-queue'
 
 export const startAsyncOnEventHandlerConsumer = async ({
@@ -56,7 +57,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     serverConfig,
 }: {
     kafka: Kafka
-    postgres: Pool
+    postgres: PostgresRouter
     teamManager: TeamManager
     organizationManager: OrganizationManager
     statsd: StatsD | undefined
@@ -84,7 +85,13 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     const actionManager = new ActionManager(postgres)
     await actionManager.prepare()
     const actionMatcher = new ActionMatcher(postgres, actionManager, statsd)
-    const hookCannon = new HookCommander(postgres, teamManager, organizationManager, statsd)
+    const hookCannon = new HookCommander(
+        postgres,
+        teamManager,
+        organizationManager,
+        new Set(serverConfig.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
+        statsd
+    )
     const concurrency = serverConfig.TASKS_PER_WORKER || 20
 
     const pubSub = new PubSub(serverConfig, {

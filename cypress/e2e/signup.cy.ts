@@ -1,3 +1,5 @@
+import { decideResponse } from '../fixtures/api/decide'
+
 describe('Signup', () => {
     beforeEach(() => {
         cy.get('[data-attr=top-menu-toggle]').click()
@@ -70,5 +72,22 @@ describe('Signup', () => {
         cy.get('[type=submit]').click()
         // if there are other form issues, we'll get errors on the form, not this toast
         cy.get('.Toastify [data-attr="error-toast"]').contains('Inactive social login session.')
+    })
+
+    it('Shows redirect notice if redirecting for maintenance', () => {
+        cy.visit('/logout')
+        cy.location('pathname').should('include', '/login')
+        cy.intercept('https://app.posthog.com/decide/*', (req) =>
+            req.reply(
+                decideResponse({
+                    'redirect-signups-to-instance': 'us',
+                })
+            )
+        )
+        cy.visit('/signup?maintenanceRedirect=true')
+        cy.get('.Toastify__toast-body').should(
+            'contain',
+            `You have been redirected to signup on our US instance while we perform maintenance on our other instance.`
+        )
     })
 })

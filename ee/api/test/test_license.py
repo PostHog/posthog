@@ -2,7 +2,7 @@ import datetime
 from unittest.mock import Mock, patch
 
 import pytest
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.utils.timezone import now
@@ -27,7 +27,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(response_data["results"][0]["key"], "12345::67890")
         self.assertEqual(
             response_data["results"][0]["valid_until"],
-            timezone.datetime(2038, 1, 19, 3, 14, 7, tzinfo=pytz.UTC).isoformat().replace("+00:00", "Z"),
+            timezone.datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")).isoformat().replace("+00:00", "Z"),
         )
 
         retrieve_response = self.client.get(f"/api/license/{response_data['results'][0]['id']}")

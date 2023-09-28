@@ -8,11 +8,13 @@ import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
+import { NotebookSidebar } from './NotebookSidebar'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 export type NotebookProps = {
     shortId: string
@@ -24,8 +26,9 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
-    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable } = useActions(logic)
+    const { notebook, content, notebookLoading, editor, conflictWarningVisible } = useValues(logic)
+    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
+        useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
@@ -54,14 +57,6 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
         return <NotebookLoadingState />
     } else if (!notebook) {
         return <NotFound object="notebook" />
-    } else if (isEmpty && !editable) {
-        return (
-            <div className="NotebookEditor">
-                <h1>
-                    <i>Untitled</i>
-                </h1>
-            </div>
-        )
     }
 
     return (
@@ -93,22 +88,28 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     </LemonBanner>
                 ) : null}
 
-                <Editor
-                    initialContent={content}
-                    onCreate={setEditor}
-                    onUpdate={onEditorUpdate}
-                    placeholder={({ node }: { node: any }) => {
-                        if (node.type.name === 'heading' && node.attrs.level === 1) {
-                            return `Untitled - maybe.. "${headingPlaceholder}"`
-                        }
+                <div className="flex flex-1 justify-center space-x-2">
+                    <NotebookSidebar />
+                    <ErrorBoundary>
+                        <Editor
+                            initialContent={content}
+                            onCreate={setEditor}
+                            onUpdate={onEditorUpdate}
+                            onSelectionUpdate={onEditorSelectionUpdate}
+                            placeholder={({ node }: { node: any }) => {
+                                if (node.type.name === 'heading' && node.attrs.level === 1) {
+                                    return `Untitled - maybe.. "${headingPlaceholder}"`
+                                }
 
-                        if (node.type.name === 'heading') {
-                            return `Heading ${node.attrs.level}`
-                        }
+                                if (node.type.name === 'heading') {
+                                    return `Heading ${node.attrs.level}`
+                                }
 
-                        return ''
-                    }}
-                />
+                                return ''
+                            }}
+                        />
+                    </ErrorBoundary>
+                </div>
             </div>
         </BindLogic>
     )

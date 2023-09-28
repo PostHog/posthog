@@ -63,7 +63,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    reducers(({}) => ({
+    reducers(() => ({
         filters: [
             null as RecordingFilters | null,
             {
@@ -91,7 +91,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
 
-    selectors(({}) => ({
+    selectors(() => ({
         breadcrumbs: [
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [

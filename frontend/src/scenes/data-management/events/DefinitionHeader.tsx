@@ -22,14 +22,14 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (!!KEY_MAPPING.event[definition.name]) {
+    if (KEY_MAPPING.event[definition.name]) {
         return (
             <Tooltip title="PostHog event property">
                 <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    if (!!definition.verified) {
+    if (definition.verified) {
         return (
             <Tooltip title="Verified event property">
                 <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
@@ -68,7 +68,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
     }
     if (definition.name && (definition.verified || !!KEY_MAPPING.event[definition.name])) {
         return (
-            <Tooltip title={`${!!KEY_MAPPING.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
+            <Tooltip title={`${KEY_MAPPING.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
                 <IconVerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )

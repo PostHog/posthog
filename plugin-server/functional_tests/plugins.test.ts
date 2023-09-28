@@ -14,7 +14,6 @@ import {
     fetchPluginConsoleLogEntries,
     fetchPostgresPersons,
     getPluginConfig,
-    postgres,
     reloadPlugins,
     updatePluginConfig,
     waitForPluginToLoad,
@@ -41,7 +40,7 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
                 event.properties.runCount = (event.properties.runCount || 0) + 1
                 return event
             }
-    
+
             export function onEvent (event, { global }) {
                 // we use this to mock setupPlugin being
                 // run after some events were already ingested
@@ -356,7 +355,7 @@ test.concurrent(
                 event.properties['$snapshot_data'] = 'no way'
                 return event
             }
-    
+
             export function onEvent (event, { global }) {
                 // we use this to mock setupPlugin being
                 // run after some events were already ingested
@@ -406,7 +405,7 @@ test.concurrent(
 )
 
 test.concurrent(`plugin jobs: can call runNow from onEvent`, async () => {
-    const indexJs = `    
+    const indexJs = `
         export function onEvent (event, { jobs }) {
             console.info(JSON.stringify(['onEvent', event]))
             jobs.runMeAsync().runNow()
@@ -457,7 +456,7 @@ test.concurrent(`plugin jobs: can call runNow from onEvent`, async () => {
 })
 
 test.concurrent(`plugin jobs: can call runNow from processEvent`, async () => {
-    const indexJs = `    
+    const indexJs = `
         export function processEvent(event, { jobs }) {
             console.info(JSON.stringify(['processEvent', event]))
             jobs.runMeAsync().runNow()
@@ -568,27 +567,16 @@ test.concurrent('plugins can use attachements', async () => {
         source__index_ts: indexJs,
     })
 
-    const client = await postgres.connect()
-    let pluginConfig
-
-    try {
-        await client.query('BEGIN')
-        pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} }, client)
-
-        await createPluginAttachment({
-            teamId,
-            pluginConfigId: pluginConfig.id,
-            fileSize: 4,
-            contentType: 'text/plain',
-            fileName: 'test.txt',
-            key: 'testAttachment',
-            contents: 'test',
-            client: client,
-        })
-        await client.query('COMMIT')
-    } finally {
-        client.release()
-    }
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
+    await createPluginAttachment({
+        teamId,
+        pluginConfigId: pluginConfig.id,
+        fileSize: 4,
+        contentType: 'text/plain',
+        fileName: 'test.txt',
+        key: 'testAttachment',
+        contents: 'test',
+    })
 
     await reloadPlugins()
 

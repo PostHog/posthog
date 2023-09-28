@@ -1,6 +1,7 @@
 import { Hub, Team, TeamId } from '../../types'
 import { status } from '../status'
 import { UUIDT } from '../utils'
+import { PostgresUse } from './postgres'
 
 interface Trigger {
     job_type: string
@@ -21,7 +22,8 @@ export async function createPluginActivityLog(
         return
     }
 
-    await hub.db.postgresQuery(
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
         `
         INSERT INTO posthog_activitylog (id, team_id, organization_id, activity, item_id, detail, scope, is_system, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, 'PluginConfig', TRUE, NOW())

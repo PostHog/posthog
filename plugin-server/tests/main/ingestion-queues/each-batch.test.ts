@@ -1,9 +1,5 @@
+import { buildIntegerMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
-import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
-import {
-    eachBatchAppsOnEventHandlers,
-    eachBatchWebhooksHandlers,
-} from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
@@ -13,6 +9,11 @@ import {
     eachBatchLegacyIngestion,
     splitKafkaJSIngestionBatch,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion-kafkajs'
+import { eachBatchAppsOnEventHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-onevent'
+import {
+    eachBatchWebhooksHandlers,
+    groupIntoBatchesByUsage,
+} from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
 import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
@@ -20,10 +21,10 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
-import { groupIntoBatches } from '../../../src/utils/utils'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
+import { pluginConfig39 } from '../../helpers/plugins'
 
 jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
     const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
@@ -92,7 +93,8 @@ describe('eachBatchX', () => {
                 partition: 0,
                 messages: events.map((event) => ({
                     value: JSON.stringify(event),
-                    timestamp,
+                    // if event has timestamp use it, otherwise use timestamp
+                    timestamp: event.kafkaTimestamp || timestamp,
                     offset: event.offset,
                 })),
             },
@@ -134,6 +136,7 @@ describe('eachBatchX', () => {
                 kafkaProducer: {
                     queueMessage: jest.fn(),
                 },
+                pluginConfigsPerTeam: new Map(),
             },
             workerMethods: {
                 runAppsOnEventPipeline: jest.fn(),
@@ -143,30 +146,10 @@ describe('eachBatchX', () => {
         }
     })
 
-    describe('eachBatch', () => {
-        it('calls eachMessage with the correct arguments', async () => {
-            const eachMessage = jest.fn(() => Promise.resolve())
-            const batch = createKafkaJSBatch(event)
-            await eachBatch(batch, queue, eachMessage, groupIntoBatches, 'key')
-
-            expect(eachMessage).toHaveBeenCalledWith({ value: JSON.stringify(event) }, queue)
-        })
-
-        it('tracks metrics based on the key', async () => {
-            const eachMessage = jest.fn(() => Promise.resolve())
-            await eachBatch(createKafkaJSBatch(event), queue, eachMessage, groupIntoBatches, 'my_key')
-
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_my_key',
-                expect.any(Date)
-            )
-        })
-    })
-
-    describe('eachBatchWebhooksHandlers', () => {
-        it('calls runWebhooksHandlersEventPipeline', async () => {
+    describe('eachBatchAppsOnEventHandlers', () => {
+        it('calls runAppsOnEventPipeline when useful', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [pluginConfig39])
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
-
             expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
                 ...event,
                 properties: {
@@ -177,6 +160,50 @@ describe('eachBatchX', () => {
                 'kafka_queue.each_batch_async_handlers_on_event',
                 expect.any(Date)
             )
+        })
+        it('skip runAppsOnEventPipeline when no pluginconfig for team', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.clear()
+            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+            expect(queue.workerMethods.runAppsOnEventPipeline).not.toHaveBeenCalled()
+            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
+                'kafka_queue.each_batch_async_handlers_on_event',
+                expect.any(Date)
+            )
+        })
+        it('parses elements when useful', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
+                { ...pluginConfig39, plugin_id: 60 },
+                { ...pluginConfig39, plugin_id: 33 },
+            ])
+            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
+            await eachBatchAppsOnEventHandlers(
+                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
+                queue
+            )
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                elementsList: [{ attributes: {}, order: 0, tag_name: 'random' }],
+                properties: {
+                    $ip: '127.0.0.1',
+                },
+            })
+        })
+        it('skips elements parsing when not useful', async () => {
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
+                { ...pluginConfig39, plugin_id: 60 },
+                { ...pluginConfig39, plugin_id: 100 },
+            ])
+            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
+            await eachBatchAppsOnEventHandlers(
+                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
+                queue
+            )
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                properties: {
+                    $ip: '127.0.0.1',
+                },
+            })
         })
     })
 
@@ -190,6 +217,8 @@ describe('eachBatchX', () => {
                 queue.pluginsServer.organizationManager
             )
             const matchSpy = jest.spyOn(actionMatcher, 'match')
+            // mock hasWebhooks to return true
+            actionMatcher.hasWebhooks = jest.fn(() => true)
             await eachBatchWebhooksHandlers(
                 createKafkaJSBatch(clickhouseEvent),
                 actionMatcher,
@@ -214,6 +243,147 @@ describe('eachBatchX', () => {
                 'kafka_queue.each_batch_async_handlers_webhooks',
                 expect.any(Date)
             )
+        })
+
+        it('it batches events properly', () => {
+            // create a batch with 10 events each having teamId the same as offset, timestamp which all increment by 1
+            const batch = createKafkaJSBatchWithMultipleEvents([
+                {
+                    ...clickhouseEvent,
+                    team_id: 1,
+                    offset: 1,
+                    kafkaTimestamp: '2020-02-23 00:01:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    ...clickhouseEvent,
+                    team_id: 2,
+                    offset: 2,
+                    kafkaTimestamp: '2020-02-23 00:02:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    ...clickhouseEvent,
+                    team_id: 3,
+                    offset: 3,
+                    kafkaTimestamp: '2020-02-23 00:03:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    ...clickhouseEvent,
+                    team_id: 4,
+                    offset: 4,
+                    kafkaTimestamp: '2020-02-23 00:04:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    ...clickhouseEvent,
+                    team_id: 5,
+                    offset: 5,
+                    kafkaTimestamp: '2020-02-23 00:05:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    ...clickhouseEvent,
+                    team_id: 6,
+                    offset: 6,
+                    kafkaTimestamp: '2020-02-23 00:06:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    ...clickhouseEvent,
+                    team_id: 7,
+                    offset: 7,
+                    kafkaTimestamp: '2020-02-23 00:07:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    ...clickhouseEvent,
+                    team_id: 8,
+                    offset: 8,
+                    kafkaTimestamp: '2020-02-23 00:08:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    ...clickhouseEvent,
+                    team_id: 9,
+                    offset: 9,
+                    kafkaTimestamp: '2020-02-23 00:09:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    ...clickhouseEvent,
+                    team_id: 10,
+                    offset: 10,
+                    kafkaTimestamp: '2020-02-23 00:10:00.00' as ClickHouseTimestamp,
+                },
+            ])
+            // teamIDs 1,3,10 should return false, others true
+            const toProcess = jest.fn((teamId) => teamId !== 1 && teamId !== 3 && teamId !== 10)
+            const result = groupIntoBatchesByUsage(batch.batch.messages, 5, toProcess)
+            expect(result).toEqual([
+                {
+                    eventBatch: expect.arrayContaining([
+                        expect.objectContaining({
+                            team_id: 2,
+                        }),
+                        expect.objectContaining({
+                            team_id: 4,
+                        }),
+                        expect.objectContaining({
+                            team_id: 5,
+                        }),
+                        expect.objectContaining({
+                            team_id: 6,
+                        }),
+                        expect.objectContaining({
+                            team_id: 7,
+                        }),
+                    ]),
+                    lastOffset: 7,
+                    lastTimestamp: '2020-02-23 00:07:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    eventBatch: expect.arrayContaining([
+                        expect.objectContaining({
+                            team_id: 8,
+                        }),
+                        expect.objectContaining({
+                            team_id: 9,
+                        }),
+                    ]),
+                    lastOffset: 10,
+                    lastTimestamp: '2020-02-23 00:10:00.00' as ClickHouseTimestamp,
+                },
+            ])
+            // make sure that if the last message would be a new batch and if it's going to be excluded we
+            // still get the last batch as empty with the right offsite and timestamp
+            const result2 = groupIntoBatchesByUsage(batch.batch.messages, 7, toProcess)
+            expect(result2).toEqual([
+                {
+                    eventBatch: expect.arrayContaining([
+                        expect.objectContaining({
+                            team_id: 2,
+                        }),
+                        expect.objectContaining({
+                            team_id: 4,
+                        }),
+                        expect.objectContaining({
+                            team_id: 5,
+                        }),
+                        expect.objectContaining({
+                            team_id: 6,
+                        }),
+                        expect.objectContaining({
+                            team_id: 7,
+                        }),
+                        expect.objectContaining({
+                            team_id: 8,
+                        }),
+                        expect.objectContaining({
+                            team_id: 9,
+                        }),
+                    ]),
+                    lastOffset: 9,
+                    lastTimestamp: '2020-02-23 00:09:00.00' as ClickHouseTimestamp,
+                },
+                {
+                    eventBatch: expect.arrayContaining([]),
+                    lastOffset: 10,
+                    lastTimestamp: '2020-02-23 00:10:00.00' as ClickHouseTimestamp,
+                },
+            ])
         })
     })
 

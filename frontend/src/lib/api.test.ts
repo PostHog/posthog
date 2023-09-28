@@ -38,8 +38,7 @@ describe('API helper', () => {
                 {
                     signal: undefined,
                     headers: {
-                        // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
-                        // 'X-POSTHOG-SESSION-ID': 'fake-session-id'
+                        'X-POSTHOG-SESSION-ID': 'fake-session-id',
                     },
                 }
             )

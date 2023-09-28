@@ -23,6 +23,7 @@ import {
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
+import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
@@ -266,7 +267,8 @@ test('merge people', async () => {
 })
 
 test('capture new person', async () => {
-    await hub.db.postgresQuery(
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
         `UPDATE posthog_team
              SET ingested_event = $1
              WHERE id = $2`,
@@ -313,7 +315,7 @@ test('capture new person', async () => {
     let persons = await hub.db.fetchPersons()
     expect(persons[0].version).toEqual(0)
     expect(persons[0].created_at).toEqual(now)
-    let expectedProps = {
+    let expectedProps: Record<string, any> = {
         $creator_event_uuid: uuid,
         $initial_browser: 'Chrome',
         $initial_browser_version: '95',
@@ -327,6 +329,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
+        $browser: 'Chrome',
+        $browser_version: '95',
+        $current_url: 'https://test.com',
+        $os: 'Mac OS X',
+        $referrer: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -341,7 +349,17 @@ test('capture new person', async () => {
     expect(events[0].properties).toEqual({
         $ip: '127.0.0.1',
         $os: 'Mac OS X',
-        $set: { utm_medium: 'twitter', gclid: 'GOOGLE ADS ID', msclkid: 'BING ADS ID' },
+        $set: {
+            utm_medium: 'twitter',
+            gclid: 'GOOGLE ADS ID',
+            msclkid: 'BING ADS ID',
+            $browser: 'Chrome',
+            $browser_version: '95',
+            $current_url: 'https://test.com',
+            $os: 'Mac OS X',
+            $referrer: 'https://google.com/?q=posthog',
+            $referring_domain: 'https://google.com',
+        },
         token: 'THIS IS NOT A TOKEN FOR TEAM 2',
         $browser: 'Chrome',
         $set_once: {
@@ -410,6 +428,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
+        $browser: 'Firefox',
+        $browser_version: 80,
+        $current_url: 'https://test.com/pricing',
+        $os: 'Mac OS X',
+        $referrer: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -423,6 +447,9 @@ test('capture new person', async () => {
 
     expect(events[1].properties.$set).toEqual({
         utm_medium: 'instagram',
+        $browser: 'Firefox',
+        $browser_version: 80,
+        $current_url: 'https://test.com/pricing',
     })
     expect(events[1].properties.$set_once).toEqual({
         $initial_browser: 'Firefox',
@@ -479,6 +506,9 @@ test('capture new person', async () => {
     expect(persons[0].version).toEqual(1)
 
     expect(events[2].properties.$set).toEqual({
+        $browser: 'Firefox',
+        $current_url: 'https://test.com/pricing',
+
         utm_medium: 'instagram',
     })
     expect(events[2].properties.$set_once).toEqual({
@@ -896,7 +926,12 @@ test('ip override', async () => {
 })
 
 test('anonymized ip capture', async () => {
-    await hub.db.postgresQuery('update posthog_team set anonymize_ips = $1', [true], 'testTag')
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
+        'update posthog_team set anonymize_ips = $1',
+        [true],
+        'testTag'
+    )
     await createPerson(hub, team, ['asdfasdfasdf'])
 
     await processEvent(
@@ -1146,7 +1181,14 @@ test('long htext', async () => {
 })
 
 test('capture first team event', async () => {
-    await hub.db.postgresQuery(`UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`, [false, team.id], 'testTag')
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_team
+         SET ingested_event = $1
+         WHERE id = $2`,
+        [false, team.id],
+        'testTag'
+    )
 
     posthog.capture = jest.fn() as any
     posthog.identify = jest.fn() as any
@@ -1222,6 +1264,8 @@ const sessionReplayEventTestCases: {
         | 'console_warn_count'
         | 'console_error_count'
         | 'size'
+        | 'event_count'
+        | 'message_count'
     >
 }[] = [
     {
@@ -1230,7 +1274,7 @@ const sessionReplayEventTestCases: {
             click_count: 1,
             keypress_count: 0,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1238,6 +1282,8 @@ const sessionReplayEventTestCases: {
             console_warn_count: 0,
             console_error_count: 0,
             size: 73,
+            event_count: 1,
+            message_count: 1,
         },
     },
     {
@@ -1246,7 +1292,7 @@ const sessionReplayEventTestCases: {
             click_count: 0,
             keypress_count: 1,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1254,6 +1300,8 @@ const sessionReplayEventTestCases: {
             console_warn_count: 0,
             console_error_count: 0,
             size: 73,
+            event_count: 1,
+            message_count: 1,
         },
     },
     {
@@ -1302,7 +1350,7 @@ const sessionReplayEventTestCases: {
             click_count: 0,
             keypress_count: 1,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1310,6 +1358,8 @@ const sessionReplayEventTestCases: {
             console_warn_count: 3,
             console_error_count: 1,
             size: 762,
+            event_count: 7,
+            message_count: 1,
         },
     },
     {
@@ -1348,6 +1398,8 @@ const sessionReplayEventTestCases: {
             console_warn_count: 0,
             console_error_count: 0,
             size: 213,
+            event_count: 2,
+            message_count: 1,
         },
     },
     {
@@ -1367,7 +1419,7 @@ const sessionReplayEventTestCases: {
             click_count: 6,
             keypress_count: 0,
             mouse_activity_count: 6,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.000',
             last_timestamp: '2023-04-25 18:58:19.000',
             active_milliseconds: 6000, // can sum up the activity across windows
@@ -1375,6 +1427,8 @@ const sessionReplayEventTestCases: {
             console_warn_count: 0,
             console_error_count: 0,
             size: 433,
+            event_count: 6,
+            message_count: 1,
         },
     },
 ]
@@ -2735,6 +2789,35 @@ test('$unset person property', async () => {
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
     expect(person.properties).toEqual({ b: 2 })
+})
+
+test('$unset person empty set ignored', async () => {
+    await createPerson(hub, team, ['distinct_id1'], { a: 1, b: 2, c: 3 })
+
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: 'some_event',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+                $unset: {},
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
+    expect((await hub.db.fetchEvents()).length).toBe(1)
+
+    const [event] = await hub.db.fetchEvents()
+    expect(event.properties['$unset']).toEqual({})
+
+    const [person] = await hub.db.fetchPersons()
+    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+    expect(person.properties).toEqual({ a: 1, b: 2, c: 3 })
 })
 
 describe('ingestion in any order', () => {

@@ -142,7 +142,7 @@ export const activationLogic = kea<activationLogicType>([
         customEventsCount: [
             0,
             {
-                loadCustomEvents: async ({}, breakpoint) => {
+                loadCustomEvents: async (_, breakpoint) => {
                     breakpoint(200)
                     const url = api.eventDefinitions.determineListEndpoint({
                         event_type: EventDefinitionType.EventCustom,

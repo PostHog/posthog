@@ -2,7 +2,7 @@ import datetime as dt
 from enum import auto
 from typing import Optional
 
-import pytz
+from zoneinfo import ZoneInfo
 
 from posthog.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
@@ -54,7 +54,9 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.matrix = DummyMatrix(n_clusters=3, now=dt.datetime(2020, 1, 1, 0, 0, 0, 0, tzinfo=pytz.UTC), days_future=0)
+        cls.matrix = DummyMatrix(
+            n_clusters=3, now=dt.datetime(2020, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")), days_future=0
+        )
         cls.matrix.simulate()
 
     def test_reset_master(self):

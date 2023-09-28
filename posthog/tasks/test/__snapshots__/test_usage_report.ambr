@@ -11,7 +11,7 @@
   '
   
   SELECT team_id,
-         count(1) as count
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
   WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND event != '$feature_flag_called'

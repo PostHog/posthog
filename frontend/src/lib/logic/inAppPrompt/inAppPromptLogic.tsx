@@ -315,7 +315,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             const prompt = sequence.prompts.find((prompt) => prompt.step === step)
             if (prompt) {
                 switch (prompt.type) {
-                    case 'tooltip':
+                    case 'tooltip': {
                         const { close, show } = cancellableTooltipWithRetries(prompt, actions.promptAction, {
                             maxSteps: values.prompts.length,
                             onClose: actions.dismissSequence,
@@ -349,6 +349,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                             console.error(e)
                         }
                         break
+                    }
                     default:
                         break
                 }
@@ -489,12 +490,13 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     actions.optOutProductTour()
                     inAppPromptEventCaptureLogic.actions.reportProductTourSkipped()
                     break
-                default:
+                default: {
                     const potentialSequence = values.sequences.find((s) => s.key === action)
                     if (potentialSequence) {
                         actions.runSequence(potentialSequence, 0)
                     }
                     break
+                }
             }
         },
     })),

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.cursor import SnowflakeCursor
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import SnowflakeBatchExportInputs
@@ -342,12 +342,21 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 ),
             )
 
+        except exceptions.ActivityError as e:
+            if isinstance(e.cause, exceptions.CancelledError):
+                workflow.logger.exception("Snowflake BatchExport was cancelled.")
+                update_inputs.status = "Cancelled"
+            else:
+                workflow.logger.exception("Snowflake BatchExport failed.", exc_info=e)
+                update_inputs.status = "Failed"
+
+            update_inputs.latest_error = str(e.cause)
+            raise
+
         except Exception as e:
-            workflow.logger.exception("Snowflake BatchExport failed.", exc_info=e)
+            workflow.logger.exception("Snowflake BatchExport failed with an unexpected exception.", exc_info=e)
             update_inputs.status = "Failed"
-            # Note: This shallows the exception type, but the message should be enough.
-            # If not, swap to repr(e)
-            update_inputs.latest_error = str(e)
+            update_inputs.latest_error = "An unexpected error has ocurred"
             raise
 
         finally:

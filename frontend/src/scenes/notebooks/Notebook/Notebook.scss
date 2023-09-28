@@ -1,63 +1,71 @@
 .Notebook {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    flex: 1;
 
     .NotebookEditor {
         flex: 1;
+        width: 100%;
+        overflow: hidden;
 
-        > h1,
-        > h2,
-        > h3,
-        > h4,
-        > h5 {
-            margin-top: 0.5rem;
-        }
+        .ProseMirror {
+            &-focused {
+                outline: none;
+            }
 
-        > p {
-            margin-bottom: 0.2rem;
-        }
+            > h1,
+            > h2,
+            > h3,
+            > h4,
+            > h5 {
+                margin-top: 0.5rem;
+            }
 
-        > &.ProseMirror-focused {
-            outline: none;
-        }
+            > p {
+                margin-bottom: 0.2rem;
+            }
 
-        > .is-empty::before {
-            content: attr(data-placeholder);
-            float: left;
-            color: rgba(0, 0, 0, 0.2);
-            pointer-events: none;
-            height: 0;
-        }
+            > .is-empty::before {
+                content: attr(data-placeholder);
+                float: left;
+                color: rgba(0, 0, 0, 0.2);
+                pointer-events: none;
+                height: 0;
+            }
 
-        > ul,
-        ol {
-            padding-left: 1rem;
+            > ul {
+                list-style-type: disc;
+            }
 
-            li {
-                p {
-                    margin-bottom: 0.2rem;
+            > ol {
+                list-style-type: decimal;
+            }
+
+            > ul,
+            > ol {
+                padding-left: 1rem;
+
+                li {
+                    p {
+                        margin-bottom: 0.2rem;
+                    }
                 }
             }
-        }
 
-        > ul {
-            list-style: initial;
-        }
+            > pre {
+                background-color: rgba(0, 0, 0, 0.05);
+                border-radius: var(--radius);
+                overflow-x: auto;
+                margin-bottom: 0.5rem;
+                padding: 0.5rem;
+            }
 
-        > pre {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            overflow-x: auto;
-            margin-bottom: 0.5rem;
-            padding: 0.5rem;
-        }
-
-        > code,
-        > p code {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            padding: 0.2rem;
+            > code,
+            > p code {
+                background-color: rgba(0, 0, 0, 0.05);
+                border-radius: var(--radius);
+                padding: 0.2rem;
+            }
         }
 
         .Backlink {
@@ -99,16 +107,73 @@
     }
 
     &--compact {
-        max-width: 1000px;
-        width: 100%;
-        margin-left: auto;
-        margin-right: auto;
+        .NotebookEditor {
+            max-width: 800px;
+        }
     }
 
     &--editable {
-        .NotebookEditor {
+        .NotebookEditor .ProseMirror {
             // Add some padding to help clicking below the last element
             padding-bottom: 10rem;
+            flex: 1;
+        }
+    }
+
+    .NotebookSidebar {
+        position: relative;
+        width: 0px;
+        transition: width var(--notebook-popover-transition-properties);
+
+        .NotebookSidebar__padding {
+            height: 3.5rem;
+        }
+
+        .NotebookSidebar__content {
+            position: sticky;
+            align-self: flex-start;
+            top: 0px;
+            width: var(--notebook-sidebar-width);
+            transform: translateX(-100%);
+            transition: transform var(--notebook-popover-transition-properties);
+
+            .NotebookScene & {
+                // Account for sticky header
+                top: 4rem;
+            }
+        }
+
+        &--showing {
+            width: var(--notebook-sidebar-width);
+
+            .NotebookSidebar__content {
+                transform: translateX(0);
+            }
+        }
+    }
+
+    .NotebookInlineMenu {
+        margin-bottom: -0.2rem;
+        box-shadow: 0px 4px 10px 0px rgba(0, 0, 0, 0.1);
+
+        .LemonInput {
+            border: 0px;
+            min-height: 0px;
+        }
+
+        .LemonButton {
+            min-height: 1.75rem;
+
+            .LemonButton__icon {
+                font-size: 1rem;
+            }
+        }
+    }
+
+    .NotebookNodeSettings__widgets {
+        &__content {
+            max-height: calc(100vh - 220px);
+            overflow: auto;
         }
     }
 

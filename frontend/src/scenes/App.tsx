@@ -95,7 +95,7 @@ export function App(): JSX.Element | null {
         )
     }
 
-    return showingDelayedSpinner ? <SpinnerOverlay sceneLevel /> : null
+    return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
@@ -133,10 +133,6 @@ function AppScene(): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const SceneComponent: (...args: any[]) => JSX.Element | null =
-        (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <SpinnerOverlay sceneLevel /> : null))
-
     const toastContainer = (
         <ToastContainer
             autoClose={6000}
@@ -149,14 +145,22 @@ function AppScene(): JSX.Element | null {
         />
     )
 
-    const protectedBoundActiveScene = (
+    let sceneElement: JSX.Element
+    if (activeScene && activeScene in loadedScenes) {
+        const { component: SceneComponent } = loadedScenes[activeScene]
+        sceneElement = <SceneComponent user={user} {...params} />
+    } else {
+        sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+    }
+
+    const wrappedSceneElement = (
         <ErrorBoundary key={activeScene}>
             {activeLoadedScene?.logic ? (
                 <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
-                    <SceneComponent user={user} {...params} />
+                    {sceneElement}
                 </BindLogic>
             ) : (
-                <SceneComponent user={user} {...params} />
+                sceneElement
             )}
         </ErrorBoundary>
     )
@@ -164,7 +168,7 @@ function AppScene(): JSX.Element | null {
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <>
-                {protectedBoundActiveScene}
+                {wrappedSceneElement}
                 {toastContainer}
             </>
         ) : null
@@ -174,7 +178,9 @@ function AppScene(): JSX.Element | null {
 
     return (
         <>
-            <Navigation>{protectedBoundActiveScene}</Navigation>
+            <Navigation scene={activeScene} sceneConfig={sceneConfig}>
+                {wrappedSceneElement}
+            </Navigation>
             {toastContainer}
             <FeaturePreviewsModal />
             <UpgradeModal />

@@ -123,7 +123,7 @@ export function ManageSubscriptions({
 
             <LemonModal.Footer>
                 <div className="flex-1">
-                    {!!subscriptions.length ? (
+                    {subscriptions.length ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>
                             Add subscription
                         </LemonButton>

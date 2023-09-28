@@ -3134,6 +3134,24 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             name="cohort2",
         )
 
+        Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort2 -unrelated",
+        )
+
         client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -3212,11 +3230,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "filters": {
                     "groups": [
                         {
-                            "properties": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}],
-                            "rollout_percentage": 20,
-                        },
-                        {
-                            "properties": [{"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}],
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
                             "rollout_percentage": 20,
                         },
                     ],
@@ -3242,7 +3256,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "filters": {
                     "groups": [
                         {
-                            "properties": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}],
+                            "properties": [{"key": "id", "type": "cohort", "value": other_cohort1.pk}],
                             "rollout_percentage": 20,
                         },
                     ],
@@ -3254,8 +3268,35 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             sorted_flags[1],
         )
 
-        self.assertEqual(response_data["cohorts"], {})
-        # No cohorts used in flags after transformation, so no cohorts returned
+        # When send_cohorts is true, no transformations happen, so all relevant cohorts are returned
+        self.assertEqual(
+            response_data["cohorts"],
+            {
+                str(cohort_valid_for_ff.pk): {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
+                            ],
+                        }
+                    ],
+                },
+                str(other_cohort1.pk): {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
 
     @patch("posthog.api.feature_flag.report_user_action")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
@@ -3441,11 +3482,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "filters": {
                     "groups": [
                         {
-                            "properties": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}],
-                            "rollout_percentage": 20,
-                        },
-                        {
-                            "properties": [{"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}],
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
                             "rollout_percentage": 20,
                         },
                     ],

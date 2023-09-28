@@ -48,7 +48,7 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
 
 export function RecentRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'projectHomepage' })
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ logicKey: 'projectHomepage' })
     const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsListLogicInstance)
 
     return (

@@ -109,6 +109,8 @@ function redirectOnSelectItems(
         )
     } else if (groupType === TaxonomicFilterGroupType.Dashboards) {
         router.actions.push(urls.dashboard(value))
+    } else if (groupType === TaxonomicFilterGroupType.Notebooks) {
+        router.actions.push(urls.notebook(String(value)))
     }
 }
 

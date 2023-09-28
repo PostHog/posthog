@@ -3,7 +3,7 @@ from datetime import datetime
 from unittest.mock import patch
 from urllib.parse import unquote, urlencode
 
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -168,7 +168,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["random_prop"])
     @snapshot_clickhouse_queries
     def test_event_property_values(self):
-
         with freeze_time("2020-01-10"):
             _create_event(
                 distinct_id="bla",
@@ -264,13 +263,13 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # with relative values
         with freeze_time("2020-01-11T12:03:03.829294Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?after=5d&before=1d").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?after=4d&before=1d").json()
             self.assertEqual(len(response["results"]), 2)
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/?after=6d&before=2h").json()
             self.assertEqual(len(response["results"]), 3)
 
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?before=3d").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?before=4d").json()
             self.assertEqual(len(response["results"]), 1)
 
         action = Action.objects.create(team=self.team)
@@ -346,8 +345,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-10-10T12:03:03.829294Z"):
             _create_person(team=self.team, distinct_ids=["1"])
             now = timezone.now() - relativedelta(months=11)
-            after = (now).astimezone(pytz.utc).isoformat()
-            before = (now + relativedelta(days=23)).astimezone(pytz.utc).isoformat()
+            after = (now).astimezone(ZoneInfo("UTC")).isoformat()
+            before = (now + relativedelta(days=23)).astimezone(ZoneInfo("UTC")).isoformat()
             params = {"distinct_id": "1", "after": after, "before": before, "limit": 10}
             params_string = urlencode(params)
             for idx in range(0, 25):

@@ -12,6 +12,11 @@ const DUMMIES: ProfileBubblesProps['people'] = [
 const meta: Meta<typeof ProfileBubblesComponent> = {
     title: 'Lemon UI/Profile Bubbles',
     component: ProfileBubblesComponent,
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
+    },
     args: {
         people: DUMMIES,
     },

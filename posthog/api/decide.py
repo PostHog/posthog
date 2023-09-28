@@ -25,8 +25,8 @@ from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
-from posthog.utils import cors_response, get_ip_address, label_for_team_id_to_track, load_data_from_request
-
+from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
+from posthog.utils_cors import cors_response
 
 FLAG_EVALUATION_COUNTER = Counter(
     "flag_evaluation_total",
@@ -224,6 +224,8 @@ def get_decide(request: HttpRequest):
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
                 }
+
+            response["surveys"] = True if team.surveys_opt_in else False
 
             site_apps = []
             # errors mean the database is unavailable, bail in this case

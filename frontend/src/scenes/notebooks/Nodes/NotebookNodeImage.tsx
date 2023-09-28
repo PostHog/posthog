@@ -9,7 +9,7 @@ import { NotebookNodeViewProps } from '../Notebook/utils'
 const MAX_DEFAULT_HEIGHT = 1000
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeImageAttributes>): JSX.Element => {
-    const { file, src, height } = props.node.attrs
+    const { file, src, height } = props.attributes
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string>()
 
@@ -77,8 +77,12 @@ type NotebookNodeImageAttributes = {
 
 export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttributes>({
     nodeType: NotebookNodeType.Image,
-    title: 'Image',
+    defaultTitle: 'Image',
     Component,
+    serializedText: (attrs) => {
+        // TODO file is null when this runs... should it be?
+        return attrs?.file?.name || ''
+    },
     heightEstimate: 400,
     minHeight: 100,
     resizeable: true,

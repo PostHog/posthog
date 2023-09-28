@@ -17,6 +17,8 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.batch_exports.service import sync_batch_export
+from posthog.models import BatchExport, BatchExportDestination
 from posthog.temporal.client import sync_connect
 from posthog.temporal.codec import EncryptionCodec
 
@@ -167,3 +169,75 @@ def test_can_patch_config(client: HttpClient, interval):
         decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
         args = json.loads(decoded_payload[0].data)
         assert args["bucket_name"] == "my-new-production-s3-bucket"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("interval", ["hour", "day"])
+def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval):
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+            "invalid_key": "invalid_value",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "interval": interval,
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    # Create a BatchExport straight in the database/temporal to avoid going through the API
+    # as that's what we are trying to test here.
+    destination = BatchExportDestination(**destination_data)
+    batch_export = BatchExport(team=team, destination=destination, **batch_export_data)
+
+    sync_batch_export(batch_export, created=True)
+
+    destination.save()
+    batch_export.save()
+
+    with start_test_worker(temporal):
+        # We should be able to update the destination config, even if there is an invalid config
+        # in the existing keys.
+        new_destination_data = {
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-new-production-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+            },
+        }
+
+        new_batch_export_data = {
+            "name": "my-production-s3-bucket-destination",
+            "destination": new_destination_data,
+        }
+
+        response = patch_batch_export(client, team.pk, batch_export.id, new_batch_export_data)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        # get the batch export and validate e.g. that bucket_name and interval
+        # has been preserved.
+        batch_export = get_batch_export_ok(client, team.pk, batch_export.id)
+        assert batch_export["interval"] == interval
+        assert batch_export["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
+
+        # validate the underlying temporal schedule has been updated
+        codec = EncryptionCodec(settings=settings)
+        new_schedule = describe_schedule(temporal, batch_export["id"])
+        decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["bucket_name"] == "my-new-production-s3-bucket"
+        assert args.get("invalid_key", None) is None

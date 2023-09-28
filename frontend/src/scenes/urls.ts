@@ -80,6 +80,7 @@ export const urls = {
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
+    webAnalytics: (): string => `/web`,
 
     replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
@@ -122,6 +123,8 @@ export const urls = {
     appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
     appHistory: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
         combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
+    appLogs: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
+        combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
@@ -144,6 +147,7 @@ export const urls = {
     inviteSignup: (id: string): string => `/signup/${id}`,
     ingestion: (): string => '/ingestion',
     products: (): string => '/products',
+    onboarding: (productKey: string): string => `/onboarding/${productKey}`,
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only
@@ -182,5 +186,4 @@ export const urls = {
             tab: 'notebooks',
         }).url,
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
-    notebookEdit: (shortId: string): string => `/notebooks/${shortId}/edit`,
 }

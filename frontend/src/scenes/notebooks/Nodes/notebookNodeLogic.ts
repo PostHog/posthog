@@ -3,7 +3,7 @@ import {
     afterMount,
     beforeUnmount,
     BuiltLogic,
-    defaults,
+    connect,
     kea,
     key,
     listeners,
@@ -15,61 +15,111 @@ import {
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
-import { JSONContent, Node } from '../Notebook/utils'
+import {
+    CustomNotebookNodeAttributes,
+    JSONContent,
+    Node,
+    NotebookNode,
+    NotebookNodeAction,
+    NotebookNodeAttributeProperties,
+    NotebookNodeAttributes,
+    NotebookNodeWidget,
+} from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 
 export type NotebookNodeLogicProps = {
-    node: Node
+    node: NotebookNode
     nodeId: string
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
-    title: string
-}
+    resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
+    widgets: NotebookNodeWidget[]
+    startExpanded: boolean
+} & NotebookNodeAttributeProperties<any>
+
+const computeResizeable = (
+    resizeable: NotebookNodeLogicProps['resizeable'],
+    attrs: NotebookNodeLogicProps['attributes']
+): boolean => (typeof resizeable === 'function' ? resizeable(attrs) : resizeable)
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
     props({} as NotebookNodeLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodeLogic', key]),
-    key(({ nodeId }) => nodeId),
+    key(({ nodeId }) => nodeId || 'no-node-id-set'),
     actions({
         setExpanded: (expanded: boolean) => ({ expanded }),
-        setTitle: (title: string) => ({ title }),
+        setResizeable: (resizeable: boolean) => ({ resizeable }),
+        setActions: (actions: (NotebookNodeAction | undefined)[]) => ({ actions }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
+        updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
         insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
             timestamp,
             sessionRecordingId,
         }),
+        setPreviousNode: (node: Node | null) => ({ node }),
+        setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
-        // TODO: Implement this
-        // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
+        selectNode: true,
     }),
 
-    defaults(() => (_, props) => ({
-        title: props.title,
+    connect((props: NotebookNodeLogicProps) => ({
+        actions: [props.notebookLogic, ['onUpdateEditor']],
+        values: [props.notebookLogic, ['editor']],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         expanded: [
-            false,
+            props.startExpanded,
             {
                 setExpanded: (_, { expanded }) => expanded,
             },
         ],
-        title: [
-            '',
+        resizeable: [
+            false,
             {
-                setTitle: (_, { title }) => title,
+                setResizeable: (_, { resizeable }) => resizeable,
             },
         ],
-    }),
+        previousNode: [
+            null as Node | null,
+            {
+                setPreviousNode: (_, { node }) => node,
+            },
+        ],
+        nextNode: [
+            null as Node | null,
+            {
+                setNextNode: (_, { node }) => node,
+            },
+        ],
+        actions: [
+            [] as NotebookNodeAction[],
+            {
+                setActions: (_, { actions }) => actions.filter((x) => !!x) as NotebookNodeAction[],
+            },
+        ],
+    })),
 
     selectors({
-        notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
+        notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
+        nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
+        widgets: [(_, p) => [p.widgets], (widgets) => widgets],
     }),
 
-    listeners(({ values, props }) => ({
+    listeners(({ actions, values, props }) => ({
+        onUpdateEditor: async () => {
+            const editor = values.notebookLogic.values.editor
+            if (editor) {
+                const pos = props.getPos()
+                const { previous, next } = editor.getAdjacentNodes(pos)
+                actions.setPreviousNode(previous)
+                actions.setNextNode(next)
+            }
+        },
+
         insertAfter: ({ content }) => {
             const logic = values.notebookLogic
             logic.values.editor?.insertContentAfterNode(props.getPos(), content)
@@ -78,6 +128,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         deleteNode: () => {
             const logic = values.notebookLogic
             logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
+            if (values.notebookLogic.values.editingNodeId === props.nodeId) {
+                values.notebookLogic.actions.setEditingNodeId(null)
+            }
+        },
+
+        selectNode: () => {
+            const editor = values.notebookLogic.values.editor
+
+            if (editor) {
+                editor.setSelection(props.getPos())
+                editor.scrollToSelection()
+            }
         },
 
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
@@ -96,20 +158,26 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         setExpanded: ({ expanded }) => {
             if (expanded) {
-                posthog.capture('notebook node selected', {
+                posthog.capture('notebook node expanded', {
                     node_type: props.nodeType,
                     short_id: props.notebookLogic.props.shortId,
                 })
             }
         },
+
+        updateAttributes: ({ attributes }) => {
+            props.updateAttributes(attributes)
+        },
     })),
 
-    afterMount((logic) => {
-        logic.props.notebookLogic.actions.registerNodeLogic(logic)
+    afterMount(async (logic) => {
+        logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
+        const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
+        logic.actions.setResizeable(resizeable)
     }),
 
     beforeUnmount((logic) => {
-        logic.props.notebookLogic.actions.unregisterNodeLogic(logic)
+        logic.props.notebookLogic.actions.unregisterNodeLogic(logic as any)
     }),
 ])
 

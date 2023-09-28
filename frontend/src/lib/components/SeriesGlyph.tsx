@@ -36,7 +36,9 @@ export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor
                           color: color,
                           backgroundColor: hexToRGBA(color, 0.15),
                       }
-                    : undefined
+                    : {
+                          color: 'var(--default)',
+                      }
             }
         >
             {alphabet[seriesIndex]}

@@ -1,56 +1,224 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { useValues } from 'kea'
-import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { IconFlag, IconRecording } from 'lib/lemon-ui/icons'
+import { BindLogic, useActions, useValues } from 'kea'
+import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
+import { IconFlag, IconRecording, IconRocketLaunch, IconSurveys } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { buildPlaylistContent } from './NotebookNodePlaylist'
+import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
+import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
+import { buildSurveyContent } from './NotebookNodeSurvey'
+import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
-    const { id } = props.node.attrs
-    const logic = featureFlagLogic({ id })
-    const { featureFlag, featureFlagLoading } = useValues(logic)
-    const { expanded } = useValues(notebookNodeLogic)
+    const { id } = props.attributes
+    const {
+        featureFlag,
+        featureFlagLoading,
+        recordingFilterForFlag,
+        hasEarlyAccessFeatures,
+        canCreateEarlyAccessFeature,
+        hasSurveys,
+    } = useValues(featureFlagLogic({ id }))
+    const { createEarlyAccessFeature, createSurvey } = useActions(featureFlagLogic({ id }))
+    const { expanded, nextNode } = useValues(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+
+    const { shouldDisableInsertEarlyAccessFeature, shouldDisableInsertSurvey } = useValues(
+        notebookNodeFlagLogic({ id, insertAfter })
+    )
+
+    useEffect(() => {
+        props.updateAttributes({ title: featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag' })
+
+        setActions([
+            {
+                icon: <IconSurveys />,
+                text: `${hasSurveys ? 'View' : 'Create'} survey`,
+                onClick: () => {
+                    if (!hasSurveys) {
+                        return createSurvey()
+                    }
+                    if ((featureFlag?.surveys?.length || 0) <= 0) {
+                        return
+                    }
+                    if (!shouldDisableInsertSurvey(nextNode) && featureFlag.surveys) {
+                        insertAfter(buildSurveyContent(featureFlag.surveys[0].id))
+                    }
+                },
+            },
+            {
+                icon: <IconFlag />,
+                text: 'Show implementation',
+                onClick: () => {
+                    if (nextNode?.type.name !== NotebookNodeType.FeatureFlagCodeExample) {
+                        insertAfter(buildCodeExampleContent(id))
+                    }
+                },
+            },
+            {
+                icon: <IconRecording />,
+                text: 'View Replays',
+                onClick: () => {
+                    if (nextNode?.type.name !== NotebookNodeType.RecordingPlaylist) {
+                        insertAfter(buildPlaylistContent(recordingFilterForFlag))
+                    }
+                },
+            },
+            canCreateEarlyAccessFeature
+                ? {
+                      text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
+                      icon: <IconRocketLaunch />,
+                      onClick: () => {
+                          if (!hasEarlyAccessFeatures) {
+                              createEarlyAccessFeature()
+                          } else {
+                              if ((featureFlag?.features?.length || 0) <= 0) {
+                                  return
+                              }
+                              if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
+                                  insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
+                              }
+                          }
+                      },
+                  }
+                : undefined,
+        ])
+    }, [featureFlag])
 
     return (
         <div>
-            <div className="flex items-center gap-2 p-4">
-                <IconFlag className="text-lg" />
-                {featureFlagLoading ? (
-                    <LemonSkeleton className="h-6 flex-1" />
-                ) : (
-                    <>
-                        <span className="flex-1 font-semibold truncate">{featureFlag.name}</span>
-                        <span
-                            className={clsx(
-                                'text-white rounded px-1',
-                                featureFlag.active ? 'bg-success' : 'bg-muted-alt'
-                            )}
-                        >
-                            {featureFlag.active ? 'Enabled' : 'Disabled'}
-                        </span>
-                    </>
-                )}
-            </div>
+            <BindLogic logic={featureFlagLogic} props={{ id }}>
+                <div className="flex items-center gap-2 p-3">
+                    <IconFlag className="text-lg" />
+                    {featureFlagLoading ? (
+                        <LemonSkeleton className="h-6 flex-1" />
+                    ) : (
+                        <>
+                            <span className="flex-1 font-semibold truncate">{featureFlag.key}</span>
+                            <span
+                                className={clsx(
+                                    'text-white rounded px-1',
+                                    featureFlag.active ? 'bg-success' : 'bg-muted-alt'
+                                )}
+                            >
+                                {featureFlag.active ? 'Enabled' : 'Disabled'}
+                            </span>
+                        </>
+                    )}
+                </div>
 
-            {expanded ? (
-                <>
-                    <LemonDivider className="my-0" />
-                    <div className="p-2">
-                        <p>More info here!</p>
-                    </div>
-                    <LemonDivider className="my-0" />
-                    <div className="p-2 flex justify-end">
-                        <LemonButton type="secondary" size="small" icon={<IconRecording />}>
-                            View Replays
+                {expanded ? (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className="p-2">
+                            <FeatureFlagReleaseConditions readOnly />
+                        </div>
+                    </>
+                ) : null}
+
+                {/* <LemonDivider className="my-0" />
+                <div className="p-2 mr-1 flex justify-end gap-2">
+                    {canCreateEarlyAccessFeature && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRocketLaunch />}
+                            loading={newEarlyAccessFeatureLoading}
+                            onClick={(e) => {
+                                // prevent expanding the node if it isn't expanded
+                                e.stopPropagation()
+
+                                if (!hasEarlyAccessFeatures) {
+                                    createEarlyAccessFeature()
+                                } else {
+                                    if ((featureFlag?.features?.length || 0) <= 0) {
+                                        return
+                                    }
+                                    if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
+                                        insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
+                                    }
+                                }
+                            }}
+                            disabledReason={
+                                shouldDisableInsertEarlyAccessFeature(nextNode) &&
+                                'Early access feature already exists below'
+                            }
+                        >
+                            {hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature
                         </LemonButton>
-                    </div>
-                </>
-            ) : null}
+                    )}
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconSurveys />}
+                        loading={newSurveyLoading}
+                        onClick={(e) => {
+                            // prevent expanding the node if it isn't expanded
+                            e.stopPropagation()
+
+                            if (!hasSurveys) {
+                                createSurvey()
+                            } else {
+                                if ((featureFlag?.surveys?.length || 0) <= 0) {
+                                    return
+                                }
+                                if (!shouldDisableInsertSurvey(nextNode) && featureFlag.surveys) {
+                                    insertAfter(buildSurveyContent(featureFlag.surveys[0].id))
+                                }
+                            }
+                        }}
+                        disabledReason={shouldDisableInsertSurvey(nextNode) && 'Survey already exists below'}
+                    >
+                        {hasSurveys ? 'View' : 'Create'} survey
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconFlag />}
+                        onClick={(e) => {
+                            // prevent expanding the node if it isn't expanded
+                            e.stopPropagation()
+
+                            if (nextNode?.type.name !== NotebookNodeType.FeatureFlagCodeExample) {
+                                insertAfter(buildCodeExampleContent(id))
+                            }
+                        }}
+                        disabledReason={
+                            nextNode?.type.name === NotebookNodeType.FeatureFlagCodeExample &&
+                            'Code example already exists below'
+                        }
+                    >
+                        Show implementation
+                    </LemonButton>
+                    <LemonButton
+                        onClick={(e) => {
+                            // prevent expanding the node if it isn't expanded
+                            e.stopPropagation()
+
+                            if (nextNode?.type.name !== NotebookNodeType.RecordingPlaylist) {
+                                insertAfter(buildPlaylistContent(recordingFilterForFlag))
+                            }
+                        }}
+                        type="secondary"
+                        size="small"
+                        icon={<IconRecording />}
+                        disabledReason={
+                            nextNode?.type.name === NotebookNodeType.RecordingPlaylist &&
+                            'Recording playlist already exists below'
+                        }
+                    >
+                        View Replays
+                    </LemonButton>
+                </div> */}
+            </BindLogic>
         </div>
     )
 }
@@ -61,7 +229,7 @@ type NotebookNodeFlagAttributes = {
 
 export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
-    title: 'Feature Flag',
+    defaultTitle: 'Feature flag',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.featureFlag(attrs.id),
@@ -76,3 +244,10 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
         },
     },
 })
+
+export function buildFlagContent(id: FeatureFlagLogicProps['id']): JSONContent {
+    return {
+        type: NotebookNodeType.FeatureFlag,
+        attrs: { id },
+    }
+}

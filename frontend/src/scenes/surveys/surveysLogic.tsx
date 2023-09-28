@@ -1,11 +1,14 @@
-import { afterMount, kea, listeners, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { Breadcrumb, ProgressStatus, Survey } from '~/types'
+import { AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 import { urls } from 'scenes/urls'
 
 import type { surveysLogicType } from './surveysLogicType'
 import { lemonToast } from '@posthog/lemon-ui'
+import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -18,12 +21,21 @@ export function getSurveyStatus(survey: Survey): ProgressStatus {
 
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
+    connect(() => ({
+        values: [
+            pluginsLogic,
+            ['installedPlugins', 'loading as pluginsLoading', 'enabledPlugins'],
+            // ['enabledPlugins'],
+            userLogic,
+            ['user'],
+        ],
+    })),
     loaders(({ values }) => ({
         surveys: {
             __default: [] as Survey[],
             loadSurveys: async () => {
-                const response = await api.surveys.list()
-                return response.results
+                const responseSurveys = await api.surveys.list()
+                return responseSurveys.results
             },
             deleteSurvey: async (id) => {
                 await api.surveys.delete(id)
@@ -34,10 +46,18 @@ export const surveysLogic = kea<surveysLogicType>([
                 return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
             },
         },
+        surveysResponsesCount: {
+            __default: {} as { [key: string]: number },
+            loadResponsesCount: async () => {
+                const surveysResponsesCount = await api.surveys.getResponsesCount()
+                return surveysResponsesCount
+            },
+        },
     })),
     listeners(() => ({
         deleteSurveySuccess: () => {
             lemonToast.success('Survey deleted')
+            router.actions.push(urls.surveys())
         },
         updateSurveySuccess: () => {
             lemonToast.success('Survey updated')
@@ -61,8 +81,19 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.surveys],
             (surveys: Survey[]): Survey[] => surveys.filter((survey) => survey.archived),
         ],
+        whitelabelAvailable: [
+            (s) => [s.user],
+            (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
+        ],
+        usingSurveysSiteApp: [
+            (s) => [s.enabledPlugins, s.pluginsLoading],
+            (enabledPlugins, pluginsLoading): boolean => {
+                return !!(!pluginsLoading && enabledPlugins.find((plugin) => plugin.name === 'Surveys app'))
+            },
+        ],
     }),
     afterMount(async ({ actions }) => {
         await actions.loadSurveys()
+        await actions.loadResponsesCount()
     }),
 ])

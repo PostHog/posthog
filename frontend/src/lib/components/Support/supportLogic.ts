@@ -11,6 +11,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { captureException } from '@sentry/react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import * as Sentry from '@sentry/react'
 
 function getSessionReplayLink(): string {
     const link = posthog
@@ -54,7 +55,8 @@ export const TARGET_AREA_TO_NAME = {
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
-    surveys: 'User Surveys',
+    toolbar: 'Toolbar & heatmaps',
+    surveys: 'Surveys',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -80,7 +82,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     persons: 'data_integrity',
     groups: 'data_integrity',
     app: 'apps',
-    toolbar: 'analytics',
+    toolbar: 'session_replay',
     warehouse: 'data_warehouse',
     surveys: 'surveys',
 }
@@ -236,15 +238,27 @@ export const supportLogic = kea<supportLogicType>([
                 .then((res) => res.json())
                 .then((res) => {
                     const zendesk_ticket_id = res.request.id
+                    const zendesk_ticket_link = `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`
                     const properties = {
                         zendesk_ticket_uuid,
                         kind,
                         target_area,
                         message,
                         zendesk_ticket_id,
-                        zendesk_ticket_link: `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`,
+                        zendesk_ticket_link,
                     }
                     posthog.capture('support_ticket', properties)
+                    Sentry.captureMessage('User submitted Zendesk ticket', {
+                        tags: {
+                            zendesk_ticket_uuid,
+                            zendesk_ticket_link,
+                            support_request_kind: kind,
+                            support_request_area: target_area,
+                            team_id: teamLogic.values.currentTeamId,
+                        },
+                        extra: properties,
+                        level: 'log',
+                    })
                     lemonToast.success(
                         "Got the message! If we have follow-up information for you, we'll reply via email."
                     )

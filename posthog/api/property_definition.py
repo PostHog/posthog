@@ -355,16 +355,20 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
         )
 
     def update(self, property_definition: PropertyDefinition, validated_data):
+        changed_fields = {
+            k: v
+            for k, v in validated_data.items()
+            if validated_data.get(k) != getattr(property_definition, k, None if k != "tags" else [])
+        }
         # free users can update property type but no other properties on property definitions
-        if list(validated_data.keys()) == ["property_type"]:
-            validated_data["updated_by"] = self.context["request"].user
-            if "property_type" in validated_data:
-                if validated_data["property_type"] == "Numeric":
-                    validated_data["is_numerical"] = True
-                else:
-                    validated_data["is_numerical"] = False
+        if set(changed_fields) == {"property_type"}:
+            changed_fields["updated_by"] = self.context["request"].user
+            if changed_fields["property_type"] == "Numeric":
+                changed_fields["is_numerical"] = True
+            else:
+                changed_fields["is_numerical"] = False
 
-            return super().update(property_definition, validated_data)
+            return super().update(property_definition, changed_fields)
         else:
             raise EnterpriseFeatureException()
 

@@ -11,11 +11,11 @@ import clsx from 'clsx'
 import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
 import { LemonButton } from '@posthog/lemon-ui'
-import { openNotebook } from '../Notebook/notebooksListLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import { useMemo } from 'react'
+import { openNotebook } from '~/models/notebooksModel'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { shortId, findNodeLogic } = useValues(notebookLogic)
@@ -74,6 +74,12 @@ export const NotebookNodeReplayTimestamp = Node.create({
     inline: true,
     group: 'inline',
     atom: true,
+
+    serializedText: (attrs: NotebookNodeReplayTimestampAttrs): string => {
+        // timestamp is not a block so `getText` does not add a separator.
+        // we need to add it manually
+        return `${attrs.playbackTime ? formatTimestamp(attrs.playbackTime) : '00:00'}:\n`
+    },
 
     addAttributes() {
         return {

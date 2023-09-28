@@ -1,4 +1,3 @@
-import { Row } from 'antd'
 import clsx from 'clsx'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -53,9 +52,9 @@ interface SubtitleProps {
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {
     return (
-        <Row className="mt-8" justify={buttons ? 'space-between' : 'start'} align="middle">
+        <div className={clsx('flex mt-5 items-center', buttons ? 'justify-between' : 'justify-start')}>
             <h2 className="subtitle">{subtitle}</h2>
             {buttons}
-        </Row>
+        </div>
     )
 }

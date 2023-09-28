@@ -22,6 +22,7 @@ export function Seekbar(): JSX.Element {
 
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
+    const seekBarRef = useRef<HTMLDivElement | null>(null)
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -38,7 +39,7 @@ export function Seekbar(): JSX.Element {
             <div className="flex flex-col w-full">
                 <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />
 
-                <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })}>
+                <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
                     <div
                         className="PlayerSeekbar__slider"
                         ref={sliderRef}
@@ -76,7 +77,7 @@ export function Seekbar(): JSX.Element {
                             style={{ transform: `translateX(${thumbLeftPos}px)` }}
                         />
 
-                        <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} />
+                        <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} seekBarRef={seekBarRef} />
                     </div>
                 </div>
             </div>

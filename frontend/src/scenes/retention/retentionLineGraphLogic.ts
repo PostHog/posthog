@@ -71,7 +71,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
                         label: cohortRetention.date
                             ? period === 'Hour'
                                 ? dayjs(cohortRetention.date).format('MMM D, h A')
-                                : dayjs.utc(cohortRetention.date).format('MMM D')
+                                : dayjs(cohortRetention.date).format('MMM D')
                             : cohortRetention.label,
                         data:
                             retention_reference === 'previous'

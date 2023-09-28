@@ -9,7 +9,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.db.models.signals import post_delete, post_save
-
+from zoneinfo import ZoneInfo
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -114,6 +114,15 @@ def get_default_data_attributes() -> List[str]:
     return ["data-attr"]
 
 
+class WeekStartDay(models.IntegerChoices):
+    SUNDAY = 0, "Sunday"
+    MONDAY = 1, "Monday"
+
+    @property
+    def clickhouse_mode(self) -> str:
+        return "3" if self == WeekStartDay.MONDAY else "0"
+
+
 class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
@@ -141,10 +150,14 @@ class Team(UUIDClassicModel):
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     session_recording_version: models.CharField = models.CharField(null=True, blank=True, max_length=24)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
+    week_start_day: models.SmallIntegerField = models.SmallIntegerField(
+        null=True, blank=True, choices=WeekStartDay.choices
+    )
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps: models.BooleanField = models.BooleanField(null=True)
 
@@ -297,6 +310,10 @@ class Team(UUIDClassicModel):
         """,
             {"team_id": self.pk, "group_type_index": group_type_index},
         )[0][0]
+
+    @cached_property
+    def timezone_info(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
 
     def __str__(self):
         if self.name:

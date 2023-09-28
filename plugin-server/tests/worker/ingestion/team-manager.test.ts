@@ -1,8 +1,7 @@
 import { Settings } from 'luxon'
 
 import { defaultConfig } from '../../../src/config/config'
-import { postgresQuery } from '../../../src/utils/db/postgres'
-import { createPostgresPool } from '../../../src/utils/utils'
+import { PostgresRouter, PostgresUse } from '../../../src/utils/db/postgres'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
@@ -16,11 +15,11 @@ jest.mock('../../../src/utils/posthog', () => ({
 
 describe('TeamManager()', () => {
     let teamManager: TeamManager
-    let postgres: ReturnType<typeof createPostgresPool>
+    let postgres: PostgresRouter
 
     beforeEach(async () => {
         await resetTestDatabase()
-        postgres = createPostgresPool(defaultConfig.DATABASE_URL)
+        postgres = new PostgresRouter(defaultConfig, undefined)
         teamManager = new TeamManager(postgres, defaultConfig)
         Settings.defaultZoneName = 'utc'
     })
@@ -39,7 +38,12 @@ describe('TeamManager()', () => {
             // expect(team!.__fetch_event_uuid).toEqual('uuid1')
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:55Z').getTime())
-            await postgresQuery(postgres, "UPDATE posthog_team SET name = 'Updated Name!'", undefined, 'testTag')
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                "UPDATE posthog_team SET name = 'Updated Name!'",
+                undefined,
+                'testTag'
+            )
 
             jest.mocked(postgres.query).mockClear()
 
@@ -65,7 +69,12 @@ describe('TeamManager()', () => {
     describe('getTeamByToken()', () => {
         it('caches positive lookups for 2 minutes', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:05Z').getTime())
-            await postgresQuery(postgres, "UPDATE posthog_team SET api_token = 'my_token'", undefined, 'testTag')
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                "UPDATE posthog_team SET api_token = 'my_token'",
+                undefined,
+                'testTag'
+            )
 
             // Initial lookup hits the DB and returns null
             jest.spyOn(postgres, 'query')
@@ -75,7 +84,12 @@ describe('TeamManager()', () => {
             expect(team!.anonymize_ips).toEqual(false)
 
             // Settings are updated
-            await postgresQuery(postgres, 'UPDATE posthog_team SET anonymize_ips = true', undefined, 'testTag')
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_team SET anonymize_ips = true',
+                undefined,
+                'testTag'
+            )
 
             // Second lookup hits the cache and skips the DB lookup, setting is stale
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:01:56Z').getTime())

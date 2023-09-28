@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional, Any
-
+from django.db.models import Q
 import structlog
 from django.db import transaction
 from django.db.models import QuerySet
@@ -74,6 +74,7 @@ class NotebookSerializer(serializers.ModelSerializer):
             "short_id",
             "title",
             "content",
+            "text_content",
             "version",
             "deleted",
             "created_at",
@@ -243,11 +244,20 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
             elif key == "created_by":
                 queryset = queryset.filter(created_by__uuid=request.GET["created_by"])
             elif key == "date_from":
-                queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
+                queryset = queryset.filter(
+                    last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
+                )
             elif key == "date_to":
-                queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
-            elif key == "s":
-                queryset = queryset.filter(title__icontains=request.GET["s"])
+                queryset = queryset.filter(
+                    last_modified_at__lt=relative_date_parse(request.GET["date_to"], self.team.timezone_info)
+                )
+            elif key == "search":
+                queryset = queryset.filter(
+                    # some notebooks have no text_content until next saved, so we need to check the title too
+                    # TODO this can be removed once all/most notebooks have text_content
+                    Q(title__search=request.GET["search"])
+                    | Q(text_content__search=request.GET["search"])
+                )
             elif key == "contains":
                 contains = request.GET["contains"]
                 match_pairs = contains.replace(",", " ").split(" ")

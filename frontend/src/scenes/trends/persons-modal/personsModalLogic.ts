@@ -104,7 +104,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     listeners(({ actions, props }) => ({
-        setSearchTerm: async ({}, breakpoint) => {
+        setSearchTerm: async (_, breakpoint) => {
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
         },

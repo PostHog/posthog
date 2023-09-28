@@ -9,11 +9,23 @@ export function SessionPlayerModal(): JSX.Element | null {
     const { activeSessionRecording } = useValues(sessionPlayerModalLogic())
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
+    // activeSessionRecording?.matching_events should always be a single element array
+    // but, we're filtering and using flatMap just in case
+    const eventUUIDs =
+        activeSessionRecording?.matching_events
+            ?.filter((matchingEvents) => {
+                return matchingEvents.session_id === activeSessionRecording?.id
+            })
+            .flatMap((matchedRecording) => matchedRecording.events.map((x) => x.uuid)) || []
+
     const logicProps: SessionRecordingPlayerLogicProps = {
         playerKey: 'modal',
         sessionRecordingId: activeSessionRecording?.id || '',
-        matching: activeSessionRecording?.matching_events,
         autoPlay: true,
+        matchingEventsMatchType: {
+            matchType: 'uuid',
+            eventUUIDs: eventUUIDs,
+        },
     }
 
     const { isFullScreen } = useValues(sessionRecordingPlayerLogic(logicProps))

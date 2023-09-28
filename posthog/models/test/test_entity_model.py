@@ -4,6 +4,11 @@ from posthog.models.entity import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_E
 
 
 class TestEntity(TestCase):
+    def test_can_init_without_id(self):
+        entity = Entity({"type": TREND_FILTER_TYPE_EVENTS})  # This is an "All events" entity
+
+        self.assertEqual(entity.id, None)
+
     def test_inclusion(self):
         entity1 = Entity(
             {

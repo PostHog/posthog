@@ -6,7 +6,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
-import { QueryContext, StickinessFilter, TrendsFilter } from '~/queries/schema'
+import { QueryContext } from '~/queries/schema'
 import { ChartDisplayType, FunnelVizType, ExporterFormat, InsightType, ItemMode } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -52,6 +52,7 @@ export function InsightContainer({
     disableLastComputationRefresh,
     insightMode,
     context,
+    embedded,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -60,6 +61,7 @@ export function InsightContainer({
     disableLastComputationRefresh?: boolean
     insightMode?: ItemMode
     context?: QueryContext
+    embedded: boolean
 }): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
@@ -73,11 +75,11 @@ export function InsightContainer({
         isFunnels,
         isPaths,
         display,
+        showLegend,
         trendsFilter,
         funnelsFilter,
         supportsDisplay,
         isUsingSessionAnalysis,
-        insightFilter,
         samplingFactor,
         insightDataLoading,
         erroredQueryId,
@@ -87,11 +89,16 @@ export function InsightContainer({
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (insightDataLoading && timedOutQueryId === null) {
+        if (insightDataLoading) {
             return (
-                <div className="text-center">
-                    <Animation type={AnimationType.LaptopHog} />
-                </div>
+                <>
+                    <div className="text-center">
+                        <Animation type={AnimationType.LaptopHog} />
+                    </div>
+                    {!!timedOutQueryId && (
+                        <InsightTimeoutState isLoading={true} queryId={timedOutQueryId} insightProps={insightProps} />
+                    )}
+                </>
             )
         }
 
@@ -109,10 +116,10 @@ export function InsightContainer({
         }
 
         // Insight agnostic empty states
-        if (!!erroredQueryId) {
+        if (erroredQueryId) {
             return <InsightErrorState queryId={erroredQueryId} />
         }
-        if (!!timedOutQueryId) {
+        if (timedOutQueryId) {
             return (
                 <InsightTimeoutState
                     isLoading={insightDataLoading}
@@ -201,6 +208,7 @@ export function InsightContainer({
                 title={disableHeader ? null : <InsightDisplayConfig disableTable={!!disableTable} />}
                 data-attr="insights-graph"
                 className="insights-graph-container"
+                bordered={!embedded}
             >
                 <div>
                     {isFunnels && (
@@ -239,9 +247,9 @@ export function InsightContainer({
                         </div>
                     )}
 
-                    {!!BlockingEmptyState ? (
+                    {BlockingEmptyState ? (
                         BlockingEmptyState
-                    ) : supportsDisplay && (insightFilter as TrendsFilter | StickinessFilter)?.show_legend ? (
+                    ) : supportsDisplay && showLegend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

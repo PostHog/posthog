@@ -80,7 +80,12 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
         content
     ) : (
         <Popover
-            overlay={<PersonPreview distinctId={person?.distinct_id || person?.distinct_ids?.[0]} />}
+            overlay={
+                <PersonPreview
+                    distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
+                    onClose={() => setVisible(false)}
+                />
+            }
             visible={visible}
             onClickOutside={() => setVisible(false)}
             placement="right"

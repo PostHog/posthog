@@ -88,7 +88,10 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>({
         setPluginLogsTypes: () => {
             actions.loadPluginLogs()
         },
-        setSearchTerm: () => {
+        setSearchTerm: async ({ searchTerm }, breakpoint) => {
+            if (searchTerm) {
+                await breakpoint(1000)
+            }
             actions.loadPluginLogs()
         },
     }),

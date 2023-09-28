@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import Dict, List, Optional, Tuple, Union
+from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
@@ -19,7 +20,9 @@ from posthog.queries.insight import insight_query_with_columns
 from posthog.utils import relative_date_parse
 
 
-def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:
+def determine_event_conditions(
+    conditions: Dict[str, Union[None, str, List[str]]], tzinfo: ZoneInfo
+) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
     for k, v in conditions.items():
@@ -29,14 +32,14 @@ def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]
             try:
                 timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             except ValueError:
-                timestamp = relative_date_parse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+                timestamp = relative_date_parse(v, tzinfo).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp > %(after)s "
             params.update({"after": timestamp})
         elif k == "before":
             try:
                 timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             except ValueError:
-                timestamp = relative_date_parse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+                timestamp = relative_date_parse(v, tzinfo).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp < %(before)s "
             params.update({"before": timestamp})
         elif k == "person_id":
@@ -80,7 +83,8 @@ def query_events_list(
             "after": None if unbounded_date_from else (now() - timedelta(days=1)).isoformat(),
             "before": (now() + timedelta(seconds=5)).isoformat(),
             **request_get_query_dict,
-        }
+        },
+        tzinfo=team.timezone_info,
     )
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False, hogql_context=hogql_context

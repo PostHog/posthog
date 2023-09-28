@@ -27,7 +27,7 @@ const meta: Meta = {
     },
 }
 export default meta
-function useToolbarStyles(): void {
+export function useToolbarStyles(): void {
     useEffect(() => {
         const head = document.getElementsByTagName('head')[0]
         const shadowRoot = window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot

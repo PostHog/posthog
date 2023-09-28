@@ -106,6 +106,7 @@ export function TableForm({ id }: { id: string }): JSX.Element {
                         options={[
                             { label: 'Parquet (recommended)', value: 'Parquet' },
                             { label: 'CSV', value: 'CSV' },
+                            { label: 'JSON', value: 'JSONEachRow' },
                         ]}
                     />
                 </Field>

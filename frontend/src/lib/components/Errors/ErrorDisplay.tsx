@@ -20,7 +20,7 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
         const frames = parseToFrames(rawTrace)
         return (
             <>
-                {!!frames.length ? (
+                {frames.length ? (
                     frames.map((frame, index) => {
                         const { filename, lineno, colno, function: functionName } = frame
 

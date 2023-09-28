@@ -4,40 +4,73 @@ import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { useJsonNodeState } from './utils'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import {
+    addedAdvancedFilters,
+    getDefaultFilters,
+    sessionRecordingsListLogic,
+} from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { useRef } from 'react'
-import { fromParamsGivenUrl, uuid } from 'lib/utils'
+import { useEffect, useMemo, useState } from 'react'
+import { fromParamsGivenUrl } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
+import { ErrorBoundary } from '@sentry/react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
+    const { filters, nodeId } = props.attributes
+    const playerKey = `notebook-${nodeId}`
 
-    const playerKey = useRef(`notebook-${uuid()}`).current
-
-    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = {
-        filters,
-        updateSearchParams: false,
-        autoPlay: false,
-        mode: 'notebook',
-        onFiltersChange: setFilters,
-    }
+    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = useMemo(
+        () => ({
+            logicKey: playerKey,
+            filters,
+            updateSearchParams: false,
+            autoPlay: false,
+            onFiltersChange: (newFilters: RecordingFilters) => {
+                props.updateAttributes({
+                    filters: newFilters,
+                })
+            },
+        }),
+        [playerKey, filters]
+    )
 
     const { expanded } = useValues(notebookNodeLogic)
+    const { setActions, insertAfter } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
+
+    useEffect(() => {
+        setActions(
+            activeSessionRecording
+                ? [
+                      {
+                          text: 'Pin replay',
+                          onClick: () => {
+                              insertAfter({
+                                  type: NotebookNodeType.Recording,
+                                  attrs: {
+                                      id: String(activeSessionRecording.id),
+                                  },
+                              })
+                          },
+                      },
+                  ]
+                : []
+        )
+    }, [activeSessionRecording])
 
     if (!expanded) {
         return <div className="p-4">20+ recordings </div>
     }
+
     const content = !activeSessionRecording?.id ? (
         <RecordingsLists {...recordingPlaylistLogicProps} />
     ) : (
@@ -52,9 +85,9 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
             <SessionRecordingPlayer
                 playerKey={playerKey}
                 sessionRecordingId={activeSessionRecording.id}
-                matching={activeSessionRecording?.matching_events}
                 recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                 nextSessionRecording={nextSessionRecording}
+                matchingEventsMatchType={matchingEventsMatchType}
             />
         </>
     )
@@ -62,13 +95,41 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     return <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
 }
 
+export const Settings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeAttributeProperties<NotebookNodePlaylistAttributes>): JSX.Element => {
+    const { filters } = attributes
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+    const defaultFilters = getDefaultFilters()
+
+    const hasAdvancedFilters = useMemo(() => {
+        const defaultFilters = getDefaultFilters()
+        return addedAdvancedFilters(filters, defaultFilters)
+    }, [filters])
+
+    return (
+        <ErrorBoundary>
+            <SessionRecordingsFilters
+                filters={{ ...defaultFilters, ...filters }}
+                setFilters={(filters) => updateAttributes({ filters })}
+                showPropertyFilters
+                onReset={() => updateAttributes({ filters: undefined })}
+                hasAdvancedFilters={hasAdvancedFilters}
+                showAdvancedFilters={showAdvancedFilters}
+                setShowAdvancedFilters={setShowAdvancedFilters}
+            />
+        </ErrorBoundary>
+    )
+}
+
 type NotebookNodePlaylistAttributes = {
-    filters: FilterType
+    filters: RecordingFilters
 }
 
 export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylistAttributes>({
     nodeType: NotebookNodeType.RecordingPlaylist,
-    title: 'Session Replays',
+    defaultTitle: 'Session replays',
     Component,
     heightEstimate: 'calc(100vh - 20rem)',
     href: (attrs) => {
@@ -89,4 +150,18 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
             return { filters: searchParams.filters }
         },
     },
+    widgets: [
+        {
+            key: 'settings',
+            label: 'Settings',
+            Component: Settings,
+        },
+    ],
 })
+
+export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent {
+    return {
+        type: NotebookNodeType.RecordingPlaylist,
+        attrs: { filters },
+    }
+}

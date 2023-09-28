@@ -3,7 +3,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { IconPlus, IconSelectEvents, IconSelectProperties } from 'lib/lemon-ui/icons'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -37,10 +36,7 @@ export function CorrelationConfig(): JSX.Element {
     return (
         <>
             <h2 className="subtitle" id="internal-users-filtering">
-                Correlation analysis exclusions{' '}
-                <LemonTag type="warning" className="uppercase ml-2">
-                    Beta
-                </LemonTag>
+                Correlation analysis exclusions
             </h2>
             <p>Globally exclude events or properties that do not provide relevant signals for your conversions.</p>
 

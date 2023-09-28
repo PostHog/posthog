@@ -11,6 +11,7 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Database = 'Database',
     Insight = 'Insight',
+    WebAnalytics = 'WebAnalytics',
     Cohorts = 'Cohorts',
     Cohort = 'Cohort',
     Events = 'Events',
@@ -80,6 +81,7 @@ export enum Scene {
     Feedback = 'Feedback',
     Notebook = 'Notebook',
     Products = 'Products',
+    Onboarding = 'Onboarding',
 }
 
 export type SceneProps = Record<string, any>

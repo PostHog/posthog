@@ -84,8 +84,8 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    {!!query ? (
-                        !!insight.result ? (
+                    {query ? (
+                        insight.result ? (
                             <Query query={query} cachedResults={insight.result} readOnly />
                         ) : (
                             <QueriesUnsupportedHere />

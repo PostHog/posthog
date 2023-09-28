@@ -152,7 +152,7 @@ export function SharingModalContent({
                                                 <div className="flex items-center">
                                                     <span>Show PostHog branding</span>
                                                     {!whitelabelAvailable ? (
-                                                        <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
+                                                        <Tooltip title="Upgrade to any paid plan to hide PostHog branding">
                                                             <IconLock className="ml-2" />
                                                         </Tooltip>
                                                     ) : null}

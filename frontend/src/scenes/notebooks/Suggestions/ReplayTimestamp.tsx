@@ -48,7 +48,7 @@ const Component = ({ previousNode, editor }: InsertionSuggestionViewProps): JSX.
 
 export default InsertionSuggestion.create({
     shouldShow: ({ previousNode }) => {
-        return !!previousNode
+        return previousNode
             ? previousNode.type.name === NotebookNodeType.Recording ||
                   hasChildOfType(previousNode, NotebookNodeType.ReplayTimestamp)
             : false

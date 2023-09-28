@@ -19,7 +19,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
-from posthog.utils import cors_response
+from posthog.utils_cors import cors_response
 from typing import Any
 
 

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -23,6 +23,7 @@ import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -104,12 +105,14 @@ export function DashboardsTable({
                             )}
                         </div>
                         {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
-                            <span className="row-description">{description}</span>
+                            <LemonMarkdown className="row-description max-w-100" lowKeyHeadings>
+                                {description}
+                            </LemonMarkdown>
                         )}
                     </div>
                 )
             },
-            sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
+            sorter: nameCompareFunction,
         },
         ...(hasAvailableFeature(AvailableFeature.TAGGING)
             ? [

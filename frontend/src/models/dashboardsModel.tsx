@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { tagsModel } from '~/models/tagsModel'
+import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     path: ['models', 'dashboardsModel'],
@@ -237,9 +238,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
         nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
-                return [...Object.values(rawDashboards)].sort((a, b) =>
-                    (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
-                )
+                return [...Object.values(rawDashboards)]
+                    .filter((dashboard) => !(dashboard.name ?? 'Untitled').startsWith(GENERATED_DASHBOARD_PREFIX))
+                    .sort(nameCompareFunction)
             },
         ],
         /** Display dashboards are additionally sorted by pin status: pinned first. */
@@ -247,9 +248,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             () => [selectors.nameSortedDashboards],
             (nameSortedDashboards) => {
                 return [...nameSortedDashboards].sort(
-                    (a, b) =>
-                        (Number(b.pinned) - Number(a.pinned)) * 10 +
-                        (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
+                    (a, b) => (Number(b.pinned) - Number(a.pinned)) * 10 + nameCompareFunction(a, b)
                 )
             },
         ],
@@ -332,3 +331,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
         },
     }),
 })
+
+export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {
+    // No matter where we're comparing dashboards, we want to sort generated dashboards last
+    const firstName = a.name ?? 'Untitled'
+    const secondName = b.name ?? 'Untitled'
+
+    return firstName.localeCompare(secondName)
+}

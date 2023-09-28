@@ -43,6 +43,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
+    [Scene.WebAnalytics]: {
+        projectBased: true,
+        name: 'Web Analytics',
+    },
     [Scene.Cohorts]: {
         projectBased: true,
         name: 'Cohorts',
@@ -224,6 +228,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         layout: 'plain',
     },
+    [Scene.Onboarding]: {
+        projectBased: true,
+        layout: 'plain',
+    },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch Toolbar',
@@ -339,7 +347,7 @@ export const redirects: Record<
         const query = getDefaultEventsSceneQuery([
             {
                 type: PropertyFilterType.HogQL,
-                key: `uuid = '${id.replaceAll(/[^a-f0-9\-]/g, '')}'`,
+                key: `uuid = '${id.replaceAll(/[^a-f0-9-]/g, '')}'`,
                 value: null,
             },
         ])
@@ -386,6 +394,7 @@ export const routes: Record<string, Scene> = {
     [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
+    [urls.webAnalytics()]: Scene.WebAnalytics,
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
@@ -438,6 +447,7 @@ export const routes: Record<string, Scene> = {
     [urls.appMetrics(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appHistoricalExports(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appHistory(':pluginConfigId')]: Scene.AppMetrics,
+    [urls.appLogs(':pluginConfigId')]: Scene.AppMetrics,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
@@ -466,6 +476,7 @@ export const routes: Record<string, Scene> = {
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.products()]: Scene.Products,
+    [urls.onboarding(':productKey')]: Scene.Onboarding,
     [urls.verifyEmail()]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
@@ -475,5 +486,4 @@ export const routes: Record<string, Scene> = {
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.notebook(':shortId')]: Scene.Notebook,
-    [urls.notebookEdit(':shortId')]: Scene.Notebook,
 }

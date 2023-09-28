@@ -30,28 +30,21 @@ export function Elements(): JSX.Element {
         <>
             <div
                 id="posthog-infowindow-container"
+                className="w-full h-full absolute top-0 left-0 pointer-events-none"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    width: '100%',
-                    height: '100%',
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
                     zIndex: 2147483021,
-                    pointerEvents: 'none',
                 }}
             >
                 <InfoWindow />
             </div>
             <div
                 id="posthog-toolbar-elements"
+                className="w-full h-full absolute top-0 pointer-events-none"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    width: '100%',
-                    height: '100%',
-                    position: 'absolute',
                     top: relativePositionCompensation,
-                    left: 0,
                     zIndex: 2147483010,
-                    pointerEvents: 'none',
                 }}
             >
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}

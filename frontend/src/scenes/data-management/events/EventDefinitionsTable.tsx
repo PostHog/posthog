@@ -190,12 +190,12 @@ export function EventDefinitionsTable(): JSX.Element {
                     currentPage: eventDefinitions?.page ?? 1,
                     entryCount: eventDefinitions?.count ?? 0,
                     pageSize: EVENT_DEFINITIONS_PER_PAGE,
-                    onForward: !!eventDefinitions.next
+                    onForward: eventDefinitions.next
                         ? () => {
                               loadEventDefinitions(eventDefinitions.next)
                           }
                         : undefined,
-                    onBackward: !!eventDefinitions.previous
+                    onBackward: eventDefinitions.previous
                         ? () => {
                               loadEventDefinitions(eventDefinitions.previous)
                           }

@@ -65,6 +65,7 @@ def person_overrides_table(query_inputs):
     sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL)
     sync_execute(KAFKA_PERSON_OVERRIDES_TABLE_SQL)
     sync_execute(PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL)
+    sync_execute("TRUNCATE TABLE person_overrides")
 
     yield
 
@@ -89,9 +90,9 @@ def person_overrides_data(person_overrides_table):
     """
     person_overrides = {
         # These numbers are all arbitrary.
-        1: {PersonOverrideTuple(uuid4(), uuid4()) for _ in range(5)},
-        2: {PersonOverrideTuple(uuid4(), uuid4()) for _ in range(4)},
-        3: {PersonOverrideTuple(uuid4(), uuid4()) for _ in range(3)},
+        100: {PersonOverrideTuple(uuid4(), uuid4()) for _ in range(5)},
+        200: {PersonOverrideTuple(uuid4(), uuid4()) for _ in range(4)},
+        300: {PersonOverrideTuple(uuid4(), uuid4()) for _ in range(3)},
     }
 
     all_test_values = []

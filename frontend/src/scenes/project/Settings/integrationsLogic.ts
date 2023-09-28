@@ -94,7 +94,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
     listeners(({ actions }) => ({
         handleRedirect: async ({ kind, searchParams }) => {
             switch (kind) {
-                case 'slack':
+                case 'slack': {
                     const { state, code, error, next } = searchParams
 
                     const replaceUrl = next || urls.projectSettings()
@@ -120,6 +120,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     }
 
                     return
+                }
                 default:
                     lemonToast.error(`Something went wrong.`)
             }

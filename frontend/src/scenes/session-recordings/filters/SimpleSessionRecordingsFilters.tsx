@@ -14,8 +14,10 @@ import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { teamLogic } from 'scenes/teamLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { urls } from '@posthog/apps-common'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
 export const SimpleSessionRecordingsFilters = ({
     filters,
@@ -30,15 +32,16 @@ export const SimpleSessionRecordingsFilters = ({
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
 
+    const displayNameProperties = useMemo(() => currentTeam?.person_display_name_properties ?? [], [currentTeam])
+
     const personPropertyOptions = useMemo(() => {
         const properties = [{ label: 'Country', key: '$geoip_country_name' }]
-        const displayNameProperties = currentTeam?.person_display_name_properties ?? []
         return properties.concat(
             displayNameProperties.slice(0, 2).map((property) => {
                 return { label: property, key: property }
             })
         )
-    }, [currentTeam])
+    }, [displayNameProperties])
 
     const pageviewEvent = localFilters.events?.find((event) => event.id === '$pageview')
 
@@ -47,7 +50,7 @@ export const SimpleSessionRecordingsFilters = ({
 
     return (
         <div className="space-y-2">
-            <div className="flex space-x-1">
+            <div className="flex flex-wrap gap-1">
                 {personPropertyOptions.map(({ label, key }) => (
                     <SimpleSessionRecordingsFiltersInserter
                         key={key}
@@ -82,6 +85,13 @@ export const SimpleSessionRecordingsFilters = ({
                         })
                     }}
                 />
+                {displayNameProperties.length === 0 && (
+                    <Link to={urls.projectSettings('person-display-name')}>
+                        <LemonButton type="tertiary" size="small" className="whitespace-nowrap" icon={<IconPlus />}>
+                            Add person properties
+                        </LemonButton>
+                    </Link>
+                )}
             </div>
 
             {personProperties && (
@@ -181,7 +191,7 @@ const SimpleSessionRecordingsFiltersInserter = ({
                     className="new-prop-filter"
                     type="secondary"
                     size="small"
-                    disabledReason={disabled && 'Add more properties using your existing filter.'}
+                    disabledReason={disabled && 'Add more values using your existing filter.'}
                     sideIcon={null}
                 >
                     {label}

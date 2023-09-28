@@ -15,11 +15,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '../../models/groupsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 interface DashboardProps {
     id?: string
@@ -118,7 +119,7 @@ function DashboardScene(): JSX.Element {
                             DashboardPlacement.FeatureFlag,
                         ].includes(placement) && (
                             <div className="flex space-x-4">
-                                <div className="flex items-center h-8">
+                                <div className="flex shrink-0 items-center h-8">
                                     <DateFilter
                                         showCustom
                                         dateFrom={dashboardFilters?.date_from ?? undefined}
@@ -149,8 +150,13 @@ function DashboardScene(): JSX.Element {
                                 />
                             </div>
                         )}
+                        {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
+                            <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
+                                Edit dashboard
+                            </LemonButton>
+                        )}
                         {placement !== DashboardPlacement.Export && (
-                            <div className="flex space-x-4 dashoard-items-actions">
+                            <div className="flex shrink-0 space-x-4 dashoard-items-actions">
                                 <div
                                     className={`left-item ${
                                         placement === DashboardPlacement.Public ? 'text-right' : ''

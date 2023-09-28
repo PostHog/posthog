@@ -7,6 +7,8 @@ import { IconInfo } from 'lib/lemon-ui/icons'
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
+import './BreakdownTagMenu.scss'
+
 export const BreakdownTagMenu = (): JSX.Element => {
     const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
     const { removeBreakdown } = useActions(breakdownTagLogic)

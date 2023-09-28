@@ -49,7 +49,6 @@ import { queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
-import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
@@ -91,10 +90,8 @@ export const insightLogic = kea<insightLogicType>([
             ['mathDefinitions'],
             userLogic,
             ['user'],
-            globalInsightLogic,
-            ['globalInsightFilters'],
         ],
-        actions: [tagsModel, ['loadTags'], globalInsightLogic, ['setGlobalInsightFilters']],
+        actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
     }),
 
@@ -149,11 +146,7 @@ export const insightLogic = kea<insightLogicType>([
                 ),
             {
                 loadInsight: async ({ shortId }) => {
-                    const response = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
-                            shortId
-                        )}&include_query_insights=true`
-                    )
+                    const response = await api.insights.loadInsight(shortId)
                     if (response?.results?.[0]) {
                         return response.results[0]
                     }
@@ -487,7 +480,7 @@ export const insightLogic = kea<insightLogicType>([
 
                 const filename = ['export', insight.name || insight.derived_name].join('-')
 
-                if (!!insight.query) {
+                if (insight.query) {
                     return { ...queryExportContext(insight.query), filename }
                 } else {
                     if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
@@ -551,9 +544,6 @@ export const insightLogic = kea<insightLogicType>([
     listeners(({ actions, selectors, values }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
-        },
-        setGlobalInsightFilters: ({ globalInsightFilters }) => {
-            actions.setFilters({ ...values.filters, ...globalInsightFilters })
         },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
@@ -639,7 +629,7 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
-                    query: !!query ? query : null,
+                    query: query ? query : null,
                     deleted,
                     saved: true,
                     dashboards,
@@ -661,7 +651,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // the backend can't return the result for a query based insight,
             // and so we shouldn't copy the result from `values.insight` as it might be stale
-            const result = savedInsight.result || (!!query ? values.insight.result : null)
+            const result = savedInsight.result || (query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
             eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {

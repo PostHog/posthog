@@ -2,12 +2,12 @@ import json
 from datetime import timedelta
 from typing import Dict, List
 
-from corsheaders.defaults import default_headers
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Element, ElementGroup, Organization
+from posthog.settings import CORS_ALLOW_HEADERS
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -287,14 +287,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
 
-        assert response.headers["Access-Control-Allow-Headers"] == ", ".join(
-            default_headers
-            + (
-                "traceparent",
-                "request-id",
-                "request-context",
-            )
-        )
+        assert response.headers["Access-Control-Allow-Headers"] == ", ".join(CORS_ALLOW_HEADERS)
 
     def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")

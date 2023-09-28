@@ -37,6 +37,7 @@ import {
     getInterval,
     getSeries,
     getShownAs,
+    getShowLegend,
     getShowPercentStackView,
     getShowValueOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
@@ -122,6 +123,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
         shownAs: [(s) => [s.querySource], (q) => (q ? getShownAs(q) : null)],
+        showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
 
@@ -173,7 +175,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         hasLegend: [
             (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends, isStickiness, display) =>
-                (isTrends || isStickiness) && !!display && !DISPLAY_TYPES_WITHOUT_LEGEND.includes(display),
+                (isTrends || isStickiness) &&
+                !DISPLAY_TYPES_WITHOUT_LEGEND.includes(display || ChartDisplayType.ActionsLineGraph),
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
@@ -188,7 +191,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         updateDateRange: ({ dateRange }) => {
             const localQuerySource = values.querySource
                 ? values.querySource
@@ -240,6 +243,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
+                if (props.setQuery) {
+                    props.setQuery(query as InsightVizNode)
+                }
+
                 const querySource = query.source
                 const filters = queryNodeToFilter(querySource)
                 actions.setFilters(filters)
@@ -250,7 +257,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
             await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
 
-            if (!!values.insightDataLoading) {
+            if (values.insightDataLoading) {
                 actions.setTimedOutQueryId(queryId)
                 const tags = {
                     kind: values.querySource?.kind,

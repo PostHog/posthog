@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { NewSurvey, defaultSurveyAppearance, surveyLogic } from './surveyLogic'
+import { NewSurvey, defaultSurveyAppearance, defaultSurveyFieldValues, surveyLogic } from './surveyLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -28,11 +28,11 @@ import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
 import { SurveyAppearance } from './SurveyAppearance'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -60,7 +60,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, setHasTargetingFlag } = useActions(surveyLogic)
+    const { loadSurvey, editingSurvey, setSurveyValue, setDefaultForQuestionType } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
@@ -97,12 +97,12 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             />
             <LemonDivider />
             <div className="flex flex-row gap-4">
-                <div className="flex flex-col gap-2 min-w-180">
+                <div className="flex flex-col gap-2">
                     <Field name="name" label="Name">
                         <LemonInput data-attr="survey-name" />
                     </Field>
                     <Field name="description" label="Description (optional)">
-                        <LemonTextArea data-attr="survey-description" />
+                        <LemonTextArea data-attr="survey-description" minRows={2} />
                     </Field>
                     <Field name="type" label="Display mode" className="w-max">
                         <LemonSelect
@@ -119,6 +119,25 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             <Group name={`questions.${index}`} key={index}>
                                 <Field name="type" label="Question type" className="max-w-60">
                                     <LemonSelect
+                                        onSelect={(newType) => {
+                                            const questionObj = survey.questions[0]
+                                            const isEditingQuestion =
+                                                defaultSurveyFieldValues[questionObj.type].questions[0].question !==
+                                                questionObj.question
+                                            const isEditingDescription =
+                                                defaultSurveyFieldValues[questionObj.type].questions[0].description !==
+                                                questionObj.description
+                                            const isEditingThankYouMessage =
+                                                defaultSurveyFieldValues[questionObj.type].appearance
+                                                    .thankYouMessageHeader !== survey.appearance.thankYouMessageHeader
+
+                                            setDefaultForQuestionType(
+                                                newType,
+                                                isEditingQuestion,
+                                                isEditingDescription,
+                                                isEditingThankYouMessage
+                                            )
+                                        }}
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
                                             { label: 'Link', value: SurveyQuestionType.Link },
@@ -147,7 +166,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     </Field>
                                 )}
                                 <Field name="description" label="Question description (optional)">
-                                    <LemonTextArea value={question.description || ''} />
+                                    <LemonTextArea value={question.description || ''} minRows={2} />
                                 </Field>
                                 {question.type === SurveyQuestionType.Rating && (
                                     <div className="flex flex-col gap-2">
@@ -248,6 +267,39 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             </Group>
                         )
                     )}
+                    <LemonDivider />
+                    <Field name="appearance" label="Thank you message (optional)">
+                        {({ value, onChange }) => (
+                            <>
+                                <LemonCheckbox
+                                    label="Display thank you message"
+                                    checked={value.displayThankYouMessage}
+                                    onChange={(checked) => onChange({ ...value, displayThankYouMessage: checked })}
+                                />
+                                {value.displayThankYouMessage && (
+                                    <>
+                                        <PureField label="Thank you header">
+                                            <LemonInput
+                                                value={value.thankYouMessageHeader}
+                                                onChange={(val) => onChange({ ...value, thankYouMessageHeader: val })}
+                                                placeholder="ex: Thank you for your feedback!"
+                                            />
+                                        </PureField>
+                                        <PureField label="Thank you description">
+                                            <LemonTextArea
+                                                value={value.thankYouMessageDescription}
+                                                onChange={(val) =>
+                                                    onChange({ ...value, thankYouMessageDescription: val })
+                                                }
+                                                minRows={2}
+                                                placeholder="ex: We really appreciate it."
+                                            />
+                                        </PureField>
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </Field>
                     <LemonDivider className="my-2" />
                     <PureField label="Targeting (optional)">
                         <span className="text-muted">
@@ -341,7 +393,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         type="secondary"
                                         className="w-max"
-                                        onClick={() => setHasTargetingFlag(true)}
+                                        onClick={() => {
+                                            setSurveyValue('targeting_flag_filters', { groups: [] })
+                                            setSurveyValue('remove_targeting_flag', false)
+                                        }}
                                     >
                                         Add user targeting
                                     </LemonButton>
@@ -351,16 +406,18 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         <div className="mt-2">
                                             <FeatureFlagReleaseConditions excludeTitle={true} />
                                         </div>
-                                        {id === 'new' && (
-                                            <LemonButton
-                                                type="secondary"
-                                                status="danger"
-                                                className="w-max"
-                                                onClick={() => setHasTargetingFlag(false)}
-                                            >
-                                                Remove all user properties
-                                            </LemonButton>
-                                        )}
+                                        <LemonButton
+                                            type="secondary"
+                                            status="danger"
+                                            className="w-max"
+                                            onClick={() => {
+                                                setSurveyValue('targeting_flag_filters', null)
+                                                setSurveyValue('targeting_flag', null)
+                                                setSurveyValue('remove_targeting_flag', true)
+                                            }}
+                                        >
+                                            Remove all user properties
+                                        </LemonButton>
                                     </>
                                 )}
                             </BindLogic>
@@ -432,7 +489,7 @@ export function SurveyReleaseSummary({
 }): JSX.Element {
     return (
         <div className="flex flex-col mt-2 gap-2">
-            <div className="font-semibold">Release conditions</div>
+            <div className="font-semibold">Release conditions summary</div>
             <span className="text-muted">
                 By default surveys will be released to everyone unless targeting options are set.
             </span>

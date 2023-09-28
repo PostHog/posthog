@@ -21,6 +21,7 @@ from freezegun import freeze_time
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
+from parameterized import parameterized
 from prance import ResolvingParser
 from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
@@ -1131,56 +1132,47 @@ class TestCapture(BaseTest):
             ),
         )
 
-    def test_sentry_tracing_headers(self):
+    @parameterized.expand(
+        # zips request paths, and tracing headers. As well as constructing a meaningful name for the test
+        (f"{headers[0]} tracing headers to {path[0]}", path[1], headers[1])
+        for path in [
+            ("events", "/e/?ip=1&_=1651741927805"),
+            ("decide", "/decide/"),
+            ("recordings", "/s/?ip=1&_=1651741927805"),
+        ]
+        for headers in [
+            (
+                "sentry",
+                [
+                    "traceparent",
+                    "request-id",
+                ],
+            ),
+            (
+                "aws",
+                ["x-amzn-trace-id"],
+            ),
+            (
+                "azure",
+                ["traceparent", "request-id", "request-context"],
+            ),
+            (
+                "gcp",
+                ["x-cloud-trace-context"],
+            ),
+        ]
+    )
+    def test_cors_allows_tracing_headers(self, _: str, path: str, headers: List[str]) -> None:
+        expected_headers = ",".join(["X-Requested-With", "Content-Type"] + headers)
+        presented_headers = ",".join(headers + ["someotherrandomheader"])
         response = self.client.options(
-            "/e/?ip=1&_=1651741927805",
+            path,
             HTTP_ORIGIN="https://localhost",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS=presented_headers,
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
-        )
-
-        response = self.client.options(
-            "/decide/",
-            HTTP_ORIGIN="https://localhost",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
-            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
-        )
-
-    def test_azure_app_insights_tracing_headers(self):
-        # Azure App Insights sends the same tracing headers as Sentry
-        # _and_ a request-context header
-
-        response = self.client.options(
-            "/e/?ip=1&_=1651741927805",
-            HTTP_ORIGIN="https://localhost",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
-            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers["Access-Control-Allow-Headers"],
-            "X-Requested-With,Content-Type,traceparent,request-id,request-context",
-        )
-
-        response = self.client.options(
-            "/decide/",
-            HTTP_ORIGIN="https://localhost",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
-            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers["Access-Control-Allow-Headers"],
-            "X-Requested-With,Content-Type,traceparent,request-id,request-context",
-        )
+        self.assertEqual(response.headers["Access-Control-Allow-Headers"], expected_headers)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:

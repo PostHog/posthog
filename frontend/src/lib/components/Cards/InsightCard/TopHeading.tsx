@@ -9,13 +9,13 @@ export function TopHeading({ insight }: { insight: InsightModel }): JSX.Element 
     let insightType: InsightTypeMetadata
 
     // check the query first because the backend still adds defaults to empty filters :/
-    if (!!query?.kind) {
+    if (query?.kind) {
         if (isDataTableNode(query) && containsHogQLQuery(query)) {
             insightType = QUERY_TYPES_METADATA[query.source.kind]
         } else {
             insightType = QUERY_TYPES_METADATA[query.kind]
         }
-    } else if (!!filters.insight) {
+    } else if (filters.insight) {
         insightType = INSIGHT_TYPES_METADATA[filters.insight]
     } else {
         // maintain the existing default
@@ -23,9 +23,9 @@ export function TopHeading({ insight }: { insight: InsightModel }): JSX.Element 
     }
 
     let { date_from, date_to } = filters
-    if (!!query) {
+    if (query) {
         const queryDateRange = dateRangeFor(query)
-        if (!!queryDateRange) {
+        if (queryDateRange) {
             date_from = queryDateRange.date_from
             date_to = queryDateRange.date_to
         }

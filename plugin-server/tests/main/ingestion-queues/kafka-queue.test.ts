@@ -1,4 +1,7 @@
+import { Assignment } from 'node-rdkafka-acosom'
+
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
+import { countPartitionsPerTopic } from '../../../src/kafka/consumer'
 import { ServerInstance, startPluginsServer } from '../../../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../../../src/types'
 import { Hub } from '../../../src/types'
@@ -77,5 +80,24 @@ describe.skip('IngestionConsumer', () => {
 
         const bufferCalls = statsdTimingCalls.filter((item: string[]) => item[0] === 'kafka_queue.ingest_buffer_event')
         expect(bufferCalls.length).toEqual(1)
+    })
+})
+
+describe('countPartitionsPerTopic', () => {
+    it('should correctly count the number of partitions per topic', () => {
+        const assignments: Assignment[] = [
+            { topic: 'topic1', partition: 0 },
+            { topic: 'topic1', partition: 1 },
+            { topic: 'topic2', partition: 0 },
+            { topic: 'topic2', partition: 1 },
+            { topic: 'topic2', partition: 2 },
+            { topic: 'topic3', partition: 0 },
+        ]
+
+        const result = countPartitionsPerTopic(assignments)
+        expect(result.get('topic1')).toBe(2)
+        expect(result.get('topic2')).toBe(3)
+        expect(result.get('topic3')).toBe(1)
+        expect(result.size).toBe(3)
     })
 })

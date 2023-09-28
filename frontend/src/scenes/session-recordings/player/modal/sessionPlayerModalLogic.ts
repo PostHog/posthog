@@ -74,7 +74,7 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
         }
 
         return {
-            openSessionPlayer: ({}) => buildURL(false),
+            openSessionPlayer: () => buildURL(false),
             closeSessionPlayer: () => buildURL(false),
         }
     }),

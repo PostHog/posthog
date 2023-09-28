@@ -32,7 +32,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>({
         createKeySuccess: async ({ keys }: { keys: PersonalAPIKeyType[] }) => {
             keys[0]?.value && (await copyToClipboard(keys[0].value, 'personal API key value'))
         },
-        deleteKeySuccess: ({}: { keys: PersonalAPIKeyType[] }) => {
+        deleteKeySuccess: () => {
             lemonToast.success(`Personal API key deleted`)
         },
     }),

@@ -1,4 +1,4 @@
-import { AppMetricsTab, TabWithMetrics } from './appMetricsSceneLogic'
+import { AppMetricsTab } from './appMetricsSceneLogic'
 
 interface Description {
     successes: string
@@ -11,7 +11,7 @@ interface Description {
     failures_tooltip?: React.ReactNode | string
 }
 
-export const DescriptionColumns: Record<TabWithMetrics, Description> = {
+export const DescriptionColumns: Record<string, Description> = {
     [AppMetricsTab.ProcessEvent]: {
         successes: 'Events processed',
         successes_tooltip: (

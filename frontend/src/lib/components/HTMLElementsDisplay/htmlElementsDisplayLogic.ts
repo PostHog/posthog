@@ -68,10 +68,10 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                     .map((k) => Number.parseInt(k))
                     .sort()
                     .forEach((key) => {
-                        const selector = !!parsedSelectors[key]
+                        const selector = parsedSelectors[key]
                             ? parsedSelectorToSelectorString(parsedSelectors[key])
                             : ''
-                        if (!!selector.trim().length) {
+                        if (selector.trim().length) {
                             if (lastKey === key - 1 && !!builtSelector.trim().length) {
                                 builtSelector += ` > ${selector}`
                             } else {
@@ -81,7 +81,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                         lastKey = key
                     })
 
-                builtSelector = !!builtSelector.trim().length ? builtSelector.trim() : 'no selectors chosen'
+                builtSelector = builtSelector.trim().length ? builtSelector.trim() : 'no selectors chosen'
 
                 return builtSelector
             },

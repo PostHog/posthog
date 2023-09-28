@@ -54,7 +54,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
-                {
+                response
+                | {
                     "columns": ["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"],
                     "hasMore": False,
                     "results": [
@@ -80,7 +81,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
-                {
+                response
+                | {
                     "columns": ["count()", "event"],
                     "hasMore": False,
                     "types": ["UInt64", "String"],
@@ -94,7 +96,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
-                {
+                response
+                | {
                     "columns": ["count()", "event"],
                     "hasMore": False,
                     "types": ["UInt64", "String"],
@@ -404,7 +407,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
             query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
-            query.response = HogQLQueryResponse.parse_obj(api_response)
+            query.response = HogQLQueryResponse.model_validate(api_response)
 
             self.assertEqual(query.response.results and len(query.response.results), 4)
             self.assertEqual(
@@ -472,7 +475,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert api_response.status_code == 400
         assert api_response.json()["code"] == "parse_error"
         assert "validation errors for Model" in api_response.json()["detail"]
-        assert "type=value_error.const; given=Tomato Soup" in api_response.json()["detail"]
+        assert "type=literal_error, input_value='Tomato Soup'" in api_response.json()["detail"]
 
     @snapshot_clickhouse_queries
     def test_full_hogql_query_view(self):
@@ -495,9 +498,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-
             self.client.post(
-                f"/api/projects/{self.team.id}/warehouse_saved_query/",
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/",
                 {
                     "name": "event_view",
                     "query": {
@@ -508,7 +510,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             query = HogQLQuery(query="select * from event_view")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
-            query.response = HogQLQueryResponse.parse_obj(api_response)
+            query.response = HogQLQueryResponse.model_validate(api_response)
 
             self.assertEqual(query.response.results and len(query.response.results), 4)
             self.assertEqual(

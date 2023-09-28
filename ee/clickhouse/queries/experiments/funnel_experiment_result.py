@@ -1,8 +1,8 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import List, Optional, Tuple, Type
+from zoneinfo import ZoneInfo
 
-import pytz
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
@@ -57,7 +57,6 @@ class ClickhouseFunnelExperimentResult:
         experiment_end_date: Optional[datetime] = None,
         funnel_class: Type[ClickhouseFunnel] = ClickhouseFunnel,
     ):
-
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
 
@@ -65,9 +64,9 @@ class ClickhouseFunnelExperimentResult:
         # while start and end date are in UTC.
         # so we need to convert them to the project timezone
         if team.timezone:
-            start_date_in_project_timezone = experiment_start_date.astimezone(pytz.timezone(team.timezone))
+            start_date_in_project_timezone = experiment_start_date.astimezone(ZoneInfo(team.timezone))
             end_date_in_project_timezone = (
-                experiment_end_date.astimezone(pytz.timezone(team.timezone)) if experiment_end_date else None
+                experiment_end_date.astimezone(ZoneInfo(team.timezone)) if experiment_end_date else None
             )
 
         query_filter = filter.shallow_clone(
