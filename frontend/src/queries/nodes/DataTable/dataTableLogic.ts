@@ -67,7 +67,11 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (s, p) => [p.query, s.sourceFeatures],
             (query, sourceFeatures): string[] | null =>
                 sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
-                    ? (query.source as EventsQuery).orderBy || (isEventsQuery(query.source) ? ['timestamp DESC'] : null)
+                    ? 'orderBy' in query.source // might not be EventsQuery, but something else with orderBy
+                        ? (query.source as EventsQuery).orderBy ?? null
+                        : isEventsQuery(query.source)
+                        ? ['timestamp DESC']
+                        : null
                     : null,
             { resultEqualityCheck: objectsEqual },
         ],
