@@ -83,7 +83,7 @@ export function NotebookHistory(): JSX.Element {
     return (
         <LemonWidget title="Notebook History" collapsible={false} onClose={() => setShowHistory(false)}>
             <div className="NotebookHistory">
-                <p className="m-2">
+                <p className="m-3">
                     Below is the history of all persisted changes. You can select any version to view how it was at that
                     point in time and then choose to <b>revert to that version</b>, or <b>create a copy</b> of it.
                 </p>
@@ -106,8 +106,8 @@ export function NotebookHistoryWarning(): JSX.Element | null {
         duplicateNotebook()
     }
     const onRevert = (): void => {
-        setLocalContent(previewContent)
         clearPreviewContent()
+        setLocalContent(previewContent)
         setShowHistory(false)
     }
 

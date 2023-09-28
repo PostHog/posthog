@@ -301,9 +301,9 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         syncStatus: [
-            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
-            (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus => {
-                if (notebook?.is_template) {
+            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly, s.previewContent],
+            (notebook, notebookLoading, localContent, isLocalOnly, previewContent): NotebookSyncStatus => {
+                if (previewContent || notebook?.is_template) {
                     return 'synced'
                 }
 
@@ -430,6 +430,10 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
+            if (values.previewContent) {
+                // We don't want to modify the content if we are viewing a preview
+                return
+            }
             if (updateEditor) {
                 values.editor?.setContent(jsonContent)
             }
