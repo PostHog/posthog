@@ -6,7 +6,7 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState, useEffect } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Query } from '~/queries/Query/Query'
@@ -150,10 +150,21 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.questions[0].question && (
                                                 <>
                                                     <span className="card-secondary mt-4">Type</span>
-                                                    <span>{capitalizeFirstLetter(survey.questions[0].type)}</span>
-                                                    <span className="card-secondary mt-4">Question</span>
+                                                    <span>
+                                                        {survey.questions.length > 1
+                                                            ? 'Multiple questions'
+                                                            : capitalizeFirstLetter(survey.questions[0].type)}
+                                                    </span>
+                                                    <span className="card-secondary mt-4">
+                                                        {pluralize(
+                                                            survey.questions.length,
+                                                            'Question',
+                                                            'Questions',
+                                                            false
+                                                        )}
+                                                    </span>
                                                     {survey.questions.map((q, idx) => (
-                                                        <span key={idx}>{q.question}</span>
+                                                        <li key={idx}>{q.question}</li>
                                                     ))}
                                                 </>
                                             )}
