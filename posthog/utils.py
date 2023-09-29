@@ -1195,6 +1195,7 @@ def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.tim
 
     event = threading.Event()
     task.on_ready(event.set)
+
     while not event.is_set():
         if timezone.now() - start_time > max_timeout:
             logger.error(
