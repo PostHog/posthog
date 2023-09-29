@@ -4,6 +4,7 @@
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
+      <env name="PYTHONUNBUFFERED" value="1" />
       <env name="BILLING_SERVICE_URL" value="https://billing.dev.posthog.dev" />
       <env name="CAPTURE_TIME_TO_SEE_DATA" value="0" />
       <env name="CLICKHOUSE_SECURE" value="False" />
@@ -14,7 +15,6 @@
       <env name="KEA_VERBOSE_LOGGING" value="false" />
       <env name="PRINT_SQL" value="1" />
       <env name="PYDEVD_USE_CYTHON" value="NO" />
-      <env name="PYTHONUNBUFFERED" value="1" />
       <env name="SESSION_RECORDING_KAFKA_COMPRESSION" value="gzip" />
       <env name="SESSION_RECORDING_KAFKA_HOSTS" value="localhost" />
       <env name="SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES" value="524288" />
@@ -22,7 +22,7 @@
       <env name="REPLAY_EVENTS_NEW_CONSUMER_RATIO" value="1" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
-    <option name="SDK_NAME" value="Python 3.10 (posthog)" />
+    <option name="SDK_NAME" value="Python 3.11 (posthog)" />
     <option name="WORKING_DIRECTORY" value="" />
     <option name="IS_MODULE_SDK" value="false" />
     <option name="ADD_CONTENT_ROOTS" value="true" />

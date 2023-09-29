@@ -90,5 +90,6 @@ def escape_param_for_clickhouse(param: Any) -> str:
         revision="placeholder server_info value",
         display_name="placeholder server_info value",
         timezone="UTC",
+        used_revision="placeholder server_info value",
     )
     return escape_param(param, context=context)

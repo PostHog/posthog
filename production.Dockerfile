@@ -1,7 +1,7 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
-# PostHog has sunset support for self-hosted K8s deployments. 
+# PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
 # Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
@@ -81,7 +81,7 @@ RUN corepack enable && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.10.10-slim-bullseye AS posthog-build
+FROM python:3.11.4-slim-bullseye AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -136,7 +136,7 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.10.10-slim-bullseye
+FROM python:3.11.4-slim-bullseye
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
