@@ -11,22 +11,22 @@ EXPORT_QUEUED_COUNTER = Counter(
     labelnames=["type"],
 )
 EXPORT_SUCCEEDED_COUNTER = Counter(
-    "exporter_task_csv_succeeded",
+    "exporter_task_succeeded",
     "An export task succeeded",
     labelnames=["type"],
 )
 EXPORT_ASSET_UNKNOWN_COUNTER = Counter(
-    "exporter_task_csv_unknown_asset",
+    "exporter_task_unknown_asset",
     "An export task was for an unknown asset",
     labelnames=["type"],
 )
 EXPORT_FAILED_COUNTER = Counter(
-    "exporter_task_csv_failed",
+    "exporter_task_failed",
     "An export task failed",
     labelnames=["type"],
 )
 EXPORT_TIMER = Histogram(
-    "exporter_task_csv_duration_seconds",
+    "exporter_task_duration_seconds",
     "Time spent exporting an asset",
     labelnames=["type"],
 )
