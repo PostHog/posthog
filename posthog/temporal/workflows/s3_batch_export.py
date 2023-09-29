@@ -1,11 +1,13 @@
 import asyncio
+import contextlib
 import datetime as dt
+import io
 import json
 import posixpath
 import typing
 from dataclasses import dataclass
 
-import boto3
+import aioboto3
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -90,8 +92,20 @@ Part = dict[str, str | int]
 class S3MultiPartUpload:
     """An S3 multi-part upload."""
 
-    def __init__(self, s3_client, bucket_name: str, key: str, encryption: str | None, kms_key_id: str | None):
-        self.s3_client = s3_client
+    def __init__(
+        self,
+        region_name: str,
+        bucket_name: str,
+        key: str,
+        encryption: str | None,
+        kms_key_id: str | None,
+        aws_access_key_id: str | None = None,
+        aws_secret_access_key: str | None = None,
+    ):
+        self._session = aioboto3.Session()
+        self.region_name = region_name
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
         self.bucket_name = bucket_name
         self.key = key
         self.encryption = encryption
@@ -118,7 +132,17 @@ class S3MultiPartUpload:
             return False
         return True
 
-    def start(self) -> str:
+    @contextlib.asynccontextmanager
+    async def s3_client(self):
+        async with self._session.client(
+            "s3",
+            region_name=self.region_name,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+        ) as client:
+            yield client
+
+    async def start(self) -> str:
         """Start this S3MultiPartUpload."""
         if self.is_upload_in_progress() is True:
             raise UploadAlreadyInProgressError(self.upload_id)
@@ -129,11 +153,13 @@ class S3MultiPartUpload:
         if self.kms_key_id:
             optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
 
-        multipart_response = self.s3_client.create_multipart_upload(
-            Bucket=self.bucket_name,
-            Key=self.key,
-            **optional_kwargs,
-        )
+        async with self.s3_client() as s3_client:
+            multipart_response = await s3_client.create_multipart_upload(
+                Bucket=self.bucket_name,
+                Key=self.key,
+                **optional_kwargs,
+            )
+
         upload_id: str = multipart_response["UploadId"]
         self.upload_id = upload_id
 
@@ -146,66 +172,72 @@ class S3MultiPartUpload:
 
         return self.upload_id
 
-    def complete(self) -> str:
+    async def complete(self) -> str:
         if self.is_upload_in_progress() is False:
             raise NoUploadInProgressError()
 
-        response = self.s3_client.complete_multipart_upload(
-            Bucket=self.bucket_name,
-            Key=self.key,
-            UploadId=self.upload_id,
-            MultipartUpload={"Parts": self.parts},
-        )
+        async with self.s3_client() as s3_client:
+            response = await s3_client.complete_multipart_upload(
+                Bucket=self.bucket_name, Key=self.key, UploadId=self.upload_id, MultipartUpload={"Parts": self.parts}
+            )
 
         self.upload_id = None
         self.parts = []
 
         return response["Location"]
 
-    def abort(self):
+    async def abort(self):
         if self.is_upload_in_progress() is False:
             raise NoUploadInProgressError()
 
-        self.s3_client.abort_multipart_upload(
-            Bucket=self.bucket_name,
-            Key=self.key,
-            UploadId=self.upload_id,
-        )
+        async with self.s3_client() as s3_client:
+            await s3_client.abort_multipart_upload(
+                Bucket=self.bucket_name,
+                Key=self.key,
+                UploadId=self.upload_id,
+            )
 
         self.upload_id = None
         self.parts = []
 
-    def upload_part(self, body: BatchExportTemporaryFile, rewind: bool = True):
+    async def upload_part(self, body: BatchExportTemporaryFile, rewind: bool = True):
         next_part_number = self.part_number + 1
 
         if rewind is True:
             body.rewind()
 
-        response = self.s3_client.upload_part(
-            Bucket=self.bucket_name,
-            Key=self.key,
-            PartNumber=next_part_number,
-            UploadId=self.upload_id,
-            Body=body,
-        )
+        # aiohttp is not duck-type friendly and requires a io.IOBase
+        # We comply with the file-like interface of io.IOBase.
+        # So we tell mypy to be nice with us.
+        reader = io.BufferedReader(body)  # type: ignore
+
+        async with self.s3_client() as s3_client:
+            response = await s3_client.upload_part(
+                Bucket=self.bucket_name,
+                Key=self.key,
+                PartNumber=next_part_number,
+                UploadId=self.upload_id,
+                Body=reader,
+            )
+        reader.detach()  # BufferedReader closes the file otherwise.
 
         self.parts.append({"PartNumber": next_part_number, "ETag": response["ETag"]})
 
-    def __enter__(self):
+    async def __aenter__(self):
         if not self.is_upload_in_progress():
-            self.start()
+            await self.start()
 
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+    async def __aexit__(self, exc_type, exc_value, traceback) -> bool:
         if exc_value is None:
             # Succesfully completed the upload
-            self.complete()
+            await self.complete()
             return True
 
         if exc_type == asyncio.CancelledError:
             # Ensure we clean-up the cancelled upload.
-            self.abort()
+            await self.abort()
 
         return False
 
@@ -249,17 +281,20 @@ class S3InsertInputs:
     kms_key_id: str | None = None
 
 
-def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
+async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
     logger = get_batch_exports_logger(inputs=inputs)
     key = get_s3_key(inputs)
-    s3_client = boto3.client(
-        "s3",
+
+    s3_upload = S3MultiPartUpload(
+        bucket_name=inputs.bucket_name,
+        key=key,
+        encryption=inputs.encryption,
+        kms_key_id=inputs.kms_key_id,
         region_name=inputs.region,
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
     )
-    s3_upload = S3MultiPartUpload(s3_client, inputs.bucket_name, key, inputs.encryption, inputs.kms_key_id)
 
     details = activity.info().heartbeat_details
 
@@ -291,7 +326,7 @@ def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3Mu
             logger.info(
                 f"Export will start from the beginning as we are using brotli compression: {interval_start}",
             )
-            s3_upload.abort()
+            await s3_upload.abort()
 
     return s3_upload, interval_start
 
@@ -335,7 +370,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         logger.info("BatchExporting %s rows to S3", count)
 
-        s3_upload, interval_start = initialize_and_resume_multipart_upload(inputs)
+        s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
         # Iterate through chunks of results from ClickHouse and push them to S3
         # as a multipart upload. The intention here is to keep memory usage low,
@@ -364,7 +399,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         asyncio.create_task(worker_shutdown_handler())
 
-        with s3_upload as s3_upload:
+        async with s3_upload as s3_upload:
             with BatchExportTemporaryFile(compression=inputs.compression) as local_results_file:
                 for result in results_iterator:
                     record = {
@@ -390,7 +425,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                             local_results_file.bytes_since_last_reset,
                         )
 
-                        s3_upload.upload_part(local_results_file)
+                        await s3_upload.upload_part(local_results_file)
 
                         last_uploaded_part_timestamp = result["inserted_at"]
                         activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
@@ -405,7 +440,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         local_results_file.bytes_since_last_reset,
                     )
 
-                    s3_upload.upload_part(local_results_file)
+                    await s3_upload.upload_part(local_results_file)
 
                     last_uploaded_part_timestamp = result["inserted_at"]
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
