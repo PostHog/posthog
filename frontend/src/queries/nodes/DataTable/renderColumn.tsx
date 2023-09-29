@@ -24,6 +24,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 export function renderColumn(
     key: string,
@@ -210,10 +211,17 @@ export function renderColumn(
             ) : (
                 <PersonDisplay noLink withIcon person={value} />
             )
-        } else if (key === 'person' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
+        } else if (key === 'person' && isPersonsNode(query.source)) {
             const personRecord = record as PersonType
             return (
-                <Link to={urls.person(personRecord.distinct_ids[0])}>
+                <Link to={urls.personDistinctId(personRecord.distinct_ids[0])}>
+                    <PersonDisplay noLink withIcon person={personRecord} noPopover />
+                </Link>
+            )
+        } else if (key === 'person' && isPersonsQuery(query.source)) {
+            const personRecord = value as PersonType
+            return (
+                <Link to={urls.personUUID(personRecord.id ?? '-')}>
                     <PersonDisplay noLink withIcon person={personRecord} noPopover />
                 </Link>
             )
@@ -234,7 +242,13 @@ export function renderColumn(
             return typeof record === 'object' ? record[parent][child] : 'unknown'
         } else {
             if (typeof value === 'object' && value !== null) {
-                return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+                return (
+                    <ReactJson
+                        src={value}
+                        name={extractExpressionComment(key)}
+                        collapsed={Object.keys(value).length > 10 ? 0 : 1}
+                    />
+                )
             }
             return String(value)
         }

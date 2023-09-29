@@ -818,6 +818,7 @@ class HogQLMetadata(BaseModel):
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     response: Optional[HogQLMetadataResponse] = Field(default=None, description="Cached query response")
     select: Optional[str] = None
+    table: Optional[str] = None
 
 
 class HogQLQuery(BaseModel):
@@ -828,6 +829,7 @@ class HogQLQuery(BaseModel):
     kind: Literal["HogQLQuery"] = "HogQLQuery"
     query: str
     response: Optional[HogQLQueryResponse] = Field(default=None, description="Cached query response")
+    values: Optional[Dict[str, Any]] = None
 
 
 class PersonsNode(BaseModel):

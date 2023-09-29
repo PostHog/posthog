@@ -1092,6 +1092,9 @@
                 },
                 "select": {
                     "type": "string"
+                },
+                "table": {
+                    "type": "string"
                 }
             },
             "required": ["kind"],
@@ -1189,6 +1192,9 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse",
                     "description": "Cached query response"
+                },
+                "values": {
+                    "type": "object"
                 }
             },
             "required": ["kind", "query"],

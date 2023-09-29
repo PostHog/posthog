@@ -21,7 +21,7 @@ PERSONS_FIELDS: Dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "properties": StringJSONDatabaseField(name="properties"),
     "is_identified": BooleanDatabaseField(name="is_identified"),
-    "distinct_ids": LazyJoin(
+    "pdi": LazyJoin(
         from_field="id",
         join_table=DistinctIdsTable(),
         join_function=distinct_ids_join,

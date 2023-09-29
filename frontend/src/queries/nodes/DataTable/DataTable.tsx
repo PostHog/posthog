@@ -50,7 +50,7 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { QueryFeature } from '~/queries/queryFeatures'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -95,6 +95,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         nextDataLoading,
         newDataLoading,
         highlightedRows,
+        responseHogQL,
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
@@ -418,7 +419,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
                             {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
+                                <OpenEditorButton query={query} hogql={responseHogQL} />
                             ) : null}
                         </div>
                     )}
@@ -429,13 +430,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             {secondRowLeft.length > 0 && secondRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {secondRowRight}
                             {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
+                                <OpenEditorButton query={query} hogql={responseHogQL} />
                             ) : null}
                         </div>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <OpenEditorButton query={query} />
+                            <OpenEditorButton query={query} hogql={responseHogQL} />
                         </div>
                     ) : null}
                     {showResultsTable && (

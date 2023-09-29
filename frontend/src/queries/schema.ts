@@ -140,6 +140,7 @@ export interface HogQLQuery extends DataNode {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
+    values?: Record<string, any>
     response?: HogQLQueryResponse
 }
 
@@ -162,6 +163,7 @@ export interface HogQLMetadataResponse {
 
 export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
+    table?: string
     expr?: string
     select?: string
     filters?: HogQLFilters
