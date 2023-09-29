@@ -10,7 +10,6 @@ import re
 import secrets
 import string
 import subprocess
-import threading
 import time
 import uuid
 import zlib
@@ -1193,21 +1192,18 @@ def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.tim
 
     start_time = timezone.now()
 
-    event = threading.Event()
-    task.on_ready(event.set)
-
-    while not event.is_set():
+    while not task.ready():
         if timezone.now() - start_time > max_timeout:
             logger.error(
                 "Timed out waiting for celery task to finish",
                 ready=task.ready(),
                 successful=task.successful(),
-                task=task,
+                failed=task.failed(),
                 timeout=max_timeout,
                 start_time=start_time,
             )
             raise TimeoutError("Timed out waiting for celery task to finish")
-        event.wait(0.1)
+        time.sleep(0.1)
     return task
 
 
