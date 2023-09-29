@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import List, Tuple, Union
-
+from django.conf import settings
 import structlog
 from celery import group
 
@@ -16,7 +16,6 @@ logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 DEFAULT_MAX_ASSET_COUNT = 6
-ASSET_GENERATION_MAX_TIMEOUT = timedelta(minutes=10)
 
 
 def generate_assets(
@@ -41,6 +40,8 @@ def generate_assets(
     tasks = [exporter.export_asset.s(asset.id) for asset in assets]
     parallel_job = group(tasks).apply_async()
 
-    wait_for_parallel_celery_group(parallel_job, max_timeout=ASSET_GENERATION_MAX_TIMEOUT)
+    wait_for_parallel_celery_group(
+        parallel_job, max_timeout=timedelta(minutes=settings.ASSET_GENERATION_MAX_TIMEOUT_MINUTES)
+    )
 
     return insights, assets

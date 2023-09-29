@@ -1202,7 +1202,8 @@ def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.tim
             if timezone.now() - start_time > max_timeout:
                 logger.error(
                     "Timed out waiting for celery task to finish",
-                    methods=dir(task),
+                    ready=task.ready(),
+                    successful=task.successful(),
                     task=task,
                     timeout=max_timeout,
                     start_time=start_time,

@@ -50,7 +50,7 @@ ScreenWidth = Literal[800, 1920]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight"]
 
 
-# NOTE: We purporsefully DONT re-use the driver. It would be slightly faster but would keep an in-memory browser
+# NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
     options = Options()
@@ -144,7 +144,20 @@ def _screenshot_asset(
         try:
             WebDriverWait(driver, 20).until_not(lambda x: x.find_element_by_class_name("Spinner"))
         except TimeoutException:
-            capture_exception()
+            logger.error(
+                "image_exporter.timeout",
+                url_to_render=url_to_render,
+                wait_for_css_selector=wait_for_css_selector,
+                image_path=image_path,
+            )
+            with push_scope() as scope:
+                scope.set_extra("url_to_render", url_to_render)
+                try:
+                    driver.save_screenshot(image_path)
+                    scope.add_attachment(None, None, image_path)
+                except Exception:
+                    pass
+                capture_exception()
         height = driver.execute_script("return document.body.scrollHeight")
         driver.set_window_size(screenshot_width, height)
         driver.save_screenshot(image_path)
