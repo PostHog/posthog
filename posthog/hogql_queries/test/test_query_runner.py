@@ -6,10 +6,9 @@ from dateutil.parser import isoparse
 from freezegun import freeze_time
 from pydantic import BaseModel
 
-from posthog.hogql_queries.query_runner import QueryResponse, QueryRunner
+from posthog.hogql_queries.query_runner import QueryResponse, QueryRunner, RunnableQueryNode
 from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
-from posthog.types import Node
 
 
 class TestQuery(BaseModel):
@@ -19,7 +18,7 @@ class TestQuery(BaseModel):
 
 
 class QueryRunnerTest(BaseTest):
-    def setup_test_query_runner_class(self, query_class: Type[Node] = TestQuery):  # type: ignore
+    def setup_test_query_runner_class(self, query_class: Type[RunnableQueryNode] = TestQuery):  # type: ignore
         """Setup required methods and attributes of the abstract base class."""
 
         class TestQueryRunner(QueryRunner):

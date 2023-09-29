@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Generic, List, Optional, Type, Dict, TypeVar
+from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union
 
 from django.conf import settings
 from django.core.cache import cache
@@ -14,9 +14,18 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
-from posthog.schema import QueryTiming
-
-from posthog.types import Node
+from posthog.schema import (
+    QueryTiming,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
+    WebTopSourcesQuery,
+    WebTopClicksQuery,
+    WebTopPagesQuery,
+)
 from posthog.utils import generate_cache_key, get_safe_cache
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
@@ -53,13 +62,26 @@ class CachedQueryResponse(QueryResponse):
     next_allowed_client_refresh: str
 
 
+RunnableQueryNode = Union[
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
+    WebTopSourcesQuery,
+    WebTopClicksQuery,
+    WebTopPagesQuery,
+]
+
+
 class QueryRunner(ABC):
-    query: Node
-    query_type: Type[Node]
+    query: RunnableQueryNode
+    query_type: Type[RunnableQueryNode]
     team: Team
     timings: HogQLTimings
 
-    def __init__(self, query: Node | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
+    def __init__(self, query: RunnableQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
         self.team = team
         self.timings = timings or HogQLTimings()
         if isinstance(query, self.query_type):
