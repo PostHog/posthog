@@ -451,7 +451,7 @@ def ingestion_lag():
     from posthog.client import sync_execute
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
-    # Note that it runs every minute and we compare it with now(), so there's up to 60s delay
+    # Note that it runs every minute, and we compare it with now(), so there's up to 60s delay
     query = """
     SELECT event, date_diff('second', max(timestamp), now())
     FROM events
@@ -685,21 +685,9 @@ def clear_clickhouse_deleted_person():
 
 @app.task(ignore_result=True)
 def redis_celery_queue_depth():
-    from statshog.defaults.django import statsd
-
     try:
         llen = get_client().llen("celery")
         CELERY_TASK_QUEUE_DEPTH_GAUGE.set(llen)
-
-        # TODO this can be removed once we're using the prom metric for alerting
-        with pushed_metrics_registry("celery_redis_queue_depth") as registry:
-            depth_gauge = Gauge(
-                "posthog_celery_queue_depth",
-                "Number of tasks in the Celery Redis queue.",
-                registry=registry,
-            )
-            depth_gauge.set(llen)
-        statsd.gauge(f"posthog_celery_queue_depth", llen)
     except:
         # if we can't connect to statsd don't complain about it.
         # not every installation will have statsd available
