@@ -12,15 +12,6 @@ from posthog.models.insight import Insight
 from posthog.test.base import APIBaseTest
 
 
-def setup_mock_task(mock_group: MagicMock) -> None:
-    # the code under test calls group().apply_async()
-    # and then we rely on the behavior that the result of that call
-    # has on_ready which is passed a callback that will be triggered
-    chain_result_mock = MagicMock()
-    chain_result_mock.on_ready.side_effect = lambda x: x()
-    mock_group.return_value.apply_async.return_value = chain_result_mock
-
-
 @patch("ee.tasks.subscriptions.subscription_utils.group")
 @patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset")
 class TestSubscriptionsTasksUtils(APIBaseTest):
@@ -39,9 +30,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 
         self.subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
 
-    def test_generate_assets_for_insight(self, mock_export_task: MagicMock, mock_group: MagicMock) -> None:
-        setup_mock_task(mock_group)
-
+    def test_generate_assets_for_insight(self, mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
         with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
             insights, assets = generate_assets(self.subscription)
 
@@ -49,9 +38,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
             assert len(assets) == 1
             assert mock_export_task.s.call_count == 1
 
-    def test_generate_assets_for_dashboard(self, mock_export_task: MagicMock, mock_group: MagicMock) -> None:
-        setup_mock_task(mock_group)
-
+    def test_generate_assets_for_dashboard(self, mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
         with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
@@ -61,9 +48,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
         assert len(assets) == DEFAULT_MAX_ASSET_COUNT
         assert mock_export_task.s.call_count == DEFAULT_MAX_ASSET_COUNT
 
-    def test_raises_if_missing_resource(self, mock_export_task: MagicMock, mock_group: MagicMock) -> None:
-        setup_mock_task(mock_group)
-
+    def test_raises_if_missing_resource(self, _mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
         subscription = create_subscription(team=self.team, created_by=self.user)
 
         with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1), pytest.raises(Exception) as e:
@@ -71,9 +56,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 
         assert str(e.value) == "There are no insights to be sent for this Subscription"
 
-    def test_excludes_deleted_insights_for_dashboard(self, mock_export_task: MagicMock, mock_group: MagicMock) -> None:
-        setup_mock_task(mock_group)
-
+    def test_excludes_deleted_insights_for_dashboard(self, mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
         for i in range(1, 10):
             current_tile = self.tiles[i]
             if current_tile.insight is None:
