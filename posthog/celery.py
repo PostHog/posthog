@@ -57,6 +57,11 @@ CELERY_TASK_RETRY_COUNTER = Counter(
     labelnames=["task_name"],
 )
 
+CELERY_TASK_QUEUE_DEPTH_GAUGE = Gauge(
+    "posthog_celery_queue_depth",
+    "We use this to monitor the depth of the celery queue.",
+)
+
 # Using a string here means the worker doesn't have to serialize
 # the configuration object to child processes.
 # - namespace='CELERY' means all celery-related configuration keys
@@ -684,6 +689,9 @@ def redis_celery_queue_depth():
 
     try:
         llen = get_client().llen("celery")
+        CELERY_TASK_QUEUE_DEPTH_GAUGE.set(llen)
+
+        # TODO this can be removed once we're using the prom metric for alerting
         with pushed_metrics_registry("celery_redis_queue_depth") as registry:
             depth_gauge = Gauge(
                 "posthog_celery_queue_depth",
