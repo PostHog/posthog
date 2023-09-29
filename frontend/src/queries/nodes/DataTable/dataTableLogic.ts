@@ -6,7 +6,6 @@ import {
     EventsQuery,
     HogQLExpression,
     NodeKind,
-    QueryContext,
     TimeToSeeDataSessionsQuery,
 } from '~/queries/schema'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
@@ -18,6 +17,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dayjs } from 'lib/dayjs'
 import equal from 'fast-deep-equal'
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { QueryContext } from '~/queries/types'
 
 export interface DataTableLogicProps {
     vizKey: string

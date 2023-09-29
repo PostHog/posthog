@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
+import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
 import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery, trimQuotes } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -17,6 +17,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { QueryContext } from '~/queries/types'
 
 export function renderColumn(
     key: string,

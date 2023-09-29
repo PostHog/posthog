@@ -45,13 +45,13 @@ import {
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { Query } from '~/queries/Query/Query'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
-import { QueryContext } from '~/queries/schema'
 import { InsightMeta } from './InsightMeta'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { QueryContext } from '~/queries/types'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 

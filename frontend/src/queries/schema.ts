@@ -1,26 +1,25 @@
 import {
     AnyPropertyFilter,
+    BaseMathType,
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
-    PropertyGroupFilter,
-    EventType,
-    IntervalType,
-    BaseMathType,
-    PropertyMathType,
     CountPerActorMathType,
-    GroupMathType,
+    EventType,
     FilterType,
-    TrendsFilterType,
     FunnelsFilterType,
-    RetentionFilterType,
-    PathsFilterType,
-    StickinessFilterType,
+    GroupMathType,
+    HogQLMathType,
+    InsightShortId,
+    IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
-    HogQLMathType,
-    InsightLogicProps,
-    InsightShortId,
+    PathsFilterType,
+    PropertyGroupFilter,
+    PropertyMathType,
+    RetentionFilterType,
+    StickinessFilterType,
+    TrendsFilterType,
 } from '~/types'
 
 /**
@@ -76,6 +75,7 @@ export type AnyDataNode =
     | HogQLMetadata
     | TimeToSeeDataSessionsQuery
 
+/** Query Schema */
 export type QuerySchema =
     // Data nodes (see utils.ts)
     | AnyDataNode
@@ -586,23 +586,4 @@ export interface BreakdownFilter {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-}
-
-/** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
-export interface QueryContext {
-    /** Column templates for the DataTable */
-    columns?: Record<string, QueryContextColumn>
-    /** used to override the value in the query */
-    showOpenEditorButton?: boolean
-    showQueryEditor?: boolean
-    /* Adds help and examples to the query editor component */
-    showQueryHelp?: boolean
-    insightProps?: InsightLogicProps
-    emptyStateHeading?: string
-    emptyStateDetail?: string
-}
-
-interface QueryContextColumn {
-    title?: string
-    render?: (props: { record: any }) => JSX.Element
 }

@@ -2,9 +2,9 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Generic, List, Optional, Type, Dict, TypeVar
 
-from prometheus_client import Counter
-from django.core.cache import cache
 from django.conf import settings
+from django.core.cache import cache
+from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 
 from posthog.clickhouse.query_tagging import tag_queries
@@ -14,8 +14,7 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
-from posthog.schema import QueryTiming
-from posthog.types import InsightQueryNode
+from posthog.schema import QueryTiming, Node
 from posthog.utils import generate_cache_key, get_safe_cache
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
@@ -51,16 +50,16 @@ class CachedQueryResponse(QueryResponse):
 
 
 class QueryRunner(ABC):
-    query: InsightQueryNode
-    query_type: Type[InsightQueryNode]
+    query: Node
+    query_type: Type[Node]
     team: Team
     timings: HogQLTimings
 
-    def __init__(self, query: InsightQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
+    def __init__(self, query: Node | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
         self.team = team
         self.timings = timings or HogQLTimings()
         if isinstance(query, self.query_type):
-            self.query = query  # type: ignore
+            self.query = query
         else:
             self.query = self.query_type.model_validate(query)
 

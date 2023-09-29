@@ -6,8 +6,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
-import { QueryContext } from '~/queries/schema'
-import { ChartDisplayType, FunnelVizType, ExporterFormat, InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
@@ -34,6 +33,7 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import { QueryContext } from '~/queries/types'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,

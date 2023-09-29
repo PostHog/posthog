@@ -6,7 +6,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
-import { InsightVizNode, QueryContext } from '../../schema'
+import { InsightVizNode } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
@@ -17,6 +17,7 @@ import { useState } from 'react'
 
 import './Insight.scss'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { QueryContext } from '~/queries/types'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {

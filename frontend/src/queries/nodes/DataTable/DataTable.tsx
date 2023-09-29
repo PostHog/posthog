@@ -1,13 +1,5 @@
 import './DataTable.scss'
-import {
-    AnyResponseType,
-    DataTableNode,
-    EventsNode,
-    EventsQuery,
-    HogQLQuery,
-    PersonsNode,
-    QueryContext,
-} from '~/queries/schema'
+import { AnyResponseType, DataTableNode, EventsNode, EventsQuery, HogQLQuery, PersonsNode } from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -43,6 +35,7 @@ import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { QueryContext } from '~/queries/types'
 
 interface DataTableProps {
     uniqueKey?: string | number
