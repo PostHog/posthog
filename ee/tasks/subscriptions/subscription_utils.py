@@ -21,7 +21,7 @@ DEFAULT_MAX_ASSET_COUNT = 6
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
     "Time spent generating assets for a subscription",
-    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, 1200, 1800, 3600, float("inf")),
+    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
 
 

@@ -29,7 +29,7 @@ EXPORT_TIMER = Histogram(
     "exporter_task_duration_seconds",
     "Time spent exporting an asset",
     labelnames=["type"],
-    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, 1200, 1800, 3600, float("inf")),
+    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
 
 
