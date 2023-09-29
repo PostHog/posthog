@@ -42,6 +42,14 @@ export const scene: SceneExport = {
     }),
 }
 
+export const SurveyQuestionLabel = {
+    [SurveyQuestionType.Open]: 'Open text',
+    [SurveyQuestionType.Rating]: 'Rating',
+    [SurveyQuestionType.Link]: 'Link',
+    [SurveyQuestionType.SingleChoice]: 'Single choice select',
+    [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
+}
+
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
     const { isEditingSurvey } = useValues(surveyLogic)
     const showSurveyForm = id === 'new' || isEditingSurvey
@@ -139,17 +147,26 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                             )
                                         }}
                                         options={[
-                                            { label: 'Open text', value: SurveyQuestionType.Open },
-                                            { label: 'Link', value: SurveyQuestionType.Link },
-                                            { label: 'Rating', value: SurveyQuestionType.Rating },
+                                            {
+                                                label: SurveyQuestionLabel[SurveyQuestionType.Open],
+                                                value: SurveyQuestionType.Open,
+                                            },
+                                            {
+                                                label: SurveyQuestionLabel[SurveyQuestionType.Link],
+                                                value: SurveyQuestionType.Link,
+                                            },
+                                            {
+                                                label: SurveyQuestionLabel[SurveyQuestionType.Rating],
+                                                value: SurveyQuestionType.Rating,
+                                            },
                                             ...(featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_CHOICE]
                                                 ? [
                                                       {
-                                                          label: 'Single choice select',
+                                                          label: SurveyQuestionLabel[SurveyQuestionType.SingleChoice],
                                                           value: SurveyQuestionType.SingleChoice,
                                                       },
                                                       {
-                                                          label: 'Multiple choice select',
+                                                          label: SurveyQuestionLabel[SurveyQuestionType.MultipleChoice],
                                                           value: SurveyQuestionType.MultipleChoice,
                                                       },
                                                   ]
