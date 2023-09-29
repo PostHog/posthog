@@ -170,18 +170,16 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                                 { label: 'Open text', value: SurveyQuestionType.Open },
                                                                 { label: 'Link', value: SurveyQuestionType.Link },
                                                                 { label: 'Rating', value: SurveyQuestionType.Rating },
-                                                                ...(featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_CHOICE]
-                                                                    ? [
-                                                                          {
-                                                                              label: 'Single choice select',
-                                                                              value: SurveyQuestionType.SingleChoice,
-                                                                          },
-                                                                          {
-                                                                              label: 'Multiple choice select',
-                                                                              value: SurveyQuestionType.MultipleChoice,
-                                                                          },
-                                                                      ]
-                                                                    : []),
+                                                                ...[
+                                                                    {
+                                                                        label: 'Single choice select',
+                                                                        value: SurveyQuestionType.SingleChoice,
+                                                                    },
+                                                                    {
+                                                                        label: 'Multiple choice select',
+                                                                        value: SurveyQuestionType.MultipleChoice,
+                                                                    },
+                                                                ],
                                                             ]}
                                                         />
                                                     </Field>
@@ -324,16 +322,18 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             </Group>
                         )
                     )}
-                    <LemonButton
-                        type="secondary"
-                        className="w-max"
-                        icon={<IconPlus />}
-                        onClick={() => {
-                            setSurveyValue('questions', [...survey.questions, { ...defaultSurveyFieldValues.open }])
-                        }}
-                    >
-                        Add question
-                    </LemonButton>
+                    {featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_QUESTIONS] && (
+                        <LemonButton
+                            type="secondary"
+                            className="w-max"
+                            icon={<IconPlus />}
+                            onClick={() => {
+                                setSurveyValue('questions', [...survey.questions, { ...defaultSurveyFieldValues.open }])
+                            }}
+                        >
+                            Add question
+                        </LemonButton>
+                    )}
                     <LemonDivider />
                     <Field name="appearance" label="Thank you message (optional)">
                         {({ value, onChange }) => (
