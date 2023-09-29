@@ -1,13 +1,19 @@
 from typing import Optional
 
+from prometheus_client import Counter
+
 from posthog.celery import app
 from posthog.models import ExportedAsset
+
+EXPORT_QUEUED_COUNTER = Counter(
+    "exporter_task_queued",
+    "An export task was queued",
+    labelnames=["team_id", "type"],
+)
 
 
 @app.task(autoretry_for=(Exception,), max_retries=5, retry_backoff=True, acks_late=True)
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.tasks.exports import csv_exporter, image_exporter
 
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
@@ -21,7 +27,7 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     if is_csv_export:
         max_limit = exported_asset.export_context.get("max_limit", 10000)
         csv_exporter.export_csv(exported_asset, limit=limit, max_limit=max_limit)
-        statsd.incr("csv_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
+        EXPORT_QUEUED_COUNTER.labels(team_id=exported_asset.team_id, type="csv").inc()
     else:
         image_exporter.export_image(exported_asset)
-        statsd.incr("image_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
+        EXPORT_QUEUED_COUNTER.labels(team_id=exported_asset.team_id, type="image").inc()
