@@ -40,6 +40,8 @@ def generate_assets(
     tasks = [exporter.export_asset.s(asset.id) for asset in assets]
     parallel_job = group(tasks).apply_async()
 
-    wait_for_parallel_celery_group(parallel_job, max_timeout=timedelta(settings.ASSET_GENERATION_MAX_TIMEOUT))
+    wait_for_parallel_celery_group(
+        parallel_job, max_timeout=timedelta(minutes=settings.ASSET_GENERATION_MAX_TIMEOUT_MINUTES)
+    )
 
     return insights, assets
