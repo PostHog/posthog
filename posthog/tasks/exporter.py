@@ -1,6 +1,6 @@
 from typing import Optional
 
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 from posthog.celery import app
 from posthog.models import ExportedAsset
@@ -8,7 +8,27 @@ from posthog.models import ExportedAsset
 EXPORT_QUEUED_COUNTER = Counter(
     "exporter_task_queued",
     "An export task was queued",
-    labelnames=["team_id", "type"],
+    labelnames=["type"],
+)
+EXPORT_SUCCEEDED_COUNTER = Counter(
+    "exporter_task_csv_succeeded",
+    "An export task succeeded",
+    labelnames=["type"],
+)
+EXPORT_ASSET_UNKNOWN_COUNTER = Counter(
+    "exporter_task_csv_unknown_asset",
+    "An export task was for an unknown asset",
+    labelnames=["type"],
+)
+EXPORT_FAILED_COUNTER = Counter(
+    "exporter_task_csv_failed",
+    "An export task failed",
+    labelnames=["type"],
+)
+EXPORT_TIMER = Histogram(
+    "exporter_task_csv_duration_seconds",
+    "Time spent exporting an asset",
+    labelnames=["type"],
 )
 
 
@@ -27,7 +47,7 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     if is_csv_export:
         max_limit = exported_asset.export_context.get("max_limit", 10000)
         csv_exporter.export_csv(exported_asset, limit=limit, max_limit=max_limit)
-        EXPORT_QUEUED_COUNTER.labels(team_id=exported_asset.team_id, type="csv").inc()
+        EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
     else:
         image_exporter.export_image(exported_asset)
-        EXPORT_QUEUED_COUNTER.labels(team_id=exported_asset.team_id, type="image").inc()
+        EXPORT_QUEUED_COUNTER.labels(type="image").inc()
