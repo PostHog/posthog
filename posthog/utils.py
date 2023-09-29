@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import dataclasses
 import datetime
@@ -34,6 +35,7 @@ import lzstring
 import posthoganalytics
 import pytz
 import structlog
+from asgiref.sync import async_to_sync
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -1182,7 +1184,24 @@ def get_week_start_for_country_code(country_code: str) -> int:
     return 1  # Monday
 
 
-def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
+def sleep_time_generator() -> Generator[float, None, None]:
+    # a generator that yield an exponential back off between 0.1 and 3 seconds
+    for _ in range(10):
+        yield 0.1  # 1 second in total
+    for _ in range(5):
+        yield 0.2  # 1 second in total
+    for _ in range(5):
+        yield 0.4  # 2 seconds in total
+    for _ in range(5):
+        yield 0.8  # 4 seconds in total
+    for _ in range(10):
+        yield 1.5  # 15 seconds in total
+    while True:
+        yield 3.0
+
+
+@async_to_sync
+async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
     """
     Wait for a group of celery tasks to finish, but don't wait longer than max_timeout.
     For parallel tasks, this is the only way to await the entire group.
@@ -1192,6 +1211,8 @@ def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.tim
 
     start_time = timezone.now()
 
+    sleep_generator = sleep_time_generator()
+
     while not task.ready():
         if timezone.now() - start_time > max_timeout:
             logger.error(
@@ -1199,11 +1220,13 @@ def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.tim
                 ready=task.ready(),
                 successful=task.successful(),
                 failed=task.failed(),
+                child_states=[child.state for child in task.children],
                 timeout=max_timeout,
                 start_time=start_time,
             )
             raise TimeoutError("Timed out waiting for celery task to finish")
-        time.sleep(0.1)
+
+        await asyncio.sleep(next(sleep_generator))
     return task
 
 
