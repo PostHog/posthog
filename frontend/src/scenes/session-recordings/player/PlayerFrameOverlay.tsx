@@ -10,6 +10,7 @@ import './PlayerFrameOverlay.scss'
 import { PlayerUpNext } from './PlayerUpNext'
 import { useState } from 'react'
 import clsx from 'clsx'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 export interface PlayerFrameOverlayProps extends SessionRecordingPlayerLogicProps {
     nextSessionRecording?: Partial<SessionRecordingType>
@@ -23,6 +24,7 @@ const PlayerFrameOverlayContent = ({
     let content = null
     const pausedState =
         currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
+    const isInExportContext = !!getCurrentExporterData()
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
@@ -68,7 +70,10 @@ const PlayerFrameOverlayContent = ({
     }
     return content ? (
         <div
-            className={clsx('PlayerFrameOverlay__content', pausedState && 'PlayerFrameOverlay__content--only-hover')}
+            className={clsx(
+                'PlayerFrameOverlay__content',
+                pausedState && !isInExportContext && 'PlayerFrameOverlay__content--only-hover'
+            )}
             aria-busy={currentPlayerState === SessionPlayerState.BUFFER}
         >
             {content}
