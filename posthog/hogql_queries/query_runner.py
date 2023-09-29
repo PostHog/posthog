@@ -40,8 +40,8 @@ class QueryResponse(BaseModel, Generic[DataT]):
     )
     result: DataT
     timings: Optional[List[QueryTiming]] = None
-    types: Optional[Any] = None
-    columns: Optional[Any] = None
+    types: Optional[List[str]] = None
+    columns: Optional[List[str]] = None
 
 
 class CachedQueryResponse(QueryResponse):
