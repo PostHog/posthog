@@ -122,14 +122,14 @@ export function HTMLElementsDisplay({
                 </LemonBanner>
             )}
             <div className="px-4 rounded bg-default">
-                {elements.length ? (
+                {parsedElements.length ? (
                     <>
                         {elementsToShowDepth ? (
                             <pre
                                 className="p-1 m-0 opacity-50 text-white text-sm cursor-pointer"
                                 onClick={showAdditionalElements}
                             >
-                                click to see {elementsToShowDepth} hidden element{elementsToShowDepth > 1 ? 's' : null}
+                                Show {elementsToShowDepth} hidden element{elementsToShowDepth > 1 ? 's' : null}
                             </pre>
                         ) : null}
                         <Tags
