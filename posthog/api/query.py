@@ -28,9 +28,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.web_analytics.top_clicks import TopClicksQueryRunner
-from posthog.hogql_queries.web_analytics.top_pages import TopPagesQueryRunner
-from posthog.hogql_queries.web_analytics.top_sources import TopSourcesQueryRunner
+from posthog.hogql_queries.web_analytics.top_clicks import WebTopClicksQueryRunner
+from posthog.hogql_queries.web_analytics.top_pages import WebTopPagesQueryRunner
+from posthog.hogql_queries.web_analytics.top_sources import WebTopSourcesQueryRunner
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
@@ -255,16 +255,16 @@ def process_query(
         return get_session_events(serializer) or {}
     elif query_kind == "WebTopSourcesQuery":
         refresh_requested = refresh_requested_by_client(request) if request else False
-        top_sources_query_runner = TopSourcesQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(top_sources_query_runner.run(refresh_requested=refresh_requested))
+        web_top_sources_query_runner = WebTopSourcesQueryRunner(query_json, team)
+        return _unwrap_pydantic_dict(web_top_sources_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "WebTopClicksQuery":
         refresh_requested = refresh_requested_by_client(request) if request else False
-        top_clicks_query_runner = TopClicksQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(top_clicks_query_runner.run(refresh_requested=refresh_requested))
+        web_top_clicks_query_runner = WebTopClicksQueryRunner(query_json, team)
+        return _unwrap_pydantic_dict(web_top_clicks_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "WebTopPagesQuery":
         refresh_requested = refresh_requested_by_client(request) if request else False
-        top_pages_query_runner = TopPagesQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(top_pages_query_runner.run(refresh_requested=refresh_requested))
+        web_top_pages_query_runner = WebTopPagesQueryRunner(query_json, team)
+        return _unwrap_pydantic_dict(web_top_pages_query_runner.run(refresh_requested=refresh_requested))
     else:
         if query_json.get("source"):
             return process_query(team, query_json["source"])

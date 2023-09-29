@@ -9,7 +9,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import WebTopPagesQuery, WebTopPagesQueryResponse
 
 
-class TopPagesQueryRunner(WebAnalyticsQueryRunner):
+class WebTopPagesQueryRunner(WebAnalyticsQueryRunner):
     query: WebTopPagesQuery
     query_type = WebTopPagesQuery
 
