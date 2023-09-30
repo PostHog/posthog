@@ -105,7 +105,7 @@ export function CodeInstructions({
             setShowLocalEvalCode(false)
         }
 
-        const bootstrapOption = BOOTSTRAPPING_OPTIONS.find((bootstrapOption) => bootstrapOption.value === selectedValue)
+        const bootstrapOption = BOOTSTRAPPING_OPTIONS.find((bootstrapOption) => bootstrapOption.key === selectedValue)
         if (bootstrapOption) {
             setBootstrapOption(bootstrapOption)
         } else {
