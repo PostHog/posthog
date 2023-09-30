@@ -7,6 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { verifyEmailLogic } from './verifyEmailLogic'
 import { SupportModal } from 'lib/components/Support/SupportModal'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { IconGmail, IconYahoo, IconOutlook, IconIcloud } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: VerifyEmail,
@@ -19,28 +20,77 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     const { openSupportLoggedOutForm } = useActions(supportLogic)
 
     return (
-        <div className="flex flex-row gap-x-4">
-            <LemonButton
-                type="secondary"
-                className="mt-8"
-                onClick={() => {
-                    openSupportLoggedOutForm(null, null, 'bug', 'login')
-                }}
-            >
-                Contact support
-            </LemonButton>
-            {uuid && (
+        <div className="flex flex-col flex-wrap items-center">
+            <p className="mt-4">Using any of the following services? Click to quickly go to your email inbox.</p>
+            <div className="flex flex-row flex-wrap gap-x-3 justify-center">
+                <LemonButton
+                    type="secondary"
+                    icon={<IconGmail />}
+                    size="large"
+                    className="mt-4"
+                    onClick={() => {
+                        window.open('https://mail.google.com/mail/u/0/#search/posthog', '_blank')
+                    }}
+                >
+                    Gmail
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    icon={<IconYahoo />}
+                    size="large"
+                    className="mt-4"
+                    onClick={() => {
+                        window.open('https://mail.yahoo.com/d/search/keyword=posthog', '_blank')
+                    }}
+                >
+                    Yahoo
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    icon={<IconOutlook />}
+                    size="large"
+                    className="mt-4"
+                    onClick={() => {
+                        window.open('https://outlook.live.com/mail/search?q=posthog', '_blank')
+                    }}
+                >
+                    Outlook
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    icon={<IconIcloud />}
+                    size="large"
+                    className="mt-4"
+                    onClick={() => {
+                        window.open('https://www.icloud.com/mail', '_blank')
+                    }}
+                >
+                    iCloud
+                </LemonButton>
+            </div>
+            <div className="flex flex-row flex-wrap gap-x-4 justify-center">
                 <LemonButton
                     type="secondary"
                     className="mt-8"
                     onClick={() => {
-                        requestVerificationLink(uuid)
+                        openSupportLoggedOutForm(null, null, 'bug', 'login')
                     }}
                 >
-                    Request a new link
+                    Contact support
                 </LemonButton>
-            )}
-            <SupportModal loggedIn={false} />
+                {uuid && (
+                    <LemonButton
+                        type="secondary"
+                        className="mt-8"
+                        onClick={() => {
+                            requestVerificationLink(uuid)
+                        }}
+                    >
+                        Request a new link
+                    </LemonButton>
+                )}
+                <SupportModal loggedIn={false} />
+            </div>
         </div>
     )
 }

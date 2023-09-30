@@ -2483,3 +2483,159 @@ export function IconTarget(props: LemonIconProps): JSX.Element {
         </LemonIconBase>
     )
 }
+
+export function IconYahoo(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M10.5 7.59L8.16 13.2L5.85 7.59H2l4.29 9.64l-1.54 3.47H8.5l5.74-13.11H10.5m4.5 5.14c-1.37 0-2.41 1.04-2.41 2.27c0 1.17 1 2.16 2.34 2.16c1.39 0 2.43-1.03 2.43-2.26c0-1.21-1-2.17-2.36-2.17m2.72-9.43l-3.83 8.59h4.28L22 3.3h-4.28Z"
+                fill={'#8A4581'}
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconGmail(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 48 48" {...props}>
+            <path d="M45,16.2l-5,2.75l-5,4.75L35,40h7c1.657,0,3-1.343,3-3V16.2z" fill="#4CAF50" />
+            <path d="M3,16.2l3.614,1.71L13,23.7V40H6c-1.657,0-3-1.343-3-3V16.2z" fill="#1E88E5" />
+            <polygon points="35,11.2 24,19.45 13,11.2 12,17 13,23.7 24,31.95 35,23.7 36,17" fill="#E53935" />
+            <path
+                d="M3,12.298V16.2l10,7.5V11.2L9.876,8.859C9.132,8.301,8.228,8,7.298,8h0C4.924,8,3,9.924,3,12.298z"
+                fill="#C62828"
+            />
+            <path
+                d="M45,12.298V16.2l-10,7.5V11.2l3.124-2.341C38.868,8.301,39.772,8,40.702,8h0 C43.076,8,45,9.924,45,12.298z"
+                fill="#FBC02D"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconOutlook(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 48 48" {...props}>
+            <path
+                d="M21,31c0,1.104,0.896,2,2,2h17c1.104,0,2-0.896,2-2V16c0-1.104-0.896-2-2-2H23c-1.104,0-2,0.896-2,2V31z"
+                fill="#03A9F4"
+            />
+            <path
+                d="M42,16.975V16c0-0.428-0.137-0.823-0.367-1.148l-11.264,6.932l-7.542-4.656L22.125,19l8.459,5L42,16.975z"
+                fill="#B3E5FC"
+            />
+            <path d="M27 41.46L6 37.46 6 9.46 27 5.46z" fill="#0277BD" />
+            <path
+                d="M21.216,18.311c-1.098-1.275-2.546-1.913-4.328-1.913c-1.892,0-3.408,0.669-4.554,2.003c-1.144,1.337-1.719,3.088-1.719,5.246c0,2.045,0.564,3.714,1.69,4.986c1.126,1.273,2.592,1.91,4.378,1.91c1.84,0,3.331-0.652,4.474-1.975c1.143-1.313,1.712-3.043,1.712-5.199C22.869,21.281,22.318,19.595,21.216,18.311z M19.049,26.735c-0.568,0.769-1.339,1.152-2.313,1.152c-0.939,0-1.699-0.394-2.285-1.187c-0.581-0.785-0.87-1.861-0.87-3.211c0-1.336,0.289-2.414,0.87-3.225c0.586-0.81,1.368-1.211,2.355-1.211c0.962,0,1.718,0.393,2.267,1.178c0.555,0.795,0.833,1.895,0.833,3.31C19.907,24.906,19.618,25.968,19.049,26.735z"
+                fill="#FFF"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconIcloud(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 48 48" {...props}>
+            <linearGradient
+                id="iSZtP6eSr5wqIgT3aj5c_a"
+                x1="6.896"
+                x2="27.372"
+                y1="21.436"
+                y2="21.46"
+                gradientUnits="userSpaceOnUse"
+            >
+                <stop offset=".309" stopColor="#33BEF0" />
+                <stop offset="1" stopColor="#0A85D9" />
+            </linearGradient>
+            <ellipse cx="14.279" cy="21.444" fill="url(#iSZtP6eSr5wqIgT3aj5c_a)" rx="7.163" ry="7.259" />
+            <linearGradient
+                id="iSZtP6eSr5wqIgT3aj5c_b"
+                x1="1.694"
+                x2="39.022"
+                y1="27.617"
+                y2="27.813"
+                gradientUnits="userSpaceOnUse"
+            >
+                <stop offset=".309" stopColor="#33BEF0" />
+                <stop offset="1" stopColor="#0A85D9" />
+            </linearGradient>
+            <path
+                d="M46,28.185c0-4.868-3.894-8.815-8.698-8.815c-4.804,0-8.698,3.947-8.698,8.815	c0,0.175,0.016,0.346,0.026,0.519h-8.272c0.037-0.341,0.06-0.686,0.06-1.037c0-5.155-4.123-9.333-9.209-9.333	C6.123,18.333,2,22.512,2,27.667S6.123,37,11.209,37H38C42.564,36.73,46,32.878,46,28.185z"
+                fill="url(#iSZtP6eSr5wqIgT3aj5c_b)"
+            />
+            <linearGradient
+                id="iSZtP6eSr5wqIgT3aj5c_c"
+                x1="14.368"
+                x2="12.779"
+                y1="37.187"
+                y2="7.309"
+                gradientUnits="userSpaceOnUse"
+            >
+                <stop offset=".404" stopColor="#33BEF0" />
+                <stop offset="1" stopColor="#0A85D9" />
+            </linearGradient>
+            <path
+                d="M20.175,25.562c-0.943-4.14-4.594-7.229-8.966-7.229c-1.323,0-2.578,0.288-3.715,0.797	c-0.242,0.728-0.378,1.504-0.378,2.314c0,4.009,3.207,7.259,7.163,7.259C16.725,28.704,18.883,27.459,20.175,25.562z"
+                fill="url(#iSZtP6eSr5wqIgT3aj5c_c)"
+            />
+            <linearGradient
+                id="iSZtP6eSr5wqIgT3aj5c_d"
+                x1="-1.81"
+                x2="39.425"
+                y1="42.205"
+                y2="11.822"
+                gradientUnits="userSpaceOnUse"
+            >
+                <stop offset=".309" stopColor="#33BEF0" />
+                <stop offset="1" stopColor="#0A85D9" />
+            </linearGradient>
+            <ellipse cx="27.07" cy="20.926" fill="url(#iSZtP6eSr5wqIgT3aj5c_d)" rx="11.767" ry="11.926" />
+            <linearGradient
+                id="iSZtP6eSr5wqIgT3aj5c_e"
+                x1="31.961"
+                x2="10.537"
+                y1="20.784"
+                y2="21.568"
+                gradientUnits="userSpaceOnUse"
+            >
+                <stop offset=".246" stopColor="#33BEF0" />
+                <stop offset="1" stopColor="#0A85D9" />
+            </linearGradient>
+            <path
+                d="M17.023,14.739c-1.085,1.805-1.721,3.918-1.721,6.186c0,2.608,0.836,5.014,2.237,6.977	c2.315-1.203,3.902-3.64,3.902-6.458C21.442,18.421,19.617,15.831,17.023,14.739z"
+                fill="url(#iSZtP6eSr5wqIgT3aj5c_e)"
+            />
+            <linearGradient
+                id="iSZtP6eSr5wqIgT3aj5c_f"
+                x1="26.665"
+                x2="11.328"
+                y1="44.761"
+                y2="9.592"
+                gradientUnits="userSpaceOnUse"
+            >
+                <stop offset=".415" stopColor="#33BEF0" />
+                <stop offset=".652" stopColor="#1797E0" />
+                <stop offset=".795" stopColor="#0A85D9" />
+            </linearGradient>
+            <path
+                d="M15.407,19.368c-0.067,0.51-0.105,1.029-0.105,1.558c0,2.608,0.835,5.012,2.236,6.975	c0.005-0.003,0.011-0.005,0.016-0.007c0.565-0.295,1.086-0.665,1.552-1.095c0.04-0.037,0.076-0.079,0.115-0.118	c0.178-0.172,0.349-0.352,0.509-0.542c0.07-0.083,0.133-0.172,0.199-0.258c0.084-0.11,0.163-0.223,0.241-0.337	C19.55,22.847,17.776,20.604,15.407,19.368z"
+                fill="url(#iSZtP6eSr5wqIgT3aj5c_f)"
+            />
+            <linearGradient
+                id="iSZtP6eSr5wqIgT3aj5c_g"
+                x1="11.891"
+                x2="37.98"
+                y1="52.879"
+                y2="19.674"
+                gradientUnits="userSpaceOnUse"
+            >
+                <stop offset=".309" stopColor="#33BEF0" />
+                <stop offset="1" stopColor="#0A85D9" />
+            </linearGradient>
+            <path
+                d="M28.605,28.185c0,1.582,0.417,3.063,1.136,4.346c5.21-1.228,9.096-5.952,9.096-11.606	c0-0.483-0.037-0.956-0.092-1.424c-0.47-0.08-0.95-0.131-1.443-0.131C32.499,19.37,28.605,23.317,28.605,28.185z"
+                fill="url(#iSZtP6eSr5wqIgT3aj5c_g)"
+            />
+        </LemonIconBase>
+    )
+}
