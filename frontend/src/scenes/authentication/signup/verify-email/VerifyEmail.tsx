@@ -14,6 +14,47 @@ export const scene: SceneExport = {
     logic: verifyEmailLogic,
 }
 
+interface EmailProviderLinkProps {
+    label: string
+    icon: JSX.Element
+    link: string
+}
+
+const EmailProviderLink: React.FC<EmailProviderLinkProps> = ({ label, icon, link }) => {
+    const handleClick = (): void => {
+        window.open(link, '_blank')
+    }
+
+    return (
+        <LemonButton type="secondary" icon={icon} size="large" className="mt-4" onClick={handleClick}>
+            {label}
+        </LemonButton>
+    )
+}
+
+export const VerifyEmailProvidersLinks = (): JSX.Element => {
+    return (
+        <div className="flex flex-row flex-wrap gap-x-3 justify-center">
+            <EmailProviderLink
+                label="Gmail"
+                icon={<IconGmail />}
+                link="https://mail.google.com/mail/u/0/#search/posthog"
+            />
+            <EmailProviderLink
+                label="Yahoo"
+                icon={<IconYahoo />}
+                link="https://mail.yahoo.com/d/search/keyword=posthog"
+            />
+            <EmailProviderLink
+                label="Outlook"
+                icon={<IconOutlook />}
+                link="https://outlook.live.com/mail/search?q=posthog"
+            />
+            <EmailProviderLink label="iCloud" icon={<IconIcloud />} link="https://www.icloud.com/mail" />
+        </div>
+    )
+}
+
 export const VerifyEmailHelpLinks = (): JSX.Element => {
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { uuid } = useValues(verifyEmailLogic)
@@ -22,52 +63,7 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     return (
         <div className="flex flex-col flex-wrap items-center">
             <p className="mt-4">Using any of the following services? Click to quickly go to your email inbox.</p>
-            <div className="flex flex-row flex-wrap gap-x-3 justify-center">
-                <LemonButton
-                    type="secondary"
-                    icon={<IconGmail />}
-                    size="large"
-                    className="mt-4"
-                    onClick={() => {
-                        window.open('https://mail.google.com/mail/u/0/#search/posthog', '_blank')
-                    }}
-                >
-                    Gmail
-                </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    icon={<IconYahoo />}
-                    size="large"
-                    className="mt-4"
-                    onClick={() => {
-                        window.open('https://mail.yahoo.com/d/search/keyword=posthog', '_blank')
-                    }}
-                >
-                    Yahoo
-                </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    icon={<IconOutlook />}
-                    size="large"
-                    className="mt-4"
-                    onClick={() => {
-                        window.open('https://outlook.live.com/mail/search?q=posthog', '_blank')
-                    }}
-                >
-                    Outlook
-                </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    icon={<IconIcloud />}
-                    size="large"
-                    className="mt-4"
-                    onClick={() => {
-                        window.open('https://www.icloud.com/mail', '_blank')
-                    }}
-                >
-                    iCloud
-                </LemonButton>
-            </div>
+            <VerifyEmailProvidersLinks />
             <div className="flex flex-row flex-wrap gap-x-4 justify-center">
                 <LemonButton
                     type="secondary"
