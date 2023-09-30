@@ -293,7 +293,11 @@ export const sceneLogic = kea<sceneLogicType>({
                             console.warn('No onboarding completed, redirecting to products')
                             router.actions.replace(urls.products())
                             return
-                        } else if (!teamLogic.values.currentTeam.completed_snippet_onboarding) {
+                        } else if (
+                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !==
+                                'test' &&
+                            !teamLogic.values.currentTeam.completed_snippet_onboarding
+                        ) {
                             console.warn('Ingestion tutorial not completed, redirecting to it')
                             router.actions.replace(urls.ingestion())
                             return
