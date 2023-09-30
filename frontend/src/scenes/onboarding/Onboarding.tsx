@@ -15,6 +15,7 @@ import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { teamLogic } from 'scenes/teamLogic'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
+import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -101,6 +102,14 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
     )
 }
 
+const SurveysOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <SDKs usersAction="taking surveys" sdkInstructionMap={SurveysSDKInstructions} />
+        </OnboardingWrapper>
+    )
+}
+
 export function Onboarding(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { product } = useValues(onboardingLogic)
@@ -118,6 +127,7 @@ export function Onboarding(): JSX.Element | null {
         [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
         [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
         [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
+        [ProductKey.SURVEYS]: SurveysOnboarding,
     }
     const OnboardingView = onboardingViews[product.type]
 
