@@ -146,7 +146,6 @@ export const onboardingLogic = kea<onboardingLogicType>({
         },
         completeOnboarding: ({ redirectUri }) => {
             if (values.productKey) {
-                // update the current team has_completed_onboarding_for field, only writing over the current product
                 actions.updateCurrentTeam({
                     has_completed_onboarding_for: {
                         ...values.currentTeam?.has_completed_onboarding_for,

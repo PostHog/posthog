@@ -2,7 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconBarChart } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BillingProductV2Type } from '~/types'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { useEffect } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
+import { router } from 'kea-router'
 
 export const scene: SceneExport = {
     component: Products,
@@ -77,6 +78,7 @@ export function Products(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
     const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
     const products = billing?.products || []
 
@@ -105,7 +107,19 @@ export function Products(): JSX.Element {
                             ))}
                     </div>
                     <div className="mt-20">
-                        <LemonButton status="muted" to={urls.default()} size="small">
+                        <LemonButton
+                            status="muted"
+                            onClick={() => {
+                                updateCurrentTeam({
+                                    has_completed_onboarding_for: {
+                                        ...currentTeam?.has_completed_onboarding_for,
+                                        skipped_onboarding: true,
+                                    },
+                                })
+                                router.actions.replace(urls.default())
+                            }}
+                            size="small"
+                        >
                             None of these
                         </LemonButton>
                     </div>
