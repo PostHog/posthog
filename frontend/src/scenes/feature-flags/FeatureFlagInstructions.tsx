@@ -198,7 +198,7 @@ export function CodeInstructions({
                                 }}
                                 data-attr="flags-code-example-payloads-option"
                                 checked={showPayloadCode}
-                                disabled={!PAYLOAD_LIBRARIES.includes(selectedOption.value)}
+                                disabled={!PAYLOAD_LIBRARIES.includes(selectedOption.key)}
                             />
                             <IconInfo className="text-xl text-muted-alt shrink-0" />
                         </div>
@@ -218,7 +218,7 @@ export function CodeInstructions({
                                         reportFlagsCodeExampleInteraction('bootstrap')
                                     }}
                                     disabled={
-                                        !BOOTSTRAPPING_OPTIONS.map((bo) => bo.value).includes(selectedOption.value) ||
+                                        !BOOTSTRAPPING_OPTIONS.map((bo) => bo.key).includes(selectedOption.key) ||
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
@@ -239,7 +239,7 @@ export function CodeInstructions({
                                         reportFlagsCodeExampleInteraction('local evaluation')
                                     }}
                                     disabled={
-                                        !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.value) ||
+                                        !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key) ||
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
