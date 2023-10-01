@@ -1200,6 +1200,10 @@ def sleep_time_generator() -> Generator[float, None, None]:
         yield 3.0
 
 
+class ParallelWaitTimeout(Exception):
+    pass
+
+
 @async_to_sync
 async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
     """
@@ -1224,7 +1228,7 @@ async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[dateti
                 timeout=max_timeout,
                 start_time=start_time,
             )
-            raise TimeoutError("Timed out waiting for celery task to finish")
+            raise ParallelWaitTimeout("Timed out waiting for celery task to finish")
 
         await asyncio.sleep(next(sleep_generator))
     return task

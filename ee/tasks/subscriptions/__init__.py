@@ -11,6 +11,7 @@ from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_r
 from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog.celery import app
 from posthog.models.subscription import Subscription
+from posthog.utils import ParallelWaitTimeout
 
 logger = structlog.get_logger(__name__)
 
@@ -106,7 +107,13 @@ def schedule_all_subscriptions() -> None:
     )
 
     for subscription in subscriptions:
-        deliver_subscription_report.delay(subscription.id)
+        # if this subscription times out, we want to retry it
+        # the query above checks within a time window so if enough time passes
+        # it will not pick up the subscription again
+        # so, we retry the specific delivery not this gathering task
+        deliver_subscription_report.delay(
+            subscription.id, autoretry_for=(ParallelWaitTimeout,), max_retries=2, retry_backoff=True
+        )
 
 
 @app.task()
