@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 import type { onboardingLogicType } from './onboardingLogicType'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { combineUrl } from 'kea-router'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -83,7 +84,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 setProductKey: (_, { productKey }) => {
                     switch (productKey) {
                         case 'product_analytics':
-                            return urls.default()
+                            return combineUrl(urls.events(), { onboarding_completed: true }).url
                         case 'session_replay':
                             return urls.replay()
                         case 'feature_flags':
@@ -146,7 +147,6 @@ export const onboardingLogic = kea<onboardingLogicType>({
         },
         completeOnboarding: ({ redirectUri }) => {
             if (values.productKey) {
-                // update the current team has_completed_onboarding_for field, only writing over the current product
                 actions.updateCurrentTeam({
                     has_completed_onboarding_for: {
                         ...values.currentTeam?.has_completed_onboarding_for,
