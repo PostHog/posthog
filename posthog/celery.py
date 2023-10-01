@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from celery import Celery
+from celery.canvas import Signature
 from celery.schedules import crontab
 from celery.signals import (
     setup_logging,
@@ -106,35 +107,36 @@ def on_worker_start(**kwargs) -> None:
     start_http_server(8001)
 
 
+def add_periodic_task_with_expiry(
+    sender: Celery, schedule_seconds: int, task_signature: Signature, name: str | None = None
+):
+    """
+    If the workers get delayed in processing tasks, then tasks that fire every X seconds get queued multiple times
+    And so, are processed multiple times. But they often only need to be processed once.
+    This schedules them with an expiry so that they aren't processed multiple times.
+    The expiry is larger than the schedule so that if the worker is only slightly delayed, it still gets processed.
+    """
+    sender.add_periodic_task(
+        schedule_seconds,
+        task_signature,
+        name=name,
+        # we don't want to run multiple of these if the workers build up a backlog
+        expires=schedule_seconds * 1.5,
+    )
+
+
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
     # Monitoring tasks
-    sender.add_periodic_task(
-        60.0,
-        monitoring_check_clickhouse_schema_drift.s(),
-        name="Monitor ClickHouse schema drift",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=60,
+    add_periodic_task_with_expiry(
+        sender, 60, monitoring_check_clickhouse_schema_drift.s(), "check clickhouse schema drift"
     )
 
     if not settings.DEBUG:
-        sender.add_periodic_task(
-            10.0,
-            redis_celery_queue_depth.s(),
-            name="10 sec queue probe",
-            priority=0,
-            # we don't want to run multiple of these if the workers build up a backlog
-            expires=10,
-        )
+        add_periodic_task_with_expiry(sender, 10, redis_celery_queue_depth.s(), "10 sec queue probe")
+
     # Heartbeat every 10sec to make sure the worker is alive
-    sender.add_periodic_task(
-        10.0,
-        redis_heartbeat.s(),
-        name="10 sec heartbeat",
-        priority=0,
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=10,
-    )
+    add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
@@ -171,85 +173,77 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             sync_insight_cache_states_schedule, sync_insight_cache_states_task.s(), name="sync insight cache states"
         )
 
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
         schedule_cache_updates_task.s(),
-        name="check dashboard items",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
+        "check dashboard items",
     )
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 
     if settings.INGESTION_LAG_METRIC_TEAM_IDS:
         sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
-    sender.add_periodic_task(
+
+    add_periodic_task_with_expiry(
+        sender,
         120,
         clickhouse_lag.s(),
         name="clickhouse table lag",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=120,
     )
-    sender.add_periodic_task(
+
+    add_periodic_task_with_expiry(
+        sender,
         120,
         clickhouse_row_count.s(),
         name="clickhouse events table row count",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=120,
     )
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         120,
         clickhouse_part_count.s(),
         name="clickhouse table parts count",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=120,
     )
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         120,
         clickhouse_mutation_count.s(),
         name="clickhouse table mutations count",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=120,
     )
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         120,
         clickhouse_errors_count.s(),
         name="clickhouse instance errors count",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=120,
     )
 
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         120,
         pg_row_count.s(),
         name="PG tables row counts",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=120,
     )
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         120,
         pg_table_cache_hit_rate.s(),
         name="PG table cache hit rate",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=120,
     )
     sender.add_periodic_task(
         crontab(minute="0", hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         60,
         graphile_worker_queue_size.s(),
         name="Graphile Worker queue size",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=60,
     )
 
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         120,
         calculate_cohort.s(),
         name="recalculate cohorts",
-        # we don't want to run multiple of these if the workers build up a backlog
-        expires=120,
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
