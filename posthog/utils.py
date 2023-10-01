@@ -1200,7 +1200,7 @@ def sleep_time_generator() -> Generator[float, None, None]:
         yield 3.0
 
 
-class ParallelWaitTimeout(Exception):
+class ParallelWaitTimeout(TimeoutError):
     pass
 
 
