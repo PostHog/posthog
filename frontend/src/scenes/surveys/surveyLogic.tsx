@@ -360,7 +360,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         kind: NodeKind.EventsQuery,
                         select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
                         orderBy: ['timestamp DESC'],
-                        where: [`event == 'survey sent' or event == '${survey.name} survey sent'`],
+                        where: [`event == 'survey sent'`],
                         after: createdAt,
                         properties: [
                             {
