@@ -18,6 +18,7 @@ from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.subscription import Subscription
 from posthog.test.base import APIBaseTest
+from posthog.utils import ParallelWaitTimeout
 
 
 @patch("ee.tasks.subscriptions.send_slack_subscription_report")
@@ -64,7 +65,13 @@ class TestSubscriptionsTasks(APIBaseTest):
 
         schedule_all_subscriptions()
 
-        assert mock_deliver_task.delay.mock_calls == [call(subscriptions[0].id), call(subscriptions[1].id)]
+        # calls sorted by 0th argument, which is the subscription id
+        calls = sorted(mock_deliver_task.delay.mock_calls, key=lambda call: call.args[0])
+
+        assert calls == [
+            call(subscriptions[0].id, autoretry_for=(ParallelWaitTimeout,), max_retries=2, retry_backoff=True),
+            call(subscriptions[1].id, autoretry_for=(ParallelWaitTimeout,), max_retries=2, retry_backoff=True),
+        ]
 
     @patch("ee.tasks.subscriptions.deliver_subscription_report")
     def test_does_not_schedule_subscription_if_item_is_deleted(
