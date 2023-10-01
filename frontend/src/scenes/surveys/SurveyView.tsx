@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -292,6 +292,20 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     <div className="flex-1">
                         <Query query={surveyMetricsQueries.surveysDismissed} />
                     </div>
+                </div>
+            )}
+            {survey.questions.length > 1 && (
+                // <LemonTabs activeKey={''} tabs={survey.questions.map((q, idx) => ({ key: idx, label: truncate(q.question, 18)})) } />
+                <div className="mb-4">
+                    <LemonSelect
+                        dropdownMaxContentWidth
+                        options={[
+                            ...survey.questions.map((q, idx) => ({
+                                label: q.question,
+                                value: idx,
+                            })),
+                        ]}
+                    />
                 </div>
             )}
             {survey.questions[0].type === SurveyQuestionType.Rating && (

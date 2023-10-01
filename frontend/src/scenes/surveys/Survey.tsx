@@ -323,6 +323,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         )
                     )}
                     {featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_QUESTIONS] && (
+                        // TODO: Add pay gate mini here once billing is resolved for it
                         <LemonButton
                             type="secondary"
                             className="w-max"
