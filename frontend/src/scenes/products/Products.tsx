@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconBarChart } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2Type, ProductKey } from '~/types'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { useEffect } from 'react'
@@ -12,6 +12,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { router } from 'kea-router'
+import { getProductUri } from 'scenes/onboarding/onboardingLogic'
 
 export const scene: SceneExport = {
     component: Products,
@@ -65,7 +66,10 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
             <p className="grow">{product.description}</p>
             <div className="flex gap-x-2">
                 {onboardingCompleted ? (
-                    <OnboardingCompletedButton productUrl={''} onboardingUrl={urls.onboarding(product.type)} />
+                    <OnboardingCompletedButton
+                        productUrl={getProductUri(product.type as ProductKey)}
+                        onboardingUrl={urls.onboarding(product.type)}
+                    />
                 ) : (
                     <OnboardingNotCompletedButton url={urls.onboarding(product.type)} />
                 )}
