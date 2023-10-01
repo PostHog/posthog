@@ -1221,7 +1221,14 @@ async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[dateti
             for child in task.children:
                 child_states.append(child.state)
                 # this child should not be retried...
-                child.revoke(terminate=True)
+                if child.state in ["PENDING", "STARTED"]:
+                    # terminating here terminates the process not the task
+                    # but if the task is in PENDING or STARTED after 10 minutes
+                    # we have to assume the celery process isn't processing another task
+                    # see: https://docs.celeryq.dev/en/stable/userguide/workers.html#revoke-revoking-tasks
+                    # and: https://docs.celeryq.dev/en/latest/reference/celery.result.html
+                    # we terminate the process to avoid leaking an instance of Chrome
+                    child.revoke(terminate=True)
 
             logger.error(
                 "Timed out waiting for celery task to finish",

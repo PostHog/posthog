@@ -79,13 +79,15 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
         mock_ready = MagicMock()
         running_export_task = MagicMock()
 
+        running_export_task.state = "PENDING"
+
         mock_ready.return_value = False
         mock_group.return_value.apply_async.return_value = mock_running_exports
 
         mock_running_exports.children = [running_export_task]
         mock_running_exports.ready = mock_ready
 
-        with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=0.1), pytest.raises(Exception) as e:
+        with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=0.01), pytest.raises(Exception) as e:
             generate_assets(self.subscription)
 
         assert str(e.value) == "Timed out waiting for celery task to finish"
