@@ -36,6 +36,7 @@ import posthoganalytics
 import pytz
 import structlog
 from asgiref.sync import async_to_sync
+from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -1215,12 +1216,26 @@ async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[dateti
 
     while not task.ready():
         if timezone.now() - start_time > max_timeout:
+            child_states = []
+            child: AsyncResult
+            for child in task.children:
+                child_states.append(child.state)
+                # this child should not be retried...
+                if child.state in ["PENDING", "STARTED"]:
+                    # terminating here terminates the process not the task
+                    # but if the task is in PENDING or STARTED after 10 minutes
+                    # we have to assume the celery process isn't processing another task
+                    # see: https://docs.celeryq.dev/en/stable/userguide/workers.html#revoke-revoking-tasks
+                    # and: https://docs.celeryq.dev/en/latest/reference/celery.result.html
+                    # we terminate the process to avoid leaking an instance of Chrome
+                    child.revoke(terminate=True)
+
             logger.error(
                 "Timed out waiting for celery task to finish",
                 ready=task.ready(),
                 successful=task.successful(),
                 failed=task.failed(),
-                child_states=[child.state for child in task.children],
+                child_states=child_states,
                 timeout=max_timeout,
                 start_time=start_time,
             )

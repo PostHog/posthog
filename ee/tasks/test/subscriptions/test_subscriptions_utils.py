@@ -71,3 +71,24 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
             assert len(insights) == 1
             assert len(assets) == 1
             assert mock_export_task.s.call_count == 1
+
+    def test_cancels_children_if_timed_out(self, _mock_export_task: MagicMock, mock_group: MagicMock) -> None:
+        # mock the group so that its children are never ready,
+        # and we capture calls to revoke
+        mock_running_exports = MagicMock()
+        mock_ready = MagicMock()
+        running_export_task = MagicMock()
+
+        running_export_task.state = "PENDING"
+
+        mock_ready.return_value = False
+        mock_group.return_value.apply_async.return_value = mock_running_exports
+
+        mock_running_exports.children = [running_export_task]
+        mock_running_exports.ready = mock_ready
+
+        with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=0.01), pytest.raises(Exception) as e:
+            generate_assets(self.subscription)
+
+        assert str(e.value) == "Timed out waiting for celery task to finish"
+        running_export_task.revoke.assert_called()
