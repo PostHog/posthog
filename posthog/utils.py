@@ -1221,7 +1221,6 @@ async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[dateti
             for child in task.children:
                 child_states.append(child.state)
                 # this child should not be retried...
-                # but the subscription should be!
                 child.revoke(terminate=True)
 
             logger.error(
