@@ -176,7 +176,7 @@ export const surveysLogic = kea<surveysLogicType>([
             },
         ],
     }),
-    afterMount(async ({ actions }) => {
+    afterMount(({ actions }) => {
         actions.loadSurveys()
         actions.loadResponsesCount()
     }),
