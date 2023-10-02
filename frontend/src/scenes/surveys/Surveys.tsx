@@ -30,9 +30,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { openSurveysSettingsDialog } from './SurveySettings'
+import { SurveyQuestionLabel } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { SurveyQuestionLabel } from './Survey'
 
 export const scene: SceneExport = {
     component: Surveys,

@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { NewSurvey, defaultSurveyAppearance, defaultSurveyFieldValues, surveyLogic } from './surveyLogic'
+import { surveyLogic } from './surveyLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -31,6 +31,7 @@ import { SurveyAppearance } from './SurveyAppearance'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { defaultSurveyFieldValues, defaultSurveyAppearance, SurveyQuestionLabel, NewSurvey } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -40,14 +41,6 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof surveyLogic)['props'] => ({
         id: id,
     }),
-}
-
-export const SurveyQuestionLabel = {
-    [SurveyQuestionType.Open]: 'Open text',
-    [SurveyQuestionType.Rating]: 'Rating',
-    [SurveyQuestionType.Link]: 'Link',
-    [SurveyQuestionType.SingleChoice]: 'Single choice select',
-    [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
