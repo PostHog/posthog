@@ -15,7 +15,15 @@ import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 import { SurveyAppearance } from './SurveyAppearance'
-import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    PropertyFilterType,
+    PropertyOperator,
+    RatingSurveyQuestion,
+    Survey,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -279,7 +287,9 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyMetricsQueries,
         surveyRatingQuery,
         surveyMultipleChoiceQuery,
+        currentQuestionIndexAndType,
     } = useValues(surveyLogic)
+    const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -296,32 +306,38 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             )}
             {survey.questions.length > 1 && (
                 // <LemonTabs activeKey={''} tabs={survey.questions.map((q, idx) => ({ key: idx, label: truncate(q.question, 18)})) } />
-                <div className="mb-4">
+                <div className="mb-4 max-w-80">
                     <LemonSelect
-                        dropdownMaxContentWidth
+                        dropdownMatchSelectWidth
+                        fullWidth
+                        onChange={(idx) => {
+                            setCurrentQuestionIndexAndType(idx, survey.questions[idx].type)
+                        }}
                         options={[
-                            ...survey.questions.map((q, idx) => ({
+                            ...survey.questions.map((q: SurveyQuestion, idx: number) => ({
                                 label: q.question,
                                 value: idx,
                             })),
                         ]}
+                        value={currentQuestionIndexAndType.idx}
                     />
                 </div>
             )}
-            {survey.questions[0].type === SurveyQuestionType.Rating && (
+            {currentQuestionIndexAndType.type === SurveyQuestionType.Rating && (
                 <div className="mb-4">
                     <Query query={surveyRatingQuery} />
-                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] && survey.questions[0].scale === 10 && (
-                        <>
-                            <LemonDivider className="my-4" />
-                            <h2>NPS Score</h2>
-                            <SurveyNPSResults survey={survey as Survey} />
-                        </>
-                    )}
+                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] &&
+                        (survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale === 10 && (
+                            <>
+                                <LemonDivider className="my-4" />
+                                <h2>NPS Score</h2>
+                                <SurveyNPSResults survey={survey as Survey} />
+                            </>
+                        )}
                 </div>
             )}
-            {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
-                survey.questions[0].type === SurveyQuestionType.MultipleChoice) && (
+            {(currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice ||
+                currentQuestionIndexAndType.type === SurveyQuestionType.MultipleChoice) && (
                 <div className="mb-4">
                     <Query query={surveyMultipleChoiceQuery} />
                 </div>

@@ -267,6 +267,9 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: async () => {
             actions.updateSurvey({ archived: true })
         },
+        loadSurveySuccess: ({ survey }) => {
+            actions.setCurrentQuestionIndexAndType(0, survey.questions[0].type)
+        },
     })),
     reducers({
         isEditingSurvey: [
@@ -311,7 +314,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         currentQuestionIndexAndType: [
-            null,
+            { idx: 0, type: SurveyQuestionType.Open } as { idx: number; type: SurveyQuestionType },
             {
                 setCurrentQuestionIndexAndType: (_, { idx, type }) => ({ idx, type }),
             },
@@ -354,17 +357,21 @@ export const surveyLogic = kea<surveyLogicType>([
                 )
             },
         ],
+        surveyResponseProperty: [
+            (s) => [s.currentQuestionIndexAndType],
+            (currentQuestionIndexAndType): string => {
+                return currentQuestionIndexAndType.idx === 0
+                    ? SURVEY_RESPONSE_PROPERTY
+                    : `${SURVEY_RESPONSE_PROPERTY}_${currentQuestionIndexAndType.idx}`
+            },
+        ],
         dataTableQuery: [
-            (s) => [s.survey, s.currentQuestionIndexAndType],
-            (survey, currentQuestionIndexAndType): DataTableNode | null => {
+            (s) => [s.survey, s.surveyResponseProperty],
+            (survey, surveyResponseProperty): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
                 }
                 const createdAt = (survey as Survey).created_at
-                const surveyResponseProperty =
-                    currentQuestionIndexAndType.idx === 0
-                        ? SURVEY_RESPONSE_PROPERTY
-                        : `${SURVEY_RESPONSE_PROPERTY}_${currentQuestionIndexAndType.idx}`
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -426,8 +433,8 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         surveyRatingQuery: [
-            (s) => [s.survey],
-            (survey): InsightVizNode | null => {
+            (s) => [s.survey, s.surveyResponseProperty],
+            (survey, surveyResponseProperty): InsightVizNode | null => {
                 if (survey.id === 'new') {
                     return null
                 }
@@ -454,15 +461,15 @@ export const surveyLogic = kea<surveyLogicType>([
                         ],
                         series: [{ event: surveyEventName, kind: NodeKind.EventsNode }],
                         trendsFilter: { display: ChartDisplayType.ActionsBarValue },
-                        breakdown: { breakdown: '$survey_response', breakdown_type: 'event' },
+                        breakdown: { breakdown: surveyResponseProperty, breakdown_type: 'event' },
                     },
                     showTable: true,
                 }
             },
         ],
         surveyMultipleChoiceQuery: [
-            (s) => [s.survey],
-            (survey): DataTableNode | null => {
+            (s) => [s.survey, s.surveyResponseProperty, s.currentQuestionIndexAndType],
+            (survey, surveyResponseProperty, currentQuestionIndexAndType): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
                 }
@@ -472,14 +479,14 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
-                const singleChoiceQuery = `select count(), properties.$survey_response as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}' group by choice order by count() desc`
-                const multipleChoiceQuery = `select count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}'  group by choice order by count() desc`
+                const singleChoiceQuery = `select count(), properties.${surveyResponseProperty} as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}' group by choice order by count() desc`
+                const multipleChoiceQuery = `select count(), arrayJoin(JSONExtractArrayRaw(properties, ${surveyResponseProperty})) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}'  group by choice order by count() desc`
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.HogQLQuery,
                         query:
-                            survey.questions[0].type === SurveyQuestionType.SingleChoice
+                            currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice
                                 ? singleChoiceQuery
                                 : multipleChoiceQuery,
                     },
