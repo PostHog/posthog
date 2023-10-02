@@ -141,9 +141,9 @@ def _screenshot_asset(
         driver.set_window_size(screenshot_width, height)
         driver.save_screenshot(image_path)
     except Exception as e:
-        if driver:
-            # To help with debugging, add a screenshot and any chrome logs
-            with configure_scope() as scope:
+        # To help with debugging, add a screenshot and any chrome logs
+        with configure_scope() as scope:
+            if driver:
                 # If we encounter issues getting extra info we should silenty fail rather than creating a new exception
                 try:
                     all_logs = [x for x in driver.get_log("browser")]
@@ -155,7 +155,7 @@ def _screenshot_asset(
                     scope.add_attachment(None, None, image_path)
                 except Exception:
                     pass
-                capture_exception(e)
+        capture_exception(e)
 
         raise e
     finally:
