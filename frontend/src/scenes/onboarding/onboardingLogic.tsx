@@ -31,6 +31,19 @@ const onboardingStepMap: OnboardingStepMap = {
 
 export type AllOnboardingSteps = JSX.Element[]
 
+export const getProductUri = (productKey: ProductKey): string => {
+    switch (productKey) {
+        case 'product_analytics':
+            return combineUrl(urls.events(), { onboarding_completed: true }).url
+        case 'session_replay':
+            return urls.replay()
+        case 'feature_flags':
+            return urls.featureFlags()
+        default:
+            return urls.default()
+    }
+}
+
 export const onboardingLogic = kea<onboardingLogicType>({
     props: {} as OnboardingLogicProps,
     path: ['scenes', 'onboarding', 'onboardingLogic'],
@@ -82,16 +95,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
             urls.default() as string,
             {
                 setProductKey: (_, { productKey }) => {
-                    switch (productKey) {
-                        case 'product_analytics':
-                            return combineUrl(urls.events(), { onboarding_completed: true }).url
-                        case 'session_replay':
-                            return urls.replay()
-                        case 'feature_flags':
-                            return urls.featureFlags()
-                        default:
-                            return urls.default()
-                    }
+                    return productKey ? getProductUri(productKey as ProductKey) : urls.default()
                 },
             },
         ],
