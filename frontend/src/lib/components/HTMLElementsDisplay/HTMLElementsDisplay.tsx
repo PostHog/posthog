@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
+import { Fade } from '../Fade/Fade'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -43,17 +44,21 @@ function Tags({
     return (
         <>
             {elements.map((element, index) => {
+                const reverseIndex = elements.length - 1 - index
+
                 return (
-                    <SelectableElement
-                        key={`${element.tag_name}-${index}`}
-                        element={element}
-                        isDeepestChild={index === elements.length - 1}
-                        onChange={(s) => (editable ? onChange(index, s) : undefined)}
-                        readonly={!editable}
-                        indent={indent(index)}
-                        highlight={highlight}
-                        parsedCSSSelector={parsedCSSSelectors[index]}
-                    />
+                    <Fade key={`${element.tag_name}-${reverseIndex}`} visible={true}>
+                        <SelectableElement
+                            key={`${element.tag_name}-${index}`}
+                            element={element}
+                            isDeepestChild={index === elements.length - 1}
+                            onChange={(s) => (editable ? onChange(index, s) : undefined)}
+                            readonly={!editable}
+                            indent={indent(index)}
+                            highlight={highlight}
+                            parsedCSSSelector={parsedCSSSelectors[index]}
+                        />
+                    </Fade>
                 )
             })}
         </>
@@ -132,14 +137,16 @@ export function HTMLElementsDisplay({
                                 {`Show ${elementsToShowDepth} hidden element${elementsToShowDepth > 1 ? 's' : null}`}
                             </pre>
                         ) : null}
-                        <Tags
-                            elements={parsedElements}
-                            highlight={highlight}
-                            editable={editable}
-                            parsedCSSSelectors={parsedSelectors}
-                            onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
-                        />
-                        <CloseAllTags elements={parsedElements} />
+                        <Fade visible={true}>
+                            <Tags
+                                elements={parsedElements}
+                                highlight={highlight}
+                                editable={editable}
+                                parsedCSSSelectors={parsedSelectors}
+                                onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
+                            />
+                            <CloseAllTags elements={parsedElements} />
+                        </Fade>
                     </>
                 ) : (
                     <div className="text-side">No elements to display</div>
