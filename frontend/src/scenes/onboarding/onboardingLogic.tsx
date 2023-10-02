@@ -6,6 +6,7 @@ import type { onboardingLogicType } from './onboardingLogicType'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { combineUrl } from 'kea-router'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -149,8 +150,17 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
             }
         },
+        setSubscribedDuringOnboarding: ({ subscribedDuringOnboarding }) => {
+            if (subscribedDuringOnboarding) {
+                // we might not have the product key yet
+                // if not we'll just use the current url to determine the product key
+                const productKey = values.productKey || (window.location.pathname.split('/')[2] as ProductKey)
+                eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
+            }
+        },
         completeOnboarding: ({ redirectUri }) => {
             if (values.productKey) {
+                eventUsageLogic.actions.reportOnboardingCompleted(values.productKey)
                 actions.updateCurrentTeam({
                     has_completed_onboarding_for: {
                         ...values.currentTeam?.has_completed_onboarding_for,
