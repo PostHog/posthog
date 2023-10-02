@@ -31,7 +31,7 @@ def generate_assets(
 ) -> Tuple[List[Insight], List[ExportedAsset]]:
     with pushed_metrics_registry("SUBSCRIPTION_ASSET_GENERATION_TIMER_registry") as registry:
         registry_subscription_asset_generation_timer = Histogram(
-            "subscription_asset_generation_duration_seconds",
+            "registry_subscription_asset_generation_duration_seconds",
             "Time spent generating assets for a subscription",
             buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
             registry=registry,
