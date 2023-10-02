@@ -1,4 +1,4 @@
-from typing import cast, Optional, Dict
+from typing import Literal, cast, Optional, Dict
 
 import math
 
@@ -12,11 +12,13 @@ from posthog.test.base import BaseTest
 class TestParser(BaseTest):
     maxDiff = None
 
+    backend: Literal["python", "cpp"] = "python"
+
     def _expr(self, expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
-        return clear_locations(parse_expr(expr, placeholders=placeholders))
+        return clear_locations(parse_expr(expr, placeholders=placeholders, backend=self.backend))
 
     def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
-        return clear_locations(parse_select(query, placeholders=placeholders))
+        return clear_locations(parse_select(query, placeholders=placeholders, backend=self.backend))
 
     def test_numbers(self):
         self.assertEqual(self._expr("1"), ast.Constant(value=1))
