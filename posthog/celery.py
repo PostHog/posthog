@@ -58,11 +58,6 @@ CELERY_TASK_RETRY_COUNTER = Counter(
     labelnames=["task_name"],
 )
 
-CELERY_TASK_QUEUE_DEPTH_GAUGE = Gauge(
-    "posthog_celery_queue_depth",
-    "We use this to monitor the depth of the celery queue.",
-)
-
 # Using a string here means the worker doesn't have to serialize
 # the configuration object to child processes.
 # - namespace='CELERY' means all celery-related configuration keys
@@ -741,11 +736,15 @@ def clear_clickhouse_deleted_person():
 @app.task(ignore_result=True)
 def redis_celery_queue_depth():
     try:
-        llen = get_client().llen("celery")
-        CELERY_TASK_QUEUE_DEPTH_GAUGE.set(llen)
+        with pushed_metrics_registry("redis_celery_queue_depth_registry") as registry:
+            celery_task_queue_depth_gauge = Gauge(
+                "posthog_celery_queue_depth", "We use this to monitor the depth of the celery queue.", registry=registry
+            )
+
+            llen = get_client().llen("celery")
+            celery_task_queue_depth_gauge.set(llen)
     except:
-        # if we can't connect to statsd don't complain about it.
-        # not every installation will have statsd available
+        # if we can't generate the metric don't complain about it.
         return
 
 
