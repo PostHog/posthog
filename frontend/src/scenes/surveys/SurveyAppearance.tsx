@@ -22,6 +22,8 @@ import {
 import { surveysLogic } from './surveysLogic'
 import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
@@ -84,6 +86,7 @@ export function SurveyAppearance({
     onAppearanceChange,
 }: SurveyAppearanceProps): JSX.Element {
     const { whitelabelAvailable } = useValues(surveysLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [showThankYou, setShowThankYou] = useState(false)
     const [hideSubmittedSurvey, setHideSubmittedSurvey] = useState(false)
 
@@ -145,21 +148,25 @@ export function SurveyAppearance({
                         value={appearance?.borderColor}
                         onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
                     />
-                    <div className="mt-2">Position</div>
-                    <div className="flex gap-1">
-                        {['left', 'center', 'right'].map((position) => {
-                            return (
-                                <LemonButton
-                                    key={position}
-                                    type="tertiary"
-                                    onClick={() => onAppearanceChange({ ...appearance, position })}
-                                    active={appearance.position === position}
-                                >
-                                    {position}
-                                </LemonButton>
-                            )
-                        })}
-                    </div>
+                    {featureFlags[FEATURE_FLAGS.SURVEYS_POSITIONS] && (
+                        <>
+                            <div className="mt-2">Position</div>
+                            <div className="flex gap-1">
+                                {['left', 'center', 'right'].map((position) => {
+                                    return (
+                                        <LemonButton
+                                            key={position}
+                                            type="tertiary"
+                                            onClick={() => onAppearanceChange({ ...appearance, position })}
+                                            active={appearance.position === position}
+                                        >
+                                            {position}
+                                        </LemonButton>
+                                    )
+                                })}
+                            </div>
+                        </>
+                    )}
                     {surveyQuestionItem.type === SurveyQuestionType.Rating && (
                         <>
                             <div className="mt-2">Rating button color</div>
