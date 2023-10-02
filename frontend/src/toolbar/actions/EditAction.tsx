@@ -64,7 +64,11 @@ export function EditAction(): JSX.Element {
                 <div className="mb-4">
                     <p>What did your user do?</p>
                     <Field name="name">
-                        <LemonInput placeholder="E.g: Clicked Sign Up" className="action-title-field" />
+                        <LemonInput
+                            placeholder="E.g: Clicked Sign Up"
+                            className="action-title-field"
+                            stopPropagation={true}
+                        />
                     </Field>
                 </div>
 

@@ -86,7 +86,10 @@ export const teamLogic = kea<teamLogicType>([
                                   payload.slack_incoming_webhook
                               )}`
                             : 'Webhook integration disabled'
-                    } else if (updatedAttribute === 'completed_snippet_onboarding') {
+                    } else if (
+                        updatedAttribute === 'completed_snippet_onboarding' ||
+                        updatedAttribute === 'has_completed_onboarding_for'
+                    ) {
                         message = "Congrats! You're now ready to use PostHog."
                     } else {
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`

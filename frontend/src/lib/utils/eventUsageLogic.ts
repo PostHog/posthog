@@ -500,6 +500,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
+        // onboarding
+        reportOnboardingProductSelected: (productKey: string) => ({ productKey }),
+        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
+        reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -1237,6 +1241,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('product unsubscribed', {
                 product,
                 $set: { [property_key]: true },
+            })
+        },
+        // onboarding
+        reportOnboardingProductSelected: ({ productKey }) => {
+            posthog.capture('onboarding product selected', {
+                product_key: productKey,
+            })
+        },
+        reportOnboardingCompleted: ({ productKey }) => {
+            posthog.capture('onboarding completed', {
+                product_key: productKey,
+            })
+        },
+        reportSubscribedDuringOnboarding: ({ productKey }) => {
+            posthog.capture('subscribed during onboarding', {
+                product_key: productKey,
             })
         },
     }),

@@ -63,12 +63,14 @@ export function StepField({ step, item, label, caption }: StepFieldProps): JSX.E
                                 className={clsx(!selected && 'opacity-50')}
                                 onChange={onChange}
                                 value={value ?? ''}
+                                stopPropagation={true}
                             />
                         ) : (
                             <LemonInput
                                 className={clsx(!selected && 'opacity-50')}
                                 onChange={onChange}
                                 value={value ?? ''}
+                                stopPropagation={true}
                             />
                         )
                     }}
