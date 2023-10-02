@@ -30,14 +30,14 @@ def generate_assets(
     resource: Union[Subscription, SharingConfiguration], max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
 ) -> Tuple[List[Insight], List[ExportedAsset]]:
     with pushed_metrics_registry("SUBSCRIPTION_ASSET_GENERATION_TIMER_registry") as registry:
-        REGISTRY_SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
+        registry_subscription_asset_generation_timer = Histogram(
             "subscription_asset_generation_duration_seconds",
             "Time spent generating assets for a subscription",
             buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
             registry=registry,
         )
 
-        with REGISTRY_SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
+        with registry_subscription_asset_generation_timer.time():
             with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
                 if resource.dashboard:
                     tiles = get_tiles_ordered_by_position(resource.dashboard)
