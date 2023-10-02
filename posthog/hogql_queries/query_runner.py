@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union
+from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple
 
 from django.conf import settings
 from django.core.cache import cache
@@ -49,7 +49,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     )
     result: DataT
     timings: Optional[List[QueryTiming]] = None
-    types: Optional[List[str]] = None
+    types: Optional[List[Tuple[str, str]]] = None
     columns: Optional[List[str]] = None
 
 
