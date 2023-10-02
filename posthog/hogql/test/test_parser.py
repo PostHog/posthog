@@ -849,9 +849,9 @@ class TestParser(BaseTest):
     def test_select_array_join_errors(self):
         with self.assertRaises(HogQLException) as e:
             self._select("select a from events ARRAY JOIN [1,2,3]")
+        self.assertEqual(str(e.exception), "ARRAY JOIN arrays must have an alias")
         self.assertEqual(e.exception.start, 32)
         self.assertEqual(e.exception.end, 39)
-        self.assertEqual(str(e.exception), "ARRAY JOIN arrays must have an alias")
 
         with self.assertRaises(HogQLException) as e:
             self._select("select a ARRAY JOIN [1,2,3]")
