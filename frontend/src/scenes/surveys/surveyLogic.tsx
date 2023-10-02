@@ -208,6 +208,7 @@ export const surveyLogic = kea<surveyLogicType>([
         stopSurvey: true,
         archiveSurvey: true,
         resumeSurvey: true,
+        setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
     }),
     loaders(({ props, actions }) => ({
         survey: {
@@ -309,6 +310,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
             },
         ],
+        currentQuestionIndexAndType: [
+            null,
+            {
+                setCurrentQuestionIndexAndType: (_, { idx, type }) => ({ idx, type }),
+            },
+        ],
     }),
     selectors({
         isSurveyRunning: [
@@ -348,18 +355,21 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         dataTableQuery: [
-            (s) => [s.survey],
-            (survey): DataTableNode | null => {
+            (s) => [s.survey, s.currentQuestionIndexAndType],
+            (survey, currentQuestionIndexAndType): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
                 }
                 const createdAt = (survey as Survey).created_at
-
+                const surveyResponseProperty =
+                    currentQuestionIndexAndType.idx === 0
+                        ? SURVEY_RESPONSE_PROPERTY
+                        : `${SURVEY_RESPONSE_PROPERTY}_${currentQuestionIndexAndType.idx}`
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
+                        select: ['*', `properties.${surveyResponseProperty}`, 'timestamp', 'person'],
                         orderBy: ['timestamp DESC'],
                         where: [`event == 'survey sent' or event == '${survey.name} survey sent'`],
                         after: createdAt,
