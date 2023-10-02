@@ -319,6 +319,8 @@ interface DataTableNodeViewProps {
     showPersistentColumnConfigurator?: boolean
     /** Shows a list of saved queries */
     showSavedQueries?: boolean
+    /** Show a button to go back to the source query */
+    showBackButton?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */

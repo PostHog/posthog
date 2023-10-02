@@ -185,6 +185,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 ? context.showOpenEditorButton
                                 : query.showOpenEditorButton ?? true,
                         showResultsTable: query.showResultsTable ?? true,
+                        showBackButton: (query.showBackButton ?? showIfFull) && 'source' in query.source,
                     }),
                 }
             },

@@ -9,6 +9,7 @@ import {
     PersonsNode,
     QueryContext,
     PersonsQuery,
+    NodeKind,
 } from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
@@ -33,6 +34,7 @@ import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import {
     isHogQlAggregation,
     isHogQLQuery,
+    isInsightQueryNode,
     isPersonsQuery,
     taxonomicEventFilterToHogQl,
     taxonomicPersonFilterToHogQl,
@@ -51,6 +53,7 @@ import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { QueryFeature } from '~/queries/queryFeatures'
+import { IconChevronLeft } from 'lib/lemon-ui/icons'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -121,6 +124,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showOpenEditorButton,
         showResultsTable,
         showTimings,
+        showBackButton,
     } = queryWithDefaults
 
     const isReadOnly = setQuery === undefined
@@ -365,6 +369,20 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     )
 
     const firstRowLeft = [
+        showBackButton ? (
+            <LemonButton
+                type="secondary"
+                icon={<IconChevronLeft />}
+                onClick={() => {
+                    const source: Node = (query.source as any).source
+                    if (isInsightQueryNode(source)) {
+                        setQuery?.({ kind: NodeKind.InsightVizNode, source: source } as Node)
+                    }
+                }}
+            >
+                Back
+            </LemonButton>
+        ) : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange query={query.source} setQuery={setQuerySource} />
         ) : null,
@@ -405,6 +423,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
     const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
+    const showOpenEditor = showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly
 
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
@@ -416,11 +435,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                     {showFirstRow && (
                         <div className="flex gap-4 items-center flex-wrap">
                             {firstRowLeft}
-                            {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
-                            {firstRowRight}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
-                                <OpenEditorButton query={query} hogql={responseHogQL} />
+                            {firstRowLeft.length > 0 && firstRowRight.length + (showOpenEditor ? 1 : 0) > 0 ? (
+                                <div className="flex-1" />
                             ) : null}
+                            {firstRowRight}
+                            {showOpenEditor ? <OpenEditorButton query={query} hogql={responseHogQL} /> : null}
                         </div>
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}

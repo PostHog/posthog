@@ -1,5 +1,5 @@
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -12,7 +12,8 @@ import { trendsDataLogic } from '../trendsDataLogic'
 import { DataTableNode, NodeKind, PersonsQuery } from '~/queries/schema'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isInsightVizNode } from '~/queries/utils'
-import { appendQueryToActiveNotebook } from 'scenes/notebooks/Notebook/appendQueryToActiveNotebook'
+import { urls } from 'scenes/urls'
+import { combineUrl, router } from 'kea-router'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -20,7 +21,6 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
-    const { setQuery } = useActions(insightDataLogic(insightProps))
     const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
@@ -93,7 +93,7 @@ export function ActionsLineGraph({
                                   full: true,
                                   source: personsQuery,
                               }
-                              appendQueryToActiveNotebook(dataTable, setQuery)
+                              router.actions.push(combineUrl(urls.persons(), {}, { q: dataTable }).url)
                               return
                           }
 
@@ -101,9 +101,9 @@ export function ActionsLineGraph({
                               return
                           }
 
-                          const urls = urlsForDatasets(crossDataset, index)
+                          const datasetUrls = urlsForDatasets(crossDataset, index)
 
-                          if (urls?.length) {
+                          if (datasetUrls?.length) {
                               const title =
                                   shownAs === 'Stickiness' ? (
                                       <>
@@ -119,7 +119,7 @@ export function ActionsLineGraph({
                                   )
 
                               openPersonsModal({
-                                  urls,
+                                  urls: datasetUrls,
                                   urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
                                   title,
                               })
