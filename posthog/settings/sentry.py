@@ -10,6 +10,8 @@ from sentry_sdk.integrations.redis import RedisIntegration
 from posthog.settings import get_from_env
 from posthog.settings.base_variables import TEST
 
+from datetime import datetime, timezone
+
 
 def traces_sampler(sampling_context: dict) -> float:
     #
@@ -36,6 +38,12 @@ def traces_sampler(sampling_context: dict) -> float:
             return 0.0000001  # 0.00001%
         # Get more traces for /decide than other high volume endpoints
         elif path.startswith("/decide"):
+            # Get the current time in GMT
+            current_time_gmt = datetime.now(timezone.utc)
+            # Check if the time is between 5 and 6:59 am GMT, where we get spikes of latency
+            # so we can get more traces to debug
+            if 5 <= current_time_gmt.hour < 7:
+                return 0.001  # 0.1%
             return 0.00001  # 0.001%
         # Probes/monitoring endpoints
         elif path.startswith(("/_health", "/_readyz", "/_livez")):
