@@ -156,6 +156,7 @@ export function Surveys(): JSX.Element {
                                         <b>Status</b>
                                     </span>
                                     <LemonSelect
+                                        dropdownMatchSelectWidth={false}
                                         onChange={(status) => {
                                             setSurveysFilters({ status })
                                         }}
