@@ -5,7 +5,6 @@ import structlog
 from celery import group
 from prometheus_client import Histogram
 
-from posthog.metrics import pushed_metrics_registry
 from posthog.models.dashboard_tile import get_tiles_ordered_by_position
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
@@ -29,39 +28,28 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 def generate_assets(
     resource: Union[Subscription, SharingConfiguration], max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
 ) -> Tuple[List[Insight], List[ExportedAsset]]:
-    with pushed_metrics_registry("SUBSCRIPTION_ASSET_GENERATION_TIMER_registry") as registry:
-        registry_subscription_asset_generation_timer = Histogram(
-            "registry_subscription_asset_generation_duration_seconds",
-            "Time spent generating assets for a subscription",
-            buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
-            registry=registry,
+    with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
+        if resource.dashboard:
+            tiles = get_tiles_ordered_by_position(resource.dashboard)
+            insights = [tile.insight for tile in tiles if tile.insight]
+        elif resource.insight:
+            insights = [resource.insight]
+        else:
+            raise Exception("There are no insights to be sent for this Subscription")
+
+        # Create all the assets we need
+        assets = [
+            ExportedAsset(team=resource.team, export_format="image/png", insight=insight, dashboard=resource.dashboard)
+            for insight in insights[:max_asset_count]
+        ]
+        ExportedAsset.objects.bulk_create(assets)
+
+        # Wait for all assets to be exported
+        tasks = [exporter.export_asset.s(asset.id) for asset in assets]
+        parallel_job = group(tasks).apply_async()
+
+        wait_for_parallel_celery_group(
+            parallel_job, max_timeout=timedelta(minutes=settings.ASSET_GENERATION_MAX_TIMEOUT_MINUTES)
         )
 
-        with registry_subscription_asset_generation_timer.time():
-            with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
-                if resource.dashboard:
-                    tiles = get_tiles_ordered_by_position(resource.dashboard)
-                    insights = [tile.insight for tile in tiles if tile.insight]
-                elif resource.insight:
-                    insights = [resource.insight]
-                else:
-                    raise Exception("There are no insights to be sent for this Subscription")
-
-                # Create all the assets we need
-                assets = [
-                    ExportedAsset(
-                        team=resource.team, export_format="image/png", insight=insight, dashboard=resource.dashboard
-                    )
-                    for insight in insights[:max_asset_count]
-                ]
-                ExportedAsset.objects.bulk_create(assets)
-
-                # Wait for all assets to be exported
-                tasks = [exporter.export_asset.s(asset.id) for asset in assets]
-                parallel_job = group(tasks).apply_async()
-
-                wait_for_parallel_celery_group(
-                    parallel_job, max_timeout=timedelta(minutes=settings.ASSET_GENERATION_MAX_TIMEOUT_MINUTES)
-                )
-
-                return insights, assets
+        return insights, assets
