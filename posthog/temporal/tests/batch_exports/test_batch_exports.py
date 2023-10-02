@@ -1,22 +1,35 @@
 import csv
+import dataclasses
 import datetime as dt
 import io
 import json
+import logging
 import operator
+import random
+import string
+import uuid
 from random import randint
 from typing import TypedDict
+from unittest.mock import patch
 from uuid import uuid4
 
 import aiohttp
 import pytest
 import pytest_asyncio
 from django.conf import settings
+from freezegun import freeze_time
+from temporalio import activity, workflow
 
+from posthog.clickhouse.log_entries import (
+    KAFKA_LOG_ENTRIES,
+)
 from posthog.temporal.tests.batch_exports.base import (
     to_isoformat,
 )
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
+    KafkaLoggingHandler,
+    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
@@ -270,7 +283,7 @@ async def test_get_results_iterator(client):
             "elements_chain": "this that and the other",
             "elements": json.dumps("this that and the other"),
             "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
+            "site_url": "",
             "set": None,
             "set_once": None,
         }
@@ -327,7 +340,7 @@ async def test_get_results_iterator_handles_duplicates(client):
             "elements_chain": "this that and the other",
             "elements": json.dumps("this that and the other"),
             "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
+            "site_url": "",
             "set": None,
             "set_once": None,
         }
@@ -387,7 +400,7 @@ async def test_get_results_iterator_can_exclude_events(client):
             "elements_chain": "this that and the other",
             "elements": json.dumps("this that and the other"),
             "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
+            "site_url": "",
             "set": None,
             "set_once": None,
         }
@@ -611,3 +624,104 @@ def test_batch_export_temporary_file_write_records_to_tsv(records):
         assert be_file.bytes_since_last_reset == 0
         assert be_file.records_total == len(records)
         assert be_file.records_since_last_reset == 0
+
+
+def test_kafka_logging_handler_produces_to_kafka(caplog):
+    """Test a mocked call to Kafka produce from the KafkaLoggingHandler."""
+    logger_name = "test-logger"
+    logger = logging.getLogger(logger_name)
+    handler = KafkaLoggingHandler(topic=KAFKA_LOG_ENTRIES)
+    handler.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+
+    team_id = random.randint(1, 10000)
+    batch_export_id = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    timestamp = "2023-09-21 00:01:01.000001"
+
+    expected_tuples = []
+    expected_kafka_produce_calls_kwargs = []
+
+    with patch("posthog.kafka_client.client._KafkaProducer.produce") as produce:
+        with caplog.at_level(logging.DEBUG):
+            with freeze_time(timestamp):
+                for level in (10, 20, 30, 40, 50):
+                    random_message = "".join(random.choice(string.ascii_letters) for _ in range(30))
+
+                    logger.log(
+                        level,
+                        random_message,
+                        extra={
+                            "team_id": team_id,
+                            "batch_export_id": batch_export_id,
+                            "workflow_run_id": run_id,
+                        },
+                    )
+
+                    expected_tuples.append(
+                        (
+                            logger_name,
+                            level,
+                            random_message,
+                        )
+                    )
+                    data = {
+                        "message": random_message,
+                        "team_id": team_id,
+                        "log_source": "batch_exports",
+                        "log_source_id": batch_export_id,
+                        "instance_id": run_id,
+                        "timestamp": timestamp,
+                        "level": logging.getLevelName(level),
+                    }
+                    expected_kafka_produce_calls_kwargs.append({"topic": KAFKA_LOG_ENTRIES, "data": data, "key": None})
+
+        assert caplog.record_tuples == expected_tuples
+
+        kafka_produce_calls_kwargs = [call.kwargs for call in produce.call_args_list]
+        assert kafka_produce_calls_kwargs == expected_kafka_produce_calls_kwargs
+
+
+@dataclasses.dataclass
+class TestInputs:
+    team_id: int
+    data_interval_end: str | None = None
+    interval: str = "hour"
+    batch_export_id: str = ""
+
+
+@dataclasses.dataclass
+class TestInfo:
+    workflow_id: str
+    run_id: str
+    workflow_run_id: str
+    attempt: int
+
+
+@pytest.mark.parametrize("context", [activity.__name__, workflow.__name__])
+def test_batch_export_logger_adapter(context, caplog):
+    """Test BatchExportLoggerAdapter sets the appropiate context variables."""
+    team_id = random.randint(1, 10000)
+    inputs = TestInputs(team_id=team_id)
+    logger = get_batch_exports_logger(inputs=inputs)
+
+    batch_export_id = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    attempt = random.randint(1, 10)
+    info = TestInfo(
+        workflow_id=f"{batch_export_id}-{dt.datetime.utcnow().isoformat()}",
+        run_id=run_id,
+        workflow_run_id=run_id,
+        attempt=attempt,
+    )
+
+    with patch("posthog.kafka_client.client._KafkaProducer.produce"):
+        with patch(context + ".info", return_value=info):
+            for level in (10, 20, 30, 40, 50):
+                logger.log(level, "test")
+
+    records = caplog.get_records("call")
+    assert all(record.team_id == team_id for record in records)
+    assert all(record.batch_export_id == batch_export_id for record in records)
+    assert all(record.workflow_run_id == run_id for record in records)
+    assert all(record.attempt == attempt for record in records)

@@ -15,6 +15,7 @@ import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
 import { NotebookSidebar } from './NotebookSidebar'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { NotebookHistoryWarning } from './NotebookHistory'
 
 export type NotebookProps = {
     shortId: string
@@ -26,7 +27,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, editor, conflictWarningVisible } = useValues(logic)
+    const { notebook, content, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
         useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -42,6 +43,10 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
     useEffect(() => {
         setEditable(editable)
     }, [editable])
+
+    useEffect(() => {
+        editor?.setEditable(isEditable)
+    }, [isEditable, editor])
 
     useEffect(() => {
         if (editor) {
@@ -75,9 +80,11 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     </LemonBanner>
                 )}
 
+                <NotebookHistoryWarning />
                 {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
                     <LemonBanner
                         type="info"
+                        className="my-4"
                         action={{
                             children: 'Convert to Notebook',
                             onClick: duplicateNotebook,
@@ -88,7 +95,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     </LemonBanner>
                 ) : null}
 
-                <div className="flex flex-1 justify-center space-x-2">
+                <div className="flex flex-1 justify-center">
                     <NotebookSidebar />
                     <ErrorBoundary>
                         <Editor

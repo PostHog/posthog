@@ -1,7 +1,12 @@
+import dataclasses
+import datetime as dt
+import enum
+import typing
 from datetime import timedelta
 
 from django.db import models
 
+from posthog.client import sync_execute
 from posthog.models.utils import UUIDModel
 
 
@@ -147,3 +152,66 @@ class BatchExport(UUIDModel):
         elif self.interval == "week":
             return timedelta(weeks=1)
         raise ValueError("Invalid interval")
+
+
+class BatchExportLogEntryLevel(str, enum.Enum):
+    DEBUG = "DEBUG"
+    LOG = "LOG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+
+
+@dataclasses.dataclass(frozen=True)
+class BatchExportLogEntry:
+    team_id: int
+    batch_export_id: str
+    run_id: str
+    timestamp: dt.datetime
+    level: BatchExportLogEntryLevel
+    message: str
+
+
+def fetch_batch_export_log_entries(
+    *,
+    batch_export_id: str,
+    team_id: int,
+    run_id: str | None = None,
+    after: dt.datetime | None = None,
+    before: dt.datetime | None = None,
+    search: str | None = None,
+    limit: int | None = None,
+    level_filter: list[BatchExportLogEntryLevel] = [],
+) -> list[BatchExportLogEntry]:
+    clickhouse_where_parts: list[str] = []
+    clickhouse_kwargs: dict[str, typing.Any] = {}
+
+    clickhouse_where_parts.append("log_source_id = %(log_source_id)s")
+    clickhouse_kwargs["log_source_id"] = batch_export_id
+    clickhouse_where_parts.append("team_id = %(team_id)s")
+    clickhouse_kwargs["team_id"] = team_id
+
+    if run_id is not None:
+        clickhouse_where_parts.append("instance_id = %(instance_id)s")
+        clickhouse_kwargs["instance_id"] = run_id
+    if after is not None:
+        clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
+        clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
+    if before is not None:
+        clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
+        clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
+    if search:
+        clickhouse_where_parts.append("message ILIKE %(search)s")
+        clickhouse_kwargs["search"] = f"%{search}%"
+    if len(level_filter) > 0:
+        clickhouse_where_parts.append("level in %(levels)s")
+        clickhouse_kwargs["levels"] = level_filter
+
+    clickhouse_query = f"""
+        SELECT team_id, log_source_id AS batch_export_id, instance_id AS run_id, timestamp, level, message FROM log_entries
+        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+    """
+
+    return [
+        BatchExportLogEntry(*result) for result in typing.cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))
+    ]

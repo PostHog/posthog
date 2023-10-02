@@ -30,6 +30,7 @@ import { SlashCommandsExtension } from './SlashCommands'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
+import { InlineMenu } from './InlineMenu'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -209,9 +210,11 @@ export function Editor({
                 nextNode: (position: number) => nextNode(editor, position),
                 hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
                 scrollToSelection: () => {
-                    const position = editor.state.selection.$anchor.pos
-                    const domEl = editor.view.nodeDOM(position) as HTMLElement
-                    domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                    queueMicrotask(() => {
+                        const position = editor.state.selection.$anchor.pos
+                        const domEl = editor.view.nodeDOM(position) as HTMLElement
+                        domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                    })
                 },
             })
         },
@@ -223,6 +226,7 @@ export function Editor({
         <>
             <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
             {_editor && <FloatingSuggestions editor={_editor} />}
+            {_editor && <InlineMenu editor={_editor} />}
         </>
     )
 }

@@ -6,22 +6,21 @@ from dataclasses import dataclass
 from django.conf import settings
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BigQueryBatchExportInputs
-from posthog.temporal.workflows.base import (
-    CreateBatchExportRunInputs,
-    PostHogWorkflow,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
-    update_export_run_status,
-)
+from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
+    CreateBatchExportRunInputs,
+    UpdateBatchExportRunStatusInputs,
+    create_export_run,
+    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -45,6 +44,7 @@ def create_table_in_bigquery(
     bigquery_client: bigquery.Client,
     exists_ok: bool = True,
 ) -> bigquery.Table:
+    """Create a table in BigQuery."""
     fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
     table = bigquery.Table(fully_qualified_name, schema=table_schema)
     table = bigquery_client.create_table(table, exists_ok=exists_ok)
@@ -96,7 +96,12 @@ def bigquery_client(inputs: BigQueryInsertInputs):
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
     """Activity streams data from ClickHouse to BigQuery."""
-    activity.logger.info("Running BigQuery export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    logger = get_batch_exports_logger(inputs=inputs)
+    logger.info(
+        "Running BigQuery export batch %s - %s",
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+    )
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -111,15 +116,14 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         )
 
         if count == 0:
-            activity.logger.info(
-                "Nothing to export in batch %s - %s. Exiting.",
+            logger.info(
+                "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
-                count,
             )
             return
 
-        activity.logger.info("BatchExporting %s rows to BigQuery", count)
+        logger.info("BatchExporting %s rows to BigQuery", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -161,7 +165,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     jsonl_file.write_records_to_jsonl([row])
 
                     if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        activity.logger.info(
+                        logger.info(
                             "Copying %s records of size %s bytes to BigQuery",
                             jsonl_file.records_since_last_reset,
                             jsonl_file.bytes_since_last_reset,
@@ -175,7 +179,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                         jsonl_file.reset()
 
                 if jsonl_file.tell() > 0:
-                    activity.logger.info(
+                    logger.info(
                         "Copying %s records of size %s bytes to BigQuery",
                         jsonl_file.records_since_last_reset,
                         jsonl_file.bytes_since_last_reset,
@@ -202,7 +206,9 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
-        workflow.logger.info("Starting BigQuery export")
+        logger = get_batch_exports_logger(inputs=inputs)
+        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        logger.info("Starting BigQuery export batch %s - %s", data_interval_start, data_interval_end)
 
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
@@ -253,13 +259,25 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                 ),
             )
 
-        except Exception as e:
-            workflow.logger.exception("Bigquery BatchExport failed.", exc_info=e)
-            update_inputs.status = "Failed"
-            # Note: This shallows the exception type, but the message should be enough.
-            # If not, swap to repr(e)
-            update_inputs.latest_error = str(e)
+        except exceptions.ActivityError as e:
+            if isinstance(e.cause, exceptions.CancelledError):
+                logger.error("BigQuery BatchExport was cancelled.")
+                update_inputs.status = "Cancelled"
+            else:
+                logger.exception("BigQuery BatchExport failed.", exc_info=e.cause)
+                update_inputs.status = "Failed"
+
+            update_inputs.latest_error = str(e.cause)
             raise
+
+        except Exception as e:
+            logger.exception("BigQuery BatchExport failed with an unexpected exception.", exc_info=e)
+            update_inputs.status = "Failed"
+            update_inputs.latest_error = "An unexpected error has ocurred"
+            raise
+
+        else:
+            logger.info("Successfully finished BigQuery export batch %s - %s", data_interval_start, data_interval_end)
 
         finally:
             await workflow.execute_activity(

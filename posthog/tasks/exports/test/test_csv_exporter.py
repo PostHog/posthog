@@ -242,8 +242,7 @@ class TestCSVExporter(APIBaseTest):
         )
 
     @patch("posthog.tasks.exports.csv_exporter.logger")
-    @patch("posthog.tasks.exports.csv_exporter.statsd")
-    def test_failing_export_api_is_reported(self, mock_statsd, mock_logger) -> None:
+    def test_failing_export_api_is_reported(self, _mock_logger: MagicMock) -> None:
         with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
             exported_asset = self._create_asset()
             mock_response = MagicMock()

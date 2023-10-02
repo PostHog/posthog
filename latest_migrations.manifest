@@ -5,7 +5,7 @@ contenttypes: 0002_remove_content_type_name
 ee: 0015_add_verified_properties
 otp_static: 0002_throttling
 otp_totp: 0002_auto_20190420_0723
-posthog: 0350_add_notebook_text_content
+posthog: 0351_team_surveys_opt_in
 sessions: 0001_initial
 social_django: 0010_uid_db_index
 two_factor: 0007_auto_20201201_1019

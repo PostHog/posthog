@@ -4,14 +4,21 @@
 #
 #    pip-compile requirements.in
 #
+aioboto3==11.1
+    # via -r requirements.in
+aiobotocore[boto3]==2.5.0
+    # via aioboto3
 aiohttp==3.8.5
     # via
     #   -r requirements.in
+    #   aiobotocore
     #   geoip2
     #   openai
+aioitertools==0.11.0
+    # via aiobotocore
 aiosignal==1.2.0
     # via aiohttp
-amqp==2.6.0
+amqp==5.1.1
     # via
     #   -r requirements.in
     #   kombu
@@ -41,14 +48,17 @@ attrs==21.4.0
     #   trio
 backoff==2.2.1
     # via posthoganalytics
-billiard==3.6.3.0
+billiard==4.1.0
     # via celery
-boto3==1.26.66
-    # via -r requirements.in
+boto3==1.26.76
+    # via
+    #   -r requirements.in
+    #   aiobotocore
 boto3-stubs[s3]==1.26.138
     # via -r requirements.in
-botocore==1.29.66
+botocore==1.29.76
     # via
+    #   aiobotocore
     #   boto3
     #   s3transfer
 botocore-stubs==1.29.130
@@ -57,11 +67,11 @@ brotli==1.1.0
     # via -r requirements.in
 cachetools==5.3.1
     # via google-auth
-celery==4.4.7
+celery==5.3.4
     # via
     #   -r requirements.in
     #   celery-redbeat
-celery-redbeat==2.0.0
+celery-redbeat==2.1.1
     # via -r requirements.in
 certifi==2019.11.28
     # via
@@ -80,6 +90,18 @@ charset-normalizer==2.1.0
     #   aiohttp
     #   requests
     #   snowflake-connector-python
+click==8.1.7
+    # via
+    #   celery
+    #   click-didyoumean
+    #   click-plugins
+    #   click-repl
+click-didyoumean==0.3.0
+    # via celery
+click-plugins==1.1.1
+    # via celery
+click-repl==0.3.0
+    # via celery
 clickhouse-driver==0.2.4
     # via
     #   -r requirements.in
@@ -99,6 +121,8 @@ cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
     # via toronado
+decorator==5.1.1
+    # via retry
 defusedxml==0.6.0
     # via
     #   -r requirements.in
@@ -252,7 +276,7 @@ kafka-helper==0.2
     # via -r requirements.in
 kafka-python==2.0.2
     # via -r requirements.in
-kombu==4.6.10
+kombu==5.3.2
     # via
     #   -r requirements.in
     #   celery
@@ -313,6 +337,8 @@ prance==0.22.2.22.0
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
+prompt-toolkit==3.0.39
+    # via click-repl
 proto-plus==1.22.3
     # via google-cloud-bigquery
 protobuf==4.22.1
@@ -327,6 +353,8 @@ psycopg2-binary==2.9.7
     # via -r requirements.in
 ptyprocess==0.6.0
     # via pexpect
+py==1.11.0
+    # via retry
 pyarrow==12.0.1
     # via -r requirements.in
 pyasn1==0.5.0
@@ -362,6 +390,7 @@ python-dateutil==2.8.2
     # via
     #   -r requirements.in
     #   botocore
+    #   celery
     #   celery-redbeat
     #   google-cloud-bigquery
     #   posthoganalytics
@@ -377,7 +406,6 @@ python3-saml==1.12.0
 pytz==2021.1
     # via
     #   -r requirements.in
-    #   celery
     #   clickhouse-driver
     #   django
     #   djangorestframework
@@ -411,6 +439,8 @@ requests-oauthlib==1.3.0
     # via
     #   -r requirements.in
     #   social-auth-core
+retry==0.9.2
+    # via -r requirements.in
 rsa==4.9
     # via google-auth
 ruamel-yaml==0.17.21
@@ -467,9 +497,7 @@ token-bucket==0.3.0
 toronado==0.1.0
     # via -r requirements.in
 tqdm==4.64.1
-    # via
-    #   openai
-    #   webdriver-manager
+    # via openai
 trio==0.20.0
     # via
     #   selenium
@@ -491,6 +519,8 @@ typing-extensions==4.7.1
     #   qrcode
     #   snowflake-connector-python
     #   temporalio
+tzdata==2023.3
+    # via celery
 tzlocal==2.1
     # via clickhouse-driver
 unicodecsv==0.14.1
@@ -508,14 +538,19 @@ urllib3[secure,socks]==1.26.13
     #   snowflake-connector-python
 urllib3-secure-extra==0.1.0
     # via urllib3
-vine==1.3.0
+vine==5.0.0
     # via
     #   amqp
     #   celery
-webdriver-manager==3.8.5
+    #   kombu
+wcwidth==0.2.6
+    # via prompt-toolkit
+webdriver-manager==4.0.1
     # via -r requirements.in
 whitenoise==6.5.0
     # via -r requirements.in
+wrapt==1.15.0
+    # via aiobotocore
 wsproto==1.1.0
     # via trio-websocket
 xmlsec==1.3.13

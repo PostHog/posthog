@@ -2,8 +2,8 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useValues } from 'kea'
 import './ActivityLog.scss'
-import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import clsx from 'clsx'
@@ -11,12 +11,10 @@ import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 import { ProductKey } from '~/types'
 import { LemonDivider } from '@posthog/lemon-ui'
 
-export interface ActivityLogProps {
-    scope: ActivityScope
-    // if no id is provided, the list is not scoped by id and shows all activity ordered by time
-    id?: number | string
+export type ActivityLogProps = ActivityLogLogicProps & {
     startingPage?: number
     caption?: string | JSX.Element
+    renderSideAction?: (logItem: HumanizedActivityLogItem) => JSX.Element
 }
 
 const Empty = ({ scope }: { scope: string }): JSX.Element => {
@@ -62,9 +60,11 @@ const Loading = (): JSX.Element => {
 export const ActivityLogRow = ({
     logItem,
     showExtendedDescription,
+    renderSideAction,
 }: {
     logItem: HumanizedActivityLogItem
     showExtendedDescription?: boolean
+    renderSideAction?: ActivityLogProps['renderSideAction']
 }): JSX.Element => {
     return (
         <div className={clsx('activity-log-row', logItem.unread && 'unread')}>
@@ -84,31 +84,43 @@ export const ActivityLogRow = ({
                     <TZLabel time={logItem.created_at} />
                 </div>
             </div>
+            {renderSideAction?.(logItem)}
         </div>
     )
 }
 
-export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
+export const ActivityLog = ({
+    scope,
+    id,
+    caption,
+    startingPage = 1,
+    renderSideAction,
+}: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id, caption, startingPage })
-    const { humanizedActivity, nextPageLoading, pagination } = useValues(logic)
+    const { humanizedActivity, activityLoading, pagination } = useValues(logic)
 
     const paginationState = usePagination(humanizedActivity || [], pagination)
 
     return (
         <div className="activity-log">
             {caption && <div className="page-caption">{caption}</div>}
-            {nextPageLoading && humanizedActivity.length === 0 ? (
+            {activityLoading && humanizedActivity.length === 0 ? (
                 <Loading />
-            ) : humanizedActivity.length > 0 ? (
+            ) : humanizedActivity.length === 0 ? (
+                <Empty scope={scope} />
+            ) : (
                 <>
                     {humanizedActivity.map((logItem, index) => (
-                        <ActivityLogRow key={index} logItem={logItem} showExtendedDescription={true} />
+                        <ActivityLogRow
+                            key={index}
+                            logItem={logItem}
+                            showExtendedDescription={true}
+                            renderSideAction={renderSideAction}
+                        />
                     ))}
                     <LemonDivider />
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>
-            ) : (
-                <Empty scope={scope} />
             )}
         </div>
     )

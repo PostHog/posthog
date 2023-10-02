@@ -8,10 +8,19 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
 import { IconArrowLeft, IconCheckCircleOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+import { PlanComparisonModal } from 'scenes/billing/PlanComparison'
 
-export const OnboardingProductIntro = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { currentAndUpgradePlans, isPricingModalOpen } = useValues(billingProductLogic({ product }))
-    const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product }))
+export const OnboardingProductIntro = ({
+    product,
+    onStart,
+}: {
+    product: BillingProductV2Type
+    onStart?: () => void
+}): JSX.Element => {
+    const { currentAndUpgradePlans, isPricingModalOpen, isPlanComparisonModalOpen } = useValues(
+        billingProductLogic({ product })
+    )
+    const { toggleIsPricingModalOpen, toggleIsPlanComparisonModalOpen } = useActions(billingProductLogic({ product }))
     const { setCurrentOnboardingStepNumber } = useActions(onboardingLogic)
     const { currentOnboardingStepNumber } = useValues(onboardingLogic)
 
@@ -29,6 +38,7 @@ export const OnboardingProductIntro = ({ product }: { product: BillingProductV2T
 
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const plan = upgradePlan ? upgradePlan : currentAndUpgradePlans?.currentPlan
+    const freePlan = currentAndUpgradePlans?.downgradePlan || currentAndUpgradePlans?.currentPlan
 
     return (
         <div className="w-full">
@@ -52,7 +62,10 @@ export const OnboardingProductIntro = ({ product }: { product: BillingProductV2T
                         <div className="flex gap-x-2">
                             <LemonButton
                                 type="primary"
-                                onClick={() => setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)}
+                                onClick={() => {
+                                    onStart && onStart()
+                                    setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
+                                }}
                             >
                                 Get started
                             </LemonButton>
@@ -85,7 +98,7 @@ export const OnboardingProductIntro = ({ product }: { product: BillingProductV2T
                         ))}
                     </div>
                 </div>
-                <div>
+                <div className="max-w-80">
                     <LemonCard hoverEffect={false}>
                         <h2 className="text-3xl">Pricing</h2>
                         {plan?.tiers?.[0].unit_amount_usd && parseInt(plan?.tiers?.[0].unit_amount_usd) === 0 && (
@@ -105,14 +118,34 @@ export const OnboardingProductIntro = ({ product }: { product: BillingProductV2T
                                 after {convertLargeNumberToWords(plan?.tiers?.[1].up_to, null)}/mo.
                             </p>
                         )}
-                        <ul>
+                        <ul className="mt-4">
                             {pricingBenefits.map((benefit, i) => (
                                 <li className="flex mb-2 ml-6" key={`pricing-benefits-${i}`}>
-                                    <IconCheckCircleOutline className="text-success mr-2 mt-1" />
+                                    <IconCheckCircleOutline className="text-success mr-2 mt-1 min-w-4" />
                                     {benefit}
                                 </li>
                             ))}
                         </ul>
+                        {!product.subscribed && freePlan.free_allocation && (
+                            <p>
+                                Or stick with our <strong>generous free plan</strong> and get{' '}
+                                {convertLargeNumberToWords(freePlan.free_allocation, null)} {product.unit}s free every
+                                month, forever.{' '}
+                                <Link
+                                    onClick={() => {
+                                        toggleIsPlanComparisonModalOpen()
+                                    }}
+                                >
+                                    <span className="font-bold text-brand-red">View plan comparison.</span>
+                                </Link>
+                                <PlanComparisonModal
+                                    product={product}
+                                    modalOpen={isPlanComparisonModalOpen}
+                                    includeAddons
+                                    onClose={() => toggleIsPlanComparisonModalOpen()}
+                                />
+                            </p>
+                        )}
                     </LemonCard>
                     <LemonCard className="mt-8" hoverEffect={false}>
                         <h2 className="text-3xl">Resources</h2>

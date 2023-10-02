@@ -2,6 +2,7 @@ from random import random
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
+from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.feature_flag.flag_analytics import increment_request_count
@@ -225,6 +226,8 @@ def get_decide(request: HttpRequest):
                     "recorderVersion": "v2",
                 }
 
+            response["surveys"] = True if team.surveys_opt_in else False
+
             site_apps = []
             # errors mean the database is unavailable, bail in this case
             if team.inject_web_apps and not errors:
@@ -242,11 +245,13 @@ def get_decide(request: HttpRequest):
 
             if feature_flags:
                 # Billing analytics for decide requests with feature flags
+                # Don't count if all requests are for survey targeting flags only.
+                if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
 
-                # Sample no. of decide requests with feature flags
-                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
-                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
-                    increment_request_count(team.pk, count)
+                    # Sample no. of decide requests with feature flags
+                    if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+                        count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+                        increment_request_count(team.pk, count)
 
         else:
             # no auth provided

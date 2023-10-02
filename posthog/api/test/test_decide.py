@@ -2089,6 +2089,99 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # check that no increments made it to redis
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_analytics_only_fires_with_non_survey_targeting_flags(self, *args):
+        ff = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+        )
+        # use a non-csrf client to make requests
+        req_client = Client()
+        req_client.force_login(self.user)
+        response = req_client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks power users survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "linked_flag_id": ff.id,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+            content_type="application/json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        req_client.logout()
+        self.client.logout()
+
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=1), freeze_time("2022-05-07 12:23:07"):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+
+            client = redis.get_client()
+            # check that single increment made it to redis
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {b"165192618": b"1"})
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_analytics_does_not_fire_for_survey_targeting_flags(self, *args):
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=50,
+            name="Beta feature",
+            key="survey-targeting-random",
+            created_by=self.user,
+        )
+        # use a non-csrf client to make requests
+        req_client = Client()
+        req_client.force_login(self.user)
+        response = req_client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks power users survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+            content_type="application/json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        req_client.logout()
+        self.client.logout()
+
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=1), freeze_time("2022-05-07 12:23:07"):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+
+            client = redis.get_client()
+            # check that single increment made it to redis
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     """

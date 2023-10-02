@@ -1,4 +1,5 @@
 import datetime as dt
+import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
@@ -23,6 +24,10 @@ from posthog.batch_exports.models import (
     BatchExportRun,
 )
 from posthog.temporal.client import sync_connect
+
+
+class BatchExportsInputsProtocol(typing.Protocol):
+    team_id: int
 
 
 @dataclass
@@ -253,6 +258,11 @@ def backfill_export(
 async def backfill_schedule(temporal: Client, schedule_id: str, schedule_backfill: ScheduleBackfill):
     """Async call the Temporal client to execute a backfill on the given schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
+    description = await handle.describe()
+
+    if description.schedule.spec.jitter is not None:
+        schedule_backfill.end_at += description.schedule.spec.jitter
+
     await handle.backfill(schedule_backfill)
 
 

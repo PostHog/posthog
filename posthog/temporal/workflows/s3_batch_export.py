@@ -1,28 +1,29 @@
 import asyncio
+import contextlib
 import datetime as dt
+import io
 import json
 import posixpath
 import typing
 from dataclasses import dataclass
 
-import boto3
+import aioboto3
 from django.conf import settings
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import S3BatchExportInputs
-from posthog.temporal.workflows.base import (
-    CreateBatchExportRunInputs,
-    PostHogWorkflow,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
-    update_export_run_status,
-)
+from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
+    CreateBatchExportRunInputs,
+    UpdateBatchExportRunStatusInputs,
+    create_export_run,
+    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -91,8 +92,20 @@ Part = dict[str, str | int]
 class S3MultiPartUpload:
     """An S3 multi-part upload."""
 
-    def __init__(self, s3_client, bucket_name: str, key: str, encryption: str | None, kms_key_id: str | None):
-        self.s3_client = s3_client
+    def __init__(
+        self,
+        region_name: str,
+        bucket_name: str,
+        key: str,
+        encryption: str | None,
+        kms_key_id: str | None,
+        aws_access_key_id: str | None = None,
+        aws_secret_access_key: str | None = None,
+    ):
+        self._session = aioboto3.Session()
+        self.region_name = region_name
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
         self.bucket_name = bucket_name
         self.key = key
         self.encryption = encryption
@@ -119,7 +132,17 @@ class S3MultiPartUpload:
             return False
         return True
 
-    def start(self) -> str:
+    @contextlib.asynccontextmanager
+    async def s3_client(self):
+        async with self._session.client(
+            "s3",
+            region_name=self.region_name,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+        ) as client:
+            yield client
+
+    async def start(self) -> str:
         """Start this S3MultiPartUpload."""
         if self.is_upload_in_progress() is True:
             raise UploadAlreadyInProgressError(self.upload_id)
@@ -130,11 +153,13 @@ class S3MultiPartUpload:
         if self.kms_key_id:
             optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
 
-        multipart_response = self.s3_client.create_multipart_upload(
-            Bucket=self.bucket_name,
-            Key=self.key,
-            **optional_kwargs,
-        )
+        async with self.s3_client() as s3_client:
+            multipart_response = await s3_client.create_multipart_upload(
+                Bucket=self.bucket_name,
+                Key=self.key,
+                **optional_kwargs,
+            )
+
         upload_id: str = multipart_response["UploadId"]
         self.upload_id = upload_id
 
@@ -147,66 +172,72 @@ class S3MultiPartUpload:
 
         return self.upload_id
 
-    def complete(self) -> str:
+    async def complete(self) -> str:
         if self.is_upload_in_progress() is False:
             raise NoUploadInProgressError()
 
-        response = self.s3_client.complete_multipart_upload(
-            Bucket=self.bucket_name,
-            Key=self.key,
-            UploadId=self.upload_id,
-            MultipartUpload={"Parts": self.parts},
-        )
+        async with self.s3_client() as s3_client:
+            response = await s3_client.complete_multipart_upload(
+                Bucket=self.bucket_name, Key=self.key, UploadId=self.upload_id, MultipartUpload={"Parts": self.parts}
+            )
 
         self.upload_id = None
         self.parts = []
 
         return response["Location"]
 
-    def abort(self):
+    async def abort(self):
         if self.is_upload_in_progress() is False:
             raise NoUploadInProgressError()
 
-        self.s3_client.abort_multipart_upload(
-            Bucket=self.bucket_name,
-            Key=self.key,
-            UploadId=self.upload_id,
-        )
+        async with self.s3_client() as s3_client:
+            await s3_client.abort_multipart_upload(
+                Bucket=self.bucket_name,
+                Key=self.key,
+                UploadId=self.upload_id,
+            )
 
         self.upload_id = None
         self.parts = []
 
-    def upload_part(self, body: BatchExportTemporaryFile, rewind: bool = True):
+    async def upload_part(self, body: BatchExportTemporaryFile, rewind: bool = True):
         next_part_number = self.part_number + 1
 
         if rewind is True:
             body.rewind()
 
-        response = self.s3_client.upload_part(
-            Bucket=self.bucket_name,
-            Key=self.key,
-            PartNumber=next_part_number,
-            UploadId=self.upload_id,
-            Body=body,
-        )
+        # aiohttp is not duck-type friendly and requires a io.IOBase
+        # We comply with the file-like interface of io.IOBase.
+        # So we tell mypy to be nice with us.
+        reader = io.BufferedReader(body)  # type: ignore
+
+        async with self.s3_client() as s3_client:
+            response = await s3_client.upload_part(
+                Bucket=self.bucket_name,
+                Key=self.key,
+                PartNumber=next_part_number,
+                UploadId=self.upload_id,
+                Body=reader,
+            )
+        reader.detach()  # BufferedReader closes the file otherwise.
 
         self.parts.append({"PartNumber": next_part_number, "ETag": response["ETag"]})
 
-    def __enter__(self):
+    async def __aenter__(self):
         if not self.is_upload_in_progress():
-            self.start()
+            await self.start()
 
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+    async def __aexit__(self, exc_type, exc_value, traceback) -> bool:
         if exc_value is None:
             # Succesfully completed the upload
-            self.complete()
+            await self.complete()
             return True
 
         if exc_type == asyncio.CancelledError:
             # Ensure we clean-up the cancelled upload.
-            self.abort()
+            await self.abort()
 
         return False
 
@@ -250,16 +281,20 @@ class S3InsertInputs:
     kms_key_id: str | None = None
 
 
-def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
+async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
+    logger = get_batch_exports_logger(inputs=inputs)
     key = get_s3_key(inputs)
-    s3_client = boto3.client(
-        "s3",
+
+    s3_upload = S3MultiPartUpload(
+        bucket_name=inputs.bucket_name,
+        key=key,
+        encryption=inputs.encryption,
+        kms_key_id=inputs.kms_key_id,
         region_name=inputs.region,
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
     )
-    s3_upload = S3MultiPartUpload(s3_client, inputs.bucket_name, key, inputs.encryption, inputs.kms_key_id)
 
     details = activity.info().heartbeat_details
 
@@ -268,20 +303,19 @@ def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3Mu
     except IndexError:
         # This is the error we expect when no details as the sequence will be empty.
         interval_start = inputs.data_interval_start
-        activity.logger.info(
+        logger.info(
             f"Did not receive details from previous activity Excecution. Export will start from the beginning: {interval_start}"
         )
-    except Exception as e:
+    except Exception:
         # We still start from the beginning, but we make a point to log unexpected errors.
         # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
         interval_start = inputs.data_interval_start
-        activity.logger.warning(
+        logger.warning(
             f"Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning: {interval_start}",
-            exc_info=e,
         )
     else:
-        activity.logger.info(
-            f"Received details from previous activity. Export will attempt to resume from: {interval_start}"
+        logger.info(
+            f"Received details from previous activity. Export will attempt to resume from: {interval_start}",
         )
         s3_upload.continue_from_state(upload_state)
 
@@ -289,10 +323,10 @@ def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3Mu
             # Even if we receive details we cannot resume a brotli compressed upload as we have lost the compressor state.
             interval_start = inputs.data_interval_start
 
-            activity.logger.info(
-                f"Export will start from the beginning as we are using brotli compression: {interval_start}"
+            logger.info(
+                f"Export will start from the beginning as we are using brotli compression: {interval_start}",
             )
-            s3_upload.abort()
+            await s3_upload.abort()
 
     return s3_upload, interval_start
 
@@ -308,7 +342,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     runs, timing out after say 30 seconds or something and upload multiple
     files.
     """
-    activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    logger = get_batch_exports_logger(inputs=inputs)
+    logger.info(
+        "Running S3 export batch %s - %s",
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+    )
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -322,16 +361,16 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         )
 
         if count == 0:
-            activity.logger.info(
-                "Nothing to export in batch %s - %s. Exiting.",
+            logger.info(
+                "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
             return
 
-        activity.logger.info("BatchExporting %s rows to S3", count)
+        logger.info("BatchExporting %s rows to S3", count)
 
-        s3_upload, interval_start = initialize_and_resume_multipart_upload(inputs)
+        s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
         # Iterate through chunks of results from ClickHouse and push them to S3
         # as a multipart upload. The intention here is to keep memory usage low,
@@ -353,14 +392,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
             await activity.wait_for_worker_shutdown()
-            activity.logger.warn(
-                f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}"
+            logger.warn(
+                f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}",
             )
             activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
         asyncio.create_task(worker_shutdown_handler())
 
-        with s3_upload as s3_upload:
+        async with s3_upload as s3_upload:
             with BatchExportTemporaryFile(compression=inputs.compression) as local_results_file:
                 for result in results_iterator:
                     record = {
@@ -379,14 +418,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     local_results_file.write_records_to_jsonl([record])
 
                     if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
-                        activity.logger.info(
+                        logger.info(
                             "Uploading part %s containing %s records with size %s bytes to S3",
                             s3_upload.part_number + 1,
                             local_results_file.records_since_last_reset,
                             local_results_file.bytes_since_last_reset,
                         )
 
-                        s3_upload.upload_part(local_results_file)
+                        await s3_upload.upload_part(local_results_file)
 
                         last_uploaded_part_timestamp = result["inserted_at"]
                         activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
@@ -394,14 +433,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
-                    activity.logger.info(
+                    logger.info(
                         "Uploading last part %s containing %s records with size %s bytes to S3",
                         s3_upload.part_number + 1,
                         local_results_file.records_since_last_reset,
                         local_results_file.bytes_since_last_reset,
                     )
 
-                    s3_upload.upload_part(local_results_file)
+                    await s3_upload.upload_part(local_results_file)
 
                     last_uploaded_part_timestamp = result["inserted_at"]
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
@@ -425,9 +464,9 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        workflow.logger.info("Starting S3 export")
-
+        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        logger.info("Starting S3 export batch %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -467,7 +506,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 insert_into_s3_activity,
                 insert_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=10),
+                start_to_close_timeout=dt.timedelta(minutes=20),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=120),
@@ -481,11 +521,25 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 ),
             )
 
-        except Exception as e:
-            workflow.logger.exception("S3 BatchExport failed.", exc_info=e)
-            update_inputs.status = "Failed"
-            update_inputs.latest_error = str(e)
+        except exceptions.ActivityError as e:
+            if isinstance(e.cause, exceptions.CancelledError):
+                logger.error("S3 BatchExport was cancelled.")
+                update_inputs.status = "Cancelled"
+            else:
+                logger.exception("S3 BatchExport failed.", exc_info=e.cause)
+                update_inputs.status = "Failed"
+
+            update_inputs.latest_error = str(e.cause)
             raise
+
+        except Exception as e:
+            logger.exception("S3 BatchExport failed with an unexpected error.", exc_info=e)
+            update_inputs.status = "Failed"
+            update_inputs.latest_error = "An unexpected error has ocurred"
+            raise
+
+        else:
+            logger.info("Successfully finished S3 export batch %s - %s", data_interval_start, data_interval_end)
 
         finally:
             await workflow.execute_activity(

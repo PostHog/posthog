@@ -1,8 +1,8 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconBarChart } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
-import { BillingProductV2Type } from '~/types'
-import { useValues } from 'kea'
+import { BillingProductV2Type, ProductKey } from '~/types'
+import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { useEffect } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,6 +11,8 @@ import { urls } from 'scenes/urls'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
+import { router } from 'kea-router'
+import { getProductUri } from 'scenes/onboarding/onboardingLogic'
 
 export const scene: SceneExport = {
     component: Products,
@@ -64,7 +66,10 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
             <p className="grow">{product.description}</p>
             <div className="flex gap-x-2">
                 {onboardingCompleted ? (
-                    <OnboardingCompletedButton productUrl={''} onboardingUrl={urls.onboarding(product.type)} />
+                    <OnboardingCompletedButton
+                        productUrl={getProductUri(product.type as ProductKey)}
+                        onboardingUrl={urls.onboarding(product.type)}
+                    />
                 ) : (
                     <OnboardingNotCompletedButton url={urls.onboarding(product.type)} />
                 )}
@@ -76,6 +81,9 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
 export function Products(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
     const products = billing?.products || []
 
     useEffect(() => {
@@ -87,19 +95,39 @@ export function Products(): JSX.Element {
     return (
         <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">
             <div className="mb-8">
-                <h1 className="text-center text-4xl">Pick your first product.</h1>
+                <h1 className="text-center text-4xl">Pick your {isFirstProduct ? 'first' : 'next'} product.</h1>
                 <p className="text-center">
-                    Pick your first product to get started with. You can set up any others you'd like later.
+                    Pick your {isFirstProduct ? 'first' : 'next'} product to get started with. You can set up any others
+                    you'd like later.
                 </p>
             </div>
             {products.length > 0 ? (
-                <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
-                    {products
-                        .filter((product) => !product.contact_support && !product.inclusion_only)
-                        .map((product) => (
-                            <ProductCard product={product} key={product.type} />
-                        ))}
-                </div>
+                <>
+                    <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
+                        {products
+                            .filter((product) => !product.contact_support && !product.inclusion_only)
+                            .map((product) => (
+                                <ProductCard product={product} key={product.type} />
+                            ))}
+                    </div>
+                    <div className="mt-20">
+                        <LemonButton
+                            status="muted"
+                            onClick={() => {
+                                updateCurrentTeam({
+                                    has_completed_onboarding_for: {
+                                        ...currentTeam?.has_completed_onboarding_for,
+                                        skipped_onboarding: true,
+                                    },
+                                })
+                                router.actions.replace(urls.default())
+                            }}
+                            size="small"
+                        >
+                            None of these
+                        </LemonButton>
+                    </div>
+                </>
             ) : (
                 <Spinner className="text-3xl" />
             )}
