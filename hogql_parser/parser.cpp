@@ -22,11 +22,28 @@ using namespace std;
 
 // PYTHON UTILS (`X_` stands for "extension")
 
-// Extend `list` with `extension`, in-place.
+// Extend `list` with `extension`. In-place.
 void X_PyList_Extend(PyObject* list, PyObject* extension) {
   Py_ssize_t list_size = PyList_Size(list);
   Py_ssize_t extension_size = PyList_Size(extension);
   PyList_SetSlice(list, list_size, list_size + extension_size, extension);
+}
+
+// Construct a Python list from a vector of strings. Return value: New reference.
+PyObject* X_PyList_FromStrings(const vector<string>& items) {
+  PyObject* list = PyList_New(items.size());
+  if (!list) {
+    return NULL;
+  }
+  for (size_t i = 0; i < items.size(); i++) {
+    PyObject* value = PyUnicode_FromStringAndSize(items[i].c_str(), items[i].size());
+    if (!value) {
+      Py_DECREF(list);
+      return NULL;
+    }
+    PyList_SET_ITEM(list, i, value);
+  }
+  return list;
 }
 
 // PARSING AND AST CONVERSION
@@ -45,22 +62,6 @@ void X_PyList_Extend(PyObject* list, PyObject* extension) {
 // To understand how Py_BuildValue, PyArg_ParseTuple, and PyArg_ParseTupleAndKeywords formats work,
 // (for instance, what does `s`, `s#`, `i` or `N` mean) read this:
 // https://docs.python.org/3/c-api/arg.html
-
-PyObject* vector_to_list_string(const vector<string>& items) {
-  PyObject* list = PyList_New(items.size());
-  if (!list) {
-    return NULL;
-  }
-  for (size_t i = 0; i < items.size(); i++) {
-    PyObject* value = PyUnicode_FromStringAndSize(items[i].c_str(), items[i].size());
-    if (!value) {
-      Py_DECREF(list);
-      return NULL;
-    }
-    PyList_SET_ITEM(list, i, value);
-  }
-  return list;
-}
 
 class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
  private:
@@ -913,7 +914,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (table_identifier_ctx) {
       vector<string> table = any_cast<vector<string>>(visit(table_identifier_ctx));
       table.push_back("*");
-      return build_ast_node("Field", "{s:N}", "chain", vector_to_list_string(table));
+      return build_ast_node("Field", "{s:N}", "chain", X_PyList_FromStrings(table));
     }
     return build_ast_node("Field", "{s:[s]}", "chain", "*");
   }
@@ -922,7 +923,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnLambdaExpr) {
     vector<string> args = visitAsVectorOfStrings(ctx->identifier());
-    return build_ast_node("Lambda", "{s:N,s:N}", "args", vector_to_list_string(args), "expr", visitAsPyObject(ctx->columnExpr()));
+    return build_ast_node("Lambda", "{s:N,s:N}", "args", X_PyList_FromStrings(args), "expr", visitAsPyObject(ctx->columnExpr()));
   }
 
   VISIT(WithExprList) {
@@ -975,18 +976,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       if (!text.compare("false")) {
         return build_ast_node("Constant", "{s:O}", "value", Py_False);
       }
-      return build_ast_node("Field", "{s:N}", "chain", vector_to_list_string(nested));
+      return build_ast_node("Field", "{s:N}", "chain", X_PyList_FromStrings(nested));
     }
     vector<string> table_plus_nested = table;
     table_plus_nested.insert(table_plus_nested.end(), nested.begin(), nested.end());
-    return build_ast_node("Field", "{s:N}", "chain", vector_to_list_string(table_plus_nested));
+    return build_ast_node("Field", "{s:N}", "chain", X_PyList_FromStrings(table_plus_nested));
   }
 
   VISIT(NestedIdentifier) { return visitAsVectorOfStrings(ctx->identifier()); }
 
   VISIT(TableExprIdentifier) {
     vector<string> chain = any_cast<vector<string>>(visit(ctx->tableIdentifier()));
-    return build_ast_node("Field", "{s:N}", "chain", vector_to_list_string(chain));
+    return build_ast_node("Field", "{s:N}", "chain", X_PyList_FromStrings(chain));
   }
 
   VISIT(TableExprSubquery) { return visit(ctx->selectUnionStmt()); }
@@ -1023,7 +1024,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       table_args = Py_NewRef(Py_None);
     }
     return build_ast_node(
-        "JoinExpr", "{s:N,s:N}", "table", build_ast_node("Field", "{s:N}", "chain", vector_to_list_string({name})),
+        "JoinExpr", "{s:N,s:N}", "table", build_ast_node("Field", "{s:[s#]}", "chain", name.c_str(), name.size()),
         "table_args", table_args
     );
   }
