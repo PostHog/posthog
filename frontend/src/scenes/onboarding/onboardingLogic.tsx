@@ -2,11 +2,12 @@ import { kea } from 'kea'
 import { BillingProductV2Type, ProductKey } from '~/types'
 import { urls } from 'scenes/urls'
 
-import type { onboardingLogicType } from './onboardingLogicType'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import type { onboardingLogicType } from './onboardingLogicType'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -50,13 +51,13 @@ export const onboardingLogic = kea<onboardingLogicType>({
     path: ['scenes', 'onboarding', 'onboardingLogic'],
     connect: {
         values: [billingLogic, ['billing'], teamLogic, ['currentTeam']],
-        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam']],
+        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeamSuccess']],
     },
     actions: {
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
         setCurrentOnboardingStepNumber: (currentOnboardingStepNumber: number) => ({ currentOnboardingStepNumber }),
-        completeOnboarding: (redirectUri?: string) => ({ redirectUri }),
+        completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: string) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
@@ -158,17 +159,21 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
             }
         },
-        completeOnboarding: ({ redirectUri }) => {
+        completeOnboarding: ({ nextProductKey }) => {
             if (values.productKey) {
-                eventUsageLogic.actions.reportOnboardingCompleted(values.productKey)
-                actions.updateCurrentTeam({
+                const product = values.productKey
+                eventUsageLogic.actions.reportOnboardingCompleted(product)
+                if (nextProductKey) {
+                    actions.setProductKey(nextProductKey)
+                    router.actions.push(urls.onboarding(nextProductKey))
+                }
+                teamLogic.actions.updateCurrentTeam({
                     has_completed_onboarding_for: {
                         ...values.currentTeam?.has_completed_onboarding_for,
-                        [values.productKey]: true,
+                        [product]: true,
                     },
                 })
             }
-            window.location.href = redirectUri || values.onCompleteOnbardingRedirectUrl
         },
         setAllOnboardingSteps: ({ allOnboardingSteps }) => {
             // once we have the onboarding steps we need to make sure the step key is valid,
@@ -233,6 +238,11 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 return [`/onboarding/${values.productKey}`, { step: stepKey }]
             } else {
                 return [`/onboarding/${values.productKey}`]
+            }
+        },
+        updateCurrentTeamSuccess(val) {
+            if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
+                return [values.onCompleteOnbardingRedirectUrl]
             }
         },
     }),
