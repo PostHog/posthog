@@ -1,4 +1,7 @@
+#pragma once
+
 #include <string>
+
 #include "antlr4-runtime.h"
 
 std::string parse_string(std::string text);

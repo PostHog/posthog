@@ -4,13 +4,13 @@ import platform
 module = Extension(
     "hogql_parser",
     sources=[
-        "parser.cpp",
-        "string.cpp",
-        "error.cpp",
         "HogQLLexer.cpp",
         "HogQLParser.cpp",
         "HogQLParserBaseVisitor.cpp",
         "HogQLParserVisitor.cpp",
+        "error.cpp",
+        "string.cpp",
+        "parser.cpp",
     ],
     include_dirs=[
         "/opt/homebrew/include/antlr4-runtime/" if platform.system() == "Darwin" else "/usr/include/antlr4-runtime",
