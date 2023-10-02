@@ -7,7 +7,7 @@ import {
     SurveyQuestionType,
     MultipleSurveyQuestion,
 } from '~/types'
-import { defaultSurveyAppearance } from './surveyLogic'
+import { defaultSurveyAppearance } from './constants'
 import {
     cancel,
     check,

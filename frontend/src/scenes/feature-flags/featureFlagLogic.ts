@@ -42,7 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
-import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/surveyLogic'
+import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
