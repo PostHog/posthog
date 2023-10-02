@@ -21,6 +21,7 @@ from posthog.schema import (
     WebTopSourcesQuery,
     WebTopClicksQuery,
     WebTopPagesQuery,
+    WebOverviewStatsQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -61,6 +62,7 @@ class CachedQueryResponse(QueryResponse):
 RunnableQueryNode = Union[
     TrendsQuery,
     LifecycleQuery,
+    WebOverviewStatsQuery,
     WebTopSourcesQuery,
     WebTopClicksQuery,
     WebTopPagesQuery,
@@ -84,7 +86,10 @@ def get_query_runner(
         from .insights.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
+    if kind == "WebOverviewStatsQuery":
+        from .web_analytics.overview_stats import WebOverviewStatsQueryRunner
 
+        return WebOverviewStatsQueryRunner(query=query, team=team, timings=timings)
     if kind == "WebTopSourcesQuery":
         from .web_analytics.top_sources import WebTopSourcesQueryRunner
 

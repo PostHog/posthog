@@ -15,37 +15,39 @@ class WebTopPagesQueryRunner(WebAnalyticsQueryRunner):
     query_type = WebTopPagesQuery
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        with self.timings.measure("session_query"):
+            session_query = parse_select(SESSION_CTE, timings=self.timings)
+        with self.timings.measure("pathname_query"):
+            pathname_query = parse_select(PATHNAME_CTE, timings=self.timings)
         with self.timings.measure("top_pages_query"):
             top_sources_query = parse_select(
                 f"""
-WITH
-
-pathname_cte AS (
-{PATHNAME_CTE}
-),
-session_cte AS (
-{SESSION_CTE}
-),
-
-bounce_rate_cte AS (
-SELECT session_cte.earliest_pathname,
-       avg(session_cte.is_bounce) as bounce_rate
-FROM session_cte
-GROUP BY earliest_pathname
-)
-
-SELECT pathname_cte.pathname as pathname,
-pathname_cte.total_pageviews as total_pageviews,
-pathname_cte.unique_visitors as unique_visitors,
-pathname_cte.scroll_gt80_percentage as scroll_gt80_percentage,
-pathname_cte.average_scroll_percentage as average_scroll_percentage,
-bounce_rate_cte.bounce_rate as bounce_rate
+SELECT
+    pathname.pathname as pathname,
+    pathname.total_pageviews as total_pageviews,
+    pathname.unique_visitors as unique_visitors,
+    pathname.scroll_gt80_percentage as scroll_gt80_percentage,
+    pathname.average_scroll_percentage as average_scroll_percentage,
+    bounce_rate.bounce_rate as bounce_rate
 FROM
-    pathname_cte LEFT OUTER JOIN bounce_rate_cte
-ON pathname_cte.pathname = bounce_rate_cte.earliest_pathname
-ORDER BY total_pageviews DESC
+    ({pathname_query}) AS pathname
+LEFT OUTER JOIN
+    (
+        SELECT
+            session.earliest_pathname,
+            avg(session.is_bounce) as bounce_rate
+        FROM
+            ({session_query}) AS session
+        GROUP BY
+            session.earliest_pathname
+    ) AS bounce_rate
+ON
+    pathname.pathname = bounce_rate.earliest_pathname
+ORDER BY
+    total_pageviews DESC
                 """,
                 timings=self.timings,
+                placeholders={"pathname_query": pathname_query, "session_query": session_query},
             )
         return top_sources_query
 

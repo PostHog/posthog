@@ -97,6 +97,9 @@
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebOverviewStatsQuery"
+                },
+                {
                     "$ref": "#/definitions/WebTopSourcesQuery"
                 },
                 {
@@ -398,6 +401,9 @@
                         },
                         {
                             "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/WebOverviewStatsQuery"
                         },
                         {
                             "$ref": "#/definitions/WebTopSourcesQuery"
@@ -2293,6 +2299,60 @@
             "type": "object"
         },
         "WebAnalyticsFilters": {},
+        "WebOverviewStatsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filters": {
+                    "$ref": "#/definitions/WebAnalyticsFilters"
+                },
+                "kind": {
+                    "const": "WebOverviewStatsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebOverviewStatsQueryResponse"
+                }
+            },
+            "required": ["kind", "filters"],
+            "type": "object"
+        },
+        "WebOverviewStatsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "result": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["result"],
+            "type": "object"
+        },
         "WebTopClicksQuery": {
             "additionalProperties": false,
             "properties": {
